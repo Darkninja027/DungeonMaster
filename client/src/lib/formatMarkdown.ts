@@ -15,13 +15,39 @@ export interface BookPage {
 const PAGE_MARKER = /^\\page\s*$/
 const COLUMNS_MARKER = /^\\columns\s+([12])\s*$/
 
+/**
+ * Rejoin table rows separated by blank lines (common in exported/pasted
+ * markdown). GFM only parses consecutive `|` lines as a table.
+ */
+export function joinBrokenTables(text: string): string {
+  const lines = text.split('\n')
+  const out: Array<string> = []
+  let inFence = false
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]
+    if (/^\s*(```|~~~)/.test(line)) inFence = !inFence
+    if (!inFence && line.trim() === '' && out.length > 0) {
+      let j = i
+      while (j < lines.length && lines[j].trim() === '') j++
+      const prev = out[out.length - 1].trim()
+      const next = j < lines.length ? lines[j].trim() : ''
+      if (prev.startsWith('|') && next.startsWith('|')) {
+        i = j - 1
+        continue
+      }
+    }
+    out.push(line)
+  }
+  return out.join('\n')
+}
+
 export function parsePages(text: string): Array<BookPage> {
   const pages: Array<BookPage> = []
   let lines: Array<string> = []
   let columns: BookPage['columns'] = null
 
   const flush = () => {
-    pages.push({ columns, body: lines.join('\n').trim() })
+    pages.push({ columns, body: joinBrokenTables(lines.join('\n')).trim() })
     lines = []
     columns = null
   }
