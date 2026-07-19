@@ -2,21 +2,74 @@ import { remark } from 'remark'
 import remarkGfm from 'remark-gfm'
 
 /**
+ * Articles support two special markers on their own line (Homebrewery-style):
+ *   \page       — start a new book page
+ *   \columns 1  — this page renders single-column (2 = two-column, the default)
+ * Markers are extracted before any remark processing so Tidy never mangles them.
+ */
+export interface BookPage {
+  columns: 1 | 2 | null
+  body: string
+}
+
+const PAGE_MARKER = /^\\page\s*$/
+const COLUMNS_MARKER = /^\\columns\s+([12])\s*$/
+
+export function parsePages(text: string): Array<BookPage> {
+  const pages: Array<BookPage> = []
+  let lines: Array<string> = []
+  let columns: BookPage['columns'] = null
+
+  const flush = () => {
+    pages.push({ columns, body: lines.join('\n').trim() })
+    lines = []
+    columns = null
+  }
+
+  for (const line of text.split(/\r?\n/)) {
+    const trimmed = line.trim()
+    if (PAGE_MARKER.test(trimmed)) {
+      flush()
+      continue
+    }
+    const match = trimmed.match(COLUMNS_MARKER)
+    if (match) {
+      columns = Number(match[1]) as 1 | 2
+      continue
+    }
+    lines.push(line)
+  }
+  flush()
+  return pages
+}
+
+export function serializePages(pages: Array<BookPage>): string {
+  return pages
+    .map((page) => (page.columns ? `\\columns ${page.columns}\n\n${page.body}` : page.body))
+    .join('\n\n\\page\n\n')
+}
+
+/**
  * Parse and re-serialize markdown to normalize formatting: aligns table
  * pipes, fixes heading/list spacing, and consistent emphasis markers.
+ * Runs per page so \page / \columns markers survive untouched.
  */
 export async function formatMarkdown(text: string): Promise<string> {
-  const file = await remark()
-    .use(remarkGfm)
-    .data('settings', {
-      bullet: '-',
-      emphasis: '*',
-      strong: '*',
-      rule: '-',
-      fences: true,
-    })
-    .process(text)
-  return String(file)
+  const processor = remark().use(remarkGfm).data('settings', {
+    bullet: '-',
+    emphasis: '*',
+    strong: '*',
+    rule: '-',
+    fences: true,
+  })
+  const pages = parsePages(text)
+  const formatted = await Promise.all(
+    pages.map(async (page) => ({
+      ...page,
+      body: String(await processor.process(page.body)).trim(),
+    })),
+  )
+  return serializePages(formatted)
 }
 
 export const snippets = {
@@ -28,6 +81,8 @@ export const snippets = {
   ].join('\n'),
   readAloud: '> Boxed read-aloud text: describe the scene to your players here.',
   divider: '---',
+  pageBreak: '\\page',
+  singleColumn: '\\columns 1',
   statBlock: [
     '## Creature Name',
     '',

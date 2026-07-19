@@ -15,8 +15,9 @@ import { Input } from '#/components/ui/input'
 import { Separator } from '#/components/ui/separator'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '#/components/ui/tabs'
 import { Textarea } from '#/components/ui/textarea'
-import { Markdown } from '#/components/Markdown'
+import { BookView } from '#/components/Markdown'
 import { ImagePickerDialog } from '#/components/ImagePickerDialog'
+import { HowToDialog } from '#/components/HowToDialog'
 
 export const Route = createFileRoute('/worlds/$worldId/articles/$articleId')({
   component: ArticlePage,
@@ -126,12 +127,19 @@ function ArticlePage() {
               <DropdownMenuItem onClick={() => insertBlock(snippets.statBlock)}>
                 Stat block
               </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => insertBlock(snippets.pageBreak)}>
+                Page break
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => insertBlock(snippets.singleColumn)}>
+                Single-column page
+              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
           <Button variant="outline" size="sm" title="Fix markdown formatting" onClick={tidy}>
             <Wand2 /> Tidy
           </Button>
           <ImagePickerDialog worldId={wId} onInsert={insertAtCursor} />
+          <HowToDialog />
           <Button
             size="sm"
             disabled={!dirty || !title.trim() || save.isPending}
@@ -184,7 +192,7 @@ function ArticlePage() {
         >
           <div className="p-6 md:p-10">
             {content.trim() ? (
-              <Markdown>{content}</Markdown>
+              <BookView>{content}</BookView>
             ) : (
               <p className="text-stone-400">Nothing to preview yet.</p>
             )}
