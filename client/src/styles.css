@@ -397,6 +397,8 @@ a {
   line-height: 1.2;
   margin: 1.4em 0 0.4em;
   break-after: avoid;
+  break-inside: avoid;
+  overflow-wrap: break-word;
 }
 .dnd-page > :first-child {
   margin-top: 0;
@@ -424,6 +426,9 @@ a {
   margin: 0 0 0.75em;
   text-align: justify;
   hyphens: auto;
+  overflow-wrap: break-word;
+  orphans: 2;
+  widows: 2;
 }
 
 /* Drop cap on the opening paragraph, PHB chapter style */

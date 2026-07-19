@@ -1,9 +1,16 @@
 import { useEffect, useRef, useState } from 'react'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Eye, Pencil, Save, Trash2 } from 'lucide-react'
+import { ChevronDown, Eye, Pencil, Save, Trash2, Wand2 } from 'lucide-react'
 import { api } from '#/lib/api'
+import { formatMarkdown, snippets } from '#/lib/formatMarkdown'
 import { Button } from '#/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '#/components/ui/dropdown-menu'
 import { Input } from '#/components/ui/input'
 import { Separator } from '#/components/ui/separator'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '#/components/ui/tabs'
@@ -70,6 +77,17 @@ function ArticlePage() {
     setDirty(true)
   }
 
+  // Block snippets (tables, boxes) need blank lines around them to parse as markdown.
+  const insertBlock = (snippet: string) => insertAtCursor(`\n\n${snippet}\n\n`)
+
+  const tidy = async () => {
+    const formatted = await formatMarkdown(content)
+    if (formatted !== content) {
+      setContent(formatted)
+      setDirty(true)
+    }
+  }
+
   if (article.isLoading) {
     return <p className="text-muted-foreground p-6">Loading article…</p>
   }
@@ -89,6 +107,30 @@ function ArticlePage() {
           }}
         />
         <div className="ml-auto flex items-center gap-2">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm">
+                Insert <ChevronDown className="size-3.5" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={() => insertBlock(snippets.table)}>
+                Table
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => insertBlock(snippets.readAloud)}>
+                Read-aloud box
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => insertBlock(snippets.divider)}>
+                Divider
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => insertBlock(snippets.statBlock)}>
+                Stat block
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <Button variant="outline" size="sm" title="Fix markdown formatting" onClick={tidy}>
+            <Wand2 /> Tidy
+          </Button>
           <ImagePickerDialog worldId={wId} onInsert={insertAtCursor} />
           <Button
             size="sm"
