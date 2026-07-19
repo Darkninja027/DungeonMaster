@@ -136,12 +136,15 @@ function ArticlePage() {
             }}
           />
         </TabsContent>
-        <TabsContent value="preview" className="min-h-0 flex-1 overflow-y-auto">
-          <div className="p-6">
+        <TabsContent
+          value="preview"
+          className="min-h-0 flex-1 overflow-y-auto bg-stone-800/90 dark:bg-stone-950"
+        >
+          <div className="p-6 md:p-10">
             {content.trim() ? (
               <Markdown>{content}</Markdown>
             ) : (
-              <p className="text-muted-foreground">Nothing to preview yet.</p>
+              <p className="text-stone-400">Nothing to preview yet.</p>
             )}
           </div>
         </TabsContent>
