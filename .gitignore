@@ -150,3 +150,7 @@ server/data/
 # TanStack Start / Nitro
 client/.nitro/
 client/.tanstack/
+
+# Electron build output
+client/dist-electron/
+client/release/
