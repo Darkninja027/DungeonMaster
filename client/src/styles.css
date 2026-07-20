@@ -438,6 +438,10 @@ a {
 }
 
 /* Drop cap on the opening paragraph, PHB chapter style */
+.dnd-page h1:first-child + p {
+  /* contain the floated first letter so it can't overlap what follows */
+  display: flow-root;
+}
 .dnd-page h1:first-child + p::first-letter {
   font-family: 'Cinzel', serif;
   font-size: 3.6em;
