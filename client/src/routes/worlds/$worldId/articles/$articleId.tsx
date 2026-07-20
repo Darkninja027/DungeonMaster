@@ -4,11 +4,16 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ChevronDown, Eye, Pencil, Save, Trash2, Wand2 } from 'lucide-react'
 import { api } from '#/lib/api'
 import { formatMarkdown, snippets } from '#/lib/formatMarkdown'
+import { articleTemplates } from '#/lib/templates'
 import { Button } from '#/components/ui/button'
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '#/components/ui/dropdown-menu'
 import { Input } from '#/components/ui/input'
@@ -133,6 +138,27 @@ function ArticlePage() {
               <DropdownMenuItem onClick={() => insertBlock(snippets.singleColumn)}>
                 Single-column page
               </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger>Template</DropdownMenuSubTrigger>
+                <DropdownMenuSubContent>
+                  {articleTemplates
+                    .filter((t) => t.id !== 'blank')
+                    .map((template) => (
+                      <DropdownMenuItem
+                        key={template.id}
+                        onClick={() => insertBlock(template.body.trim())}
+                      >
+                        <div>
+                          <span className="block">{template.name}</span>
+                          <span className="text-muted-foreground block text-xs">
+                            {template.description}
+                          </span>
+                        </div>
+                      </DropdownMenuItem>
+                    ))}
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
             </DropdownMenuContent>
           </DropdownMenu>
           <Button variant="outline" size="sm" title="Fix markdown formatting" onClick={tidy}>
