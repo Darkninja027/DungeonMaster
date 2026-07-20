@@ -9,8 +9,7 @@ export const Route = createFileRoute('/worlds/$worldId')({
 
 function WorldLayout() {
   const { worldId } = Route.useParams()
-  const id = Number(worldId)
-  const world = useQuery({ queryKey: ['worlds', id], queryFn: () => api.worlds.get(id) })
+  const world = useQuery({ queryKey: ['worlds', worldId], queryFn: () => api.worlds.get(worldId) })
 
   return (
     <div className="flex h-full">
@@ -22,7 +21,7 @@ function WorldLayout() {
           )}
         </div>
         <div className="min-h-0 flex-1">
-          <WorldSidebar worldId={id} />
+          <WorldSidebar worldId={worldId} />
         </div>
       </div>
       <div className="min-w-0 flex-1 overflow-y-auto">

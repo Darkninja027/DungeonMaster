@@ -142,11 +142,13 @@ vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
 
-# .NET
-server/bin/
-server/obj/
+# Old SQLite data kept as a pre-migration backup
 server/data/
 
-# TanStack Start / Nitro
-client/.nitro/
+# TanStack Router generated cache
 client/.tanstack/
+
+# Electron build output
+client/dist-electron/
+client/release/
+client/.electron-dist/

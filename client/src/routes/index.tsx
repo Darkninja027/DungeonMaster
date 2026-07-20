@@ -1,8 +1,9 @@
 import { useState } from 'react'
-import { Link, createFileRoute } from '@tanstack/react-router'
+import { Link, createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Globe2, Plus, Trash2 } from 'lucide-react'
+import { FolderOpen, Globe2, Plus, X } from 'lucide-react'
 import { api } from '#/lib/api'
+import type { WorldSummary } from '#/lib/api'
 import { Button } from '#/components/ui/button'
 import {
   Card,
@@ -29,24 +30,28 @@ export const Route = createFileRoute('/')({
 
 function WorldsPage() {
   const queryClient = useQueryClient()
+  const navigate = useNavigate()
   const worlds = useQuery({ queryKey: ['worlds'], queryFn: api.worlds.list })
 
   const [open, setOpen] = useState(false)
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
 
-  const createWorld = useMutation({
-    mutationFn: api.worlds.create,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['worlds'] })
+  const goTo = (world: WorldSummary | null) => {
+    void queryClient.invalidateQueries({ queryKey: ['worlds'] })
+    if (world) {
       setOpen(false)
       setName('')
       setDescription('')
-    },
-  })
+      void navigate({ to: '/worlds/$worldId', params: { worldId: world.id } })
+    }
+  }
 
-  const deleteWorld = useMutation({
-    mutationFn: api.worlds.delete,
+  const createWorld = useMutation({ mutationFn: api.worlds.create, onSuccess: goTo })
+  const openWorld = useMutation({ mutationFn: api.worlds.open, onSuccess: goTo })
+
+  const removeWorld = useMutation({
+    mutationFn: api.worlds.remove,
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['worlds'] }),
   })
 
@@ -56,54 +61,65 @@ function WorldsPage() {
         <div>
           <h1 className="text-2xl font-bold">Your Worlds</h1>
           <p className="text-muted-foreground text-sm">
-            Every campaign setting you're building, in one place.
+            A world is a folder of markdown files on your disk — open one or create one.
           </p>
         </div>
-        <Dialog open={open} onOpenChange={setOpen}>
-          <DialogTrigger asChild>
-            <Button>
-              <Plus /> New World
-            </Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Create a world</DialogTitle>
-            </DialogHeader>
-            <div className="grid gap-4">
-              <div className="grid gap-2">
-                <Label htmlFor="world-name">Name</Label>
-                <Input
-                  id="world-name"
-                  value={name}
-                  placeholder="e.g. The Shattered Realms"
-                  onChange={(e) => setName(e.target.value)}
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="world-desc">Description</Label>
-                <Textarea
-                  id="world-desc"
-                  value={description}
-                  placeholder="A short pitch for this setting"
-                  onChange={(e) => setDescription(e.target.value)}
-                />
-              </div>
-              {createWorld.isError && (
-                <p className="text-destructive text-sm">{createWorld.error.message}</p>
-              )}
-            </div>
-            <DialogFooter>
-              <Button
-                disabled={!name.trim() || createWorld.isPending}
-                onClick={() => createWorld.mutate({ name, description })}
-              >
-                Create
+        <div className="flex gap-2">
+          <Button variant="outline" disabled={openWorld.isPending} onClick={() => openWorld.mutate()}>
+            <FolderOpen /> Open Folder
+          </Button>
+          <Dialog open={open} onOpenChange={setOpen}>
+            <DialogTrigger asChild>
+              <Button>
+                <Plus /> New World
               </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Create a world</DialogTitle>
+              </DialogHeader>
+              <div className="grid gap-4">
+                <div className="grid gap-2">
+                  <Label htmlFor="world-name">Name</Label>
+                  <Input
+                    id="world-name"
+                    value={name}
+                    placeholder="e.g. The Shattered Realms"
+                    onChange={(e) => setName(e.target.value)}
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="world-desc">Description</Label>
+                  <Textarea
+                    id="world-desc"
+                    value={description}
+                    placeholder="A short pitch for this setting"
+                    onChange={(e) => setDescription(e.target.value)}
+                  />
+                </div>
+                <p className="text-muted-foreground text-xs">
+                  You'll pick where to create the world folder next.
+                </p>
+                {createWorld.isError && (
+                  <p className="text-destructive text-sm">{createWorld.error.message}</p>
+                )}
+              </div>
+              <DialogFooter>
+                <Button
+                  disabled={!name.trim() || createWorld.isPending}
+                  onClick={() => createWorld.mutate({ name, description })}
+                >
+                  Create
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        </div>
       </div>
 
+      {openWorld.isError && (
+        <p className="text-destructive mb-4 text-sm">{openWorld.error.message}</p>
+      )}
       {worlds.isLoading && <p className="text-muted-foreground">Loading worlds…</p>}
       {worlds.isError && (
         <p className="text-destructive">Failed to load worlds: {worlds.error.message}</p>
@@ -113,7 +129,7 @@ function WorldsPage() {
         <Card className="border-dashed">
           <CardContent className="text-muted-foreground flex flex-col items-center gap-2 py-12">
             <Globe2 className="size-10" />
-            <p>No worlds yet. Create your first one to get started.</p>
+            <p>No recent worlds. Create one, or open an existing world folder.</p>
           </CardContent>
         </Card>
       )}
@@ -123,7 +139,7 @@ function WorldsPage() {
           <Card key={world.id} className="group relative">
             <Link
               to="/worlds/$worldId"
-              params={{ worldId: String(world.id) }}
+              params={{ worldId: world.id }}
               className="absolute inset-0"
               aria-label={`Open ${world.name}`}
             />
@@ -140,14 +156,11 @@ function WorldsPage() {
               <Button
                 variant="ghost"
                 size="icon"
+                title="Remove from this list (the folder stays on disk)"
                 className="relative opacity-0 transition-opacity group-hover:opacity-100"
-                onClick={() => {
-                  if (confirm(`Delete "${world.name}" and everything in it?`)) {
-                    deleteWorld.mutate(world.id)
-                  }
-                }}
+                onClick={() => removeWorld.mutate(world.id)}
               >
-                <Trash2 className="text-destructive" />
+                <X />
               </Button>
             </CardContent>
           </Card>

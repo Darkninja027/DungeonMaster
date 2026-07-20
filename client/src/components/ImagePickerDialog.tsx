@@ -14,7 +14,7 @@ import {
 import { ScrollArea } from '#/components/ui/scroll-area'
 
 interface Props {
-  worldId: number
+  worldId: string
   onInsert: (markdown: string) => void
 }
 
@@ -35,11 +35,16 @@ export function ImagePickerDialog({ worldId, onInsert }: Props) {
     mutationFn: (file: File) => api.images.upload(worldId, file),
     onSuccess: invalidate,
   })
-  const remove = useMutation({ mutationFn: api.images.delete, onSuccess: invalidate })
+  const remove = useMutation({
+    mutationFn: (imageId: string) => api.images.delete(worldId, imageId),
+    onSuccess: invalidate,
+  })
 
   const insert = (image: ImageInfo) => {
     const alt = image.fileName.replace(/\.[^.]+$/, '')
-    onInsert(`![${alt}](${image.url})`)
+    // Relative path keeps the markdown portable (it works in Obsidian too);
+    // the renderer maps _images/ to the world:// protocol.
+    onInsert(`![${alt}](_images/${encodeURIComponent(image.fileName)})`)
   }
 
   return (

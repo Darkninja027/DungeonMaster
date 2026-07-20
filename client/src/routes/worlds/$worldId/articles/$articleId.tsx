@@ -43,13 +43,13 @@ function LinkToArticle({
   title,
 }: {
   worldId: string
-  articleId: number
+  articleId: string
   title: string
 }) {
   return (
     <Link
       to="/worlds/$worldId/articles/$articleId"
-      params={{ worldId, articleId: String(articleId) }}
+      params={{ worldId, articleId }}
       className="hover:text-foreground underline"
     >
       {title}
@@ -59,22 +59,20 @@ function LinkToArticle({
 
 function ArticlePage() {
   const { worldId, articleId } = Route.useParams()
-  const id = Number(articleId)
-  const wId = Number(worldId)
   const queryClient = useQueryClient()
   const navigate = useNavigate()
 
   const article = useQuery({
-    queryKey: ['articles', id],
-    queryFn: () => api.articles.get(id),
+    queryKey: ['articles', articleId],
+    queryFn: () => api.articles.get(worldId, articleId),
   })
   const tree = useQuery({
-    queryKey: ['worlds', wId, 'tree'],
-    queryFn: () => api.worlds.tree(wId),
+    queryKey: ['worlds', worldId, 'tree'],
+    queryFn: () => api.worlds.tree(worldId),
   })
   const mentions = useQuery({
-    queryKey: ['articles', id, 'mentions'],
-    queryFn: () => api.articles.mentions(id),
+    queryKey: ['articles', articleId, 'mentions'],
+    queryFn: () => api.articles.mentions(worldId, articleId),
   })
 
   const [title, setTitle] = useState('')
@@ -94,7 +92,9 @@ function ArticlePage() {
   const linkMatches =
     linkQuery !== null
       ? (tree.data?.articles ?? [])
-          .filter((a) => a.id !== id && a.title.toLowerCase().includes(linkQuery.toLowerCase()))
+          .filter(
+            (a) => a.id !== articleId && a.title.toLowerCase().includes(linkQuery.toLowerCase()),
+          )
           .slice(0, 6)
       : []
 
@@ -134,12 +134,25 @@ function ArticlePage() {
   }, [article.data])
 
   const save = useMutation({
-    mutationFn: () =>
-      api.articles.update(id, { title, content, folderId: article.data?.folderId ?? null }),
+    // Key the save off the query cache's id, not the route param: after a
+    // rename the article's id (its file path) changes, and a stale route
+    // param must never write to the old path.
+    mutationFn: () => {
+      const currentId = article.data?.id ?? articleId
+      return api.articles.update(worldId, currentId, { title, content })
+    },
     onSuccess: (updated) => {
-      queryClient.setQueryData(['articles', id], updated)
-      queryClient.invalidateQueries({ queryKey: ['worlds', wId, 'tree'] })
+      queryClient.setQueryData(['articles', updated.id], updated)
+      queryClient.invalidateQueries({ queryKey: ['worlds', worldId, 'tree'] })
       setDirty(false)
+      if (updated.id !== articleId) {
+        // Rename: the file moved, so re-key the URL without adding history.
+        navigate({
+          to: '/worlds/$worldId/articles/$articleId',
+          params: { worldId, articleId: updated.id },
+          replace: true,
+        })
+      }
     },
   })
 
@@ -153,22 +166,22 @@ function ArticlePage() {
   }, [dirty, title, content, savePending, saveMutate])
 
   const remove = useMutation({
-    mutationFn: () => api.articles.delete(id),
+    mutationFn: () => api.articles.delete(worldId, article.data?.id ?? articleId),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['worlds', wId, 'tree'] })
+      queryClient.invalidateQueries({ queryKey: ['worlds', worldId, 'tree'] })
       navigate({ to: '/worlds/$worldId', params: { worldId } })
     },
   })
 
   const createMissing = useMutation({
     mutationFn: (input: { title: string; content: string }) =>
-      api.articles.create({ worldId: wId, title: input.title, content: input.content }),
+      api.articles.create({ worldId, title: input.title, content: input.content }),
     onSuccess: (created) => {
-      queryClient.invalidateQueries({ queryKey: ['worlds', wId, 'tree'] })
+      queryClient.invalidateQueries({ queryKey: ['worlds', worldId, 'tree'] })
       setMissingTitle(null)
       navigate({
         to: '/worlds/$worldId/articles/$articleId',
-        params: { worldId, articleId: String(created.id) },
+        params: { worldId, articleId: created.id },
       })
     },
   })
@@ -268,7 +281,7 @@ function ArticlePage() {
           <Button variant="outline" size="sm" title="Fix markdown formatting" onClick={tidy}>
             <Wand2 /> Tidy
           </Button>
-          <ImagePickerDialog worldId={wId} onInsert={insertAtCursor} />
+          <ImagePickerDialog worldId={worldId} onInsert={insertAtCursor} />
           <Button
             variant="outline"
             size="icon"
@@ -388,7 +401,7 @@ function ArticlePage() {
             {content.trim() ? (
               <BookView
                 articles={tree.data?.articles}
-                worldId={wId}
+                worldId={worldId}
                 onCreateMissing={(t) => {
                   setMissingTemplate('blank')
                   setMissingTitle(t)
@@ -406,7 +419,7 @@ function ArticlePage() {
       <div className="text-muted-foreground flex items-center gap-3 px-4 py-1 text-xs">
         <span>
           Last updated{' '}
-          {article.data ? new Date(article.data.updatedAt + 'Z').toLocaleString() : ''}
+          {article.data ? new Date(article.data.updatedAt).toLocaleString() : ''}
         </span>
         {mentions.data && mentions.data.length > 0 && (
           <span className="flex min-w-0 items-center gap-1.5 truncate">
