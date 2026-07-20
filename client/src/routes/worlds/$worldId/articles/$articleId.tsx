@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
-import { createFileRoute, useNavigate } from '@tanstack/react-router'
+import { Link, createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ChevronDown, Eye, Pencil, Save, Trash2, Wand2 } from 'lucide-react'
+import { ChevronDown, Eye, Link2, Pencil, Printer, Save, Trash2, Wand2 } from 'lucide-react'
 import { api } from '#/lib/api'
 import { formatMarkdown, snippets } from '#/lib/formatMarkdown'
 import { articleTemplates } from '#/lib/templates'
@@ -28,6 +28,26 @@ export const Route = createFileRoute('/worlds/$worldId/articles/$articleId')({
   component: ArticlePage,
 })
 
+function LinkToArticle({
+  worldId,
+  articleId,
+  title,
+}: {
+  worldId: string
+  articleId: number
+  title: string
+}) {
+  return (
+    <Link
+      to="/worlds/$worldId/articles/$articleId"
+      params={{ worldId, articleId: String(articleId) }}
+      className="hover:text-foreground underline"
+    >
+      {title}
+    </Link>
+  )
+}
+
 function ArticlePage() {
   const { worldId, articleId } = Route.useParams()
   const id = Number(articleId)
@@ -39,10 +59,19 @@ function ArticlePage() {
     queryKey: ['articles', id],
     queryFn: () => api.articles.get(id),
   })
+  const tree = useQuery({
+    queryKey: ['worlds', wId, 'tree'],
+    queryFn: () => api.worlds.tree(wId),
+  })
+  const mentions = useQuery({
+    queryKey: ['articles', id, 'mentions'],
+    queryFn: () => api.articles.mentions(id),
+  })
 
   const [title, setTitle] = useState('')
   const [content, setContent] = useState('')
   const [dirty, setDirty] = useState(false)
+  const [tab, setTab] = useState('write')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   // Reset the editor whenever a different (or freshly loaded) article arrives.
@@ -63,6 +92,15 @@ function ArticlePage() {
       setDirty(false)
     },
   })
+
+  // Autosave: 2s after the last keystroke, while there are unsaved changes.
+  const saveMutate = save.mutate
+  const savePending = save.isPending
+  useEffect(() => {
+    if (!dirty || !title.trim() || savePending) return
+    const timer = setTimeout(() => saveMutate(), 2000)
+    return () => clearTimeout(timer)
+  }, [dirty, title, content, savePending, saveMutate])
 
   const remove = useMutation({
     mutationFn: () => api.articles.delete(id),
@@ -165,6 +203,18 @@ function ArticlePage() {
             <Wand2 /> Tidy
           </Button>
           <ImagePickerDialog worldId={wId} onInsert={insertAtCursor} />
+          <Button
+            variant="outline"
+            size="icon"
+            className="size-8"
+            title="Print / save as PDF"
+            onClick={() => {
+              setTab('preview')
+              setTimeout(() => window.print(), 300)
+            }}
+          >
+            <Printer />
+          </Button>
           <HowToDialog />
           <Button
             size="sm"
@@ -189,7 +239,7 @@ function ArticlePage() {
         <p className="text-destructive border-b px-4 py-1 text-sm">{save.error.message}</p>
       )}
 
-      <Tabs defaultValue="write" className="min-h-0 flex-1 gap-0">
+      <Tabs value={tab} onValueChange={setTab} className="min-h-0 flex-1 gap-0">
         <div className="border-b px-4 py-1.5">
           <TabsList className="h-8">
             <TabsTrigger value="write" className="text-xs">
@@ -216,9 +266,11 @@ function ArticlePage() {
           value="preview"
           className="min-h-0 flex-1 overflow-y-auto bg-stone-800/90 dark:bg-stone-950"
         >
-          <div className="p-6 md:p-10">
+          <div className="print-area p-6 md:p-10">
             {content.trim() ? (
-              <BookView>{content}</BookView>
+              <BookView articles={tree.data?.articles} worldId={wId}>
+                {content}
+              </BookView>
             ) : (
               <p className="text-stone-400">Nothing to preview yet.</p>
             )}
@@ -226,9 +278,24 @@ function ArticlePage() {
         </TabsContent>
       </Tabs>
       <Separator />
-      <p className="text-muted-foreground px-4 py-1 text-xs">
-        Last updated {article.data ? new Date(article.data.updatedAt + 'Z').toLocaleString() : ''}
-      </p>
+      <div className="text-muted-foreground flex items-center gap-3 px-4 py-1 text-xs">
+        <span>
+          Last updated{' '}
+          {article.data ? new Date(article.data.updatedAt + 'Z').toLocaleString() : ''}
+        </span>
+        {mentions.data && mentions.data.length > 0 && (
+          <span className="flex min-w-0 items-center gap-1.5 truncate">
+            <Link2 className="size-3 shrink-0" />
+            Mentioned in:{' '}
+            {mentions.data.map((m, i) => (
+              <span key={m.id} className="truncate">
+                {i > 0 && ', '}
+                <LinkToArticle worldId={worldId} articleId={m.id} title={m.title} />
+              </span>
+            ))}
+          </span>
+        )}
+      </div>
     </div>
   )
 }

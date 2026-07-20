@@ -35,6 +35,18 @@ export interface Article {
   updatedAt: string
 }
 
+export interface SearchResult {
+  id: number
+  folderId: number | null
+  title: string
+  snippet: string
+}
+
+export interface MentionResult {
+  id: number
+  title: string
+}
+
 export interface ImageInfo {
   id: number
   fileName: string
@@ -62,6 +74,8 @@ export const api = {
     list: () => request<Array<WorldSummary>>('/api/worlds'),
     get: (id: number) => request<WorldSummary>(`/api/worlds/${id}`),
     tree: (id: number) => request<WorldTree>(`/api/worlds/${id}/tree`),
+    search: (id: number, q: string) =>
+      request<Array<SearchResult>>(`/api/worlds/${id}/search?q=${encodeURIComponent(q)}`),
     create: (input: { name: string; description?: string }) =>
       request<WorldSummary>('/api/worlds', { method: 'POST', body: JSON.stringify(input) }),
     update: (id: number, input: { name: string; description?: string }) =>
@@ -82,6 +96,7 @@ export const api = {
   },
   articles: {
     get: (id: number) => request<Article>(`/api/articles/${id}`),
+    mentions: (id: number) => request<Array<MentionResult>>(`/api/articles/${id}/mentions`),
     create: (input: { worldId: number; folderId?: number | null; title: string; content?: string }) =>
       request<Article>('/api/articles', { method: 'POST', body: JSON.stringify(input) }),
     update: (id: number, input: { title: string; content: string; folderId: number | null }) =>

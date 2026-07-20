@@ -6,6 +6,9 @@ namespace DungeonMaster.Api.Endpoints;
 
 public static class WorldEndpoints
 {
+    private static string EscapeLike(string value) =>
+        value.Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_");
+
     public static void MapWorldEndpoints(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/api/worlds");
@@ -50,6 +53,35 @@ public static class WorldEndpoints
             await db.SaveChangesAsync();
             images.DeleteWorldFolder(id);
             return Results.NoContent();
+        });
+
+        // Case-insensitive search across article titles and bodies.
+        group.MapGet("/{id:int}/search", async (int id, string q, AppDbContext db) =>
+        {
+            if (string.IsNullOrWhiteSpace(q)) return Results.Ok(new List<SearchResult>());
+            var term = q.Trim();
+            var pattern = $"%{EscapeLike(term)}%";
+            var matches = await db.Articles
+                .Where(a => a.WorldId == id &&
+                    (EF.Functions.Like(a.Title, pattern, "\\") || EF.Functions.Like(a.Content, pattern, "\\")))
+                .OrderBy(a => a.Title)
+                .Take(50)
+                .Select(a => new { a.Id, a.FolderId, a.Title, a.Content })
+                .ToListAsync();
+            var results = matches.Select(a =>
+            {
+                var idx = a.Content.IndexOf(term, StringComparison.OrdinalIgnoreCase);
+                var snippet = "";
+                if (idx >= 0)
+                {
+                    var start = Math.Max(0, idx - 40);
+                    var length = Math.Min(a.Content.Length - start, term.Length + 120);
+                    snippet = (start > 0 ? "…" : "") + a.Content.Substring(start, length).ReplaceLineEndings(" ")
+                        + (start + length < a.Content.Length ? "…" : "");
+                }
+                return new SearchResult(a.Id, a.FolderId, a.Title, snippet);
+            }).ToList();
+            return Results.Ok(results);
         });
 
         // Full organisational tree for a world: folders + article summaries.

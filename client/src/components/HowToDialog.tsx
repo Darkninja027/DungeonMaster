@@ -59,6 +59,12 @@ export function HowToDialog() {
             <Row code="![alt](url)" desc="An image with a plate-style frame. Use the Images button to upload and insert." />
           </Section>
 
+          <Section title="Linking articles">
+            <Row code="[[Article Title]]" desc="Links to the article with that exact title (case doesn't matter). Broken links show with a dashed underline." />
+            <Row code="[[Article Title|shown text]]" desc="Same link, but displays different text." />
+            <Row code="Mentioned in" desc="The footer of an article lists every other article that wiki-links to it." />
+          </Section>
+
           <Section title="Pages & columns">
             <Row code="\page" desc="On its own line: ends the current book page and starts a new one." />
             <Row code="\columns 1" desc="At the top of a page: render that page as a single column." />

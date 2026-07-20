@@ -542,3 +542,29 @@ a {
   box-shadow: 0 3px 8px rgba(0, 0, 0, 0.3);
   margin: 0.5em 0 1em;
 }
+
+/* Print: only the book pages, one sheet per \page */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  .print-area,
+  .print-area * {
+    visibility: visible;
+  }
+  .print-area {
+    position: absolute;
+    inset: 0 auto auto 0;
+    width: 100%;
+    padding: 0;
+    background: none;
+  }
+  .dnd-page {
+    box-shadow: none;
+    max-width: 100%;
+    break-after: page;
+  }
+  .dnd-book {
+    gap: 0;
+  }
+}

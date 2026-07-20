@@ -96,10 +96,32 @@ export async function formatMarkdown(text: string): Promise<string> {
   const formatted = await Promise.all(
     pages.map(async (page) => ({
       ...page,
-      body: String(await processor.process(page.body)).trim(),
+      // remark escapes [[wiki links]] to \[\[...]] — undo that
+      body: String(await processor.process(page.body)).trim().replaceAll('\\[\\[', '[['),
     })),
   )
   return serializePages(formatted)
+}
+
+/**
+ * Wiki links: [[Article Title]] or [[Article Title|shown text]].
+ * Resolved against article titles (case-insensitive) into normal markdown
+ * links; unresolved links point at #missing so the renderer can flag them.
+ */
+const WIKI_LINK = /\[\[([^\][\n|]+)(?:\|([^\][\n]+))?\]\]/g
+
+export function resolveWikiLinks(
+  text: string,
+  articles: Array<{ id: number; title: string }>,
+  worldId: number,
+): string {
+  const byTitle = new Map(articles.map((a) => [a.title.trim().toLowerCase(), a.id]))
+  // remark escapes leading brackets as \[\[ — normalize before matching
+  return text.replaceAll('\\[\\[', '[[').replace(WIKI_LINK, (_, title: string, display?: string) => {
+    const label = (display ?? title).trim()
+    const id = byTitle.get(title.trim().toLowerCase())
+    return id != null ? `[${label}](/worlds/${worldId}/articles/${id})` : `[${label}](#missing)`
+  })
 }
 
 export const snippets = {

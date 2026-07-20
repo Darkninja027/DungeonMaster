@@ -16,3 +16,6 @@ public record ArticleSummary(int Id, int? FolderId, string Title, DateTime Updat
 public record WorldTree(List<FolderNode> Folders, List<ArticleSummary> Articles);
 
 public record ImageInfo(int Id, string FileName, string ContentType, long SizeBytes, DateTime UploadedAt, string Url);
+
+public record SearchResult(int Id, int? FolderId, string Title, string Snippet);
+public record MentionResult(int Id, string Title);

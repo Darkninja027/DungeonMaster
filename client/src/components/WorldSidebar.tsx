@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
@@ -10,7 +10,9 @@ import {
   FolderPlus,
   MoreHorizontal,
   Pencil,
+  Search,
   Trash2,
+  X,
 } from 'lucide-react'
 import { api } from '#/lib/api'
 import type { ArticleSummary, FolderNode, WorldTree } from '#/lib/api'
@@ -58,6 +60,19 @@ export function WorldSidebar({ worldId }: { worldId: number }) {
   const [dragItem, setDragItem] = useState<{ type: 'article' | 'folder'; id: number } | null>(null)
   // Folder id being hovered as a drop target; null = the world root area.
   const [dropTarget, setDropTarget] = useState<number | null | undefined>(undefined)
+  const [searchInput, setSearchInput] = useState('')
+  const [searchTerm, setSearchTerm] = useState('')
+
+  useEffect(() => {
+    const timer = setTimeout(() => setSearchTerm(searchInput.trim()), 300)
+    return () => clearTimeout(timer)
+  }, [searchInput])
+
+  const search = useQuery({
+    queryKey: ['worlds', worldId, 'search', searchTerm],
+    queryFn: () => api.worlds.search(worldId, searchTerm),
+    enabled: searchTerm.length > 0,
+  })
 
   const invalidateTree = () =>
     queryClient.invalidateQueries({ queryKey: ['worlds', worldId, 'tree'] })
@@ -305,6 +320,55 @@ export function WorldSidebar({ worldId }: { worldId: number }) {
           </Button>
         </div>
       </div>
+      <div className="border-b px-2 py-1.5">
+        <div className="relative">
+          <Search className="text-muted-foreground absolute left-2 top-1/2 size-3.5 -translate-y-1/2" />
+          <Input
+            value={searchInput}
+            placeholder="Search this world…"
+            className="h-7 px-7 text-sm"
+            onChange={(e) => setSearchInput(e.target.value)}
+          />
+          {searchInput && (
+            <button
+              type="button"
+              className="text-muted-foreground hover:text-foreground absolute right-2 top-1/2 -translate-y-1/2"
+              onClick={() => setSearchInput('')}
+            >
+              <X className="size-3.5" />
+            </button>
+          )}
+        </div>
+      </div>
+      {searchTerm ? (
+        <ScrollArea className="min-h-0 flex-1">
+          <div className="p-2">
+            {search.isLoading && <p className="text-muted-foreground px-2 text-sm">Searching…</p>}
+            {search.data?.length === 0 && (
+              <p className="text-muted-foreground px-2 py-4 text-sm">No matches.</p>
+            )}
+            {search.data?.map((result) => (
+              <Link
+                key={result.id}
+                to="/worlds/$worldId/articles/$articleId"
+                params={{ worldId: String(worldId), articleId: String(result.id) }}
+                className="hover:bg-accent block rounded px-2 py-1.5"
+                onClick={() => setSearchInput('')}
+              >
+                <span className="flex items-center gap-1.5 text-sm font-medium">
+                  <FileText className="text-muted-foreground size-3.5 shrink-0" />
+                  <span className="truncate">{result.title}</span>
+                </span>
+                {result.snippet && (
+                  <span className="text-muted-foreground line-clamp-2 block text-xs">
+                    {result.snippet}
+                  </span>
+                )}
+              </Link>
+            ))}
+          </div>
+        </ScrollArea>
+      ) : (
       <ScrollArea className="min-h-0 flex-1">
         <div
           className={cn(
@@ -331,6 +395,7 @@ export function WorldSidebar({ worldId }: { worldId: number }) {
           )}
         </div>
       </ScrollArea>
+      )}
 
       <Dialog open={dialog !== null} onOpenChange={(o) => !o && setDialog(null)}>
         <DialogContent>

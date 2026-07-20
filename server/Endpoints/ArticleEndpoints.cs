@@ -48,6 +48,23 @@ public static class ArticleEndpoints
             return Results.Ok(article);
         });
 
+        // Articles in the same world whose content wiki-links [[Title]] this article.
+        group.MapGet("/{id:int}/mentions", async (int id, AppDbContext db) =>
+        {
+            if (await db.Articles.FindAsync(id) is not { } article) return Results.NotFound();
+            var title = article.Title
+                .Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_");
+            var exact = $"%[[{title}]]%";
+            var aliased = $"%[[{title}|%";
+            var mentions = await db.Articles
+                .Where(a => a.WorldId == article.WorldId && a.Id != id &&
+                    (EF.Functions.Like(a.Content, exact, "\\") || EF.Functions.Like(a.Content, aliased, "\\")))
+                .OrderBy(a => a.Title)
+                .Select(a => new MentionResult(a.Id, a.Title))
+                .ToListAsync();
+            return Results.Ok(mentions);
+        });
+
         group.MapPut("/{id:int}/move", async (int id, ArticleMove input, AppDbContext db) =>
         {
             if (await db.Articles.FindAsync(id) is not { } article) return Results.NotFound();
