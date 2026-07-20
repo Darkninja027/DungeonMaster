@@ -22,7 +22,12 @@ const CHANNELS = new Set([
   'images:list',
   'images:upload',
   'images:delete',
+  'updates:quitAndInstall',
 ])
+
+// Channels the main process may PUSH to the renderer. Kept as a separate
+// allowlist so the renderer can never subscribe to arbitrary IPC channels.
+const EVENT_CHANNELS = new Set(['updates:status'])
 
 contextBridge.exposeInMainWorld('dmApi', {
   invoke: (channel: string, args?: unknown) => {
@@ -30,5 +35,13 @@ contextBridge.exposeInMainWorld('dmApi', {
       return Promise.reject(new Error(`Unknown channel: ${channel}`))
     }
     return ipcRenderer.invoke(channel, args)
+  },
+  // Subscribe to a main->renderer event; returns an unsubscribe function.
+  // Only the raw payload is forwarded — never the Electron event object.
+  on: (channel: string, cb: (payload: unknown) => void) => {
+    if (!EVENT_CHANNELS.has(channel)) return () => {}
+    const listener = (_e: unknown, payload: unknown) => cb(payload)
+    ipcRenderer.on(channel, listener)
+    return () => ipcRenderer.removeListener(channel, listener)
   },
 })

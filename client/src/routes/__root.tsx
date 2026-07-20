@@ -1,6 +1,7 @@
 import { Link, Outlet, createRootRoute } from '@tanstack/react-router'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Castle } from 'lucide-react'
+import { UpdateIndicator } from '#/components/UpdateIndicator'
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } },
@@ -19,6 +20,9 @@ function RootLayout() {
             <Castle className="size-5" />
             Dungeon Master
           </Link>
+          <div className="ml-auto">
+            <UpdateIndicator />
+          </div>
         </header>
         <main className="min-h-0 flex-1">
           <Outlet />
