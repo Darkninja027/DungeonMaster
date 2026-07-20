@@ -1,6 +1,7 @@
 import path from 'node:path'
 import { app, BrowserWindow } from 'electron'
 import { autoUpdater } from 'electron-updater'
+import log from 'electron-log'
 import { registerIpcHandlers } from './ipc'
 import { registerWorldProtocol, handleWorldProtocol } from './images'
 
@@ -56,8 +57,18 @@ if (!app.requestSingleInstanceLock()) {
     // Check GitHub Releases for a newer version; downloads in the background
     // and installs on next app restart. No-op in dev.
     if (app.isPackaged) {
+      // Log updater activity to %APPDATA%/DungeonMaster/logs/main.log so a
+      // failed update (e.g. a 404 from a filename mismatch) is diagnosable
+      // instead of vanishing into a packaged app's dead console.
+      autoUpdater.logger = log
+      log.transports.file.level = 'info'
+      autoUpdater.on('error', (e) => log.error('updater error', e))
+      autoUpdater.on('update-available', (i) => log.info('update available', i.version))
+      autoUpdater.on('update-not-available', (i) => log.info('no update', i.version))
+      autoUpdater.on('update-downloaded', (i) => log.info('downloaded', i.version))
+
       autoUpdater.checkForUpdatesAndNotify().catch((err) => {
-        console.error('Update check failed:', err)
+        log.error('Update check failed:', err)
       })
     }
 

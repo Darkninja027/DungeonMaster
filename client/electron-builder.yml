@@ -1,7 +1,14 @@
 appId: nz.co.enlighten.dungeonmaster
 productName: DungeonMaster
+# No spaces — otherwise GitHub rewrites the uploaded asset name (spaces -> dots)
+# and it no longer matches the URL written into latest.yml, so auto-update 404s.
+artifactName: ${productName}-Setup-${version}.${ext}
 directories:
-  output: release
+  # Was `release`; a stale build's app.asar there got permanently locked by
+  # Defender/Search indexing and couldn't be deleted even as admin. Writing to a
+  # fresh folder sidesteps the lock entirely. The old `release/` can be removed
+  # after a reboot.
+  output: dist-release
 # Pre-cleaned by prepare-electron-dist.mjs — avoids an unlink that corporate
 # antivirus blocks (EBUSY on default_app.asar).
 electronDist: .electron-dist
