@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ChevronDown, Eye, Link2, Pencil, Printer, Save, Trash2, Wand2 } from 'lucide-react'
+import { ChevronDown, Eye, FileDown, Link2, Loader2, Pencil, Save, Trash2, Wand2 } from 'lucide-react'
 import { api } from '#/lib/api'
+import { exportPdf } from '#/lib/exportPdf'
 import { formatMarkdown, snippets } from '#/lib/formatMarkdown'
 import { articleTemplates } from '#/lib/templates'
 import { Button } from '#/components/ui/button'
@@ -80,6 +81,7 @@ function ArticlePage() {
   const [content, setContent] = useState('')
   const [dirty, setDirty] = useState(false)
   const [tab, setTab] = useState('write')
+  const [exporting, setExporting] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   // [[ autocomplete: the partial title being typed after an unclosed [[
@@ -268,13 +270,22 @@ function ArticlePage() {
             variant="outline"
             size="icon"
             className="size-8"
-            title="Print / save as PDF"
-            onClick={() => {
+            title="Export as PDF"
+            disabled={exporting}
+            onClick={async () => {
               setTab('preview')
-              setTimeout(() => window.print(), 300)
+              setExporting(true)
+              try {
+                // let the preview tab mount and paint before capturing
+                await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))
+                const area = document.querySelector<HTMLElement>('.print-area')
+                if (area) await exportPdf(area, `${title.trim() || 'article'}.pdf`)
+              } finally {
+                setExporting(false)
+              }
             }}
           >
-            <Printer />
+            {exporting ? <Loader2 className="animate-spin" /> : <FileDown />}
           </Button>
           <HowToDialog />
           <Button

@@ -547,14 +547,25 @@ a {
   margin: 0.5em 0 1em;
 }
 
-/* Print: only the book pages, one sheet per \page */
+/* Print: only the book pages, one sheet per \page, full-bleed parchment */
 @media print {
+  @page {
+    margin: 0;
+  }
+  html,
+  body {
+    height: auto !important;
+    overflow: visible !important;
+  }
   body * {
     visibility: hidden;
   }
   .print-area,
   .print-area * {
     visibility: visible;
+    /* keep the parchment, green striping and gold accents in the PDF */
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
   }
   .print-area {
     position: absolute;
@@ -564,12 +575,25 @@ a {
     background: none;
   }
   .dnd-page {
-    box-shadow: none;
+    /* keep the inner vignette, drop the on-screen drop shadow */
+    box-shadow: inset 0 0 60px rgba(120, 90, 40, 0.18);
     max-width: 100%;
+    min-height: 100vh;
     break-after: page;
   }
   .dnd-book {
     gap: 0;
+  }
+  /* Container queries can't be trusted mid-print; force the preview's column layout */
+  .dnd-page.dnd-columns {
+    columns: 2;
+  }
+  .dnd-page.dnd-columns h1 {
+    column-span: all;
+  }
+  /* Interactive-only affordances have no business on paper */
+  .dnd-roll-bar {
+    display: none;
   }
 }
 
