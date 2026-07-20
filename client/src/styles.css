@@ -372,10 +372,16 @@ a {
   margin: 0 auto;
 }
 
+/* The preview wrapper measures available width for the column switch */
+.dnd-book {
+  container-type: inline-size;
+}
+
 .dnd-page.dnd-columns {
   column-gap: 2.5rem;
 }
-@media (min-width: 1280px) {
+/* Two columns whenever the page itself has room, regardless of window size */
+@container (min-width: 48rem) {
   .dnd-page.dnd-columns {
     columns: 2;
     max-width: 72rem;

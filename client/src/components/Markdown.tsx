@@ -16,7 +16,7 @@ export function Markdown({ children, columns = 2 }: { children: string; columns?
 export function BookView({ children }: { children: string }) {
   const pages = parsePages(children)
   return (
-    <div className="flex flex-col gap-8">
+    <div className="dnd-book flex flex-col gap-8">
       {pages.map((page, i) => (
         <Markdown key={i} columns={page.columns ?? 2}>
           {page.body}
