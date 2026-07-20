@@ -48,6 +48,17 @@ public static class ArticleEndpoints
             return Results.Ok(article);
         });
 
+        group.MapPut("/{id:int}/move", async (int id, ArticleMove input, AppDbContext db) =>
+        {
+            if (await db.Articles.FindAsync(id) is not { } article) return Results.NotFound();
+            if (input.FolderId is { } folderId &&
+                !await db.Folders.AnyAsync(f => f.Id == folderId && f.WorldId == article.WorldId))
+                return Results.BadRequest("Folder does not exist in this world.");
+            article.FolderId = input.FolderId;
+            await db.SaveChangesAsync();
+            return Results.NoContent();
+        });
+
         group.MapDelete("/{id:int}", async (int id, AppDbContext db) =>
         {
             if (await db.Articles.FindAsync(id) is not { } article) return Results.NotFound();

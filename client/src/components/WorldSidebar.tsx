@@ -55,6 +55,9 @@ export function WorldSidebar({ worldId }: { worldId: number }) {
   const [name, setName] = useState('')
   const [templateId, setTemplateId] = useState('blank')
   const [collapsed, setCollapsed] = useState<Set<number>>(new Set())
+  const [dragItem, setDragItem] = useState<{ type: 'article' | 'folder'; id: number } | null>(null)
+  // Folder id being hovered as a drop target; null = the world root area.
+  const [dropTarget, setDropTarget] = useState<number | null | undefined>(undefined)
 
   const invalidateTree = () =>
     queryClient.invalidateQueries({ queryKey: ['worlds', worldId, 'tree'] })
@@ -78,6 +81,19 @@ export function WorldSidebar({ worldId }: { worldId: number }) {
     mutationFn: api.folders.delete,
     onSuccess: invalidateTree,
   })
+  const moveArticle = useMutation({
+    mutationFn: ({ id, folderId }: { id: number; folderId: number | null }) =>
+      api.articles.move(id, folderId),
+    onSuccess: invalidateTree,
+    onError: (error) => alert(error.message),
+  })
+  const moveFolder = useMutation({
+    mutationFn: ({ id, parentFolderId }: { id: number; parentFolderId: number | null }) =>
+      api.folders.move(id, parentFolderId),
+    onSuccess: invalidateTree,
+    onError: (error) => alert(error.message),
+  })
+
   const createArticle = useMutation({
     mutationFn: api.articles.create,
     onSuccess: (article) => {
@@ -113,6 +129,31 @@ export function WorldSidebar({ worldId }: { worldId: number }) {
     setDialog(state)
   }
 
+  const handleDrop = (targetFolderId: number | null) => {
+    if (!dragItem) return
+    if (dragItem.type === 'article') {
+      moveArticle.mutate({ id: dragItem.id, folderId: targetFolderId })
+    } else if (dragItem.id !== targetFolderId) {
+      moveFolder.mutate({ id: dragItem.id, parentFolderId: targetFolderId })
+    }
+    setDragItem(null)
+    setDropTarget(undefined)
+  }
+
+  const dropHandlers = (targetFolderId: number | null) => ({
+    onDragOver: (e: React.DragEvent) => {
+      if (!dragItem) return
+      e.preventDefault()
+      e.stopPropagation()
+      setDropTarget(targetFolderId)
+    },
+    onDrop: (e: React.DragEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
+      handleDrop(targetFolderId)
+    },
+  })
+
   const toggleCollapse = (folderId: number) =>
     setCollapsed((prev) => {
       const next = new Set(prev)
@@ -126,9 +167,16 @@ export function WorldSidebar({ worldId }: { worldId: number }) {
       key={`a${article.id}`}
       to="/worlds/$worldId/articles/$articleId"
       params={{ worldId: String(worldId), articleId: String(article.id) }}
+      draggable
+      onDragStart={() => setDragItem({ type: 'article', id: article.id })}
+      onDragEnd={() => {
+        setDragItem(null)
+        setDropTarget(undefined)
+      }}
       className={cn(
         'hover:bg-accent flex items-center gap-1.5 rounded px-2 py-1 text-sm',
         activeArticleId === article.id && 'bg-accent font-medium',
+        dragItem?.type === 'article' && dragItem.id === article.id && 'opacity-50',
       )}
       style={{ paddingLeft: `${depth * 14 + 8}px` }}
     >
@@ -144,7 +192,21 @@ export function WorldSidebar({ worldId }: { worldId: number }) {
     return (
       <div key={`f${folder.id}`}>
         <div
-          className="hover:bg-accent group flex items-center gap-1 rounded px-2 py-1 text-sm"
+          draggable
+          onDragStart={(e) => {
+            e.stopPropagation()
+            setDragItem({ type: 'folder', id: folder.id })
+          }}
+          onDragEnd={() => {
+            setDragItem(null)
+            setDropTarget(undefined)
+          }}
+          {...dropHandlers(folder.id)}
+          className={cn(
+            'hover:bg-accent group flex items-center gap-1 rounded px-2 py-1 text-sm',
+            dropTarget === folder.id && 'bg-accent ring-primary/50 ring-2',
+            dragItem?.type === 'folder' && dragItem.id === folder.id && 'opacity-50',
+          )}
           style={{ paddingLeft: `${depth * 14 + 4}px` }}
         >
           <button
@@ -244,7 +306,13 @@ export function WorldSidebar({ worldId }: { worldId: number }) {
         </div>
       </div>
       <ScrollArea className="min-h-0 flex-1">
-        <div className="p-2">
+        <div
+          className={cn(
+            'min-h-full p-2',
+            dragItem && dropTarget === null && 'bg-accent/40 rounded ring-primary/30 ring-1',
+          )}
+          {...dropHandlers(null)}
+        >
           {tree.isLoading && <p className="text-muted-foreground px-2 text-sm">Loading…</p>}
           {tree.data && (
             <>

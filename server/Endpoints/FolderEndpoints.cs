@@ -50,6 +50,22 @@ public static class FolderEndpoints
             return Results.NoContent();
         });
 
+        group.MapPut("/{id:int}/move", async (int id, FolderMove input, AppDbContext db) =>
+        {
+            if (await db.Folders.FindAsync(id) is not { } folder) return Results.NotFound();
+            if (input.ParentFolderId == id) return Results.BadRequest("A folder cannot be its own parent.");
+            if (input.ParentFolderId is { } parentId)
+            {
+                if (!await db.Folders.AnyAsync(f => f.Id == parentId && f.WorldId == folder.WorldId))
+                    return Results.BadRequest("Parent folder does not exist in this world.");
+                if (await IsDescendant(db, folder.WorldId, ancestorId: id, candidateId: parentId))
+                    return Results.BadRequest("Cannot move a folder into its own descendant.");
+            }
+            folder.ParentFolderId = input.ParentFolderId;
+            await db.SaveChangesAsync();
+            return Results.NoContent();
+        });
+
         group.MapDelete("/{id:int}", async (int id, AppDbContext db) =>
         {
             if (await db.Folders.FindAsync(id) is not { } folder) return Results.NotFound();

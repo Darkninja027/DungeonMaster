@@ -73,6 +73,11 @@ export const api = {
       request<FolderNode>('/api/folders', { method: 'POST', body: JSON.stringify(input) }),
     update: (id: number, input: { name: string; parentFolderId?: number | null; sortOrder?: number }) =>
       request<void>(`/api/folders/${id}`, { method: 'PUT', body: JSON.stringify(input) }),
+    move: (id: number, parentFolderId: number | null) =>
+      request<void>(`/api/folders/${id}/move`, {
+        method: 'PUT',
+        body: JSON.stringify({ parentFolderId }),
+      }),
     delete: (id: number) => request<void>(`/api/folders/${id}`, { method: 'DELETE' }),
   },
   articles: {
@@ -81,6 +86,11 @@ export const api = {
       request<Article>('/api/articles', { method: 'POST', body: JSON.stringify(input) }),
     update: (id: number, input: { title: string; content: string; folderId: number | null }) =>
       request<Article>(`/api/articles/${id}`, { method: 'PUT', body: JSON.stringify(input) }),
+    move: (id: number, folderId: number | null) =>
+      request<void>(`/api/articles/${id}/move`, {
+        method: 'PUT',
+        body: JSON.stringify({ folderId }),
+      }),
     delete: (id: number) => request<void>(`/api/articles/${id}`, { method: 'DELETE' }),
   },
   images: {

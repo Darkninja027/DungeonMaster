@@ -9,6 +9,8 @@ public record FolderNode(int Id, int? ParentFolderId, string Name, int SortOrder
 
 public record ArticleInput(int WorldId, int? FolderId, string Title, string? Content);
 public record ArticleUpdate(string Title, string Content, int? FolderId);
+public record ArticleMove(int? FolderId);
+public record FolderMove(int? ParentFolderId);
 public record ArticleSummary(int Id, int? FolderId, string Title, DateTime UpdatedAt);
 
 public record WorldTree(List<FolderNode> Folders, List<ArticleSummary> Articles);
