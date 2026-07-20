@@ -182,6 +182,8 @@ export const snippets = {
   divider: '---',
   pageBreak: '\\page',
   singleColumn: '\\columns 1',
+  portraitImage:
+    '![Portrait](https://placehold.co/440x560/8a7a5c/2b2117?text=Portrait#right&w=45%)',
   statBlock: [
     '## Creature Name',
     '',

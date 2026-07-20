@@ -7,7 +7,7 @@ import { domToPng } from 'modern-screenshot'
  * matches the preview exactly (parchment, columns, drop caps, images).
  */
 export async function exportPdf(root: HTMLElement, filename: string) {
-  const pages = Array.from(root.querySelectorAll<HTMLElement>('.dnd-page'))
+  const pages = Array.from(root.querySelectorAll<HTMLElement>('.dnd-page:not(.dnd-measure)'))
   if (pages.length === 0) return
 
   await document.fonts.ready

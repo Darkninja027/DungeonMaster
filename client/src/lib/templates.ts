@@ -51,6 +51,35 @@ Things the players don't know yet. What's really going on beneath the surface.
 `,
   },
   {
+    id: 'portrait',
+    name: 'Character Portrait',
+    description: 'Portrait image with the story wrapping around it',
+    body: `\\columns 1
+
+# Character Name
+
+![Portrait — replace with your own image](https://placehold.co/440x560/8a7a5c/2b2117?text=Portrait#right&w=45%)
+
+*Race · Class or occupation · Alignment*
+
+Introduce them here. This text fills the space beside the portrait — keep
+writing and it wraps naturally around the image. Describe how they carry
+themselves, what people notice first, and the rumor that follows them into
+every room.
+
+## Story
+
+Where they came from, what shaped them, and the wound or triumph that still
+drives them today.
+
+## At the Table
+
+- **Voice & mannerisms:**
+- **What they want from the party:**
+- **What they'll never admit:**
+`,
+  },
+  {
     id: 'npc',
     name: 'NPC',
     description: 'A character with goals and secrets',

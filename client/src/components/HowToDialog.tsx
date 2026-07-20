@@ -59,6 +59,12 @@ export function HowToDialog() {
             <Row code="![alt](url)" desc="An image with a plate-style frame. Use the Images button to upload and insert." />
           </Section>
 
+          <Section title="Image size & placement">
+            <Row code="![alt](url#right&w=45%)" desc="Floats the image right at 45% width — text fills the space around it. Use #left to float left, #center to center." />
+            <Row code="#w=300 / #h=200" desc="Set width or height in px or %. Bare numbers are px; combine options with &, e.g. #left&w=300&h=220." />
+            <Row code="#right&nowrap" desc="No text wrap: the image sits on its own line (aligned left/right/center) with text above and below. #block works too." />
+          </Section>
+
           <Section title="Linking articles">
             <Row code="[[Article Title]]" desc="Links to the article with that exact title (case doesn't matter). Typing [[ pops up title suggestions — Tab or Enter to complete." />
             <Row code="[[Article Title|shown text]]" desc="Same link, but displays different text." />
@@ -72,9 +78,10 @@ export function HowToDialog() {
           </Section>
 
           <Section title="Pages & columns">
-            <Row code="\page" desc="On its own line: ends the current book page and starts a new one." />
+            <Row code="Auto page breaks" desc="Pages are US-Letter sized. When content outgrows a page it flows onto a new one automatically, in the preview and the PDF export alike." />
+            <Row code="\page" desc="On its own line: force a new book page here." />
             <Row code="\columns 1" desc="At the top of a page: render that page as a single column." />
-            <Row code="\columns 2" desc="Two columns (the default on wide screens)." />
+            <Row code="\columns 2" desc="Two columns (the default)." />
           </Section>
 
           <Section title="Tools">

@@ -233,6 +233,9 @@ function ArticlePage() {
               <DropdownMenuItem onClick={() => insertBlock(snippets.statBlock)}>
                 Stat block
               </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => insertBlock(snippets.portraitImage)}>
+                Portrait image (text wraps)
+              </DropdownMenuItem>
               <DropdownMenuItem onClick={() => insertBlock(snippets.pageBreak)}>
                 Page break
               </DropdownMenuItem>
