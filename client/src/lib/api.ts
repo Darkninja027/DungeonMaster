@@ -1,5 +1,21 @@
+/**
+ * Data layer for the Electron desktop app. Every call crosses the preload
+ * bridge (window.dmApi) into the main process, which reads and writes plain
+ * files inside the world folder — no server, no database.
+ *
+ * Ids are path strings: a world id is an opaque key for the world folder, an
+ * article id is its world-relative path without ".md" ("NPCs/Strahd"), and a
+ * folder id is its world-relative directory path. null folder = world root.
+ */
+
+declare global {
+  interface Window {
+    dmApi: { invoke: <T>(channel: string, args?: unknown) => Promise<T> }
+  }
+}
+
 export interface WorldSummary {
-  id: number
+  id: string
   name: string
   description: string
   createdAt: string
@@ -7,15 +23,15 @@ export interface WorldSummary {
 }
 
 export interface FolderNode {
-  id: number
-  parentFolderId: number | null
+  id: string
+  parentFolderId: string | null
   name: string
   sortOrder: number
 }
 
 export interface ArticleSummary {
-  id: number
-  folderId: number | null
+  id: string
+  folderId: string | null
   title: string
   updatedAt: string
 }
@@ -26,9 +42,9 @@ export interface WorldTree {
 }
 
 export interface Article {
-  id: number
-  worldId: number
-  folderId: number | null
+  id: string
+  worldId: string
+  folderId: string | null
   title: string
   content: string
   createdAt: string
@@ -36,19 +52,19 @@ export interface Article {
 }
 
 export interface SearchResult {
-  id: number
-  folderId: number | null
+  id: string
+  folderId: string | null
   title: string
   snippet: string
 }
 
 export interface MentionResult {
-  id: number
+  id: string
   title: string
 }
 
 export interface ImageInfo {
-  id: number
+  id: string
   fileName: string
   contentType: string
   sizeBytes: number
@@ -56,65 +72,60 @@ export interface ImageInfo {
   url: string
 }
 
-async function request<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, {
-    headers: init?.body instanceof FormData ? undefined : { 'Content-Type': 'application/json' },
-    ...init,
-  })
-  if (!res.ok) {
-    const text = await res.text()
-    throw new Error(text || `${res.status} ${res.statusText}`)
-  }
-  if (res.status === 204) return undefined as T
-  return res.json() as Promise<T>
+function invoke<T>(channel: string, args?: unknown): Promise<T> {
+  return window.dmApi.invoke<T>(channel, args)
 }
 
 export const api = {
   worlds: {
-    list: () => request<Array<WorldSummary>>('/api/worlds'),
-    get: (id: number) => request<WorldSummary>(`/api/worlds/${id}`),
-    tree: (id: number) => request<WorldTree>(`/api/worlds/${id}/tree`),
-    search: (id: number, q: string) =>
-      request<Array<SearchResult>>(`/api/worlds/${id}/search?q=${encodeURIComponent(q)}`),
+    list: () => invoke<Array<WorldSummary>>('worlds:list'),
+    /** Directory picker; returns null if the user cancels. */
+    open: () => invoke<WorldSummary | null>('worlds:pickAndOpen'),
+    get: (worldId: string) => invoke<WorldSummary>('worlds:get', { worldId }),
+    tree: (worldId: string) => invoke<WorldTree>('worlds:tree', { worldId }),
+    search: (worldId: string, query: string) =>
+      invoke<Array<SearchResult>>('worlds:search', { worldId, query }),
+    /** Directory picker for the parent location; returns null if cancelled. */
     create: (input: { name: string; description?: string }) =>
-      request<WorldSummary>('/api/worlds', { method: 'POST', body: JSON.stringify(input) }),
-    update: (id: number, input: { name: string; description?: string }) =>
-      request<void>(`/api/worlds/${id}`, { method: 'PUT', body: JSON.stringify(input) }),
-    delete: (id: number) => request<void>(`/api/worlds/${id}`, { method: 'DELETE' }),
+      invoke<WorldSummary | null>('worlds:create', input),
+    update: (worldId: string, input: { name: string; description?: string }) =>
+      invoke<void>('worlds:update', { worldId, ...input }),
+    /** Removes the world from the recents list only — the folder stays on disk. */
+    remove: (worldId: string) => invoke<void>('worlds:remove', { worldId }),
   },
   folders: {
-    create: (input: { worldId: number; parentFolderId?: number | null; name: string }) =>
-      request<FolderNode>('/api/folders', { method: 'POST', body: JSON.stringify(input) }),
-    update: (id: number, input: { name: string; parentFolderId?: number | null; sortOrder?: number }) =>
-      request<void>(`/api/folders/${id}`, { method: 'PUT', body: JSON.stringify(input) }),
-    move: (id: number, parentFolderId: number | null) =>
-      request<void>(`/api/folders/${id}/move`, {
-        method: 'PUT',
-        body: JSON.stringify({ parentFolderId }),
-      }),
-    delete: (id: number) => request<void>(`/api/folders/${id}`, { method: 'DELETE' }),
+    create: (input: { worldId: string; parentFolderId?: string | null; name: string }) =>
+      invoke<FolderNode>('folders:create', input),
+    rename: (worldId: string, folderId: string, name: string) =>
+      invoke<void>('folders:rename', { worldId, folderId, name }),
+    move: (worldId: string, folderId: string, parentFolderId: string | null) =>
+      invoke<void>('folders:move', { worldId, folderId, parentFolderId }),
+    delete: (worldId: string, folderId: string) =>
+      invoke<void>('folders:delete', { worldId, folderId }),
   },
   articles: {
-    get: (id: number) => request<Article>(`/api/articles/${id}`),
-    mentions: (id: number) => request<Array<MentionResult>>(`/api/articles/${id}/mentions`),
-    create: (input: { worldId: number; folderId?: number | null; title: string; content?: string }) =>
-      request<Article>('/api/articles', { method: 'POST', body: JSON.stringify(input) }),
-    update: (id: number, input: { title: string; content: string; folderId: number | null }) =>
-      request<Article>(`/api/articles/${id}`, { method: 'PUT', body: JSON.stringify(input) }),
-    move: (id: number, folderId: number | null) =>
-      request<void>(`/api/articles/${id}/move`, {
-        method: 'PUT',
-        body: JSON.stringify({ folderId }),
-      }),
-    delete: (id: number) => request<void>(`/api/articles/${id}`, { method: 'DELETE' }),
+    get: (worldId: string, articleId: string) =>
+      invoke<Article>('articles:get', { worldId, articleId }),
+    mentions: (worldId: string, articleId: string) =>
+      invoke<Array<MentionResult>>('articles:mentions', { worldId, articleId }),
+    create: (input: { worldId: string; folderId?: string | null; title: string; content?: string }) =>
+      invoke<Article>('articles:create', input),
+    update: (worldId: string, articleId: string, input: { title: string; content: string }) =>
+      invoke<Article>('articles:update', { worldId, articleId, ...input }),
+    move: (worldId: string, articleId: string, folderId: string | null) =>
+      invoke<void>('articles:move', { worldId, articleId, folderId }),
+    delete: (worldId: string, articleId: string) =>
+      invoke<void>('articles:delete', { worldId, articleId }),
   },
   images: {
-    list: (worldId: number) => request<Array<ImageInfo>>(`/api/worlds/${worldId}/images`),
-    upload: (worldId: number, file: File) => {
-      const form = new FormData()
-      form.append('file', file)
-      return request<ImageInfo>(`/api/worlds/${worldId}/images`, { method: 'POST', body: form })
-    },
-    delete: (id: number) => request<void>(`/api/images/${id}`, { method: 'DELETE' }),
+    list: (worldId: string) => invoke<Array<ImageInfo>>('images:list', { worldId }),
+    upload: async (worldId: string, file: File) =>
+      invoke<ImageInfo>('images:upload', {
+        worldId,
+        fileName: file.name,
+        bytes: await file.arrayBuffer(),
+      }),
+    delete: (worldId: string, imageId: string) =>
+      invoke<void>('images:delete', { worldId, imageId }),
   },
 }

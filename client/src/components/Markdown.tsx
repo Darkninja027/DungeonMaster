@@ -145,11 +145,17 @@ function parseImageSrc(src: string | undefined): {
 function createComponents(
   push: (href: string) => void,
   onCreateMissing?: (title: string) => void,
+  worldId?: string,
 ): Components {
   return {
     table: ({ children }) => <RollableTable>{children}</RollableTable>,
     img: ({ src, alt, ...props }) => {
       const parsed = parseImageSrc(typeof src === 'string' ? src : undefined)
+      // Markdown on disk references images by portable relative path
+      // (_images/foo.png); the app serves them through the world:// protocol.
+      if (parsed.src?.startsWith('_images/') && worldId) {
+        parsed.src = `world://${worldId}/${parsed.src}`
+      }
       return (
         <img src={parsed.src} alt={alt} style={parsed.style} className={parsed.className} {...props} />
       )
@@ -195,8 +201,8 @@ function createComponents(
 }
 
 interface RenderContext {
-  articles?: Array<{ id: number; title: string }>
-  worldId?: number
+  articles?: Array<{ id: string; title: string }>
+  worldId?: string
   onCreateMissing?: (title: string) => void
 }
 
@@ -213,8 +219,8 @@ export function Markdown({
 }: { children: string; columns?: 1 | 2 } & RenderContext) {
   const router = useRouter()
   const components = useMemo(
-    () => createComponents((href) => router.history.push(href), onCreateMissing),
-    [router, onCreateMissing],
+    () => createComponents((href) => router.history.push(href), onCreateMissing, worldId),
+    [router, onCreateMissing, worldId],
   )
   const body = linkifyDice(
     articles && worldId != null ? resolveWikiLinks(children, articles, worldId) : children,

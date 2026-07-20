@@ -37,16 +37,16 @@ import { ScrollArea } from '#/components/ui/scroll-area'
 
 interface NameDialogState {
   mode: 'new-folder' | 'rename-folder' | 'new-article'
-  parentFolderId: number | null
-  folderId?: number
+  parentFolderId: string | null
+  folderId?: string
   initial?: string
 }
 
-export function WorldSidebar({ worldId }: { worldId: number }) {
+export function WorldSidebar({ worldId }: { worldId: string }) {
   const queryClient = useQueryClient()
   const navigate = useNavigate()
   const params = useParams({ strict: false })
-  const activeArticleId = params.articleId ? Number(params.articleId) : null
+  const activeArticleId = params.articleId ?? null
 
   const tree = useQuery({
     queryKey: ['worlds', worldId, 'tree'],
@@ -56,10 +56,10 @@ export function WorldSidebar({ worldId }: { worldId: number }) {
   const [dialog, setDialog] = useState<NameDialogState | null>(null)
   const [name, setName] = useState('')
   const [templateId, setTemplateId] = useState('blank')
-  const [collapsed, setCollapsed] = useState<Set<number>>(new Set())
-  const [dragItem, setDragItem] = useState<{ type: 'article' | 'folder'; id: number } | null>(null)
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
+  const [dragItem, setDragItem] = useState<{ type: 'article' | 'folder'; id: string } | null>(null)
   // Folder id being hovered as a drop target; null = the world root area.
-  const [dropTarget, setDropTarget] = useState<number | null | undefined>(undefined)
+  const [dropTarget, setDropTarget] = useState<string | null | undefined>(undefined)
   const [searchInput, setSearchInput] = useState('')
   const [searchTerm, setSearchTerm] = useState('')
 
@@ -83,28 +83,30 @@ export function WorldSidebar({ worldId }: { worldId: number }) {
       invalidateTree()
       setDialog(null)
     },
+    onError: (error) => alert(error.message),
   })
   const renameFolder = useMutation({
-    mutationFn: ({ id, ...input }: { id: number; name: string; parentFolderId: number | null }) =>
-      api.folders.update(id, input),
+    mutationFn: ({ id, name: newName }: { id: string; name: string }) =>
+      api.folders.rename(worldId, id, newName),
     onSuccess: () => {
       invalidateTree()
       setDialog(null)
     },
+    onError: (error) => alert(error.message),
   })
   const deleteFolder = useMutation({
-    mutationFn: api.folders.delete,
+    mutationFn: (id: string) => api.folders.delete(worldId, id),
     onSuccess: invalidateTree,
   })
   const moveArticle = useMutation({
-    mutationFn: ({ id, folderId }: { id: number; folderId: number | null }) =>
-      api.articles.move(id, folderId),
+    mutationFn: ({ id, folderId }: { id: string; folderId: string | null }) =>
+      api.articles.move(worldId, id, folderId),
     onSuccess: invalidateTree,
     onError: (error) => alert(error.message),
   })
   const moveFolder = useMutation({
-    mutationFn: ({ id, parentFolderId }: { id: number; parentFolderId: number | null }) =>
-      api.folders.move(id, parentFolderId),
+    mutationFn: ({ id, parentFolderId }: { id: string; parentFolderId: string | null }) =>
+      api.folders.move(worldId, id, parentFolderId),
     onSuccess: invalidateTree,
     onError: (error) => alert(error.message),
   })
@@ -116,7 +118,7 @@ export function WorldSidebar({ worldId }: { worldId: number }) {
       setDialog(null)
       navigate({
         to: '/worlds/$worldId/articles/$articleId',
-        params: { worldId: String(worldId), articleId: String(article.id) },
+        params: { worldId, articleId: article.id },
       })
     },
   })
@@ -126,7 +128,7 @@ export function WorldSidebar({ worldId }: { worldId: number }) {
     if (dialog.mode === 'new-folder') {
       createFolder.mutate({ worldId, parentFolderId: dialog.parentFolderId, name })
     } else if (dialog.mode === 'rename-folder' && dialog.folderId != null) {
-      renameFolder.mutate({ id: dialog.folderId, name, parentFolderId: dialog.parentFolderId })
+      renameFolder.mutate({ id: dialog.folderId, name })
     } else if (dialog.mode === 'new-article') {
       const template = articleTemplates.find((t) => t.id === templateId)
       createArticle.mutate({
@@ -144,7 +146,7 @@ export function WorldSidebar({ worldId }: { worldId: number }) {
     setDialog(state)
   }
 
-  const handleDrop = (targetFolderId: number | null) => {
+  const handleDrop = (targetFolderId: string | null) => {
     if (!dragItem) return
     if (dragItem.type === 'article') {
       moveArticle.mutate({ id: dragItem.id, folderId: targetFolderId })
@@ -155,7 +157,7 @@ export function WorldSidebar({ worldId }: { worldId: number }) {
     setDropTarget(undefined)
   }
 
-  const dropHandlers = (targetFolderId: number | null) => ({
+  const dropHandlers = (targetFolderId: string | null) => ({
     onDragOver: (e: React.DragEvent) => {
       if (!dragItem) return
       e.preventDefault()
@@ -169,7 +171,7 @@ export function WorldSidebar({ worldId }: { worldId: number }) {
     },
   })
 
-  const toggleCollapse = (folderId: number) =>
+  const toggleCollapse = (folderId: string) =>
     setCollapsed((prev) => {
       const next = new Set(prev)
       if (next.has(folderId)) next.delete(folderId)
@@ -181,7 +183,7 @@ export function WorldSidebar({ worldId }: { worldId: number }) {
     <Link
       key={`a${article.id}`}
       to="/worlds/$worldId/articles/$articleId"
-      params={{ worldId: String(worldId), articleId: String(article.id) }}
+      params={{ worldId, articleId: article.id }}
       draggable
       onDragStart={() => setDragItem({ type: 'article', id: article.id })}
       onDragEnd={() => {
@@ -273,7 +275,11 @@ export function WorldSidebar({ worldId }: { worldId: number }) {
               <DropdownMenuItem
                 variant="destructive"
                 onClick={() => {
-                  if (confirm(`Delete folder "${folder.name}"? Articles inside move to the world root.`)) {
+                  if (
+                    confirm(
+                      `Delete folder "${folder.name}" and everything inside it? It goes to the Recycle Bin.`,
+                    )
+                  ) {
                     deleteFolder.mutate(folder.id)
                   }
                 }}
@@ -351,7 +357,7 @@ export function WorldSidebar({ worldId }: { worldId: number }) {
               <Link
                 key={result.id}
                 to="/worlds/$worldId/articles/$articleId"
-                params={{ worldId: String(worldId), articleId: String(result.id) }}
+                params={{ worldId, articleId: result.id }}
                 className="hover:bg-accent block rounded px-2 py-1.5"
                 onClick={() => setSearchInput('')}
               >
@@ -439,6 +445,9 @@ export function WorldSidebar({ worldId }: { worldId: number }) {
                 ))}
               </div>
             </div>
+          )}
+          {createArticle.isError && (
+            <p className="text-destructive text-sm">{createArticle.error.message}</p>
           )}
           <DialogFooter>
             <Button disabled={!name.trim()} onClick={submitDialog}>

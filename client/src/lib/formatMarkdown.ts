@@ -112,8 +112,8 @@ const WIKI_LINK = /\[\[([^\][\n|]+)(?:\|([^\][\n]+))?\]\]/g
 
 export function resolveWikiLinks(
   text: string,
-  articles: Array<{ id: number; title: string }>,
-  worldId: number,
+  articles: Array<{ id: string; title: string }>,
+  worldId: string,
 ): string {
   const byTitle = new Map(articles.map((a) => [a.title.trim().toLowerCase(), a.id]))
   // remark escapes leading brackets as \[\[ — normalize before matching
@@ -121,7 +121,7 @@ export function resolveWikiLinks(
     const label = (display ?? title).trim()
     const id = byTitle.get(title.trim().toLowerCase())
     return id != null
-      ? `[${label}](/worlds/${worldId}/articles/${id})`
+      ? `[${label}](/worlds/${worldId}/articles/${encodeURIComponent(id)})`
       : `[${label}](missing:${encodeURIComponent(title.trim())})`
   })
 }
