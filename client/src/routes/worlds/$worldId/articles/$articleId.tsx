@@ -1,7 +1,18 @@
-import { useEffect, useRef, useState } from 'react'
+import { useDeferredValue, useEffect, useRef, useState } from 'react'
 import { Link, createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ChevronDown, Eye, FileDown, Link2, Loader2, Pencil, Save, Trash2, Wand2 } from 'lucide-react'
+import {
+  ChevronDown,
+  Columns2,
+  Eye,
+  FileDown,
+  Link2,
+  Loader2,
+  Pencil,
+  Save,
+  Trash2,
+  Wand2,
+} from 'lucide-react'
 import { api } from '#/lib/api'
 import { exportPdf } from '#/lib/exportPdf'
 import { formatMarkdown, snippets } from '#/lib/formatMarkdown'
@@ -57,6 +68,54 @@ function LinkToArticle({
   )
 }
 
+/**
+ * Side-by-side live preview for the Write tab. The book pages are a fixed
+ * 816px wide, so the pane scales them to fit its own width.
+ */
+function LivePreviewPane({
+  content,
+  articles,
+  worldId,
+  onCreateMissing,
+}: {
+  content: string
+  articles?: Array<{ id: string; title: string }>
+  worldId: string
+  onCreateMissing: (title: string) => void
+}) {
+  const ref = useRef<HTMLDivElement>(null)
+  const [scale, setScale] = useState(0.6)
+  // Defer keystrokes so typing stays snappy while the preview catches up.
+  const deferred = useDeferredValue(content)
+
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const measure = () => setScale(Math.min(1, (el.clientWidth - 24) / 840))
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
+
+  return (
+    <div
+      ref={ref}
+      className="w-1/2 shrink-0 overflow-y-auto border-l bg-stone-800/90 dark:bg-stone-950"
+    >
+      <div className="p-3" style={{ zoom: scale }}>
+        {deferred.trim() ? (
+          <BookView articles={articles} worldId={worldId} onCreateMissing={onCreateMissing}>
+            {deferred}
+          </BookView>
+        ) : (
+          <p className="text-stone-400">Start typing to see the preview.</p>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function ArticlePage() {
   const { worldId, articleId } = Route.useParams()
   const queryClient = useQueryClient()
@@ -79,6 +138,7 @@ function ArticlePage() {
   const [content, setContent] = useState('')
   const [dirty, setDirty] = useState(false)
   const [tab, setTab] = useState('write')
+  const [livePreview, setLivePreview] = useState(false)
   const [exporting, setExporting] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -328,7 +388,7 @@ function ArticlePage() {
       )}
 
       <Tabs value={tab} onValueChange={setTab} className="min-h-0 flex-1 gap-0">
-        <div className="border-b px-4 py-1.5">
+        <div className="flex items-center border-b px-4 py-1.5">
           <TabsList className="h-8">
             <TabsTrigger value="write" className="text-xs">
               <Pencil className="size-3.5" /> Write
@@ -337,6 +397,17 @@ function ArticlePage() {
               <Eye className="size-3.5" /> Preview
             </TabsTrigger>
           </TabsList>
+          {tab === 'write' && (
+            <Button
+              variant={livePreview ? 'secondary' : 'ghost'}
+              size="sm"
+              className="ml-auto h-8 text-xs"
+              title="Show a live preview beside the editor"
+              onClick={() => setLivePreview((v) => !v)}
+            >
+              <Columns2 className="size-3.5" /> Live preview
+            </Button>
+          )}
         </div>
         <TabsContent value="write" className="flex min-h-0 flex-1 flex-col">
           {linkQuery !== null && linkMatches.length > 0 && (
@@ -361,37 +432,50 @@ function ArticlePage() {
               <span className="text-muted-foreground shrink-0 text-xs">↹ Tab · ⏎ Enter</span>
             </div>
           )}
-          <Textarea
-            ref={textareaRef}
-            value={content}
-            placeholder="Write your lore in markdown…"
-            className="h-full min-h-0 flex-1 resize-none rounded-none border-none font-mono text-sm shadow-none focus-visible:ring-0"
-            onChange={(e) => {
-              setContent(e.target.value)
-              setDirty(true)
-              requestAnimationFrame(updateLinkQuery)
-            }}
-            onClick={updateLinkQuery}
-            onKeyUp={(e) => {
-              if (!['ArrowDown', 'ArrowUp', 'Enter', 'Tab', 'Escape'].includes(e.key))
-                updateLinkQuery()
-            }}
-            onKeyDown={(e) => {
-              if (linkQuery === null || linkMatches.length === 0) return
-              if (e.key === 'ArrowDown') {
-                e.preventDefault()
-                setLinkIndex((i) => (i + 1) % linkMatches.length)
-              } else if (e.key === 'ArrowUp') {
-                e.preventDefault()
-                setLinkIndex((i) => (i - 1 + linkMatches.length) % linkMatches.length)
-              } else if (e.key === 'Enter' || e.key === 'Tab') {
-                e.preventDefault()
-                completeLink(linkMatches[linkIndex].title)
-              } else if (e.key === 'Escape') {
-                setLinkQuery(null)
-              }
-            }}
-          />
+          <div className="flex min-h-0 flex-1">
+            <Textarea
+              ref={textareaRef}
+              value={content}
+              placeholder="Write your lore in markdown…"
+              className="h-full min-h-0 flex-1 resize-none rounded-none border-none font-mono text-sm shadow-none focus-visible:ring-0"
+              onChange={(e) => {
+                setContent(e.target.value)
+                setDirty(true)
+                requestAnimationFrame(updateLinkQuery)
+              }}
+              onClick={updateLinkQuery}
+              onKeyUp={(e) => {
+                if (!['ArrowDown', 'ArrowUp', 'Enter', 'Tab', 'Escape'].includes(e.key))
+                  updateLinkQuery()
+              }}
+              onKeyDown={(e) => {
+                if (linkQuery === null || linkMatches.length === 0) return
+                if (e.key === 'ArrowDown') {
+                  e.preventDefault()
+                  setLinkIndex((i) => (i + 1) % linkMatches.length)
+                } else if (e.key === 'ArrowUp') {
+                  e.preventDefault()
+                  setLinkIndex((i) => (i - 1 + linkMatches.length) % linkMatches.length)
+                } else if (e.key === 'Enter' || e.key === 'Tab') {
+                  e.preventDefault()
+                  completeLink(linkMatches[linkIndex].title)
+                } else if (e.key === 'Escape') {
+                  setLinkQuery(null)
+                }
+              }}
+            />
+            {livePreview && (
+              <LivePreviewPane
+                content={content}
+                articles={tree.data?.articles}
+                worldId={worldId}
+                onCreateMissing={(t) => {
+                  setMissingTemplate('blank')
+                  setMissingTitle(t)
+                }}
+              />
+            )}
+          </div>
         </TabsContent>
         <TabsContent
           value="preview"

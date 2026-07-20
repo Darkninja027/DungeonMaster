@@ -10,8 +10,17 @@
 
 declare global {
   interface Window {
-    dmApi: { invoke: <T>(channel: string, args?: unknown) => Promise<T> }
+    dmApi: {
+      invoke: <T>(channel: string, args?: unknown) => Promise<T>
+      /** Subscribe to a main->renderer event; returns an unsubscribe fn. */
+      on: (channel: string, cb: (payload: unknown) => void) => () => void
+    }
   }
+}
+
+export interface UpdateStatus {
+  state: 'checking' | 'available' | 'downloaded' | 'idle' | 'error'
+  version?: string
 }
 
 export interface WorldSummary {
@@ -127,5 +136,12 @@ export const api = {
       }),
     delete: (worldId: string, imageId: string) =>
       invoke<void>('images:delete', { worldId, imageId }),
+  },
+  updates: {
+    /** Subscribe to auto-update status; returns an unsubscribe fn. */
+    onStatus: (cb: (status: UpdateStatus) => void) =>
+      window.dmApi.on('updates:status', (payload) => cb(payload as UpdateStatus)),
+    /** Quit and install a downloaded update. */
+    quitAndInstall: () => invoke<void>('updates:quitAndInstall'),
   },
 }
