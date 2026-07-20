@@ -14,6 +14,7 @@ function createWindow() {
     height: 900,
     show: false,
     autoHideMenuBar: true,
+    title: `DungeonMaster v${app.getVersion()}`,
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.cjs'),
       contextIsolation: true,
@@ -23,6 +24,8 @@ function createWindow() {
   })
 
   win.once('ready-to-show', () => win.show())
+  // Keep our versioned title — the page's <title> would overwrite it on load.
+  win.on('page-title-updated', (e) => e.preventDefault())
 
   if (devServerUrl) {
     void win.loadURL(devServerUrl)
