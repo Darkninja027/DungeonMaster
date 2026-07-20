@@ -20,6 +20,14 @@ import { Input } from '#/components/ui/input'
 import { Separator } from '#/components/ui/separator'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '#/components/ui/tabs'
 import { Textarea } from '#/components/ui/textarea'
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '#/components/ui/dialog'
+import { cn } from '#/lib/utils'
 import { BookView } from '#/components/Markdown'
 import { ImagePickerDialog } from '#/components/ImagePickerDialog'
 import { HowToDialog } from '#/components/HowToDialog'
@@ -74,6 +82,46 @@ function ArticlePage() {
   const [tab, setTab] = useState('write')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
+  // [[ autocomplete: the partial title being typed after an unclosed [[
+  const [linkQuery, setLinkQuery] = useState<string | null>(null)
+  const [linkIndex, setLinkIndex] = useState(0)
+  // Create-from-broken-link dialog
+  const [missingTitle, setMissingTitle] = useState<string | null>(null)
+  const [missingTemplate, setMissingTemplate] = useState('blank')
+
+  const linkMatches =
+    linkQuery !== null
+      ? (tree.data?.articles ?? [])
+          .filter((a) => a.id !== id && a.title.toLowerCase().includes(linkQuery.toLowerCase()))
+          .slice(0, 6)
+      : []
+
+  const updateLinkQuery = () => {
+    const textarea = textareaRef.current
+    if (!textarea) return setLinkQuery(null)
+    const before = textarea.value.slice(0, textarea.selectionStart)
+    const m = before.match(/\[\[([^\][\n]*)$/)
+    setLinkQuery(m ? m[1] : null)
+    setLinkIndex(0)
+  }
+
+  const completeLink = (linkTitle: string) => {
+    const textarea = textareaRef.current
+    if (!textarea) return
+    const pos = textarea.selectionStart
+    const start = content.lastIndexOf('[[', pos)
+    if (start < 0) return
+    const inserted = `[[${linkTitle}]]`
+    setContent(content.slice(0, start) + inserted + content.slice(pos))
+    setDirty(true)
+    setLinkQuery(null)
+    const cursor = start + inserted.length
+    setTimeout(() => {
+      textarea.focus()
+      textarea.setSelectionRange(cursor, cursor)
+    }, 0)
+  }
+
   // Reset the editor whenever a different (or freshly loaded) article arrives.
   useEffect(() => {
     if (article.data) {
@@ -107,6 +155,19 @@ function ArticlePage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['worlds', wId, 'tree'] })
       navigate({ to: '/worlds/$worldId', params: { worldId } })
+    },
+  })
+
+  const createMissing = useMutation({
+    mutationFn: (input: { title: string; content: string }) =>
+      api.articles.create({ worldId: wId, title: input.title, content: input.content }),
+    onSuccess: (created) => {
+      queryClient.invalidateQueries({ queryKey: ['worlds', wId, 'tree'] })
+      setMissingTitle(null)
+      navigate({
+        to: '/worlds/$worldId/articles/$articleId',
+        params: { worldId, articleId: String(created.id) },
+      })
     },
   })
 
@@ -250,15 +311,58 @@ function ArticlePage() {
             </TabsTrigger>
           </TabsList>
         </div>
-        <TabsContent value="write" className="min-h-0 flex-1">
+        <TabsContent value="write" className="flex min-h-0 flex-1 flex-col">
+          {linkQuery !== null && linkMatches.length > 0 && (
+            <div className="bg-muted/60 flex items-center gap-1.5 overflow-x-auto border-b px-3 py-1.5 text-sm">
+              <span className="text-muted-foreground shrink-0 text-xs">Link to:</span>
+              {linkMatches.map((match, i) => (
+                <button
+                  key={match.id}
+                  type="button"
+                  className={cn(
+                    'shrink-0 rounded border px-2 py-0.5 text-xs',
+                    i === linkIndex ? 'bg-accent border-primary' : 'hover:bg-accent',
+                  )}
+                  onMouseDown={(e) => {
+                    e.preventDefault()
+                    completeLink(match.title)
+                  }}
+                >
+                  {match.title}
+                </button>
+              ))}
+              <span className="text-muted-foreground shrink-0 text-xs">↹ Tab · ⏎ Enter</span>
+            </div>
+          )}
           <Textarea
             ref={textareaRef}
             value={content}
             placeholder="Write your lore in markdown…"
-            className="h-full resize-none rounded-none border-none font-mono text-sm shadow-none focus-visible:ring-0"
+            className="h-full min-h-0 flex-1 resize-none rounded-none border-none font-mono text-sm shadow-none focus-visible:ring-0"
             onChange={(e) => {
               setContent(e.target.value)
               setDirty(true)
+              requestAnimationFrame(updateLinkQuery)
+            }}
+            onClick={updateLinkQuery}
+            onKeyUp={(e) => {
+              if (!['ArrowDown', 'ArrowUp', 'Enter', 'Tab', 'Escape'].includes(e.key))
+                updateLinkQuery()
+            }}
+            onKeyDown={(e) => {
+              if (linkQuery === null || linkMatches.length === 0) return
+              if (e.key === 'ArrowDown') {
+                e.preventDefault()
+                setLinkIndex((i) => (i + 1) % linkMatches.length)
+              } else if (e.key === 'ArrowUp') {
+                e.preventDefault()
+                setLinkIndex((i) => (i - 1 + linkMatches.length) % linkMatches.length)
+              } else if (e.key === 'Enter' || e.key === 'Tab') {
+                e.preventDefault()
+                completeLink(linkMatches[linkIndex].title)
+              } else if (e.key === 'Escape') {
+                setLinkQuery(null)
+              }
             }}
           />
         </TabsContent>
@@ -268,7 +372,14 @@ function ArticlePage() {
         >
           <div className="print-area p-6 md:p-10">
             {content.trim() ? (
-              <BookView articles={tree.data?.articles} worldId={wId}>
+              <BookView
+                articles={tree.data?.articles}
+                worldId={wId}
+                onCreateMissing={(t) => {
+                  setMissingTemplate('blank')
+                  setMissingTitle(t)
+                }}
+              >
                 {content}
               </BookView>
             ) : (
@@ -296,6 +407,47 @@ function ArticlePage() {
           </span>
         )}
       </div>
+
+      <Dialog open={missingTitle !== null} onOpenChange={(o) => !o && setMissingTitle(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Create "{missingTitle}"</DialogTitle>
+          </DialogHeader>
+          <div className="grid grid-cols-2 gap-2">
+            {articleTemplates.map((template) => (
+              <button
+                key={template.id}
+                type="button"
+                className={cn(
+                  'rounded-md border p-2 text-left transition-colors',
+                  missingTemplate === template.id ? 'border-primary bg-accent' : 'hover:bg-accent/50',
+                )}
+                onClick={() => setMissingTemplate(template.id)}
+              >
+                <span className="block text-sm font-medium">{template.name}</span>
+                <span className="text-muted-foreground block text-xs">{template.description}</span>
+              </button>
+            ))}
+          </div>
+          {createMissing.isError && (
+            <p className="text-destructive text-sm">{createMissing.error.message}</p>
+          )}
+          <DialogFooter>
+            <Button
+              disabled={createMissing.isPending}
+              onClick={() =>
+                missingTitle &&
+                createMissing.mutate({
+                  title: missingTitle,
+                  content: articleTemplates.find((t) => t.id === missingTemplate)?.body ?? '',
+                })
+              }
+            >
+              Create article
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

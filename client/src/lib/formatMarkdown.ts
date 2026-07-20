@@ -120,8 +120,55 @@ export function resolveWikiLinks(
   return text.replaceAll('\\[\\[', '[[').replace(WIKI_LINK, (_, title: string, display?: string) => {
     const label = (display ?? title).trim()
     const id = byTitle.get(title.trim().toLowerCase())
-    return id != null ? `[${label}](/worlds/${worldId}/articles/${id})` : `[${label}](#missing)`
+    return id != null
+      ? `[${label}](/worlds/${worldId}/articles/${id})`
+      : `[${label}](missing:${encodeURIComponent(title.trim())})`
   })
+}
+
+/**
+ * Turn dice notation (2d6+3, d20, ...) into dice: links the renderer shows
+ * as clickable roll chips. Code spans and fences are left alone.
+ */
+export function linkifyDice(text: string): string {
+  return text
+    .split(/(```[\s\S]*?```|`[^`\n]*`)/)
+    .map((segment, i) =>
+      i % 2 === 1
+        ? segment
+        : segment.replace(
+            /(?<![\w/[])(\d{0,2}d\d{1,3}(?:[+-]\d{1,3})?)(?!\w)/g,
+            (m) => `[${m}](dice:${encodeURIComponent(m)})`,
+          ),
+    )
+    .join('')
+}
+
+export interface DiceResult {
+  total: number
+  detail: string
+}
+
+export function rollDice(notation: string): DiceResult | null {
+  const m = notation.replace(/\s+/g, '').match(/^(\d*)d(\d+)([+-]\d+)?$/i)
+  if (!m) return null
+  const count = Number(m[1] || 1)
+  const sides = Number(m[2])
+  const mod = m[3] ? Number(m[3]) : 0
+  if (count < 1 || count > 100 || sides < 2 || sides > 1000) return null
+  const rolls = Array.from({ length: count }, () => 1 + Math.floor(Math.random() * sides))
+  return {
+    total: rolls.reduce((a, b) => a + b, 0) + mod,
+    detail: rolls.join(' + ') + (mod !== 0 ? ` (${m[3]})` : ''),
+  }
+}
+
+/** Matches a rollable-table first cell against a rolled number: "01–20", "95". */
+export function rangeMatches(cell: string, n: number): boolean {
+  const range = cell.trim().match(/^(\d+)\s*[–—-]\s*(\d+)$/)
+  if (range) return n >= Number(range[1]) && n <= Number(range[2])
+  const single = cell.trim().match(/^(\d+)$/)
+  return single ? Number(single[1]) === n : false
 }
 
 export const snippets = {

@@ -60,9 +60,15 @@ export function HowToDialog() {
           </Section>
 
           <Section title="Linking articles">
-            <Row code="[[Article Title]]" desc="Links to the article with that exact title (case doesn't matter). Broken links show with a dashed underline." />
+            <Row code="[[Article Title]]" desc="Links to the article with that exact title (case doesn't matter). Typing [[ pops up title suggestions — Tab or Enter to complete." />
             <Row code="[[Article Title|shown text]]" desc="Same link, but displays different text." />
+            <Row code="Broken links" desc="A dashed-underline link means no article has that title yet — click it in the preview to create the article from a template." />
             <Row code="Mentioned in" desc="The footer of an article lists every other article that wiki-links to it." />
+          </Section>
+
+          <Section title="Dice & rolling">
+            <Row code="2d6+3, d20" desc="Dice notation renders as a clickable chip — click to roll it. Hover the result to see the individual dice." />
+            <Row code="| d100 | Ore |" desc="A table whose first column header is dice notation gets a Roll button that highlights the winning row. Ranges like 01–20 work." />
           </Section>
 
           <Section title="Pages & columns">
