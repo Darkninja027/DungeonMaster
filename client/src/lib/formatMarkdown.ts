@@ -20,7 +20,11 @@ const COLUMNS_MARKER = /^\\columns\s+([12])\s*$/
  * markdown). GFM only parses consecutive `|` lines as a table.
  */
 export function joinBrokenTables(text: string): string {
-  const lines = text.split('\n')
+  const lines = text.split('\n').map((line) =>
+    // A row starting with an escaped pipe is a table row that a markdown
+    // serializer mangled (it saw the row as a paragraph) — unescape it.
+    /^\s*\\\|/.test(line) ? line.replaceAll('\\|', '|') : line,
+  )
   const out: Array<string> = []
   let inFence = false
   for (let i = 0; i < lines.length; i++) {
