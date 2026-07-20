@@ -1,0 +1,15 @@
+appId: nz.co.enlighten.dungeonmaster
+productName: DungeonMaster
+directories:
+  output: release
+# Pre-cleaned by prepare-electron-dist.mjs — avoids an unlink that corporate
+# antivirus blocks (EBUSY on default_app.asar).
+electronDist: .electron-dist
+files:
+  - dist/**
+  - dist-electron/**
+win:
+  target: nsis
+nsis:
+  oneClick: true
+  deleteAppDataOnUninstall: false

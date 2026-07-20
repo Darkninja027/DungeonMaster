@@ -1,47 +1,59 @@
 # DungeonMaster
 
-A little tool to help with D&D world building. Create multiple worlds, organise lore
-into folders, write articles in markdown, and embed uploaded images.
+A desktop worldbuilding notebook for D&D — an Obsidian-style app where a **World
+is just a folder on your disk**: articles are markdown files, folders are real
+directories, and images live in an `_images/` subfolder. No server, no database.
+World folders are portable — they open fine in Obsidian too.
+
+## Features
+
+- Multiple worlds (recent-worlds picker; open any folder as a world)
+- Markdown editor with autosave, Write/Preview tabs, and article templates
+- `[[Wiki links]]` with autocomplete, backlinks, and create-from-broken-link;
+  renaming an article rewrites inbound links across the world
+- Clickable dice notation (`2d6+3`) and rollable `d100` tables
+- Image library per world, embedded via portable relative paths
+- Book-style preview with page/column markers, print and PDF export
+- Deletes go to the Recycle Bin
 
 ## Stack
 
-- **client/** — [TanStack Start](https://tanstack.com/start) (React, file-based routing via TanStack Router), Tailwind CSS 4, shadcn/ui, TanStack Query, react-markdown
-- **server/** — ASP.NET Core (.NET 10) minimal API, Entity Framework Core, SQLite
+Electron + React (TanStack Router/Query), Vite, Tailwind CSS 4, shadcn/ui,
+react-markdown. The Electron main process (`client/electron/`) is the data
+layer: plain file I/O on the world folder.
 
-## Running it
-
-Two terminals:
+## Development
 
 ```sh
-# Terminal 1 — API (http://localhost:5199)
-cd server
-dotnet run --launch-profile http
-
-# Terminal 2 — frontend (http://localhost:4280)
 cd client
 npm install
-npm run dev
+npm run dev     # Vite dev server + Electron with HMR
+npm test        # data-layer unit tests (vitest)
 ```
 
-Open http://localhost:4280. The dev server proxies `/api/**` to the .NET API
-(configured via nitro `routeRules` in `client/vite.config.ts`).
-
-The SQLite database and uploaded images live in `server/data/` (gitignored).
-EF Core migrations apply automatically on API startup.
-
-## EF Core migrations
+## Building the installer
 
 ```sh
-cd server
-dotnet tool run dotnet-ef migrations add SomeChange
+cd client
+npm run dist    # outputs a Windows installer to client/release/
 ```
 
-## API overview
+## World folder layout
 
-| Route | Purpose |
-| --- | --- |
-| `GET/POST /api/worlds`, `PUT/DELETE /api/worlds/{id}` | Worlds CRUD |
-| `GET /api/worlds/{id}/tree` | Folder + article tree for a world |
-| `POST/PUT/DELETE /api/folders/{id}` | Folder CRUD (nested folders supported) |
-| `GET/POST/PUT/DELETE /api/articles/{id}` | Markdown articles |
-| `GET/POST /api/worlds/{id}/images`, `GET /api/images/{id}/file` | Image upload/serving |
+```
+My World/
+  world.json          # name, description, createdAt
+  Fens Crossing.md    # root-level article
+  NPCs/               # folders are directories
+    Strahd.md
+  _images/            # world image library
+    map.png
+```
+
+## Migrating from the old SQLite version
+
+```sh
+node scripts/migrate-sqlite.mjs --db path/to/dungeonmaster.db --out "C:\Worlds"
+```
+
+Read-only against the database; exports each world as a folder.

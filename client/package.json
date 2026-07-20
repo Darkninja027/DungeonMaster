@@ -1,5 +1,9 @@
 {
-  "name": "client",
+  "name": "dungeonmaster",
+  "productName": "DungeonMaster",
+  "description": "Worldbuilding notebook for D&D — worlds are folders of markdown on your disk",
+  "author": "Brent Searl",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
   "imports": {
@@ -11,7 +15,7 @@
     "dev:vite": "vite dev --port 4280",
     "dev:electron": "node esbuild.electron.mjs && wait-on http://localhost:4280 && cross-env VITE_DEV_SERVER_URL=http://localhost:4280 electron .",
     "build:electron": "node esbuild.electron.mjs",
-    "dist": "vite build && node esbuild.electron.mjs && electron-builder",
+    "dist": "vite build && node esbuild.electron.mjs && node prepare-electron-dist.mjs && electron-builder",
     "generate-routes": "tsr generate",
     "build": "vite build",
     "preview": "vite preview",
