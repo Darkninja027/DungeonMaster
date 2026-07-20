@@ -38,6 +38,22 @@ cd client
 npm run dist    # outputs a Windows installer to client/release/
 ```
 
+## Releasing an update (auto-update)
+
+Installed copies check [GitHub Releases](https://github.com/Darkninja027/DungeonMaster/releases)
+on launch, download updates in the background, and install on next restart.
+
+To publish a new version:
+
+1. Bump `"version"` in `client/package.json` (e.g. `1.0.1`) — the updater
+   only offers versions greater than the installed one.
+2. `cd client && set GH_TOKEN=<personal access token> && npm run release`
+   (token needs the `public_repo` scope; create one at
+   https://github.com/settings/tokens)
+3. The release is created as a **draft** — go to GitHub Releases and publish it.
+
+Everyone's app picks it up automatically on their next launch.
+
 ## World folder layout
 
 ```

@@ -1,5 +1,6 @@
 import path from 'node:path'
 import { app, BrowserWindow } from 'electron'
+import { autoUpdater } from 'electron-updater'
 import { registerIpcHandlers } from './ipc'
 import { registerWorldProtocol, handleWorldProtocol } from './images'
 
@@ -48,6 +49,14 @@ if (!app.requestSingleInstanceLock()) {
     handleWorldProtocol()
     registerIpcHandlers()
     createWindow()
+
+    // Check GitHub Releases for a newer version; downloads in the background
+    // and installs on next app restart. No-op in dev.
+    if (app.isPackaged) {
+      autoUpdater.checkForUpdatesAndNotify().catch((err) => {
+        console.error('Update check failed:', err)
+      })
+    }
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow()
