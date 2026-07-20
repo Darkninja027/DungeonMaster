@@ -14,6 +14,7 @@ import {
 } from 'lucide-react'
 import { api } from '#/lib/api'
 import type { ArticleSummary, FolderNode, WorldTree } from '#/lib/api'
+import { articleTemplates } from '#/lib/templates'
 import { cn } from '#/lib/utils'
 import { Button } from '#/components/ui/button'
 import {
@@ -52,6 +53,7 @@ export function WorldSidebar({ worldId }: { worldId: number }) {
 
   const [dialog, setDialog] = useState<NameDialogState | null>(null)
   const [name, setName] = useState('')
+  const [templateId, setTemplateId] = useState('blank')
   const [collapsed, setCollapsed] = useState<Set<number>>(new Set())
 
   const invalidateTree = () =>
@@ -95,12 +97,19 @@ export function WorldSidebar({ worldId }: { worldId: number }) {
     } else if (dialog.mode === 'rename-folder' && dialog.folderId != null) {
       renameFolder.mutate({ id: dialog.folderId, name, parentFolderId: dialog.parentFolderId })
     } else if (dialog.mode === 'new-article') {
-      createArticle.mutate({ worldId, folderId: dialog.parentFolderId, title: name })
+      const template = articleTemplates.find((t) => t.id === templateId)
+      createArticle.mutate({
+        worldId,
+        folderId: dialog.parentFolderId,
+        title: name,
+        content: template?.body ?? '',
+      })
     }
   }
 
   const openDialog = (state: NameDialogState) => {
     setName(state.initial ?? '')
+    setTemplateId('blank')
     setDialog(state)
   }
 
@@ -271,6 +280,33 @@ export function WorldSidebar({ worldId }: { worldId: number }) {
             onChange={(e) => setName(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && submitDialog()}
           />
+          {dialog?.mode === 'new-article' && (
+            <div>
+              <p className="text-muted-foreground mb-2 text-xs font-semibold uppercase tracking-wide">
+                Template
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                {articleTemplates.map((template) => (
+                  <button
+                    key={template.id}
+                    type="button"
+                    className={cn(
+                      'rounded-md border p-2 text-left transition-colors',
+                      templateId === template.id
+                        ? 'border-primary bg-accent'
+                        : 'hover:bg-accent/50',
+                    )}
+                    onClick={() => setTemplateId(template.id)}
+                  >
+                    <span className="block text-sm font-medium">{template.name}</span>
+                    <span className="text-muted-foreground block text-xs">
+                      {template.description}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           <DialogFooter>
             <Button disabled={!name.trim()} onClick={submitDialog}>
               {dialog?.mode === 'rename-folder' ? 'Save' : 'Create'}
