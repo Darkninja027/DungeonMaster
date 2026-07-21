@@ -129,6 +129,7 @@ function RollableTable({
  * Image options ride in the URL hash: ![map](url#right&w=45%&h=200)
  *   left | right | center — placement (text fills the space around left/right)
  *   nowrap (or block)     — keep the image on its own line, no text wrap
+ *   noframe               — no photo frame (for transparent images)
  *   w=300, w=45%, h=200   — width/height (bare numbers are px)
  * The hash is only stripped when it contains recognized tokens, so ordinary
  * anchors in image URLs are left alone.
@@ -144,6 +145,7 @@ function parseImageSrc(src: string | undefined): {
   const style: React.CSSProperties = {}
   let float: string | undefined
   let nowrap = false
+  let noframe = false
   let recognized = false
   // markdown URL normalization encodes stray "%" (45% → 45%25) — undo it
   let frag = src.slice(i + 1)
@@ -164,6 +166,11 @@ function parseImageSrc(src: string | undefined): {
       recognized = true
       continue
     }
+    if (t === 'noframe') {
+      noframe = true
+      recognized = true
+      continue
+    }
     const m = t.match(/^(w|h|width|height)=(\d+(?:\.\d+)?)(%|px)?$/)
     if (m) {
       const value = m[2] + (m[3] ?? 'px')
@@ -176,13 +183,15 @@ function parseImageSrc(src: string | undefined): {
     }
   }
   if (!recognized) return { src, style: {} }
-  const className =
+  const className = cn(
     nowrap && float !== 'center'
       ? cn('dnd-img-block', float && `dnd-img-block-${float}`)
       : float
         ? `dnd-img-${float}`
-        : undefined
-  return { src: src.slice(0, i), style, className }
+        : undefined,
+    noframe && 'dnd-img-noframe',
+  )
+  return { src: src.slice(0, i), style, className: className || undefined }
 }
 
 /** Plain text of a rendered link's children — the visible label. */
