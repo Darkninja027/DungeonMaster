@@ -602,6 +602,13 @@ a {
   margin: 0.5em 0 1em;
 }
 
+/* #noframe — no photo frame, for transparent images */
+.dnd-page img.dnd-img-noframe {
+  border: none;
+  outline: none;
+  box-shadow: none;
+}
+
 /* Image options from the URL hash (#right&w=45% …) — text fills around floats */
 .dnd-page img.dnd-img-right {
   float: right;

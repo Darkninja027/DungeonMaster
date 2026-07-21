@@ -98,6 +98,10 @@ export function HowToDialog() {
               code="#right&nowrap"
               desc="No text wrap: the image sits on its own line (aligned left/right/center) with text above and below. #block works too."
             />
+            <Row
+              code="#noframe"
+              desc="Removes the plate-style frame — for images with a transparent background, e.g. #noframe&right&w=40%."
+            />
           </Section>
 
           <Section title="Linking articles">
