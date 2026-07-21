@@ -13,7 +13,7 @@
   "scripts": {
     "dev": "concurrently -k \"npm:dev:vite\" \"npm:dev:electron\"",
     "dev:vite": "vite dev --port 4280",
-    "dev:electron": "node esbuild.electron.mjs && wait-on http://localhost:4280 && cross-env VITE_DEV_SERVER_URL=http://localhost:4280 electron .",
+    "dev:electron": "node esbuild.electron.mjs && wait-on http://localhost:4280 && node run-electron.mjs",
     "build:electron": "node esbuild.electron.mjs",
     "dist": "vite build && node esbuild.electron.mjs && node prepare-electron-dist.mjs && node build-installer.mjs",
     "release": "vite build && node esbuild.electron.mjs && node prepare-electron-dist.mjs && node build-installer.mjs --publish always",
