@@ -35,17 +35,11 @@ import { Input } from '#/components/ui/input'
 import { Separator } from '#/components/ui/separator'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '#/components/ui/tabs'
 import { Textarea } from '#/components/ui/textarea'
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '#/components/ui/dialog'
 import { cn } from '#/lib/utils'
 import { BookView } from '#/components/Markdown'
 import { ImagePickerDialog } from '#/components/ImagePickerDialog'
 import { HowToDialog } from '#/components/HowToDialog'
+import { CreateMissingArticleDialog } from '#/components/CreateMissingArticleDialog'
 
 export const Route = createFileRoute('/worlds/$worldId/articles/$articleId')({
   component: ArticlePage,
@@ -158,7 +152,6 @@ function ArticlePage() {
   const [linkIndex, setLinkIndex] = useState(0)
   // Create-from-broken-link dialog
   const [missingTitle, setMissingTitle] = useState<string | null>(null)
-  const [missingTemplate, setMissingTemplate] = useState('blank')
 
   const linkMatches =
     linkQuery !== null
@@ -267,23 +260,6 @@ function ArticlePage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['worlds', worldId, 'tree'] })
       navigate({ to: '/worlds/$worldId', params: { worldId } })
-    },
-  })
-
-  const createMissing = useMutation({
-    mutationFn: (input: { title: string; content: string }) =>
-      api.articles.create({
-        worldId,
-        title: input.title,
-        content: input.content,
-      }),
-    onSuccess: (created) => {
-      queryClient.invalidateQueries({ queryKey: ['worlds', worldId, 'tree'] })
-      setMissingTitle(null)
-      navigate({
-        to: '/worlds/$worldId/articles/$articleId',
-        params: { worldId, articleId: created.id },
-      })
     },
   })
 
@@ -593,10 +569,7 @@ function ArticlePage() {
                 articles={tree.data?.articles}
                 worldId={worldId}
                 source={rollSource}
-                onCreateMissing={(t) => {
-                  setMissingTemplate('blank')
-                  setMissingTitle(t)
-                }}
+                onCreateMissing={setMissingTitle}
               />
             )}
           </div>
@@ -611,10 +584,7 @@ function ArticlePage() {
                 articles={tree.data?.articles}
                 worldId={worldId}
                 source={rollSource}
-                onCreateMissing={(t) => {
-                  setMissingTemplate('blank')
-                  setMissingTitle(t)
-                }}
+                onCreateMissing={setMissingTitle}
               >
                 {content}
               </BookView>
@@ -650,59 +620,11 @@ function ArticlePage() {
         )}
       </div>
 
-      <Dialog
-        open={missingTitle !== null}
-        onOpenChange={(o) => !o && setMissingTitle(null)}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Create "{missingTitle}"</DialogTitle>
-          </DialogHeader>
-          <div className="grid grid-cols-2 gap-2">
-            {articleTemplates.map((template) => (
-              <button
-                key={template.id}
-                type="button"
-                className={cn(
-                  'rounded-md border p-2 text-left transition-colors',
-                  missingTemplate === template.id
-                    ? 'border-primary bg-accent'
-                    : 'hover:bg-accent/50',
-                )}
-                onClick={() => setMissingTemplate(template.id)}
-              >
-                <span className="block text-sm font-medium">
-                  {template.name}
-                </span>
-                <span className="text-muted-foreground block text-xs">
-                  {template.description}
-                </span>
-              </button>
-            ))}
-          </div>
-          {createMissing.isError && (
-            <p className="text-destructive text-sm">
-              {createMissing.error.message}
-            </p>
-          )}
-          <DialogFooter>
-            <Button
-              disabled={createMissing.isPending}
-              onClick={() =>
-                missingTitle &&
-                createMissing.mutate({
-                  title: missingTitle,
-                  content:
-                    articleTemplates.find((t) => t.id === missingTemplate)
-                      ?.body ?? '',
-                })
-              }
-            >
-              Create article
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <CreateMissingArticleDialog
+        worldId={worldId}
+        title={missingTitle}
+        onClose={() => setMissingTitle(null)}
+      />
     </div>
   )
 }

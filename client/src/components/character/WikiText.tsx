@@ -3,15 +3,19 @@ import { Link } from '@tanstack/react-router'
 /**
  * Renders a plain-text line with [[wiki links]] resolved to article links —
  * used by inventory rows and notes, where full markdown would be overkill.
+ * Unresolved links offer to create the missing article when a handler is
+ * provided (same flow as the editor preview).
  */
 export function WikiText({
   text,
   worldId,
   articles,
+  onCreateMissing,
 }: {
   text: string
   worldId: string
   articles?: Array<{ id: string; title: string }>
+  onCreateMissing?: (title: string) => void
 }) {
   const parts = text.split(/(\[\[[^\][\n]+\]\])/)
   return (
@@ -25,12 +29,26 @@ export function WikiText({
         const target = articles?.find(
           (a) => a.title.toLowerCase() === title.toLowerCase(),
         )
-        if (!target)
+        if (!target) {
+          if (!onCreateMissing) {
+            return (
+              <span key={i} className="underline decoration-dashed opacity-70">
+                {label}
+              </span>
+            )
+          }
           return (
-            <span key={i} className="underline decoration-dashed opacity-70">
+            <button
+              key={i}
+              type="button"
+              title={`No article called "${title}" yet — click to create it`}
+              className="cursor-pointer underline decoration-dashed opacity-70 hover:opacity-100"
+              onClick={() => onCreateMissing(title)}
+            >
               {label}
-            </span>
+            </button>
           )
+        }
         return (
           <Link
             key={i}

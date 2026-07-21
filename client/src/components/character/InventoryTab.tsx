@@ -18,11 +18,13 @@ export function InventoryTab({
   onChange,
   worldId,
   articles,
+  onCreateMissing,
 }: {
   character: Character
   onChange: (next: Character) => void
   worldId: string
   articles?: Array<{ id: string; title: string }>
+  onCreateMissing?: (title: string) => void
 }) {
   const [editing, setEditing] = useState<number | null>(null)
   const [newItem, setNewItem] = useState('')
@@ -76,7 +78,12 @@ export function InventoryTab({
               />
             ) : (
               <span className="min-w-0 flex-1 truncate text-sm">
-                <WikiText text={row} worldId={worldId} articles={articles} />
+                <WikiText
+                  text={row}
+                  worldId={worldId}
+                  articles={articles}
+                  onCreateMissing={onCreateMissing}
+                />
               </span>
             )}
             <button

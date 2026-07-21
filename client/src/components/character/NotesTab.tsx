@@ -11,11 +11,13 @@ export function NotesTab({
   onChange,
   worldId,
   articles,
+  onCreateMissing,
 }: {
   character: Character
   onChange: (next: Character) => void
   worldId: string
   articles?: Array<{ id: string; title: string }>
+  onCreateMissing?: (title: string) => void
 }) {
   const [draft, setDraft] = useState('')
   const [editing, setEditing] = useState<number | null>(null)
@@ -102,6 +104,7 @@ export function NotesTab({
                     text={note.text}
                     worldId={worldId}
                     articles={articles}
+                    onCreateMissing={onCreateMissing}
                   />
                 </p>
               )}

@@ -15,6 +15,7 @@ import { NumField } from '#/components/character/NumField'
 import { SheetTab } from '#/components/character/SheetTab'
 import { InventoryTab } from '#/components/character/InventoryTab'
 import { NotesTab } from '#/components/character/NotesTab'
+import { CreateMissingArticleDialog } from '#/components/CreateMissingArticleDialog'
 
 export const Route = createFileRoute('/worlds/$worldId/characters/$articleId')({
   component: CharacterPage,
@@ -38,6 +39,8 @@ function CharacterPage() {
   const [character, setCharacter] = useState<Character | null>(null)
   const [body, setBody] = useState('')
   const [dirty, setDirty] = useState(false)
+  // Broken [[link]] clicked in inventory/notes -> offer to create the article.
+  const [missingTitle, setMissingTitle] = useState<string | null>(null)
 
   // Same guarded reset as the article editor: only load fresh state when a
   // different character arrives or nothing is unsaved.
@@ -240,6 +243,7 @@ function CharacterPage() {
             onChange={update}
             worldId={worldId}
             articles={tree.data?.articles}
+            onCreateMissing={setMissingTitle}
           />
         </TabsContent>
         <TabsContent value="notes" className="min-h-0 flex-1 overflow-y-auto">
@@ -248,6 +252,7 @@ function CharacterPage() {
             onChange={update}
             worldId={worldId}
             articles={tree.data?.articles}
+            onCreateMissing={setMissingTitle}
           />
         </TabsContent>
         <TabsContent value="backstory" className="flex min-h-0 flex-1 flex-col">
@@ -262,6 +267,12 @@ function CharacterPage() {
           />
         </TabsContent>
       </Tabs>
+
+      <CreateMissingArticleDialog
+        worldId={worldId}
+        title={missingTitle}
+        onClose={() => setMissingTitle(null)}
+      />
     </div>
   )
 }
