@@ -38,6 +38,7 @@ export function ImagePickerDialog({ worldId, onInsert }: Props) {
   const remove = useMutation({
     mutationFn: (imageId: string) => api.images.delete(worldId, imageId),
     onSuccess: invalidate,
+    onError: (error) => alert(error.message),
   })
 
   const insert = (image: ImageInfo) => {
@@ -79,7 +80,9 @@ export function ImagePickerDialog({ worldId, onInsert }: Props) {
             <Upload /> {upload.isPending ? 'Uploading…' : 'Upload image'}
           </Button>
           {upload.isError && (
-            <p className="text-destructive mt-2 text-sm">{upload.error.message}</p>
+            <p className="text-destructive mt-2 text-sm">
+              {upload.error.message}
+            </p>
           )}
         </div>
         <ScrollArea className="max-h-96">
@@ -102,14 +105,17 @@ export function ImagePickerDialog({ worldId, onInsert }: Props) {
                     alt={image.fileName}
                     className="h-28 w-full rounded object-cover"
                   />
-                  <p className="text-muted-foreground mt-1 truncate text-xs">{image.fileName}</p>
+                  <p className="text-muted-foreground mt-1 truncate text-xs">
+                    {image.fileName}
+                  </p>
                 </button>
                 <Button
                   variant="destructive"
                   size="icon"
                   className="absolute right-1.5 top-1.5 size-6 opacity-0 group-hover:opacity-100"
                   onClick={() => {
-                    if (confirm(`Delete ${image.fileName}?`)) remove.mutate(image.id)
+                    if (confirm(`Delete ${image.fileName}?`))
+                      remove.mutate(image.id)
                   }}
                 >
                   <Trash2 className="size-3.5" />

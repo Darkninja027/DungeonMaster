@@ -1,8 +1,9 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { net, protocol } from 'electron'
+import { net, protocol, shell } from 'electron'
 import { pathToFileURL } from 'node:url'
 import { resolveInWorld } from './sanitize'
+import { noteSelfWrite } from './watcher'
 import { IMAGES_DIR, worldRoot } from './worldStore'
 
 export interface ImageInfo {
@@ -34,7 +35,9 @@ function toInfo(worldId: string, absDir: string, fileName: string): ImageInfo {
   return {
     id: fileName,
     fileName,
-    contentType: CONTENT_TYPES[path.extname(fileName).toLowerCase()] ?? 'application/octet-stream',
+    contentType:
+      CONTENT_TYPES[path.extname(fileName).toLowerCase()] ??
+      'application/octet-stream',
     sizeBytes: stat.size,
     uploadedAt: stat.birthtime.toISOString(),
     url: imageUrl(worldId, fileName),
@@ -52,26 +55,42 @@ export function listImages(worldId: string): Array<ImageInfo> {
     .map((name) => toInfo(worldId, dir, name))
 }
 
-export function uploadImage(worldId: string, fileName: string, bytes: ArrayBuffer): ImageInfo {
+export function uploadImage(
+  worldId: string,
+  fileName: string,
+  bytes: ArrayBuffer,
+): ImageInfo {
   const root = worldRoot(worldId)
   const base = path.basename(fileName)
   const ext = path.extname(base).toLowerCase()
-  if (!(ext in CONTENT_TYPES)) throw new Error('Only png, jpeg, gif, webp and svg images are allowed.')
-  if (bytes.byteLength > MAX_BYTES) throw new Error('Images are limited to 20 MB.')
+  if (!(ext in CONTENT_TYPES))
+    throw new Error('Only png, jpeg, gif, webp and svg images are allowed.')
+  if (bytes.byteLength > MAX_BYTES)
+    throw new Error('Images are limited to 20 MB.')
   const dir = path.join(root, IMAGES_DIR)
   fs.mkdirSync(dir, { recursive: true })
   // Dedupe: "map.png" -> "map (2).png"
   const stem = base.slice(0, base.length - ext.length)
   let name = base
-  for (let n = 2; fs.existsSync(path.join(dir, name)); n++) name = `${stem} (${n})${ext}`
-  fs.writeFileSync(path.join(dir, name), Buffer.from(bytes))
+  for (let n = 2; fs.existsSync(path.join(dir, name)); n++)
+    name = `${stem} (${n})${ext}`
+  const abs = path.join(dir, name)
+  noteSelfWrite(dir)
+  noteSelfWrite(abs)
+  fs.writeFileSync(abs, Buffer.from(bytes))
   return toInfo(worldId, dir, name)
 }
 
-export function deleteImage(worldId: string, fileName: string): void {
+export async function deleteImage(
+  worldId: string,
+  fileName: string,
+): Promise<void> {
   const root = worldRoot(worldId)
   const abs = resolveInWorld(root, `${IMAGES_DIR}/${path.basename(fileName)}`)
-  if (fs.existsSync(abs)) fs.rmSync(abs)
+  if (fs.existsSync(abs)) {
+    noteSelfWrite(abs)
+    await shell.trashItem(abs)
+  }
 }
 
 // world://<worldId>/_images/<file> — scoped, read-only access to world images.
@@ -80,7 +99,12 @@ export function registerWorldProtocol() {
   protocol.registerSchemesAsPrivileged([
     {
       scheme: 'world',
-      privileges: { standard: true, secure: true, stream: true, supportFetchAPI: true },
+      privileges: {
+        standard: true,
+        secure: true,
+        stream: true,
+        supportFetchAPI: true,
+      },
     },
   ])
 }
@@ -93,7 +117,8 @@ export function handleWorldProtocol() {
       const url = new URL(request.url)
       const root = worldRoot(url.host)
       const rel = decodeURIComponent(url.pathname.replace(/^\//, ''))
-      if (!rel.startsWith(`${IMAGES_DIR}/`)) return new Response('Forbidden', { status: 403 })
+      if (!rel.startsWith(`${IMAGES_DIR}/`))
+        return new Response('Forbidden', { status: 403 })
       const abs = resolveInWorld(root, rel)
       if (!fs.existsSync(abs)) return new Response('Not found', { status: 404 })
       return net.fetch(pathToFileURL(abs).toString())

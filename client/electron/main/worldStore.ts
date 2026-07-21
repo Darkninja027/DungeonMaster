@@ -1,6 +1,13 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { decodeWorldId, encodeWorldId, escapeRegExp, nameError, resolveInWorld } from './sanitize'
+import {
+  decodeWorldId,
+  encodeWorldId,
+  escapeRegExp,
+  nameError,
+  resolveInWorld,
+} from './sanitize'
+import { noteSelfWrite } from './watcher'
 
 export const IMAGES_DIR = '_images'
 const WORLD_FILE = 'world.json'
@@ -57,21 +64,33 @@ export function worldRoot(worldId: string): string {
 }
 
 export function readWorldMeta(root: string): WorldMeta {
-  const raw = JSON.parse(fs.readFileSync(path.join(root, WORLD_FILE), 'utf8')) as Partial<WorldMeta>
+  const raw = JSON.parse(
+    fs.readFileSync(path.join(root, WORLD_FILE), 'utf8'),
+  ) as Partial<WorldMeta>
   return {
-    name: typeof raw.name === 'string' && raw.name ? raw.name : path.basename(root),
+    name:
+      typeof raw.name === 'string' && raw.name ? raw.name : path.basename(root),
     description: typeof raw.description === 'string' ? raw.description : '',
-    createdAt: typeof raw.createdAt === 'string' ? raw.createdAt : new Date(0).toISOString(),
+    createdAt:
+      typeof raw.createdAt === 'string'
+        ? raw.createdAt
+        : new Date(0).toISOString(),
   }
 }
 
 export function writeWorldMeta(root: string, meta: WorldMeta) {
-  fs.writeFileSync(path.join(root, WORLD_FILE), JSON.stringify(meta, null, 2))
+  const abs = path.join(root, WORLD_FILE)
+  noteSelfWrite(abs)
+  fs.writeFileSync(abs, JSON.stringify(meta, null, 2))
 }
 
 export function initWorld(root: string, name: string, description: string) {
   fs.mkdirSync(root, { recursive: true })
-  writeWorldMeta(root, { name, description, createdAt: new Date().toISOString() })
+  writeWorldMeta(root, {
+    name,
+    description,
+    createdAt: new Date().toISOString(),
+  })
 }
 
 function isVisibleEntry(entry: fs.Dirent): boolean {
@@ -79,7 +98,10 @@ function isVisibleEntry(entry: fs.Dirent): boolean {
 }
 
 /** Recursive walk of a world: real directories are folders, *.md files are articles. */
-export function readTree(root: string): { folders: Array<FolderNode>; articles: Array<ArticleSummary> } {
+export function readTree(root: string): {
+  folders: Array<FolderNode>
+  articles: Array<ArticleSummary>
+} {
   const folders: Array<FolderNode> = []
   const articles: Array<ArticleSummary> = []
 
@@ -88,12 +110,19 @@ export function readTree(root: string): { folders: Array<FolderNode>; articles: 
     const entries = fs
       .readdirSync(absDir, { withFileTypes: true })
       .filter(isVisibleEntry)
-      .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
+      .sort((a, b) =>
+        a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }),
+      )
     let order = 0
     for (const entry of entries) {
       const rel = relDir ? `${relDir}/${entry.name}` : entry.name
       if (entry.isDirectory()) {
-        folders.push({ id: rel, parentFolderId: relDir, name: entry.name, sortOrder: order++ })
+        folders.push({
+          id: rel,
+          parentFolderId: relDir,
+          name: entry.name,
+          sortOrder: order++,
+        })
         walk(rel)
       } else if (entry.isFile() && entry.name.toLowerCase().endsWith('.md')) {
         const stat = fs.statSync(path.join(absDir, entry.name))
@@ -124,7 +153,8 @@ function entryExists(absDir: string, name: string): boolean {
 
 function articleAbsPath(root: string, articleId: string): string {
   const abs = resolveInWorld(root, articleId + '.md')
-  if (!fs.existsSync(abs)) throw new Error('Article not found — it may have been moved or renamed.')
+  if (!fs.existsSync(abs))
+    throw new Error('Article not found — it may have been moved or renamed.')
   return abs
 }
 
@@ -156,15 +186,18 @@ export function createArticle(input: {
   const title = input.title.trim()
   const dir = input.folderId ? resolveInWorld(root, input.folderId) : root
   if (!fs.existsSync(dir)) throw new Error('Folder not found.')
-  if (entryExists(dir, title + '.md')) throw new Error(`"${title}" already exists in this folder.`)
+  if (entryExists(dir, title + '.md'))
+    throw new Error(`"${title}" already exists in this folder.`)
   atomicWrite(path.join(dir, title + '.md'), input.content ?? '')
   const id = input.folderId ? `${input.folderId}/${title}` : title
   return getArticle(input.worldId, id)
 }
 
 /** Write via temp file + rename so a crash mid-write never truncates an article. */
-function atomicWrite(abs: string, content: string) {
+export function atomicWrite(abs: string, content: string) {
   const tmp = abs + `.tmp-${process.pid}`
+  noteSelfWrite(tmp)
+  noteSelfWrite(abs)
   fs.writeFileSync(tmp, content)
   fs.renameSync(tmp, abs)
 }
@@ -176,41 +209,93 @@ export function updateArticle(
 ): Article {
   const root = worldRoot(worldId)
   const abs = articleAbsPath(root, articleId)
+  atomicWrite(abs, input.content)
+  const id = renameArticleFile(root, articleId, input.title.trim())
+  return getArticle(worldId, id)
+}
+
+/**
+ * Rename an article's file and rewrite inbound [[links]] world-wide.
+ * The single rename semantics shared by updateArticle and renameArticle.
+ * Returns the article's (possibly unchanged) id.
+ */
+function renameArticleFile(
+  root: string,
+  articleId: string,
+  newTitle: string,
+): string {
   const slash = articleId.lastIndexOf('/')
   const oldTitle = articleId.slice(slash + 1)
   const folderId = slash < 0 ? null : articleId.slice(0, slash)
-  const newTitle = input.title.trim()
+  if (newTitle === oldTitle) return articleId
 
-  atomicWrite(abs, input.content)
-
-  let id = articleId
-  if (newTitle !== oldTitle) {
-    const error = nameError(newTitle)
-    if (error) throw new Error(error)
-    const dir = path.dirname(abs)
-    // Allow case-only renames (Waterdeep -> waterdeep) despite the case-insensitive FS.
-    if (newTitle.toLowerCase() !== oldTitle.toLowerCase() && entryExists(dir, newTitle + '.md')) {
-      throw new Error(`"${newTitle}" already exists in this folder.`)
-    }
-    fs.renameSync(abs, path.join(dir, newTitle + '.md'))
-    id = folderId ? `${folderId}/${newTitle}` : newTitle
-    rewriteWikiLinks(root, oldTitle, newTitle)
+  const abs = articleAbsPath(root, articleId)
+  const error = nameError(newTitle)
+  if (error) throw new Error(error)
+  const dir = path.dirname(abs)
+  // Allow case-only renames (Waterdeep -> waterdeep) despite the case-insensitive FS.
+  if (
+    newTitle.toLowerCase() !== oldTitle.toLowerCase() &&
+    entryExists(dir, newTitle + '.md')
+  ) {
+    throw new Error(`"${newTitle}" already exists in this folder.`)
   }
+  const newAbs = path.join(dir, newTitle + '.md')
+  noteSelfWrite(abs)
+  noteSelfWrite(newAbs)
+  fs.renameSync(abs, newAbs)
+  rewriteWikiLinks(root, oldTitle, newTitle)
+  return folderId ? `${folderId}/${newTitle}` : newTitle
+}
+
+/** Rename without touching content — for the sidebar context menu. */
+export function renameArticle(
+  worldId: string,
+  articleId: string,
+  title: string,
+): Article {
+  const root = worldRoot(worldId)
+  const id = renameArticleFile(root, articleId, title.trim())
   return getArticle(worldId, id)
+}
+
+/** Copy an article as "Title (copy)" / "Title (copy N)" in the same folder. */
+export function duplicateArticle(worldId: string, articleId: string): Article {
+  const root = worldRoot(worldId)
+  const abs = articleAbsPath(root, articleId)
+  const slash = articleId.lastIndexOf('/')
+  const title = articleId.slice(slash + 1)
+  const folderId = slash < 0 ? null : articleId.slice(0, slash)
+  const dir = path.dirname(abs)
+  let copyTitle = `${title} (copy)`
+  for (let n = 2; entryExists(dir, copyTitle + '.md'); n++)
+    copyTitle = `${title} (copy ${n})`
+  atomicWrite(path.join(dir, copyTitle + '.md'), fs.readFileSync(abs, 'utf8'))
+  return getArticle(worldId, folderId ? `${folderId}/${copyTitle}` : copyTitle)
 }
 
 /** After a rename, update [[Old Title]] / [[Old Title|alias]] across the whole world. */
 function rewriteWikiLinks(root: string, oldTitle: string, newTitle: string) {
-  const pattern = new RegExp(`\\[\\[\\s*${escapeRegExp(oldTitle)}\\s*(\\]\\]|\\|)`, 'gi')
+  const pattern = new RegExp(
+    `\\[\\[\\s*${escapeRegExp(oldTitle)}\\s*(\\]\\]|\\|)`,
+    'gi',
+  )
   for (const article of readTree(root).articles) {
     const abs = resolveInWorld(root, article.id + '.md')
     const content = fs.readFileSync(abs, 'utf8')
-    const updated = content.replace(pattern, (_, tail: string) => `[[${newTitle}${tail}`)
+    const updated = content.replace(
+      pattern,
+      (_, tail: string) => `[[${newTitle}${tail}`,
+    )
     if (updated !== content) atomicWrite(abs, updated)
   }
 }
 
-export function moveArticle(worldId: string, articleId: string, folderId: string | null): void {
+export function moveArticle(
+  worldId: string,
+  articleId: string,
+  folderId: string | null,
+): void {
   const root = worldRoot(worldId)
   const abs = articleAbsPath(root, articleId)
   const name = path.basename(abs)
@@ -218,9 +303,14 @@ export function moveArticle(worldId: string, articleId: string, folderId: string
   if (!fs.existsSync(targetDir)) throw new Error('Target folder not found.')
   if (path.dirname(abs) === targetDir) return
   if (entryExists(targetDir, name)) {
-    throw new Error(`"${name.slice(0, -3)}" already exists in the target folder.`)
+    throw new Error(
+      `"${name.slice(0, -3)}" already exists in the target folder.`,
+    )
   }
-  fs.renameSync(abs, path.join(targetDir, name))
+  const newAbs = path.join(targetDir, name)
+  noteSelfWrite(abs)
+  noteSelfWrite(newAbs)
+  fs.renameSync(abs, newAbs)
 }
 
 export function createFolder(input: {
@@ -232,10 +322,15 @@ export function createFolder(input: {
   const error = nameError(input.name)
   if (error) throw new Error(error)
   const name = input.name.trim()
-  const parentAbs = input.parentFolderId ? resolveInWorld(root, input.parentFolderId) : root
+  const parentAbs = input.parentFolderId
+    ? resolveInWorld(root, input.parentFolderId)
+    : root
   if (!fs.existsSync(parentAbs)) throw new Error('Parent folder not found.')
-  if (entryExists(parentAbs, name)) throw new Error(`"${name}" already exists here.`)
-  fs.mkdirSync(path.join(parentAbs, name))
+  if (entryExists(parentAbs, name))
+    throw new Error(`"${name}" already exists here.`)
+  const dirAbs = path.join(parentAbs, name)
+  noteSelfWrite(dirAbs)
+  fs.mkdirSync(dirAbs)
   return {
     id: input.parentFolderId ? `${input.parentFolderId}/${name}` : name,
     parentFolderId: input.parentFolderId ?? null,
@@ -244,7 +339,11 @@ export function createFolder(input: {
   }
 }
 
-export function renameFolder(worldId: string, folderId: string, name: string): void {
+export function renameFolder(
+  worldId: string,
+  folderId: string,
+  name: string,
+): void {
   const root = worldRoot(worldId)
   const error = nameError(name)
   if (error) throw new Error(error)
@@ -253,13 +352,23 @@ export function renameFolder(worldId: string, folderId: string, name: string): v
   if (!fs.existsSync(abs)) throw new Error('Folder not found.')
   if (newName === path.basename(abs)) return
   const dir = path.dirname(abs)
-  if (newName.toLowerCase() !== path.basename(abs).toLowerCase() && entryExists(dir, newName)) {
+  if (
+    newName.toLowerCase() !== path.basename(abs).toLowerCase() &&
+    entryExists(dir, newName)
+  ) {
     throw new Error(`"${newName}" already exists here.`)
   }
-  fs.renameSync(abs, path.join(dir, newName))
+  const newAbs = path.join(dir, newName)
+  noteSelfWrite(abs)
+  noteSelfWrite(newAbs)
+  fs.renameSync(abs, newAbs)
 }
 
-export function moveFolder(worldId: string, folderId: string, parentFolderId: string | null): void {
+export function moveFolder(
+  worldId: string,
+  folderId: string,
+  parentFolderId: string | null,
+): void {
   const root = worldRoot(worldId)
   const abs = resolveInWorld(root, folderId)
   if (!fs.existsSync(abs)) throw new Error('Folder not found.')
@@ -271,8 +380,12 @@ export function moveFolder(worldId: string, folderId: string, parentFolderId: st
     throw new Error('Cannot move a folder into itself.')
   }
   if (path.dirname(abs) === targetDir) return
-  if (entryExists(targetDir, name)) throw new Error(`"${name}" already exists in the target folder.`)
-  fs.renameSync(abs, path.join(targetDir, name))
+  if (entryExists(targetDir, name))
+    throw new Error(`"${name}" already exists in the target folder.`)
+  const newAbs = path.join(targetDir, name)
+  noteSelfWrite(abs)
+  noteSelfWrite(newAbs)
+  fs.renameSync(abs, newAbs)
 }
 
 export { encodeWorldId }

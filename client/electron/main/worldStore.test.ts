@@ -2,15 +2,22 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { decodeWorldId, encodeWorldId, nameError, resolveInWorld } from './sanitize'
+import {
+  decodeWorldId,
+  encodeWorldId,
+  nameError,
+  resolveInWorld,
+} from './sanitize'
 import {
   createArticle,
   createFolder,
+  duplicateArticle,
   getArticle,
   initWorld,
   moveArticle,
   moveFolder,
   readTree,
+  renameArticle,
   updateArticle,
 } from './worldStore'
 import { findMentions, searchWorld } from './search'
@@ -36,7 +43,9 @@ describe('resolveInWorld', () => {
   const root = path.join(os.tmpdir(), 'dm-root')
 
   it('resolves ids inside the world', () => {
-    expect(resolveInWorld(root, 'NPCs/Strahd.md')).toBe(path.join(root, 'NPCs', 'Strahd.md'))
+    expect(resolveInWorld(root, 'NPCs/Strahd.md')).toBe(
+      path.join(root, 'NPCs', 'Strahd.md'),
+    )
   })
 
   it('rejects traversal attempts', () => {
@@ -78,7 +87,12 @@ describe('worldStore against a real temp folder', () => {
 
   it('creates and reads articles in folders', () => {
     createFolder({ worldId, name: 'NPCs' })
-    const a = createArticle({ worldId, folderId: 'NPCs', title: 'Strahd', content: '# Hi' })
+    const a = createArticle({
+      worldId,
+      folderId: 'NPCs',
+      title: 'Strahd',
+      content: '# Hi',
+    })
     expect(a.id).toBe('NPCs/Strahd')
     expect(a.folderId).toBe('NPCs')
     expect(getArticle(worldId, 'NPCs/Strahd').content).toBe('# Hi')
@@ -90,14 +104,23 @@ describe('worldStore against a real temp folder', () => {
 
   it('rejects case-insensitive duplicate titles', () => {
     createArticle({ worldId, title: 'Waterdeep' })
-    expect(() => createArticle({ worldId, title: 'WATERDEEP' })).toThrow(/already exists/)
+    expect(() => createArticle({ worldId, title: 'WATERDEEP' })).toThrow(
+      /already exists/,
+    )
   })
 
   it('rename rewrites inbound wiki-links across the world', () => {
     createArticle({ worldId, title: 'Old Name', content: 'x' })
-    createArticle({ worldId, title: 'Linker', content: 'See [[Old Name]] and [[old name|the guy]].' })
+    createArticle({
+      worldId,
+      title: 'Linker',
+      content: 'See [[Old Name]] and [[old name|the guy]].',
+    })
 
-    const updated = updateArticle(worldId, 'Old Name', { title: 'New Name', content: 'x' })
+    const updated = updateArticle(worldId, 'Old Name', {
+      title: 'New Name',
+      content: 'x',
+    })
     expect(updated.id).toBe('New Name')
     expect(getArticle(worldId, 'Linker').content).toBe(
       'See [[New Name]] and [[New Name|the guy]].',
@@ -108,9 +131,9 @@ describe('worldStore against a real temp folder', () => {
   it('update on a stale path errors instead of recreating the file', () => {
     createArticle({ worldId, title: 'Here', content: '' })
     updateArticle(worldId, 'Here', { title: 'There', content: '' })
-    expect(() => updateArticle(worldId, 'Here', { title: 'Here', content: 'ghost' })).toThrow(
-      /not found/,
-    )
+    expect(() =>
+      updateArticle(worldId, 'Here', { title: 'Here', content: 'ghost' }),
+    ).toThrow(/not found/)
   })
 
   it('moves articles between folders and blocks collisions', () => {
@@ -126,11 +149,17 @@ describe('worldStore against a real temp folder', () => {
   it('blocks moving a folder into its own descendant', () => {
     createFolder({ worldId, name: 'Outer' })
     createFolder({ worldId, parentFolderId: 'Outer', name: 'Inner' })
-    expect(() => moveFolder(worldId, 'Outer', 'Outer/Inner')).toThrow(/into itself/)
+    expect(() => moveFolder(worldId, 'Outer', 'Outer/Inner')).toThrow(
+      /into itself/,
+    )
   })
 
   it('search finds matches with snippets, ignoring case', () => {
-    createArticle({ worldId, title: 'Lore', content: 'The ancient DRAGON sleeps beneath the city.' })
+    createArticle({
+      worldId,
+      title: 'Lore',
+      content: 'The ancient DRAGON sleeps beneath the city.',
+    })
     const results = searchWorld(worldId, 'dragon')
     expect(results).toHaveLength(1)
     expect(results[0].snippet).toContain('DRAGON')
@@ -139,9 +168,51 @@ describe('worldStore against a real temp folder', () => {
 
   it('mentions finds wiki-links to a title', () => {
     createArticle({ worldId, title: 'Strahd', content: '' })
-    createArticle({ worldId, title: 'Barovia', content: 'Ruled by [[Strahd]].' })
+    createArticle({
+      worldId,
+      title: 'Barovia',
+      content: 'Ruled by [[Strahd]].',
+    })
     createArticle({ worldId, title: 'Unrelated', content: 'Nothing here.' })
-    expect(findMentions(worldId, 'Strahd').map((m) => m.id)).toEqual(['Barovia'])
+    expect(findMentions(worldId, 'Strahd').map((m) => m.id)).toEqual([
+      'Barovia',
+    ])
+  })
+
+  it('renameArticle rewrites inbound links without touching content', () => {
+    createArticle({ worldId, title: 'Old Name', content: '# Body stays' })
+    createArticle({ worldId, title: 'Linker', content: 'See [[Old Name]].' })
+
+    const renamed = renameArticle(worldId, 'Old Name', 'New Name')
+    expect(renamed.id).toBe('New Name')
+    expect(renamed.content).toBe('# Body stays')
+    expect(getArticle(worldId, 'Linker').content).toBe('See [[New Name]].')
+    expect(() => getArticle(worldId, 'Old Name')).toThrow(/not found/)
+  })
+
+  it('renameArticle rejects collisions but allows case-only renames', () => {
+    createArticle({ worldId, title: 'One' })
+    createArticle({ worldId, title: 'Two' })
+    expect(() => renameArticle(worldId, 'One', 'Two')).toThrow(/already exists/)
+    expect(renameArticle(worldId, 'One', 'ONE').id).toBe('ONE')
+  })
+
+  it('duplicateArticle copies content into the same folder with (copy) naming', () => {
+    createFolder({ worldId, name: 'NPCs' })
+    createArticle({
+      worldId,
+      folderId: 'NPCs',
+      title: 'Strahd',
+      content: '# Vampire',
+    })
+
+    const first = duplicateArticle(worldId, 'NPCs/Strahd')
+    expect(first.id).toBe('NPCs/Strahd (copy)')
+    expect(first.folderId).toBe('NPCs')
+    expect(first.content).toBe('# Vampire')
+
+    const second = duplicateArticle(worldId, 'NPCs/Strahd')
+    expect(second.id).toBe('NPCs/Strahd (copy 2)')
   })
 
   it('ignores the _images directory in the tree', () => {

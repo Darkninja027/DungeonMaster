@@ -72,6 +72,34 @@ export interface MentionResult {
   title: string
 }
 
+/** A combatant row in the initiative tracker. */
+export interface Combatant {
+  id: string
+  name: string
+  initiative: number
+  hp: number
+  maxHp: number | null
+  ac: number | null
+  note: string
+  articleId?: string
+}
+
+/** Combat state persisted to .dm/session.json inside the world folder. */
+export interface SessionFile {
+  version: 1
+  combatants: Array<Combatant>
+  activeId: string | null
+  round: number
+}
+
+/** Pushed by the main process when the world folder changes on disk. */
+export interface WorldChangeBatch {
+  worldId: string
+  articleIds: Array<string>
+  treeChanged: boolean
+  imagesChanged: boolean
+}
+
 export interface ImageInfo {
   id: string
   fileName: string
@@ -101,10 +129,21 @@ export const api = {
       invoke<void>('worlds:update', { worldId, ...input }),
     /** Removes the world from the recents list only — the folder stays on disk. */
     remove: (worldId: string) => invoke<void>('worlds:remove', { worldId }),
+    /** Start watching the world folder for external changes. */
+    watch: (worldId: string) => invoke<void>('worlds:watch', { worldId }),
+    unwatch: (worldId: string) => invoke<void>('worlds:unwatch', { worldId }),
+    /** Subscribe to external-change batches; returns an unsubscribe fn. */
+    onChanged: (cb: (batch: WorldChangeBatch) => void) =>
+      window.dmApi.on('world:changed', (payload) =>
+        cb(payload as WorldChangeBatch),
+      ),
   },
   folders: {
-    create: (input: { worldId: string; parentFolderId?: string | null; name: string }) =>
-      invoke<FolderNode>('folders:create', input),
+    create: (input: {
+      worldId: string
+      parentFolderId?: string | null
+      name: string
+    }) => invoke<FolderNode>('folders:create', input),
     rename: (worldId: string, folderId: string, name: string) =>
       invoke<void>('folders:rename', { worldId, folderId, name }),
     move: (worldId: string, folderId: string, parentFolderId: string | null) =>
@@ -117,17 +156,30 @@ export const api = {
       invoke<Article>('articles:get', { worldId, articleId }),
     mentions: (worldId: string, articleId: string) =>
       invoke<Array<MentionResult>>('articles:mentions', { worldId, articleId }),
-    create: (input: { worldId: string; folderId?: string | null; title: string; content?: string }) =>
-      invoke<Article>('articles:create', input),
-    update: (worldId: string, articleId: string, input: { title: string; content: string }) =>
-      invoke<Article>('articles:update', { worldId, articleId, ...input }),
+    create: (input: {
+      worldId: string
+      folderId?: string | null
+      title: string
+      content?: string
+    }) => invoke<Article>('articles:create', input),
+    update: (
+      worldId: string,
+      articleId: string,
+      input: { title: string; content: string },
+    ) => invoke<Article>('articles:update', { worldId, articleId, ...input }),
+    /** Rename without touching content; rewrites inbound [[links]] world-wide. */
+    rename: (worldId: string, articleId: string, title: string) =>
+      invoke<Article>('articles:rename', { worldId, articleId, title }),
+    duplicate: (worldId: string, articleId: string) =>
+      invoke<Article>('articles:duplicate', { worldId, articleId }),
     move: (worldId: string, articleId: string, folderId: string | null) =>
       invoke<void>('articles:move', { worldId, articleId, folderId }),
     delete: (worldId: string, articleId: string) =>
       invoke<void>('articles:delete', { worldId, articleId }),
   },
   images: {
-    list: (worldId: string) => invoke<Array<ImageInfo>>('images:list', { worldId }),
+    list: (worldId: string) =>
+      invoke<Array<ImageInfo>>('images:list', { worldId }),
     upload: async (worldId: string, file: File) =>
       invoke<ImageInfo>('images:upload', {
         worldId,
@@ -137,10 +189,19 @@ export const api = {
     delete: (worldId: string, imageId: string) =>
       invoke<void>('images:delete', { worldId, imageId }),
   },
+  session: {
+    /** Combat/session state stored in the world folder; null if none saved. */
+    get: (worldId: string) =>
+      invoke<SessionFile | null>('session:get', { worldId }),
+    set: (worldId: string, state: SessionFile) =>
+      invoke<void>('session:set', { worldId, state }),
+  },
   updates: {
     /** Subscribe to auto-update status; returns an unsubscribe fn. */
     onStatus: (cb: (status: UpdateStatus) => void) =>
-      window.dmApi.on('updates:status', (payload) => cb(payload as UpdateStatus)),
+      window.dmApi.on('updates:status', (payload) =>
+        cb(payload as UpdateStatus),
+      ),
     /** Quit and install a downloaded update. */
     quitAndInstall: () => invoke<void>('updates:quitAndInstall'),
   },

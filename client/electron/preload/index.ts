@@ -9,6 +9,8 @@ const CHANNELS = new Set([
   'worlds:remove',
   'worlds:tree',
   'worlds:search',
+  'worlds:watch',
+  'worlds:unwatch',
   'folders:create',
   'folders:rename',
   'folders:move',
@@ -16,18 +18,22 @@ const CHANNELS = new Set([
   'articles:get',
   'articles:create',
   'articles:update',
+  'articles:rename',
+  'articles:duplicate',
   'articles:move',
   'articles:delete',
   'articles:mentions',
   'images:list',
   'images:upload',
   'images:delete',
+  'session:get',
+  'session:set',
   'updates:quitAndInstall',
 ])
 
 // Channels the main process may PUSH to the renderer. Kept as a separate
 // allowlist so the renderer can never subscribe to arbitrary IPC channels.
-const EVENT_CHANNELS = new Set(['updates:status'])
+const EVENT_CHANNELS = new Set(['updates:status', 'world:changed'])
 
 contextBridge.exposeInMainWorld('dmApi', {
   invoke: (channel: string, args?: unknown) => {

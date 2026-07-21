@@ -97,4 +97,4 @@ shadcn/ui — add components with `pnpm dlx shadcn@latest add <name>`, they land
 
 - `client/README.md` is **stale TanStack Start boilerplate** (Nitro servers, server functions, API routes) — none of it applies. Ignore it.
 - `server/` (an empty `Data/` dir) and `scripts/migrate-sqlite.mjs` are **dead remnants** of a removed .NET/SQLite server, kept only for one-time migration. They are not part of the running app.
-- Deletes go to the OS Recycle Bin via `shell.trashItem`, not `fs.rm` (the exception is image deletion).
+- Deletes go to the OS Recycle Bin via `shell.trashItem`, not `fs.rm`.
