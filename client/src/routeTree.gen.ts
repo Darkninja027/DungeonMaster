@@ -13,6 +13,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as WorldsWorldIdRouteRouteImport } from './routes/worlds/$worldId/route'
 import { Route as WorldsWorldIdIndexRouteImport } from './routes/worlds/$worldId/index'
 import { Route as WorldsWorldIdArticlesArticleIdRouteImport } from './routes/worlds/$worldId/articles/$articleId'
+import { Route as WorldsWorldIdCharactersArticleIdRouteImport } from './routes/worlds/$worldId/characters/$articleId'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -35,17 +36,25 @@ const WorldsWorldIdArticlesArticleIdRoute =
     path: '/articles/$articleId',
     getParentRoute: () => WorldsWorldIdRouteRoute,
   } as any)
+const WorldsWorldIdCharactersArticleIdRoute =
+  WorldsWorldIdCharactersArticleIdRouteImport.update({
+    id: '/characters/$articleId',
+    path: '/characters/$articleId',
+    getParentRoute: () => WorldsWorldIdRouteRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/worlds/$worldId': typeof WorldsWorldIdRouteRouteWithChildren
   '/worlds/$worldId/': typeof WorldsWorldIdIndexRoute
   '/worlds/$worldId/articles/$articleId': typeof WorldsWorldIdArticlesArticleIdRoute
+  '/worlds/$worldId/characters/$articleId': typeof WorldsWorldIdCharactersArticleIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/worlds/$worldId': typeof WorldsWorldIdIndexRoute
   '/worlds/$worldId/articles/$articleId': typeof WorldsWorldIdArticlesArticleIdRoute
+  '/worlds/$worldId/characters/$articleId': typeof WorldsWorldIdCharactersArticleIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -53,6 +62,7 @@ export interface FileRoutesById {
   '/worlds/$worldId': typeof WorldsWorldIdRouteRouteWithChildren
   '/worlds/$worldId/': typeof WorldsWorldIdIndexRoute
   '/worlds/$worldId/articles/$articleId': typeof WorldsWorldIdArticlesArticleIdRoute
+  '/worlds/$worldId/characters/$articleId': typeof WorldsWorldIdCharactersArticleIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -61,14 +71,20 @@ export interface FileRouteTypes {
     | '/worlds/$worldId'
     | '/worlds/$worldId/'
     | '/worlds/$worldId/articles/$articleId'
+    | '/worlds/$worldId/characters/$articleId'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/worlds/$worldId' | '/worlds/$worldId/articles/$articleId'
+  to:
+    | '/'
+    | '/worlds/$worldId'
+    | '/worlds/$worldId/articles/$articleId'
+    | '/worlds/$worldId/characters/$articleId'
   id:
     | '__root__'
     | '/'
     | '/worlds/$worldId'
     | '/worlds/$worldId/'
     | '/worlds/$worldId/articles/$articleId'
+    | '/worlds/$worldId/characters/$articleId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -106,17 +122,26 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WorldsWorldIdArticlesArticleIdRouteImport
       parentRoute: typeof WorldsWorldIdRouteRoute
     }
+    '/worlds/$worldId/characters/$articleId': {
+      id: '/worlds/$worldId/characters/$articleId'
+      path: '/characters/$articleId'
+      fullPath: '/worlds/$worldId/characters/$articleId'
+      preLoaderRoute: typeof WorldsWorldIdCharactersArticleIdRouteImport
+      parentRoute: typeof WorldsWorldIdRouteRoute
+    }
   }
 }
 
 interface WorldsWorldIdRouteRouteChildren {
   WorldsWorldIdIndexRoute: typeof WorldsWorldIdIndexRoute
   WorldsWorldIdArticlesArticleIdRoute: typeof WorldsWorldIdArticlesArticleIdRoute
+  WorldsWorldIdCharactersArticleIdRoute: typeof WorldsWorldIdCharactersArticleIdRoute
 }
 
 const WorldsWorldIdRouteRouteChildren: WorldsWorldIdRouteRouteChildren = {
   WorldsWorldIdIndexRoute: WorldsWorldIdIndexRoute,
   WorldsWorldIdArticlesArticleIdRoute: WorldsWorldIdArticlesArticleIdRoute,
+  WorldsWorldIdCharactersArticleIdRoute: WorldsWorldIdCharactersArticleIdRoute,
 }
 
 const WorldsWorldIdRouteRouteWithChildren =

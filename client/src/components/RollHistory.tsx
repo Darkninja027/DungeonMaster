@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Link } from '@tanstack/react-router'
 import { Trash2 } from 'lucide-react'
 import { clearRollLog, useRollLog } from '#/lib/rollLog'
@@ -12,9 +13,11 @@ function timeAgo(at: number): string {
 }
 
 export function RollHistory() {
-  const rolls = useRollLog()
+  const allRolls = useRollLog()
+  // Filter by roll source (article/character), keyed by articleId.
+  const [sourceFilter, setSourceFilter] = useState('')
 
-  if (rolls.length === 0) {
+  if (allRolls.length === 0) {
     return (
       <p className="text-muted-foreground p-4 text-sm">
         Click any dice chip or "Roll" button in an article and the result shows
@@ -23,16 +26,39 @@ export function RollHistory() {
     )
   }
 
+  const sources = new Map<string, string>()
+  for (const roll of allRolls) {
+    if (roll.source) sources.set(roll.source.articleId, roll.source.title)
+  }
+  const rolls = sourceFilter
+    ? allRolls.filter((r) => r.source?.articleId === sourceFilter)
+    : allRolls
+
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center justify-between border-b px-3 py-1.5">
-        <span className="text-muted-foreground text-xs">
-          {rolls.length} rolls this session
-        </span>
+      <div className="flex items-center gap-2 border-b px-3 py-1.5">
+        {sources.size > 1 ? (
+          <select
+            className="bg-background h-6 min-w-0 flex-1 truncate rounded border px-1 text-xs"
+            value={sourceFilter}
+            onChange={(e) => setSourceFilter(e.target.value)}
+          >
+            <option value="">All sources ({allRolls.length})</option>
+            {[...sources].map(([id, title]) => (
+              <option key={id} value={id}>
+                {title}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <span className="text-muted-foreground flex-1 text-xs">
+            {allRolls.length} rolls this session
+          </span>
+        )}
         <Button
           variant="ghost"
           size="sm"
-          className="h-6 text-xs"
+          className="h-6 shrink-0 text-xs"
           onClick={clearRollLog}
         >
           <Trash2 className="size-3" /> Clear

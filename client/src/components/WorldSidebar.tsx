@@ -13,6 +13,8 @@ import {
   Pencil,
   Search,
   Trash2,
+  UserPlus,
+  Users,
   X,
 } from 'lucide-react'
 import { api } from '#/lib/api'
@@ -38,7 +40,12 @@ import { Input } from '#/components/ui/input'
 import { ScrollArea } from '#/components/ui/scroll-area'
 
 interface NameDialogState {
-  mode: 'new-folder' | 'rename-folder' | 'new-article' | 'rename-article'
+  mode:
+    | 'new-folder'
+    | 'rename-folder'
+    | 'new-article'
+    | 'rename-article'
+    | 'new-character'
   parentFolderId: string | null
   folderId?: string
   articleId?: string
@@ -54,6 +61,10 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
   const tree = useQuery({
     queryKey: ['worlds', worldId, 'tree'],
     queryFn: () => api.worlds.tree(worldId),
+  })
+  const characters = useQuery({
+    queryKey: ['worlds', worldId, 'characters'],
+    queryFn: () => api.characters.list(worldId),
   })
 
   const [dialog, setDialog] = useState<NameDialogState | null>(null)
@@ -95,8 +106,9 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
     enabled: searchTerm.length > 0,
   })
 
+  // Prefix invalidation: tree, characters list, search, world meta.
   const invalidateTree = () =>
-    queryClient.invalidateQueries({ queryKey: ['worlds', worldId, 'tree'] })
+    queryClient.invalidateQueries({ queryKey: ['worlds', worldId] })
 
   const createFolder = useMutation({
     mutationFn: api.folders.create,
@@ -186,6 +198,37 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
     },
   })
 
+  const createCharacter = useMutation({
+    mutationFn: async (characterName: string) => {
+      // Characters live in a top-level Characters/ folder by convention.
+      try {
+        await api.folders.create({
+          worldId,
+          parentFolderId: null,
+          name: 'Characters',
+        })
+      } catch {
+        // already exists
+      }
+      const template = articleTemplates.find((t) => t.id === 'character')
+      return api.articles.create({
+        worldId,
+        folderId: 'Characters',
+        title: characterName,
+        content: template?.body ?? '',
+      })
+    },
+    onSuccess: (article) => {
+      invalidateTree()
+      setDialog(null)
+      navigate({
+        to: '/worlds/$worldId/characters/$articleId',
+        params: { worldId, articleId: article.id },
+      })
+    },
+    onError: (error) => alert(error.message),
+  })
+
   const submitDialog = () => {
     if (!dialog || !name.trim()) return
     if (dialog.mode === 'new-folder') {
@@ -198,6 +241,8 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
       renameFolder.mutate({ id: dialog.folderId, name })
     } else if (dialog.mode === 'rename-article' && dialog.articleId != null) {
       renameArticle.mutate({ id: dialog.articleId, title: name })
+    } else if (dialog.mode === 'new-character') {
+      createCharacter.mutate(name)
     } else if (dialog.mode === 'new-article') {
       const template = articleTemplates.find((t) => t.id === templateId)
       createArticle.mutate({
@@ -426,6 +471,45 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
 
   return (
     <div className="bg-muted/30 flex h-full w-72 shrink-0 flex-col border-r">
+      <div className="border-b">
+        <div className="flex items-center justify-between px-3 pt-2">
+          <span className="text-muted-foreground text-xs font-semibold uppercase tracking-wide">
+            Characters
+          </span>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-7"
+            title="New character"
+            onClick={() =>
+              openDialog({ mode: 'new-character', parentFolderId: null })
+            }
+          >
+            <UserPlus className="size-4" />
+          </Button>
+        </div>
+        <div className="px-2 pb-1.5">
+          {characters.data?.length === 0 && (
+            <p className="text-muted-foreground px-2 pb-1 text-xs">
+              No characters yet.
+            </p>
+          )}
+          {characters.data?.map((ch) => (
+            <Link
+              key={ch.id}
+              to="/worlds/$worldId/characters/$articleId"
+              params={{ worldId, articleId: ch.id }}
+              className={cn(
+                'hover:bg-accent flex items-center gap-1.5 rounded px-2 py-1 text-sm',
+                activeArticleId === ch.id && 'bg-accent font-medium',
+              )}
+            >
+              <Users className="text-muted-foreground size-3.5 shrink-0" />
+              <span className="truncate">{ch.title}</span>
+            </Link>
+          ))}
+        </div>
+      </div>
       <div className="flex items-center justify-between border-b px-3 py-2">
         <span className="text-muted-foreground text-xs font-semibold uppercase tracking-wide">
           Content
@@ -553,16 +637,19 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
               {dialog?.mode === 'rename-folder' && 'Rename folder'}
               {dialog?.mode === 'new-article' && 'New article'}
               {dialog?.mode === 'rename-article' && 'Rename article'}
+              {dialog?.mode === 'new-character' && 'New character'}
             </DialogTitle>
           </DialogHeader>
           <Input
             autoFocus
             value={name}
             placeholder={
-              dialog?.mode === 'new-article' ||
-              dialog?.mode === 'rename-article'
-                ? 'Article title'
-                : 'Folder name'
+              dialog?.mode === 'new-character'
+                ? 'Character name'
+                : dialog?.mode === 'new-article' ||
+                    dialog?.mode === 'rename-article'
+                  ? 'Article title'
+                  : 'Folder name'
             }
             onChange={(e) => setName(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && submitDialog()}

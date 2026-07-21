@@ -14,6 +14,7 @@ import {
   Wand2,
 } from 'lucide-react'
 import { api } from '#/lib/api'
+import { isCharacterContent } from '#/lib/character'
 import { useShortcut } from '#/lib/useShortcut'
 import type { RollSource } from '#/lib/rollLog'
 import { exportPdf } from '#/lib/exportPdf'
@@ -453,6 +454,19 @@ function ArticlePage() {
         <p className="text-destructive border-b px-4 py-1 text-sm">
           {save.error.message}
         </p>
+      )}
+      {isCharacterContent(content) && (
+        <div className="bg-accent/40 flex items-center gap-2 border-b px-4 py-1 text-sm">
+          <span>This is a character — the frontmatter is its sheet data.</span>
+          <Button variant="outline" size="sm" className="h-6 text-xs" asChild>
+            <Link
+              to="/worlds/$worldId/characters/$articleId"
+              params={{ worldId, articleId: article.data?.id ?? articleId }}
+            >
+              Open character sheet
+            </Link>
+          </Button>
+        </div>
       )}
       {externalChange && (
         <div className="flex items-center gap-2 border-b bg-amber-500/10 px-4 py-1 text-sm">
