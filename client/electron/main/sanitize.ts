@@ -40,15 +40,23 @@ export function nameError(name: string): string | null {
   const trimmed = name.trim()
   if (!trimmed) return 'Name cannot be empty.'
   const bad = trimmed.match(INVALID_CHARS)
-  if (bad) return `Name cannot contain ${bad[0] === ':' ? 'a colon (:)' : `"${bad[0]}"`} — it must be a valid filename.`
-  if (RESERVED.test(trimmed)) return `"${trimmed}" is a reserved Windows filename.`
+  if (bad)
+    return `Name cannot contain ${bad[0] === ':' ? 'a colon (:)' : `"${bad[0]}"`} — it must be a valid filename.`
+  if (RESERVED.test(trimmed))
+    return `"${trimmed}" is a reserved Windows filename.`
   if (/[. ]$/.test(trimmed) || trimmed.startsWith('.')) {
     return 'Name cannot start with a dot or end with a dot or space.'
   }
-  if (trimmed.includes('[[') || trimmed.includes(']]') || trimmed.includes('#')) {
+  if (
+    trimmed.includes('[[') ||
+    trimmed.includes(']]') ||
+    trimmed.includes('#')
+  ) {
     return 'Name cannot contain [[, ]] or # — they break wiki-links.'
   }
-  return trimmed.toLowerCase() === '_images' ? '"_images" is reserved for world images.' : null
+  return trimmed.toLowerCase() === '_images'
+    ? '"_images" is reserved for world images.'
+    : null
 }
 
 export function escapeRegExp(text: string): string {

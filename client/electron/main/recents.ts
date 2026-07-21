@@ -12,8 +12,12 @@ function configPath(): string {
 
 export function readConfig(): Config {
   try {
-    const raw = JSON.parse(fs.readFileSync(configPath(), 'utf8')) as Partial<Config>
-    return { recentWorlds: Array.isArray(raw.recentWorlds) ? raw.recentWorlds : [] }
+    const raw = JSON.parse(
+      fs.readFileSync(configPath(), 'utf8'),
+    ) as Partial<Config>
+    return {
+      recentWorlds: Array.isArray(raw.recentWorlds) ? raw.recentWorlds : [],
+    }
   } catch {
     return { recentWorlds: [] }
   }
@@ -26,7 +30,10 @@ function writeConfig(config: Config) {
 
 export function addRecentWorld(absPath: string) {
   const config = readConfig()
-  config.recentWorlds = [absPath, ...config.recentWorlds.filter((p) => p !== absPath)].slice(0, 20)
+  config.recentWorlds = [
+    absPath,
+    ...config.recentWorlds.filter((p) => p !== absPath),
+  ].slice(0, 20)
   writeConfig(config)
 }
 

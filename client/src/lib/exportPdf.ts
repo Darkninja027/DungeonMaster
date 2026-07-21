@@ -7,7 +7,9 @@ import { domToPng } from 'modern-screenshot'
  * matches the preview exactly (parchment, columns, drop caps, images).
  */
 export async function exportPdf(root: HTMLElement, filename: string) {
-  const pages = Array.from(root.querySelectorAll<HTMLElement>('.dnd-page:not(.dnd-measure)'))
+  const pages = Array.from(
+    root.querySelectorAll<HTMLElement>('.dnd-page:not(.dnd-measure)'),
+  )
   if (pages.length === 0) return
 
   await document.fonts.ready
@@ -20,11 +22,18 @@ export async function exportPdf(root: HTMLElement, filename: string) {
       scale: 2,
       // roll buttons are dead weight on paper
       filter: (node) =>
-        !(node instanceof HTMLElement && node.classList.contains('dnd-roll-bar')),
+        !(
+          node instanceof HTMLElement && node.classList.contains('dnd-roll-bar')
+        ),
     })
     const orientation = w > h ? 'landscape' : 'portrait'
     if (!pdf) {
-      pdf = new jsPDF({ unit: 'px', format: [w, h], orientation, hotfixes: ['px_scaling'] })
+      pdf = new jsPDF({
+        unit: 'px',
+        format: [w, h],
+        orientation,
+        hotfixes: ['px_scaling'],
+      })
     } else {
       pdf.addPage([w, h], orientation)
     }

@@ -47,8 +47,14 @@ function WorldsPage() {
     }
   }
 
-  const createWorld = useMutation({ mutationFn: api.worlds.create, onSuccess: goTo })
-  const openWorld = useMutation({ mutationFn: api.worlds.open, onSuccess: goTo })
+  const createWorld = useMutation({
+    mutationFn: api.worlds.create,
+    onSuccess: goTo,
+  })
+  const openWorld = useMutation({
+    mutationFn: api.worlds.open,
+    onSuccess: goTo,
+  })
 
   const removeWorld = useMutation({
     mutationFn: api.worlds.remove,
@@ -61,11 +67,16 @@ function WorldsPage() {
         <div>
           <h1 className="text-2xl font-bold">Your Worlds</h1>
           <p className="text-muted-foreground text-sm">
-            A world is a folder of markdown files on your disk — open one or create one.
+            A world is a folder of markdown files on your disk — open one or
+            create one.
           </p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" disabled={openWorld.isPending} onClick={() => openWorld.mutate()}>
+          <Button
+            variant="outline"
+            disabled={openWorld.isPending}
+            onClick={() => openWorld.mutate()}
+          >
             <FolderOpen /> Open Folder
           </Button>
           <Dialog open={open} onOpenChange={setOpen}>
@@ -101,7 +112,9 @@ function WorldsPage() {
                   You'll pick where to create the world folder next.
                 </p>
                 {createWorld.isError && (
-                  <p className="text-destructive text-sm">{createWorld.error.message}</p>
+                  <p className="text-destructive text-sm">
+                    {createWorld.error.message}
+                  </p>
                 )}
               </div>
               <DialogFooter>
@@ -118,18 +131,26 @@ function WorldsPage() {
       </div>
 
       {openWorld.isError && (
-        <p className="text-destructive mb-4 text-sm">{openWorld.error.message}</p>
+        <p className="text-destructive mb-4 text-sm">
+          {openWorld.error.message}
+        </p>
       )}
-      {worlds.isLoading && <p className="text-muted-foreground">Loading worlds…</p>}
+      {worlds.isLoading && (
+        <p className="text-muted-foreground">Loading worlds…</p>
+      )}
       {worlds.isError && (
-        <p className="text-destructive">Failed to load worlds: {worlds.error.message}</p>
+        <p className="text-destructive">
+          Failed to load worlds: {worlds.error.message}
+        </p>
       )}
 
       {worlds.data && worlds.data.length === 0 && (
         <Card className="border-dashed">
           <CardContent className="text-muted-foreground flex flex-col items-center gap-2 py-12">
             <Globe2 className="size-10" />
-            <p>No recent worlds. Create one, or open an existing world folder.</p>
+            <p>
+              No recent worlds. Create one, or open an existing world folder.
+            </p>
           </CardContent>
         </Card>
       )}
@@ -151,7 +172,8 @@ function WorldsPage() {
             </CardHeader>
             <CardContent className="text-muted-foreground flex items-center justify-between text-sm">
               <span>
-                {world.articleCount} article{world.articleCount === 1 ? '' : 's'}
+                {world.articleCount} article
+                {world.articleCount === 1 ? '' : 's'}
               </span>
               <Button
                 variant="ghost"
