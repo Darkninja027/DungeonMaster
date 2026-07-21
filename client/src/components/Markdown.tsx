@@ -10,6 +10,7 @@ import {
   rangeMatches,
   resolveWikiLinks,
   rollDice,
+  splitFrontmatter,
 } from '#/lib/formatMarkdown'
 import type { DiceResult } from '#/lib/formatMarkdown'
 import { logRoll } from '#/lib/rollLog'
@@ -376,7 +377,8 @@ export function BookView({
   onCreateMissing,
   source,
 }: { children: string } & RenderContext) {
-  const pages = parsePages(children)
+  // Frontmatter (character stats etc.) is data, not prose — never render it.
+  const pages = parsePages(splitFrontmatter(children).body)
   return (
     <div className="dnd-book flex flex-col items-center gap-8">
       {pages.map((page, i) => (

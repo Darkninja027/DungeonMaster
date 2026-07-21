@@ -16,6 +16,35 @@ const PAGE_MARKER = /^\\page\s*$/
 const COLUMNS_MARKER = /^\\columns\s+([12])\s*$/
 
 /**
+ * Split leading YAML frontmatter (---\n…\n---) from the markdown body.
+ * Character sheets keep structured data there; remark knows nothing about
+ * frontmatter, so it must be carved off before any processing (Tidy would
+ * mangle it, the book preview would render it as literal text).
+ */
+export function splitFrontmatter(text: string): {
+  frontmatter: string | null
+  body: string
+} {
+  const m = text.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n)?/)
+  if (!m) return { frontmatter: null, body: text }
+  // Also consume the conventional blank line after the closing fence, so
+  // join(split(x)) round-trips.
+  return {
+    frontmatter: m[1],
+    body: text.slice(m[0].length).replace(/^\r?\n/, ''),
+  }
+}
+
+export function joinFrontmatter(
+  frontmatter: string | null,
+  body: string,
+): string {
+  return frontmatter == null
+    ? body
+    : `---\n${frontmatter}\n---\n\n${body.replace(/^\n+/, '')}`
+}
+
+/**
  * Rejoin table rows separated by blank lines (common in exported/pasted
  * markdown). GFM only parses consecutive `|` lines as a table.
  */
@@ -94,7 +123,8 @@ export async function formatMarkdown(text: string): Promise<string> {
     rule: '-',
     fences: true,
   })
-  const pages = parsePages(text)
+  const { frontmatter, body: bodyText } = splitFrontmatter(text)
+  const pages = parsePages(bodyText)
   const formatted = await Promise.all(
     pages.map(async (page) => ({
       ...page,
@@ -104,7 +134,7 @@ export async function formatMarkdown(text: string): Promise<string> {
         .replaceAll('\\[\\[', '[['),
     })),
   )
-  return serializePages(formatted)
+  return joinFrontmatter(frontmatter, serializePages(formatted))
 }
 
 /**

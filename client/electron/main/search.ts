@@ -57,6 +57,26 @@ export function searchWorld(
   return results
 }
 
+/**
+ * Articles whose YAML frontmatter declares `type: character` — the character
+ * manager's list. Same index-or-disk source as search.
+ */
+export function listCharacters(
+  worldId: string,
+): Array<{ id: string; folderId: string | null; title: string }> {
+  const results: Array<{ id: string; folderId: string | null; title: string }> =
+    []
+  for (const { id, folderId, title, content } of articleEntries(worldId)) {
+    const fm = content.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/)
+    if (fm && /^type:\s*character\s*$/m.test(fm[1])) {
+      results.push({ id, folderId, title })
+    }
+  }
+  return results.sort((a, b) =>
+    a.title.localeCompare(b.title, undefined, { sensitivity: 'base' }),
+  )
+}
+
 /** Articles whose content wiki-links to the given article's title. */
 export function findMentions(
   worldId: string,

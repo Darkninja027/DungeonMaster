@@ -189,6 +189,16 @@ export const api = {
     delete: (worldId: string, imageId: string) =>
       invoke<void>('images:delete', { worldId, imageId }),
   },
+  characters: {
+    /** Articles whose frontmatter declares `type: character`, sorted by title. */
+    list: (worldId: string) =>
+      invoke<Array<{ id: string; folderId: string | null; title: string }>>(
+        'characters:list',
+        {
+          worldId,
+        },
+      ),
+  },
   session: {
     /** Combat/session state stored in the world folder; null if none saved. */
     get: (worldId: string) =>

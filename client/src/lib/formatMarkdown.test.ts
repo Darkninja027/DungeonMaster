@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { linkifyDice } from './formatMarkdown'
+import {
+  formatMarkdown,
+  joinFrontmatter,
+  linkifyDice,
+  splitFrontmatter,
+} from './formatMarkdown'
 
 describe('linkifyDice', () => {
   it('turns bare notation into dice links', () => {
@@ -31,6 +36,27 @@ describe('linkifyDice', () => {
     expect(linkifyDice('[Bite](dice:1d4) plus 2d6 poison')).toBe(
       '[Bite](dice:1d4) plus [2d6](dice:2d6) poison',
     )
+  })
+
+  it('splits and rejoins frontmatter', () => {
+    const content = '---\ntype: character\nac: 16\n---\n\n# Kaelen'
+    const { frontmatter, body } = splitFrontmatter(content)
+    expect(frontmatter).toBe('type: character\nac: 16')
+    expect(body).toBe('# Kaelen')
+    expect(joinFrontmatter(frontmatter, body)).toBe(content)
+    expect(splitFrontmatter('no frontmatter').frontmatter).toBeNull()
+  })
+
+  it('Tidy preserves frontmatter untouched', async () => {
+    const content =
+      '---\ntype: character\nabilities: { str: 10 }\n---\n\n#   Kaelen\n\nsome  text'
+    const formatted = await formatMarkdown(content)
+    expect(
+      formatted.startsWith(
+        '---\ntype: character\nabilities: { str: 10 }\n---\n',
+      ),
+    ).toBe(true)
+    expect(formatted).toContain('# Kaelen')
   })
 
   it('leaves code spans and fences alone', () => {

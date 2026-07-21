@@ -12,7 +12,7 @@ import {
   noteWrite,
   refreshIndex,
 } from './indexer'
-import { findMentions, searchWorld } from './search'
+import { findMentions, listCharacters, searchWorld } from './search'
 
 describe('indexer', () => {
   let root: string
@@ -86,6 +86,18 @@ describe('indexer', () => {
   it('refreshIndex is a no-op when no index exists', () => {
     refreshIndex(worldId)
     expect(getIndex(worldId)).toBeUndefined()
+  })
+
+  it('listCharacters finds frontmatter-typed articles, indexed or not', () => {
+    createArticle({
+      worldId,
+      title: 'Kaelen',
+      content: '---\ntype: character\nlevel: 5\n---\n\n# Kaelen',
+    })
+    const scan = listCharacters(worldId)
+    expect(scan.map((c) => c.title)).toEqual(['Kaelen'])
+    buildIndex(worldId)
+    expect(listCharacters(worldId)).toEqual(scan)
   })
 
   it('getIndex is scoped to the built world', () => {

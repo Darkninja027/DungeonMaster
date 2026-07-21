@@ -13,6 +13,46 @@ export const articleTemplates: Array<ArticleTemplate> = [
     body: '',
   },
   {
+    id: 'character',
+    name: 'Player Character',
+    description: 'Full 5e sheet — opens in the character manager',
+    body: `---
+type: character
+class: Fighter
+level: 1
+race: Human
+background: Soldier
+alignment: LG
+xp: 0
+abilities: { str: 15, dex: 13, con: 14, int: 10, wis: 12, cha: 8 }
+saves: [str, con]
+skills: [athletics, intimidation]
+expertise: []
+ac: 16
+initiativeBonus: 0
+speed: 30
+hp: { current: 12, max: 12, temp: 0 }
+hitDice: { size: 10, total: 1, used: 0 }
+deathSaves: { success: 0, fail: 0 }
+attacks:
+  - { name: Longsword, bonus: 5, damage: 1d8+3 }
+spellAbility: null
+spellSlots: {}
+currency: { cp: 0, sp: 0, ep: 0, gp: 10, pp: 0 }
+inventory:
+  - Longsword
+  - Shield
+  - Rations x5
+notes: []
+---
+
+# Character Name
+
+Backstory, bonds, ideals, and flaws go here — plain markdown, wiki-links
+like [[Home Town]] welcome.
+`,
+  },
+  {
     id: 'location',
     name: 'Location',
     description: 'City, dungeon, region, or landmark',

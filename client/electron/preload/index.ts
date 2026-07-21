@@ -26,6 +26,7 @@ const CHANNELS = new Set([
   'images:list',
   'images:upload',
   'images:delete',
+  'characters:list',
   'session:get',
   'session:set',
   'updates:quitAndInstall',

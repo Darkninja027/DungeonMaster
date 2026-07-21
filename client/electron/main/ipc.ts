@@ -21,7 +21,7 @@ import {
   writeWorldMeta,
 } from './worldStore'
 import type { WorldSummary } from './worldStore'
-import { findMentions, searchWorld } from './search'
+import { findMentions, listCharacters, searchWorld } from './search'
 import { deleteImage, listImages, uploadImage } from './images'
 import { readSession, writeSession } from './session'
 import { noteSelfWrite, startWatching, stopWatching } from './watcher'
@@ -327,6 +327,11 @@ export function registerIpcHandlers() {
     'images:delete',
     (_e, { worldId, imageId }: { worldId: string; imageId: string }) =>
       deleteImage(worldId, imageId),
+  )
+
+  // Characters ----------------------------------------------------------------
+  ipcMain.handle('characters:list', (_e, { worldId }: { worldId: string }) =>
+    listCharacters(worldId),
   )
 
   // Session (initiative tracker) ---------------------------------------------
