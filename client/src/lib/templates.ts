@@ -214,29 +214,28 @@ Use a standard stat block, or note: *use the stats of a [creature] (MM p.XXX)*.
     type: 'monster',
     body: `# Creature Name
 
-*Size type, alignment*
-
-| Stat | Value |
-| ---- | ----- |
-| Armor Class | 12 |
-| Hit Points | 22 (4d8 + 4) |
-| Speed | 30 ft. |
-| Challenge | 1 (200 XP) |
-
-| STR | DEX | CON | INT | WIS | CHA |
-| --- | --- | --- | --- | --- | --- |
-| 10 (+0) | 14 (+2) | 12 (+1) | 10 (+0) | 11 (+0) | 8 (-1) |
-
-**Senses** darkvision 60 ft., passive Perception 10
-**Languages** Common
-
-## Traits
-
+\`\`\`statblock
+name: Creature Name
+size: Medium humanoid, neutral evil
+ac: 12
+hp: 22 (4d8 + 4)
+speed: 30 ft.
+str: 10
+dex: 14
+con: 12
+int: 10
+wis: 11
+cha: 8
+cr: 1 (200 XP)
+Senses: darkvision 60 ft., passive Perception 10
+Languages: Common
+---
 **Trait Name.** Description of the trait.
 
 ## Actions
 
 **Attack Name.** *Melee Weapon Attack:* +4 to hit, reach 5 ft., one target. *Hit:* 5 (1d6 + 2) damage.
+\`\`\`
 
 ## Tactics & Lore
 

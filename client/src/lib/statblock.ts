@@ -115,7 +115,159 @@ function parseDexMod(body: string): number | null {
   return null
 }
 
+// --- Rendered stat-block card ----------------------------------------------
+
+export const ABILITY_ORDER = ['str', 'dex', 'con', 'int', 'wis', 'cha'] as const
+export type AbilityKey = (typeof ABILITY_ORDER)[number]
+
+export interface StatBlockCard {
+  name: string | null
+  /** The italic line under the name: "Small humanoid, neutral evil". */
+  subtitle: string | null
+  ac: string | null
+  hp: string | null
+  speed: string | null
+  cr: string | null
+  xp: number | null
+  /** Ability scores 1–30 keyed by str…cha; null if that ability was omitted. */
+  abilities: Record<AbilityKey, number | null>
+  /** Extra one-line entries (Senses, Languages, Skills…) preserved in order. */
+  extras: Array<{ label: string; value: string }>
+  /** Free markdown after the fields (Traits/Actions); rendered with dice chips. */
+  prose: string
+}
+
+/** Keys that map to dedicated card slots rather than the "extras" list. */
+const CORE_KEYS = new Set([
+  'name',
+  'subtitle',
+  'size',
+  'type',
+  'ac',
+  'hp',
+  'speed',
+  'cr',
+  'xp',
+  ...ABILITY_ORDER,
+])
+
+/** A score → "+2" style modifier string for display on the card. */
+export function abilityModLabel(score: number): string {
+  const mod = abilityMod(score)
+  return mod >= 0 ? `+${mod}` : `${mod}`
+}
+
+/**
+ * Parse the body of a ```statblock fence into a card. The format is friendly
+ * `key: value` lines (no fragile tables) with an optional `---` separator, after
+ * which everything is free markdown prose:
+ *
+ *   name: Goblin
+ *   size: Small humanoid, neutral evil
+ *   ac: 15
+ *   hp: 7 (2d6)
+ *   str: 8
+ *   dex: 14
+ *   ---
+ *   **Nimble Escape.** ...
+ *
+ * Tolerant: unknown keys become "extras", missing fields render as blank, and a
+ * body with no fields at all just becomes prose. Never throws.
+ */
+export function parseStatBlockCard(fence: string): StatBlockCard {
+  const card: StatBlockCard = {
+    name: null,
+    subtitle: null,
+    ac: null,
+    hp: null,
+    speed: null,
+    cr: null,
+    xp: null,
+    abilities: {
+      str: null,
+      dex: null,
+      con: null,
+      int: null,
+      wis: null,
+      cha: null,
+    },
+    extras: [],
+    prose: '',
+  }
+
+  const lines = fence.replace(/\r\n/g, '\n').split('\n')
+  const proseLines: Array<string> = []
+  let inProse = false
+
+  for (const line of lines) {
+    if (inProse) {
+      proseLines.push(line)
+      continue
+    }
+    // An explicit "---" ends the field block; the rest is prose.
+    if (line.trim() === '---') {
+      inProse = true
+      continue
+    }
+    const m = line.match(/^\s*([A-Za-z][\w ]*?)\s*:\s*(.*)$/)
+    if (!m) {
+      // First non-field line begins the prose section (keep it and the rest).
+      inProse = true
+      proseLines.push(line)
+      continue
+    }
+    const key = m[1].trim().toLowerCase()
+    const value = m[2].trim()
+    if (!value) continue
+
+    if (key === 'name') card.name = value
+    else if (key === 'subtitle' || key === 'size' || key === 'type')
+      card.subtitle = card.subtitle ? `${card.subtitle}, ${value}` : value
+    else if (key === 'ac') card.ac = value
+    else if (key === 'hp') card.hp = value
+    else if (key === 'speed') card.speed = value
+    else if (key === 'cr') {
+      card.cr = value.match(/^\d+\/\d+|\d+/)?.[0] ?? value
+      // XP from a written "(200 XP)" or the CR table.
+      const written = value.match(/\(\s*([\d,]+)\s*XP/i)
+      card.xp = written
+        ? Number(written[1].replace(/,/g, ''))
+        : (xpForCr(card.cr) ?? null)
+    } else if ((ABILITY_ORDER as readonly string[]).includes(key)) {
+      const n = leadingInt(value)
+      if (n != null) card.abilities[key as AbilityKey] = n
+    } else if (!CORE_KEYS.has(key)) {
+      // Preserve the author's original capitalization for the label.
+      card.extras.push({ label: m[1].trim(), value })
+    }
+  }
+
+  card.prose = proseLines.join('\n').trim()
+  return card
+}
+
+/** The contents of the first ```statblock fence in an article, or null. */
+export function extractStatBlockFence(content: string): string | null {
+  const m = content.match(/```statblock[^\n]*\n([\s\S]*?)```/i)
+  return m ? m[1] : null
+}
+
 export function parseStatBlock(content: string): StatBlock {
+  // Prefer the structured card fence if the article uses one — it's the
+  // canonical monster format; the table parsing below is the legacy fallback.
+  const fence = extractStatBlockFence(content)
+  if (fence) {
+    const card = parseStatBlockCard(fence)
+    const dex = card.abilities.dex
+    return {
+      ac: leadingInt(card.ac ?? ''),
+      hp: leadingInt(card.hp ?? ''),
+      cr: card.cr,
+      xp: card.xp,
+      dexMod: dex != null ? abilityMod(dex) : null,
+    }
+  }
+
   const { frontmatter, body } = splitFrontmatter(content)
 
   const result: StatBlock = {

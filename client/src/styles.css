@@ -576,6 +576,82 @@ a {
   background: var(--dnd-green);
 }
 
+/* PHB-style monster stat block card (from a ```statblock fence) */
+.dnd-statblock {
+  background: color-mix(in oklab, var(--dnd-green) 55%, white);
+  border: 1px solid var(--dnd-gold);
+  border-top: 4px solid var(--dnd-red);
+  border-radius: 4px;
+  padding: 0.7em 0.9em;
+  margin: 1em 0;
+  break-inside: avoid;
+  color: var(--dnd-ink);
+}
+.dnd-statblock-name {
+  font-family: 'Cinzel', serif;
+  font-weight: 700;
+  font-size: 1.3em;
+  line-height: 1.1;
+  color: var(--dnd-red);
+}
+.dnd-statblock-subtitle {
+  font-style: italic;
+  font-size: 0.9em;
+  margin-bottom: 0.4em;
+}
+.dnd-statblock-attrs {
+  border-top: 1px solid var(--dnd-gold);
+  border-bottom: 1px solid var(--dnd-gold);
+  padding: 0.35em 0;
+  margin: 0.35em 0;
+  font-size: 0.95em;
+}
+.dnd-statblock-attr-label {
+  font-weight: 700;
+  color: var(--dnd-red);
+}
+/* The value renders through InlineMarkdown; keep it inline, no block margins */
+.dnd-statblock-attr-value,
+.dnd-statblock-attr-value p {
+  display: inline;
+  margin: 0;
+}
+.dnd-statblock-abilities {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 0.25em;
+  text-align: center;
+  margin: 0.5em 0;
+}
+.dnd-statblock-ability-name {
+  font-weight: 700;
+  color: var(--dnd-red);
+  font-size: 0.85em;
+}
+.dnd-statblock-ability-score {
+  font-size: 0.85em;
+  white-space: nowrap;
+}
+.dnd-statblock-extras {
+  font-size: 0.9em;
+  border-top: 1px solid var(--dnd-gold);
+  padding-top: 0.35em;
+  margin-top: 0.35em;
+}
+.dnd-statblock-extras > div {
+  margin-bottom: 0.15em;
+}
+.dnd-statblock-prose {
+  margin-top: 0.5em;
+  font-size: 0.95em;
+}
+.dnd-statblock-prose > :first-child {
+  margin-top: 0;
+}
+.dnd-statblock-prose > :last-child {
+  margin-bottom: 0;
+}
+
 .dnd-page code {
   font-size: 0.9em;
   background: rgba(88, 24, 13, 0.08);
