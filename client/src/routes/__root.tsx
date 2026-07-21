@@ -1,7 +1,10 @@
+import { useState } from 'react'
 import { Link, Outlet, createRootRoute } from '@tanstack/react-router'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { Castle } from 'lucide-react'
+import { Castle, Moon, Sun } from 'lucide-react'
 import { UpdateIndicator } from '#/components/UpdateIndicator'
+import { isDark, setTheme } from '#/lib/theme'
+import { Button } from '#/components/ui/button'
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } },
@@ -10,6 +13,25 @@ const queryClient = new QueryClient({
 export const Route = createRootRoute({
   component: RootLayout,
 })
+
+function ThemeToggle() {
+  const [dark, setDark] = useState(isDark())
+  const toggle = () => {
+    setTheme(dark ? 'light' : 'dark')
+    setDark(!dark)
+  }
+  return (
+    <Button
+      variant="ghost"
+      size="icon"
+      className="size-7"
+      title={dark ? 'Switch to light mode' : 'Switch to dark mode'}
+      onClick={toggle}
+    >
+      {dark ? <Sun className="size-4" /> : <Moon className="size-4" />}
+    </Button>
+  )
+}
 
 function RootLayout() {
   return (
@@ -20,8 +42,9 @@ function RootLayout() {
             <Castle className="size-5" />
             Dungeon Master
           </Link>
-          <div className="ml-auto">
+          <div className="ml-auto flex items-center gap-1">
             <UpdateIndicator />
+            <ThemeToggle />
           </div>
         </header>
         <main className="min-h-0 flex-1">
