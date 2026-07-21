@@ -1,13 +1,15 @@
 import { useEffect, useState } from 'react'
-import { Dices, Swords } from 'lucide-react'
+import { Dices, Sparkles, Swords } from 'lucide-react'
 import { useRollLog } from '#/lib/rollLog'
+import { useSpellPanelRequest } from '#/lib/spellPanel'
 import { hydrateSession, useCombat } from '#/lib/sessionStore'
 import { cn } from '#/lib/utils'
 import { Button } from '#/components/ui/button'
 import { InitiativeTracker } from '#/components/InitiativeTracker'
 import { RollHistory } from '#/components/RollHistory'
+import { SpellReference } from '#/components/character/SpellReference'
 
-type PanelTab = 'initiative' | 'rolls'
+type PanelTab = 'initiative' | 'rolls' | 'spells'
 
 const STORAGE_KEY = 'dm.sessionPanel'
 
@@ -19,7 +21,7 @@ function loadPanelState(): { open: boolean; tab: PanelTab } {
     }
     return {
       open: raw.open === true,
-      tab: raw.tab === 'rolls' ? 'rolls' : 'initiative',
+      tab: raw.tab === 'rolls' || raw.tab === 'spells' ? raw.tab : 'initiative',
     }
   } catch {
     return { open: false, tab: 'initiative' }
@@ -40,6 +42,12 @@ export function SessionPanel({ worldId }: { worldId: string }) {
     void hydrateSession(worldId)
   }, [worldId])
 
+  // A spell name clicked on a character sheet opens it here.
+  const spellRequest = useSpellPanelRequest()
+  useEffect(() => {
+    if (spellRequest) setPanel({ open: true, tab: 'spells' })
+  }, [spellRequest])
+
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ open, tab }))
   }, [open, tab])
@@ -57,14 +65,20 @@ export function SessionPanel({ worldId }: { worldId: string }) {
         <div className="flex h-full w-85 flex-col border-r">
           <div className="border-b px-3 py-2">
             <h3 className="text-sm font-semibold">
-              {tab === 'initiative' ? 'Initiative' : 'Roll history'}
+              {tab === 'initiative'
+                ? 'Initiative'
+                : tab === 'rolls'
+                  ? 'Roll history'
+                  : 'Spells'}
             </h3>
           </div>
           <div className="min-h-0 flex-1">
             {tab === 'initiative' ? (
               <InitiativeTracker worldId={worldId} />
-            ) : (
+            ) : tab === 'rolls' ? (
               <RollHistory />
+            ) : (
+              <SpellReference worldId={worldId} />
             )}
           </div>
         </div>
@@ -103,6 +117,15 @@ export function SessionPanel({ worldId }: { worldId: string }) {
               )}
             />
           )}
+        </Button>
+        <Button
+          variant={open && tab === 'spells' ? 'secondary' : 'ghost'}
+          size="icon"
+          className="size-8"
+          title="Spell reference"
+          onClick={() => toggle('spells')}
+        >
+          <Sparkles className="size-4" />
         </Button>
       </div>
     </div>

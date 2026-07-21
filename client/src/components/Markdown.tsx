@@ -277,6 +277,48 @@ interface RenderContext {
 }
 
 /**
+ * Compact markdown without the book-page layout — for panels and popups.
+ * Same wiki links, dice chips, and rollable tables as the book renderer,
+ * so damage notation in spell descriptions stays clickable everywhere.
+ */
+export function InlineMarkdown({
+  children,
+  articles,
+  worldId,
+  onCreateMissing,
+  source,
+  className,
+}: { children: string; className?: string } & RenderContext) {
+  const router = useRouter()
+  const components = useMemo(
+    () =>
+      createComponents(
+        (href) => router.history.push(href),
+        onCreateMissing,
+        worldId,
+        source,
+      ),
+    [router, onCreateMissing, worldId, source],
+  )
+  const body = linkifyDice(
+    articles && worldId != null
+      ? resolveWikiLinks(children, articles, worldId)
+      : children,
+  )
+  return (
+    <div className={className}>
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={components}
+        urlTransform={(url) => url}
+      >
+        {body}
+      </ReactMarkdown>
+    </div>
+  )
+}
+
+/**
  * One `\page` chunk, rendered as however many fixed-size sheets its content
  * needs (see .dnd-page / .dnd-flow in styles.css).
  */
