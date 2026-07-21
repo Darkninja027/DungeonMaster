@@ -232,7 +232,13 @@ function CharacterPage() {
           </TabsList>
         </div>
         <TabsContent value="sheet" className="min-h-0 flex-1 overflow-y-auto">
-          <SheetTab character={character} onChange={update} source={source} />
+          <SheetTab
+            character={character}
+            onChange={update}
+            source={source}
+            articles={tree.data?.articles}
+            onCreateMissing={setMissingTitle}
+          />
         </TabsContent>
         <TabsContent
           value="inventory"

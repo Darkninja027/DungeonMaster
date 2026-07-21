@@ -1,4 +1,8 @@
-import { Dices, Plus, X } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { Dices, Plus, Sparkles, X } from 'lucide-react'
+import { api } from '#/lib/api'
+import { articleTemplates } from '#/lib/templates'
 import {
   ABILITIES,
   ABILITY_NAMES,
@@ -8,26 +12,36 @@ import {
   initiativeBonus,
   passivePerception,
   proficiencyBonus,
+  resolveSpellDamage,
   saveBonus,
+  scaleSpellDamage,
   signed,
   skillBonus,
+  sortedSpells,
   spellAttackBonus,
+  spellInfoFromContent,
   spellSaveDc,
+  wikiLinkTitle,
 } from '#/lib/character'
-import type { Ability, Character } from '#/lib/character'
+import type { Ability, Character, Spell, SpellSlots } from '#/lib/character'
 import { rollDice } from '#/lib/formatMarkdown'
 import { logRoll } from '#/lib/rollLog'
 import type { RollSource } from '#/lib/rollLog'
+import { openSpellInPanel } from '#/lib/spellPanel'
 import { cn } from '#/lib/utils'
 import { Button } from '#/components/ui/button'
 import { Input } from '#/components/ui/input'
 import { Separator } from '#/components/ui/separator'
 import { NumField } from './NumField'
 
+const SPELLS_FOLDER = 'Spells'
+
 interface SheetProps {
   character: Character
   onChange: (next: Character) => void
   source: RollSource
+  articles?: Array<{ id: string; title: string; folderId?: string | null }>
+  onCreateMissing?: (title: string) => void
 }
 
 function roll(label: string, notation: string, source: RollSource) {
@@ -118,9 +132,159 @@ function Section({
   )
 }
 
-export function SheetTab({ character: c, onChange, source }: SheetProps) {
+export function SheetTab({
+  character: c,
+  onChange,
+  source,
+  articles,
+  onCreateMissing,
+}: SheetProps) {
   const set = (patch: Partial<Character>) => onChange({ ...c, ...patch })
   const prof = proficiencyBonus(c.level)
+
+  const [spellName, setSpellName] = useState('')
+  const [spellLevel, setSpellLevel] = useState(0)
+  const queryClient = useQueryClient()
+
+  // When the typed/picked name matches a library spell, prefill the level
+  // dropdown from its article — once per matched article, so the DM can
+  // still override it (e.g. add Magic Missile at 3rd level to upcast).
+  const matchedSpell = (() => {
+    const title = wikiLinkTitle(spellName).trim().toLowerCase()
+    if (!title) return undefined
+    return (articles ?? []).find((a) => a.title.toLowerCase() === title)
+  })()
+  const matchedSpellId = matchedSpell?.id ?? null
+  const prefilledIdRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (matchedSpellId === null) {
+      prefilledIdRef.current = null
+      return
+    }
+    if (prefilledIdRef.current === matchedSpellId) return
+    prefilledIdRef.current = matchedSpellId
+    api.articles
+      .get(source.worldId, matchedSpellId)
+      .then((art) => {
+        const info = spellInfoFromContent(art.content)
+        if (info.level !== null) setSpellLevel(info.level)
+      })
+      .catch(() => {})
+  }, [matchedSpellId, source.worldId])
+
+  // The world's spell library is the top-level Spells/ folder.
+  const spellSuggestions = spellName.trim()
+    ? (articles ?? [])
+        .filter(
+          (a) =>
+            (a.folderId === SPELLS_FOLDER ||
+              a.folderId?.startsWith(`${SPELLS_FOLDER}/`)) &&
+            a.title.toLowerCase().includes(spellName.trim().toLowerCase()) &&
+            a.title.toLowerCase() !== wikiLinkTitle(spellName).toLowerCase(),
+        )
+        .slice(0, 6)
+    : []
+
+  /**
+   * Adding a spell links it to the library: an existing article of that name
+   * (anywhere in the world) is wiki-linked; an unknown spell gets a stub
+   * article created in Spells/ so the library always knows it.
+   */
+  const addSpell = useMutation({
+    mutationFn: async (input: { name: string; level: number }) => {
+      const title = wikiLinkTitle(input.name)
+      const existing = (articles ?? []).find(
+        (a) => a.title.toLowerCase() === title.toLowerCase(),
+      )
+      if (existing) {
+        // The dropdown wins for level (it was prefilled from the article,
+        // and changing it is how you upcast). Damage comes from the library,
+        // scaled by damagePerLevel when added above the base level.
+        let damage: string | undefined
+        try {
+          const art = await api.articles.get(source.worldId, existing.id)
+          const info = spellInfoFromContent(art.content)
+          if (info.damage) {
+            const levelsAbove =
+              info.level !== null ? Math.max(0, input.level - info.level) : 0
+            damage = scaleSpellDamage(
+              info.damage,
+              info.damagePerLevel,
+              levelsAbove,
+            )
+          }
+        } catch {
+          // unreadable article: no damage prefill
+        }
+        return { display: `[[${existing.title}]]`, level: input.level, damage }
+      }
+      try {
+        await api.folders.create({
+          worldId: source.worldId,
+          parentFolderId: null,
+          name: SPELLS_FOLDER,
+        })
+      } catch {
+        // folder already exists
+      }
+      // Stamp the chosen level into the new article (frontmatter + subtitle)
+      // so the library and the sheet agree from day one.
+      const template = articleTemplates.find((t) => t.id === 'spell')
+      const body = (template?.body ?? '')
+        .replace('level: 1', `level: ${input.level}`)
+        .replace(
+          'Level 1',
+          input.level === 0 ? 'Cantrip' : `Level ${input.level}`,
+        )
+      const created = await api.articles.create({
+        worldId: source.worldId,
+        folderId: SPELLS_FOLDER,
+        title,
+        content: body,
+      })
+      return {
+        display: `[[${created.title}]]`,
+        level: input.level,
+        damage: undefined as string | undefined,
+      }
+    },
+    onSuccess: ({ display, level, damage }) => {
+      const spell: Spell = { name: display, level }
+      if (damage) spell.damage = damage
+      set({ spells: [...c.spells, spell] })
+      setSpellName('')
+      queryClient.invalidateQueries({ queryKey: ['worlds', source.worldId] })
+    },
+    onError: (error) => alert(error.message),
+  })
+
+  const submitSpell = () => {
+    const name = spellName.trim()
+    if (!name || addSpell.isPending) return
+    addSpell.mutate({ name, level: spellLevel })
+  }
+
+  // Record<number, …> lookups are undefined for unconfigured levels.
+  const slotFor = (level: number) =>
+    c.spellSlots[level] as SpellSlots | undefined
+
+  const slotsLeft = (level: number) => {
+    const slot = slotFor(level)
+    return slot ? slot.total - slot.used : 0
+  }
+
+  /** Cast = expend one slot of the spell's level (cantrips are at will). */
+  const castSpell = (spell: Spell) => {
+    if (spell.level === 0) return
+    const slot = slotFor(spell.level)
+    if (!slot || slot.used >= slot.total) return
+    set({
+      spellSlots: {
+        ...c.spellSlots,
+        [spell.level]: { ...slot, used: slot.used + 1 },
+      },
+    })
+  }
 
   const toggleSave = (ability: Ability) =>
     set({
@@ -520,6 +684,156 @@ export function SheetTab({ character: c, onChange, source }: SheetProps) {
               })}
             </div>
           )}
+        </Section>
+
+        <Section title="Spells">
+          <div className="space-y-1">
+            {c.spells.length === 0 && (
+              <p className="text-muted-foreground text-xs">
+                No spells known. Use [[wiki links]] as names so the spell links
+                to its article.
+              </p>
+            )}
+            {sortedSpells(c.spells).map((spell) => {
+              const idx = c.spells.indexOf(spell)
+              const left = slotsLeft(spell.level)
+              const title = wikiLinkTitle(spell.name)
+              const target = (articles ?? []).find(
+                (a) => a.title.toLowerCase() === title.toLowerCase(),
+              )
+              return (
+                <div
+                  key={`${spell.name}-${idx}`}
+                  className="group flex items-center gap-1.5 text-sm"
+                >
+                  <span className="bg-muted w-9 shrink-0 rounded text-center font-mono text-xs">
+                    {spell.level === 0 ? 'C' : `L${spell.level}`}
+                  </span>
+                  {target ? (
+                    <button
+                      type="button"
+                      className="text-primary min-w-0 flex-1 truncate text-left underline underline-offset-2"
+                      title="Read in the spell panel"
+                      onClick={() => openSpellInPanel(target.id)}
+                    >
+                      {title}
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="min-w-0 flex-1 truncate text-left underline decoration-dashed opacity-70 hover:opacity-100"
+                      title={`No article called "${title}" yet — click to create it`}
+                      onClick={() => onCreateMissing?.(title)}
+                    >
+                      {title}
+                    </button>
+                  )}
+                  <Input
+                    value={spell.damage ?? ''}
+                    placeholder="dmg"
+                    title='Damage notation — "mod" adds your spell modifier, e.g. 2d8+mod'
+                    className="h-6 w-20 shrink-0 px-1 text-xs"
+                    onChange={(e) =>
+                      set({
+                        spells: c.spells.map((s, j) =>
+                          j === idx
+                            ? { ...s, damage: e.target.value || undefined }
+                            : s,
+                        ),
+                      })
+                    }
+                  />
+                  {spell.damage?.trim() && (
+                    <RollChip
+                      label={`${wikiLinkTitle(spell.name)} damage`}
+                      notation={resolveSpellDamage(spell.damage, c)}
+                      source={source}
+                    />
+                  )}
+                  {spell.level === 0 ? (
+                    <span className="text-muted-foreground shrink-0 text-xs">
+                      at will
+                    </span>
+                  ) : (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-6 shrink-0 gap-1 px-1.5 text-xs"
+                      disabled={left <= 0}
+                      title={
+                        left > 0
+                          ? `Expend a level ${spell.level} slot (${left} left)`
+                          : slotFor(spell.level)?.total
+                            ? `No level ${spell.level} slots left`
+                            : `Set level ${spell.level} slots above first`
+                      }
+                      onClick={() => castSpell(spell)}
+                    >
+                      <Sparkles className="size-3" /> Cast ({left})
+                    </Button>
+                  )}
+                  <button
+                    type="button"
+                    className="text-muted-foreground hover:text-destructive shrink-0 opacity-0 group-hover:opacity-100"
+                    title="Remove spell"
+                    onClick={() =>
+                      set({ spells: c.spells.filter((_, j) => j !== idx) })
+                    }
+                  >
+                    <X className="size-3.5" />
+                  </button>
+                </div>
+              )
+            })}
+            {spellSuggestions.length > 0 && (
+              <div className="flex flex-wrap gap-1 pt-1">
+                <span className="text-muted-foreground text-xs">
+                  From the spell library:
+                </span>
+                {spellSuggestions.map((a) => (
+                  <button
+                    key={a.id}
+                    type="button"
+                    className="hover:bg-accent rounded border px-1.5 py-0.5 text-xs"
+                    onClick={() => setSpellName(`[[${a.title}]]`)}
+                  >
+                    {a.title}
+                  </button>
+                ))}
+              </div>
+            )}
+            <div className="flex gap-1.5 pt-1">
+              <Input
+                value={spellName}
+                placeholder="Add spell — unknown names get a Spells/ article"
+                className="h-7 min-w-0 flex-1 text-sm"
+                onChange={(e) => setSpellName(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && submitSpell()}
+              />
+              <select
+                className="bg-background h-7 rounded border px-1 text-sm"
+                value={spellLevel}
+                title="Spell level"
+                onChange={(e) => setSpellLevel(Number(e.target.value))}
+              >
+                <option value={0}>Cantrip</option>
+                {Array.from({ length: 9 }, (_, i) => i + 1).map((lvl) => (
+                  <option key={lvl} value={lvl}>
+                    L{lvl}
+                  </option>
+                ))}
+              </select>
+              <Button
+                size="sm"
+                className="h-7 shrink-0"
+                disabled={!spellName.trim() || addSpell.isPending}
+                onClick={submitSpell}
+              >
+                <Plus className="size-3.5" />
+                {addSpell.isPending ? 'Adding…' : 'Add'}
+              </Button>
+            </div>
+          </div>
         </Section>
 
         <Section title="Currency">
