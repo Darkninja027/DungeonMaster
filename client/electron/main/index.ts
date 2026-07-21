@@ -1,5 +1,5 @@
 import path from 'node:path'
-import { app, BrowserWindow, ipcMain } from 'electron'
+import { app, BrowserWindow, ipcMain, shell } from 'electron'
 import { autoUpdater } from 'electron-updater'
 import log from 'electron-log'
 import { registerIpcHandlers } from './ipc'
@@ -41,6 +41,23 @@ function createWindow() {
   win.once('ready-to-show', () => win.show())
   // Keep our versioned title — the page's <title> would overwrite it on load.
   win.on('page-title-updated', (e) => e.preventDefault())
+
+  // The app never opens child windows. target="_blank" links (external URLs
+  // in articles) go to the system browser; anything else is dropped — a child
+  // window would load the app without its preload bridge and just error.
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:/i.test(url)) void shell.openExternal(url)
+    return { action: 'deny' }
+  })
+  // Same for in-place navigation: only the app's own origin may load.
+  win.webContents.on('will-navigate', (e, url) => {
+    const isApp = devServerUrl
+      ? url.startsWith(devServerUrl)
+      : url.startsWith('file:')
+    if (isApp) return
+    e.preventDefault()
+    if (/^https?:/i.test(url)) void shell.openExternal(url)
+  })
 
   if (devServerUrl) {
     void win.loadURL(devServerUrl)
@@ -88,7 +105,8 @@ if (!app.requestSingleInstanceLock()) {
           4000,
         )
         setTimeout(
-          () => sendUpdateStatus(win, { state: 'downloaded', version: '9.9.9' }),
+          () =>
+            sendUpdateStatus(win, { state: 'downloaded', version: '9.9.9' }),
           7000,
         )
       })
