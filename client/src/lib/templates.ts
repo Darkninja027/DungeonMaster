@@ -13,6 +13,33 @@ export const articleTemplates: Array<ArticleTemplate> = [
     body: '',
   },
   {
+    id: 'spell',
+    name: 'Spell',
+    description: 'A spell for the world spell library (Spells folder)',
+    body: `---
+type: spell
+level: 1
+damage: ""
+damagePerLevel: ""
+---
+
+# Spell Name
+
+*Level 1 evocation*
+
+| | |
+| --- | --- |
+| **Casting Time** | 1 action |
+| **Range** | 60 feet |
+| **Components** | V, S |
+| **Duration** | Instantaneous |
+
+What the spell does. Damage like 3d6 becomes a clickable roll.
+
+**At Higher Levels.** What changes when cast with a higher-level slot.
+`,
+  },
+  {
     id: 'character',
     name: 'Player Character',
     description: 'Full 5e sheet — opens in the character manager',
@@ -38,6 +65,7 @@ attacks:
   - { name: Longsword, bonus: 5, damage: 1d8+3 }
 spellAbility: null
 spellSlots: {}
+spells: []
 currency: { cp: 0, sp: 0, ep: 0, gp: 10, pp: 0 }
 inventory:
   - Longsword

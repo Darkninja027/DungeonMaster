@@ -55,6 +55,15 @@ export interface SpellSlots {
   used: number
 }
 
+export interface Spell {
+  /** Plain text or a [[wiki link]] to the spell's article. */
+  name: string
+  /** 0 = cantrip (at will), 1-9 cast by expending a slot of that level. */
+  level: number
+  /** Damage notation, e.g. "3d4+3"; "mod" resolves to the spell modifier ("2d8+mod"). */
+  damage?: string
+}
+
 export interface CharacterNote {
   at: string // ISO date
   text: string
@@ -84,6 +93,7 @@ export interface Character {
   spellAbility: Ability | null
   /** Keyed by spell level 1-9. */
   spellSlots: Record<number, SpellSlots>
+  spells: Array<Spell>
   currency: Record<'cp' | 'sp' | 'ep' | 'gp' | 'pp', number>
   /** Free-text rows; [[wiki links]] resolve to articles. */
   inventory: Array<string>
@@ -111,6 +121,7 @@ export function emptyCharacter(): Character {
     attacks: [],
     spellAbility: null,
     spellSlots: {},
+    spells: [],
     currency: { cp: 0, sp: 0, ep: 0, gp: 0, pp: 0 },
     inventory: [],
     notes: [],
@@ -178,6 +189,110 @@ export function inventoryItemName(row: string): string {
       .replace(/\s+x\d+\s*$/i, '')
       .replace(/\s+/g, ' ')
       .trim() || row.trim()
+  )
+}
+
+/** "[[Fireball]]" / "[[Fireball|Boom]]" / "Fireball" -> "Fireball" (article title). */
+export function wikiLinkTitle(text: string): string {
+  const m = text.match(/\[\[([^\][\n|]+)/)
+  return (m ? m[1] : text).trim()
+}
+
+export interface SpellInfo {
+  level: number | null
+  damage: string | null
+  /** Added once per slot level above the base, e.g. Magic Missile's "1d4+1". */
+  damagePerLevel: string | null
+}
+
+/**
+ * Read a spell's sheet-relevant data from its article. Frontmatter is the
+ * source of truth (`level: 3`, `damage: 8d6`); articles without it fall back
+ * to the subtitle convention for the level. Damage is never guessed from
+ * prose — a wrong guess is worse than an empty field.
+ */
+export function spellInfoFromContent(content: string): SpellInfo {
+  let level: number | null = null
+  let damage: string | null = null
+  let damagePerLevel: string | null = null
+  const { frontmatter } = splitFrontmatter(content)
+  if (frontmatter != null) {
+    try {
+      const raw = parseYaml(frontmatter) as unknown
+      if (typeof raw === 'object' && raw !== null) {
+        const r = raw as Record<string, unknown>
+        if (typeof r.level === 'number' && r.level >= 0 && r.level <= 9) {
+          level = Math.floor(r.level)
+        }
+        if (typeof r.damage === 'string' && r.damage.trim()) {
+          damage = r.damage.trim()
+        }
+        if (typeof r.damagePerLevel === 'string' && r.damagePerLevel.trim()) {
+          damagePerLevel = r.damagePerLevel.trim()
+        }
+      }
+    } catch {
+      // malformed frontmatter: fall through to prose detection
+    }
+  }
+  if (level === null) level = spellLevelFromContent(content)
+  return { level, damage, damagePerLevel }
+}
+
+const NOTATION = /^(\d*)d(\d+)([+-]\d+)?$/i
+
+/**
+ * Upcast damage: base plus damagePerLevel once per slot level above the base
+ * ("3d4+3" + 2 × "1d4+1" -> "5d4+5"). Falls back to the base notation when
+ * the two rolls use different dice or contain a "mod" token.
+ */
+export function scaleSpellDamage(
+  base: string,
+  perLevel: string | null | undefined,
+  levelsAbove: number,
+): string {
+  if (!perLevel || levelsAbove <= 0) return base
+  const b = base.replace(/\s+/g, '').match(NOTATION)
+  const p = perLevel.replace(/\s+/g, '').match(NOTATION)
+  if (!b || !p || b[2] !== p[2]) return base
+  const count = Number(b[1] || 1) + levelsAbove * Number(p[1] || 1)
+  const mod =
+    (b[3] ? Number(b[3]) : 0) + levelsAbove * (p[3] ? Number(p[3]) : 0)
+  return `${count}d${b[2]}${mod !== 0 ? signed(mod) : ''}`
+}
+
+/**
+ * Detect a spell's level from its article: the subtitle convention is
+ * "*1st-level evocation*", "*Level 3 abjuration*", or "*Evocation cantrip*".
+ * Only the head of the article is searched so "At Higher Levels… 2nd level
+ * or higher" in the body can't lie about the base level. Null if unknown.
+ */
+export function spellLevelFromContent(content: string): number | null {
+  const head = splitFrontmatter(content).body.slice(0, 300)
+  const ordinal = head.match(/\b([1-9])(?:st|nd|rd|th)[-\s]level\b/i)
+  if (ordinal) return Number(ordinal[1])
+  const plain = head.match(/\blevel\s*([1-9])\b/i)
+  if (plain) return Number(plain[1])
+  if (/\bcantrip\b/i.test(head)) return 0
+  return null
+}
+
+/**
+ * Resolve a spell damage string to rollable notation: "mod" becomes the
+ * caster's spellcasting ability modifier ("2d8+mod" -> "2d8+3"). Returns the
+ * string unchanged when there is no token.
+ */
+export function resolveSpellDamage(damage: string, c: Character): string {
+  const mod = c.spellAbility ? abilityMod(c.abilities[c.spellAbility]) : 0
+  return damage
+    .replace(/\s*\+\s*mod\b/i, signed(mod))
+    .replace(/\bmod\b/i, `${mod}`)
+}
+
+/** Spells sorted for display: cantrips first, then by level, then name. */
+export function sortedSpells(spells: Array<Spell>): Array<Spell> {
+  return [...spells].sort(
+    (a, b) => a.level - b.level || a.name.localeCompare(b.name),
   )
 }
 
@@ -309,6 +424,22 @@ export function parseCharacter(content: string): {
     }
   }
 
+  if (Array.isArray(r.spells)) {
+    c.spells = r.spells.flatMap((entry): Array<Spell> => {
+      if (typeof entry !== 'object' || entry === null) return []
+      const s = entry as Record<string, unknown>
+      if (typeof s.name !== 'string') return []
+      const spell: Spell = {
+        name: s.name,
+        level: Math.max(0, Math.min(9, num(s.level, 0))),
+      }
+      if (typeof s.damage === 'string' && s.damage.trim()) {
+        spell.damage = s.damage.trim()
+      }
+      return [spell]
+    })
+  }
+
   if (typeof r.currency === 'object' && r.currency !== null) {
     const cur = r.currency as Record<string, unknown>
     for (const coin of ['cp', 'sp', 'ep', 'gp', 'pp'] as const) {
@@ -352,6 +483,7 @@ export function serializeCharacter(character: Character, body: string): string {
     attacks: character.attacks,
     spellAbility: character.spellAbility,
     spellSlots: character.spellSlots,
+    spells: character.spells,
     currency: character.currency,
     inventory: character.inventory,
     notes: character.notes,
