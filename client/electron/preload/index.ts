@@ -9,6 +9,7 @@ const CHANNELS = new Set([
   'worlds:remove',
   'worlds:tree',
   'worlds:search',
+  'worlds:query',
   'worlds:watch',
   'worlds:unwatch',
   'folders:create',
@@ -29,6 +30,8 @@ const CHANNELS = new Set([
   'characters:list',
   'session:get',
   'session:set',
+  'views:get',
+  'views:set',
   'updates:quitAndInstall',
 ])
 

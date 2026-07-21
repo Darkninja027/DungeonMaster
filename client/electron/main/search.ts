@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import { escapeRegExp, resolveInWorld } from './sanitize'
 import { readTree, worldRoot } from './worldStore'
 import type { MentionResult, SearchResult } from './worldStore'
-import { getIndex } from './indexer'
+import { getIndex, parseFrontmatter } from './indexer'
 import type { IndexEntry } from './indexer'
 
 /**
@@ -18,14 +18,16 @@ function* articleEntries(worldId: string): Generator<IndexEntry> {
   }
   const root = worldRoot(worldId)
   for (const article of readTree(root).articles) {
+    const content = fs.readFileSync(
+      resolveInWorld(root, article.id + '.md'),
+      'utf8',
+    )
     yield {
       id: article.id,
       folderId: article.folderId,
       title: article.title,
-      content: fs.readFileSync(
-        resolveInWorld(root, article.id + '.md'),
-        'utf8',
-      ),
+      content,
+      frontmatter: parseFrontmatter(content),
     }
   }
 }
@@ -57,24 +59,81 @@ export function searchWorld(
   return results
 }
 
-/**
- * Articles whose YAML frontmatter declares `type: character` — the character
- * manager's list. Same index-or-disk source as search.
- */
-export function listCharacters(
-  worldId: string,
-): Array<{ id: string; folderId: string | null; title: string }> {
-  const results: Array<{ id: string; folderId: string | null; title: string }> =
-    []
-  for (const { id, folderId, title, content } of articleEntries(worldId)) {
-    const fm = content.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/)
-    if (fm && /^type:\s*character\s*$/m.test(fm[1])) {
-      results.push({ id, folderId, title })
+export interface ArticleQuery {
+  /** `type: <value>` frontmatter equality (case-insensitive). */
+  type?: string
+  /** Every tag must be present in the `tags` array (case-insensitive). */
+  tags?: Array<string>
+  /** Arbitrary scalar frontmatter equality (case-insensitive string compare). */
+  fields?: Record<string, string>
+}
+
+export interface ArticleRef {
+  id: string
+  folderId: string | null
+  title: string
+}
+
+/** Case-insensitive equality between a frontmatter scalar and a query string. */
+function scalarEquals(value: unknown, want: string): boolean {
+  if (value == null) return false
+  if (Array.isArray(value) || typeof value === 'object') return false
+  return String(value).trim().toLowerCase() === want.trim().toLowerCase()
+}
+
+/** Lowercased string members of a frontmatter `tags` value (array or scalar). */
+function tagSet(fm: Record<string, unknown>): Set<string> {
+  const raw = fm.tags
+  const list = Array.isArray(raw) ? raw : raw == null ? [] : [raw]
+  return new Set(
+    list
+      .filter((t): t is string | number => typeof t !== 'object')
+      .map((t) => String(t).trim().toLowerCase()),
+  )
+}
+
+function matchesQuery(
+  fm: Record<string, unknown> | null,
+  query: ArticleQuery,
+): boolean {
+  if (!fm) return false
+  if (query.type != null && !scalarEquals(fm.type, query.type)) return false
+  if (query.tags && query.tags.length > 0) {
+    const tags = tagSet(fm)
+    if (!query.tags.every((t) => tags.has(t.trim().toLowerCase()))) return false
+  }
+  if (query.fields) {
+    for (const [key, want] of Object.entries(query.fields)) {
+      if (!scalarEquals(fm[key], want)) return false
     }
+  }
+  return true
+}
+
+/**
+ * Articles whose frontmatter matches the query, sorted by title. The building
+ * block for Smart Views and the encounter builder's monster/character pickers.
+ * Same index-or-disk source as search, so results agree either way.
+ */
+export function queryArticles(
+  worldId: string,
+  query: ArticleQuery,
+): Array<ArticleRef> {
+  const results: Array<ArticleRef> = []
+  for (const { id, folderId, title, frontmatter } of articleEntries(worldId)) {
+    if (matchesQuery(frontmatter, query)) results.push({ id, folderId, title })
   }
   return results.sort((a, b) =>
     a.title.localeCompare(b.title, undefined, { sensitivity: 'base' }),
   )
+}
+
+/**
+ * Articles whose YAML frontmatter declares `type: character` — the character
+ * manager's list. A thin wrapper over queryArticles so there's one code path.
+ */
+export function listCharacters(worldId: string): Array<ArticleRef> {
+  return queryArticles(worldId, { type: 'character' })
 }
 
 /** Articles whose content wiki-links to the given article's title. */

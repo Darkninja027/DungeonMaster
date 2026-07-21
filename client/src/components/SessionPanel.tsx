@@ -1,15 +1,16 @@
 import { useEffect, useState } from 'react'
-import { Dices, Sparkles, Swords } from 'lucide-react'
+import { Dices, Skull, Sparkles, Swords } from 'lucide-react'
 import { useRollLog } from '#/lib/rollLog'
 import { useSpellPanelRequest } from '#/lib/spellPanel'
 import { hydrateSession, useCombat } from '#/lib/sessionStore'
 import { cn } from '#/lib/utils'
 import { Button } from '#/components/ui/button'
+import { EncounterBuilder } from '#/components/EncounterBuilder'
 import { InitiativeTracker } from '#/components/InitiativeTracker'
 import { RollHistory } from '#/components/RollHistory'
 import { SpellReference } from '#/components/character/SpellReference'
 
-type PanelTab = 'initiative' | 'rolls' | 'spells'
+type PanelTab = 'initiative' | 'encounter' | 'rolls' | 'spells'
 
 const STORAGE_KEY = 'dm.sessionPanel'
 
@@ -19,10 +20,14 @@ function loadPanelState(): { open: boolean; tab: PanelTab } {
       open?: boolean
       tab?: string
     }
-    return {
-      open: raw.open === true,
-      tab: raw.tab === 'rolls' || raw.tab === 'spells' ? raw.tab : 'initiative',
-    }
+    const tab =
+      raw.tab === 'rolls' ||
+      raw.tab === 'spells' ||
+      raw.tab === 'encounter' ||
+      raw.tab === 'initiative'
+        ? raw.tab
+        : 'initiative'
+    return { open: raw.open === true, tab }
   } catch {
     return { open: false, tab: 'initiative' }
   }
@@ -67,14 +72,21 @@ export function SessionPanel({ worldId }: { worldId: string }) {
             <h3 className="text-sm font-semibold">
               {tab === 'initiative'
                 ? 'Initiative'
-                : tab === 'rolls'
-                  ? 'Roll history'
-                  : 'Spells'}
+                : tab === 'encounter'
+                  ? 'Encounter builder'
+                  : tab === 'rolls'
+                    ? 'Roll history'
+                    : 'Spells'}
             </h3>
           </div>
           <div className="min-h-0 flex-1">
             {tab === 'initiative' ? (
               <InitiativeTracker worldId={worldId} />
+            ) : tab === 'encounter' ? (
+              <EncounterBuilder
+                worldId={worldId}
+                onRun={() => setPanel({ open: true, tab: 'initiative' })}
+              />
             ) : tab === 'rolls' ? (
               <RollHistory />
             ) : (
@@ -100,6 +112,15 @@ export function SessionPanel({ worldId }: { worldId: string }) {
               )}
             />
           )}
+        </Button>
+        <Button
+          variant={open && tab === 'encounter' ? 'secondary' : 'ghost'}
+          size="icon"
+          className="size-8"
+          title="Encounter builder"
+          onClick={() => toggle('encounter')}
+        >
+          <Skull className="size-4" />
         </Button>
         <Button
           variant={open && tab === 'rolls' ? 'secondary' : 'ghost'}

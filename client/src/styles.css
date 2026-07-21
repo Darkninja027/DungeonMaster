@@ -499,8 +499,8 @@ a {
 }
 .dnd-flow > h1:first-child + p::first-letter {
   font-family: 'Cinzel', serif;
-  font-size: 3.6em;
-  line-height: 0.85;
+  font-size: 2.1em; /* match h1 */
+  line-height: 1;
   float: left;
   padding: 0.06em 0.12em 0 0;
   color: var(--dnd-red);

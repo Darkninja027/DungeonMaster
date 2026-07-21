@@ -21,9 +21,15 @@ import {
   writeWorldMeta,
 } from './worldStore'
 import type { WorldSummary } from './worldStore'
-import { findMentions, listCharacters, searchWorld } from './search'
+import {
+  findMentions,
+  listCharacters,
+  queryArticles,
+  searchWorld,
+} from './search'
+import type { ArticleQuery } from './search'
 import { deleteImage, listImages, uploadImage } from './images'
-import { readSession, writeSession } from './session'
+import { readSession, readViews, writeSession, writeViews } from './session'
 import { noteSelfWrite, startWatching, stopWatching } from './watcher'
 import {
   buildIndex,
@@ -134,6 +140,12 @@ export function registerIpcHandlers() {
     'worlds:search',
     (_e, { worldId, query }: { worldId: string; query: string }) =>
       searchWorld(worldId, query),
+  )
+
+  ipcMain.handle(
+    'worlds:query',
+    (_e, { worldId, query }: { worldId: string; query?: ArticleQuery }) =>
+      queryArticles(worldId, query ?? {}),
   )
 
   // Watch the open world for EXTERNAL edits (Obsidian, git, Dropbox…) and
@@ -343,5 +355,16 @@ export function registerIpcHandlers() {
     'session:set',
     (_e, { worldId, state }: { worldId: string; state: unknown }) =>
       writeSession(worldId, state),
+  )
+
+  // Saved Smart Views -------------------------------------------------------
+  ipcMain.handle('views:get', (_e, { worldId }: { worldId: string }) =>
+    readViews(worldId),
+  )
+
+  ipcMain.handle(
+    'views:set',
+    (_e, { worldId, state }: { worldId: string; state: unknown }) =>
+      writeViews(worldId, state),
   )
 }

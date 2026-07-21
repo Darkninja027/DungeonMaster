@@ -72,6 +72,29 @@ export interface MentionResult {
   title: string
 }
 
+/** A frontmatter query for Smart Views and the encounter builder's pickers. */
+export interface ArticleQuery {
+  /** `type: <value>` frontmatter equality (case-insensitive). */
+  type?: string
+  /** Every tag must be present in the article's `tags` array. */
+  tags?: Array<string>
+  /** Arbitrary scalar frontmatter equality (case-insensitive). */
+  fields?: Record<string, string>
+}
+
+export interface ArticleRef {
+  id: string
+  folderId: string | null
+  title: string
+}
+
+/** A saved Smart View: a named frontmatter query, persisted to .dm/views.json. */
+export interface SavedView {
+  id: string
+  name: string
+  query: ArticleQuery
+}
+
 /** A combatant row in the initiative tracker. */
 export interface Combatant {
   id: string
@@ -122,6 +145,9 @@ export const api = {
     tree: (worldId: string) => invoke<WorldTree>('worlds:tree', { worldId }),
     search: (worldId: string, query: string) =>
       invoke<Array<SearchResult>>('worlds:search', { worldId, query }),
+    /** Articles whose frontmatter matches the query, sorted by title. */
+    query: (worldId: string, query: ArticleQuery) =>
+      invoke<Array<ArticleRef>>('worlds:query', { worldId, query }),
     /** Directory picker for the parent location; returns null if cancelled. */
     create: (input: { name: string; description?: string }) =>
       invoke<WorldSummary | null>('worlds:create', input),
@@ -205,6 +231,13 @@ export const api = {
       invoke<SessionFile | null>('session:get', { worldId }),
     set: (worldId: string, state: SessionFile) =>
       invoke<void>('session:set', { worldId, state }),
+  },
+  views: {
+    /** Saved Smart Views for this world; null if none saved yet. */
+    get: (worldId: string) =>
+      invoke<Array<SavedView> | null>('views:get', { worldId }),
+    set: (worldId: string, state: Array<SavedView>) =>
+      invoke<void>('views:set', { worldId, state }),
   },
   updates: {
     /** Subscribe to auto-update status; returns an unsubscribe fn. */
