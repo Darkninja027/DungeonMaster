@@ -163,6 +163,24 @@ export function spellAttackBonus(c: Character): number | null {
   return proficiencyBonus(c.level) + abilityMod(c.abilities[c.spellAbility])
 }
 
+/**
+ * Display name for an inventory row when promoting it to an attack:
+ * "[[Flametongue]] (attuned)" -> "Flametongue", "Daggers x3" -> "Daggers".
+ */
+export function inventoryItemName(row: string): string {
+  const unlinked = row.replace(
+    /\[\[([^\][\n|]+)(?:\|([^\][\n]+))?\]\]/g,
+    (_, title: string, alias?: string) => alias ?? title,
+  )
+  return (
+    unlinked
+      .replace(/\([^)]*\)/g, '')
+      .replace(/\s+x\d+\s*$/i, '')
+      .replace(/\s+/g, ' ')
+      .trim() || row.trim()
+  )
+}
+
 /** "+3" / "-1" — dice notation and display both want the sign. */
 export function signed(n: number): string {
   return n >= 0 ? `+${n}` : `${n}`

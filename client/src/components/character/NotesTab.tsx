@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Plus, X } from 'lucide-react'
+import { Pencil, Plus, X } from 'lucide-react'
 import type { Character } from '#/lib/character'
 import { Button } from '#/components/ui/button'
 import { Textarea } from '#/components/ui/textarea'
@@ -18,6 +18,7 @@ export function NotesTab({
   articles?: Array<{ id: string; title: string }>
 }) {
   const [draft, setDraft] = useState('')
+  const [editing, setEditing] = useState<number | null>(null)
 
   const add = () => {
     const text = draft.trim()
@@ -31,6 +32,14 @@ export function NotesTab({
     })
     setDraft('')
   }
+
+  const setNoteText = (i: number, text: string) =>
+    onChange({
+      ...character,
+      notes: character.notes.map((note, j) =>
+        j === i ? { ...note, text } : note,
+      ),
+    })
 
   return (
     <div className="mx-auto max-w-2xl space-y-3 p-4">
@@ -54,29 +63,48 @@ export function NotesTab({
         <ul className="space-y-2">
           {character.notes.map((note, i) => (
             <li key={i} className="group rounded-md border p-3">
-              <div className="text-muted-foreground mb-1 flex items-center text-xs">
+              <div className="text-muted-foreground mb-1 flex items-center gap-2 text-xs">
                 {note.at}
                 <button
                   type="button"
-                  className="hover:text-destructive ml-auto opacity-0 group-hover:opacity-100"
+                  className="hover:text-foreground ml-auto opacity-0 group-hover:opacity-100"
+                  title={editing === i ? 'Done editing' : 'Edit note'}
+                  onClick={() => setEditing(editing === i ? null : i)}
+                >
+                  <Pencil className="size-3.5" />
+                </button>
+                <button
+                  type="button"
+                  className="hover:text-destructive opacity-0 group-hover:opacity-100"
                   title="Delete note"
-                  onClick={() =>
+                  onClick={() => {
+                    if (editing === i) setEditing(null)
                     onChange({
                       ...character,
                       notes: character.notes.filter((_, j) => j !== i),
                     })
-                  }
+                  }}
                 >
                   <X className="size-3.5" />
                 </button>
               </div>
-              <p className="whitespace-pre-wrap text-sm">
-                <WikiText
-                  text={note.text}
-                  worldId={worldId}
-                  articles={articles}
+              {editing === i ? (
+                <Textarea
+                  autoFocus
+                  value={note.text}
+                  className="min-h-20 text-sm"
+                  onChange={(e) => setNoteText(i, e.target.value)}
+                  onBlur={() => setEditing(null)}
                 />
-              </p>
+              ) : (
+                <p className="whitespace-pre-wrap text-sm">
+                  <WikiText
+                    text={note.text}
+                    worldId={worldId}
+                    articles={articles}
+                  />
+                </p>
+              )}
             </li>
           ))}
         </ul>

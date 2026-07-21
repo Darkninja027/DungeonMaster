@@ -4,6 +4,7 @@ import {
   d20,
   emptyCharacter,
   initiativeBonus,
+  inventoryItemName,
   isCharacterContent,
   parseCharacter,
   passivePerception,
@@ -55,6 +56,16 @@ describe('derived 5e math', () => {
     expect(passivePerception(c)).toBe(16)
     expect(initiativeBonus(c)).toBe(4)
     expect(spellSaveDc(c)).toBe(14) // 8 + 3 + 3
+  })
+
+  it('cleans inventory rows into attack names', () => {
+    expect(inventoryItemName('[[Flametongue]] (attuned)')).toBe('Flametongue')
+    expect(inventoryItemName('[[Sword of Zariel|Holy Sword]]')).toBe(
+      'Holy Sword',
+    )
+    expect(inventoryItemName('Daggers x3')).toBe('Daggers')
+    expect(inventoryItemName('Longbow')).toBe('Longbow')
+    expect(inventoryItemName('(weird)')).toBe('(weird)') // never empty
   })
 
   it('formats d20 notation', () => {

@@ -1,6 +1,8 @@
 import { useState } from 'react'
-import { Plus, X } from 'lucide-react'
+import { Pencil, Plus, Swords, X } from 'lucide-react'
+import { inventoryItemName } from '#/lib/character'
 import type { Character } from '#/lib/character'
+import { cn } from '#/lib/utils'
 import { Button } from '#/components/ui/button'
 import { Input } from '#/components/ui/input'
 import { WikiText } from './WikiText'
@@ -8,7 +10,8 @@ import { WikiText } from './WikiText'
 /**
  * Inventory rows are plain text with [[wiki links]] — a magic item can link
  * to its article ("[[Flametongue]] (attuned)"). Rows render as links and
- * switch to an input on click.
+ * switch to an input when edited; weapons can be promoted to the attacks
+ * table on the sheet.
  */
 export function InventoryTab({
   character,
@@ -37,6 +40,20 @@ export function InventoryTab({
     setNewItem('')
   }
 
+  const inAttacks = (row: string) => {
+    const name = inventoryItemName(row).toLowerCase()
+    return character.attacks.some((a) => a.name.trim().toLowerCase() === name)
+  }
+
+  const addToAttacks = (row: string) =>
+    onChange({
+      ...character,
+      attacks: [
+        ...character.attacks,
+        { name: inventoryItemName(row), bonus: 0, damage: '' },
+      ],
+    })
+
   return (
     <div className="mx-auto max-w-2xl space-y-2 p-4">
       {character.inventory.length === 0 && (
@@ -47,7 +64,7 @@ export function InventoryTab({
       )}
       <ul className="divide-y rounded-md border">
         {character.inventory.map((row, i) => (
-          <li key={i} className="group flex items-center gap-2 px-3 py-1.5">
+          <li key={i} className="group flex items-center gap-1.5 px-3 py-1.5">
             {editing === i ? (
               <Input
                 autoFocus
@@ -58,15 +75,36 @@ export function InventoryTab({
                 onKeyDown={(e) => e.key === 'Enter' && setEditing(null)}
               />
             ) : (
-              <button
-                type="button"
-                className="min-w-0 flex-1 truncate text-left text-sm"
-                title="Click to edit"
-                onClick={() => setEditing(i)}
-              >
+              <span className="min-w-0 flex-1 truncate text-sm">
                 <WikiText text={row} worldId={worldId} articles={articles} />
-              </button>
+              </span>
             )}
+            <button
+              type="button"
+              className="text-muted-foreground hover:text-foreground shrink-0 opacity-0 group-hover:opacity-100"
+              title="Edit item"
+              onClick={() => setEditing(editing === i ? null : i)}
+            >
+              <Pencil className="size-3.5" />
+            </button>
+            <button
+              type="button"
+              className={cn(
+                'text-muted-foreground shrink-0 opacity-0',
+                inAttacks(row)
+                  ? 'group-hover:opacity-30'
+                  : 'hover:text-foreground group-hover:opacity-100',
+              )}
+              title={
+                inAttacks(row)
+                  ? 'Already in attacks'
+                  : 'Add to attacks (set bonus and damage on the Sheet tab)'
+              }
+              disabled={inAttacks(row)}
+              onClick={() => addToAttacks(row)}
+            >
+              <Swords className="size-3.5" />
+            </button>
             <button
               type="button"
               className="text-muted-foreground hover:text-destructive shrink-0 opacity-0 group-hover:opacity-100"
