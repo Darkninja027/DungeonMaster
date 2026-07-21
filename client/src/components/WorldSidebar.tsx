@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ChevronDown,
   ChevronRight,
+  Copy,
   FilePlus2,
   FileText,
   Folder as FolderIcon,
@@ -15,6 +16,7 @@ import {
   X,
 } from 'lucide-react'
 import { api } from '#/lib/api'
+import { useShortcut } from '#/lib/useShortcut'
 import type { ArticleSummary, FolderNode, WorldTree } from '#/lib/api'
 import { articleTemplates } from '#/lib/templates'
 import { cn } from '#/lib/utils'
@@ -36,9 +38,10 @@ import { Input } from '#/components/ui/input'
 import { ScrollArea } from '#/components/ui/scroll-area'
 
 interface NameDialogState {
-  mode: 'new-folder' | 'rename-folder' | 'new-article'
+  mode: 'new-folder' | 'rename-folder' | 'new-article' | 'rename-article'
   parentFolderId: string | null
   folderId?: string
+  articleId?: string
   initial?: string
 }
 
@@ -57,11 +60,29 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
   const [name, setName] = useState('')
   const [templateId, setTemplateId] = useState('blank')
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
-  const [dragItem, setDragItem] = useState<{ type: 'article' | 'folder'; id: string } | null>(null)
+  const [dragItem, setDragItem] = useState<{
+    type: 'article' | 'folder'
+    id: string
+  } | null>(null)
   // Folder id being hovered as a drop target; null = the world root area.
-  const [dropTarget, setDropTarget] = useState<string | null | undefined>(undefined)
+  const [dropTarget, setDropTarget] = useState<string | null | undefined>(
+    undefined,
+  )
   const [searchInput, setSearchInput] = useState('')
   const [searchTerm, setSearchTerm] = useState('')
+  const searchInputRef = useRef<HTMLInputElement>(null)
+
+  useShortcut('k', () => {
+    searchInputRef.current?.focus()
+    searchInputRef.current?.select()
+  })
+  useShortcut(
+    'n',
+    () => openDialog({ mode: 'new-article', parentFolderId: null }),
+    {
+      enabled: dialog === null,
+    },
+  )
 
   useEffect(() => {
     const timer = setTimeout(() => setSearchTerm(searchInput.trim()), 300)
@@ -105,9 +126,51 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
     onError: (error) => alert(error.message),
   })
   const moveFolder = useMutation({
-    mutationFn: ({ id, parentFolderId }: { id: string; parentFolderId: string | null }) =>
-      api.folders.move(worldId, id, parentFolderId),
+    mutationFn: ({
+      id,
+      parentFolderId,
+    }: {
+      id: string
+      parentFolderId: string | null
+    }) => api.folders.move(worldId, id, parentFolderId),
     onSuccess: invalidateTree,
+    onError: (error) => alert(error.message),
+  })
+
+  const renameArticle = useMutation({
+    mutationFn: ({ id, title }: { id: string; title: string }) =>
+      api.articles.rename(worldId, id, title),
+    onSuccess: (article, { id: oldId }) => {
+      invalidateTree()
+      setDialog(null)
+      if (activeArticleId === oldId && article.id !== oldId) {
+        navigate({
+          to: '/worlds/$worldId/articles/$articleId',
+          params: { worldId, articleId: article.id },
+          replace: true,
+        })
+      }
+    },
+    onError: (error) => alert(error.message),
+  })
+  const duplicateArticle = useMutation({
+    mutationFn: (id: string) => api.articles.duplicate(worldId, id),
+    onSuccess: (article) => {
+      invalidateTree()
+      navigate({
+        to: '/worlds/$worldId/articles/$articleId',
+        params: { worldId, articleId: article.id },
+      })
+    },
+    onError: (error) => alert(error.message),
+  })
+  const deleteArticle = useMutation({
+    mutationFn: (id: string) => api.articles.delete(worldId, id),
+    onSuccess: (_data, id) => {
+      invalidateTree()
+      if (activeArticleId === id)
+        navigate({ to: '/worlds/$worldId', params: { worldId } })
+    },
     onError: (error) => alert(error.message),
   })
 
@@ -126,9 +189,15 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
   const submitDialog = () => {
     if (!dialog || !name.trim()) return
     if (dialog.mode === 'new-folder') {
-      createFolder.mutate({ worldId, parentFolderId: dialog.parentFolderId, name })
+      createFolder.mutate({
+        worldId,
+        parentFolderId: dialog.parentFolderId,
+        name,
+      })
     } else if (dialog.mode === 'rename-folder' && dialog.folderId != null) {
       renameFolder.mutate({ id: dialog.folderId, name })
+    } else if (dialog.mode === 'rename-article' && dialog.articleId != null) {
+      renameArticle.mutate({ id: dialog.articleId, title: name })
     } else if (dialog.mode === 'new-article') {
       const template = articleTemplates.find((t) => t.id === templateId)
       createArticle.mutate({
@@ -180,10 +249,8 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
     })
 
   const renderArticle = (article: ArticleSummary, depth: number) => (
-    <Link
+    <div
       key={`a${article.id}`}
-      to="/worlds/$worldId/articles/$articleId"
-      params={{ worldId, articleId: article.id }}
       draggable
       onDragStart={() => setDragItem({ type: 'article', id: article.id })}
       onDragEnd={() => {
@@ -191,20 +258,72 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
         setDropTarget(undefined)
       }}
       className={cn(
-        'hover:bg-accent flex items-center gap-1.5 rounded px-2 py-1 text-sm',
+        'hover:bg-accent group flex items-center gap-1 rounded px-2 py-1 text-sm',
         activeArticleId === article.id && 'bg-accent font-medium',
-        dragItem?.type === 'article' && dragItem.id === article.id && 'opacity-50',
+        dragItem?.type === 'article' &&
+          dragItem.id === article.id &&
+          'opacity-50',
       )}
       style={{ paddingLeft: `${depth * 14 + 8}px` }}
     >
-      <FileText className="text-muted-foreground size-3.5 shrink-0" />
-      <span className="truncate">{article.title}</span>
-    </Link>
+      <Link
+        to="/worlds/$worldId/articles/$articleId"
+        params={{ worldId, articleId: article.id }}
+        className="flex min-w-0 flex-1 items-center gap-1.5"
+      >
+        <FileText className="text-muted-foreground size-3.5 shrink-0" />
+        <span className="truncate">{article.title}</span>
+      </Link>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-6 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100"
+          >
+            <MoreHorizontal className="size-3.5" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start">
+          <DropdownMenuItem
+            onClick={() =>
+              openDialog({
+                mode: 'rename-article',
+                articleId: article.id,
+                parentFolderId: article.folderId,
+                initial: article.title,
+              })
+            }
+          >
+            <Pencil /> Rename
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => duplicateArticle.mutate(article.id)}>
+            <Copy /> Duplicate
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            variant="destructive"
+            onClick={() => {
+              if (
+                confirm(
+                  `Delete "${article.title}"? It goes to the Recycle Bin.`,
+                )
+              ) {
+                deleteArticle.mutate(article.id)
+              }
+            }}
+          >
+            <Trash2 /> Delete
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
   )
 
   const renderFolder = (data: WorldTree, folder: FolderNode, depth: number) => {
     const isCollapsed = collapsed.has(folder.id)
-    const childFolders = data.folders.filter((f) => f.parentFolderId === folder.id)
+    const childFolders = data.folders.filter(
+      (f) => f.parentFolderId === folder.id,
+    )
     const childArticles = data.articles.filter((a) => a.folderId === folder.id)
     return (
       <div key={`f${folder.id}`}>
@@ -222,7 +341,9 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
           className={cn(
             'hover:bg-accent group flex items-center gap-1 rounded px-2 py-1 text-sm',
             dropTarget === folder.id && 'bg-accent ring-primary/50 ring-2',
-            dragItem?.type === 'folder' && dragItem.id === folder.id && 'opacity-50',
+            dragItem?.type === 'folder' &&
+              dragItem.id === folder.id &&
+              'opacity-50',
           )}
           style={{ paddingLeft: `${depth * 14 + 4}px` }}
         >
@@ -251,12 +372,16 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start">
               <DropdownMenuItem
-                onClick={() => openDialog({ mode: 'new-article', parentFolderId: folder.id })}
+                onClick={() =>
+                  openDialog({ mode: 'new-article', parentFolderId: folder.id })
+                }
               >
                 <FilePlus2 /> New article
               </DropdownMenuItem>
               <DropdownMenuItem
-                onClick={() => openDialog({ mode: 'new-folder', parentFolderId: folder.id })}
+                onClick={() =>
+                  openDialog({ mode: 'new-folder', parentFolderId: folder.id })
+                }
               >
                 <FolderPlus /> New subfolder
               </DropdownMenuItem>
@@ -311,7 +436,9 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
             size="icon"
             className="size-7"
             title="New article"
-            onClick={() => openDialog({ mode: 'new-article', parentFolderId: null })}
+            onClick={() =>
+              openDialog({ mode: 'new-article', parentFolderId: null })
+            }
           >
             <FilePlus2 className="size-4" />
           </Button>
@@ -320,7 +447,9 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
             size="icon"
             className="size-7"
             title="New folder"
-            onClick={() => openDialog({ mode: 'new-folder', parentFolderId: null })}
+            onClick={() =>
+              openDialog({ mode: 'new-folder', parentFolderId: null })
+            }
           >
             <FolderPlus className="size-4" />
           </Button>
@@ -330,6 +459,7 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
         <div className="relative">
           <Search className="text-muted-foreground absolute left-2 top-1/2 size-3.5 -translate-y-1/2" />
           <Input
+            ref={searchInputRef}
             value={searchInput}
             placeholder="Search this world…"
             className="h-7 px-7 text-sm"
@@ -349,9 +479,13 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
       {searchTerm ? (
         <ScrollArea className="min-h-0 flex-1">
           <div className="p-2">
-            {search.isLoading && <p className="text-muted-foreground px-2 text-sm">Searching…</p>}
+            {search.isLoading && (
+              <p className="text-muted-foreground px-2 text-sm">Searching…</p>
+            )}
             {search.data?.length === 0 && (
-              <p className="text-muted-foreground px-2 py-4 text-sm">No matches.</p>
+              <p className="text-muted-foreground px-2 py-4 text-sm">
+                No matches.
+              </p>
             )}
             {search.data?.map((result) => (
               <Link
@@ -375,47 +509,61 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
           </div>
         </ScrollArea>
       ) : (
-      <ScrollArea className="min-h-0 flex-1">
-        <div
-          className={cn(
-            'min-h-full p-2',
-            dragItem && dropTarget === null && 'bg-accent/40 rounded ring-primary/30 ring-1',
-          )}
-          {...dropHandlers(null)}
-        >
-          {tree.isLoading && <p className="text-muted-foreground px-2 text-sm">Loading…</p>}
-          {tree.data && (
-            <>
-              {tree.data.folders
-                .filter((f) => f.parentFolderId === null)
-                .map((f) => renderFolder(tree.data, f, 0))}
-              {tree.data.articles
-                .filter((a) => a.folderId === null)
-                .map((a) => renderArticle(a, 0))}
-              {tree.data.folders.length === 0 && tree.data.articles.length === 0 && (
-                <p className="text-muted-foreground px-2 py-4 text-sm">
-                  Nothing here yet. Create an article or folder above.
-                </p>
-              )}
-            </>
-          )}
-        </div>
-      </ScrollArea>
+        <ScrollArea className="min-h-0 flex-1">
+          <div
+            className={cn(
+              'min-h-full p-2',
+              dragItem &&
+                dropTarget === null &&
+                'bg-accent/40 rounded ring-primary/30 ring-1',
+            )}
+            {...dropHandlers(null)}
+          >
+            {tree.isLoading && (
+              <p className="text-muted-foreground px-2 text-sm">Loading…</p>
+            )}
+            {tree.data && (
+              <>
+                {tree.data.folders
+                  .filter((f) => f.parentFolderId === null)
+                  .map((f) => renderFolder(tree.data, f, 0))}
+                {tree.data.articles
+                  .filter((a) => a.folderId === null)
+                  .map((a) => renderArticle(a, 0))}
+                {tree.data.folders.length === 0 &&
+                  tree.data.articles.length === 0 && (
+                    <p className="text-muted-foreground px-2 py-4 text-sm">
+                      Nothing here yet. Create an article or folder above.
+                    </p>
+                  )}
+              </>
+            )}
+          </div>
+        </ScrollArea>
       )}
 
-      <Dialog open={dialog !== null} onOpenChange={(o) => !o && setDialog(null)}>
+      <Dialog
+        open={dialog !== null}
+        onOpenChange={(o) => !o && setDialog(null)}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>
               {dialog?.mode === 'new-folder' && 'New folder'}
               {dialog?.mode === 'rename-folder' && 'Rename folder'}
               {dialog?.mode === 'new-article' && 'New article'}
+              {dialog?.mode === 'rename-article' && 'Rename article'}
             </DialogTitle>
           </DialogHeader>
           <Input
             autoFocus
             value={name}
-            placeholder={dialog?.mode === 'new-article' ? 'Article title' : 'Folder name'}
+            placeholder={
+              dialog?.mode === 'new-article' ||
+              dialog?.mode === 'rename-article'
+                ? 'Article title'
+                : 'Folder name'
+            }
             onChange={(e) => setName(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && submitDialog()}
           />
@@ -437,7 +585,9 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
                     )}
                     onClick={() => setTemplateId(template.id)}
                   >
-                    <span className="block text-sm font-medium">{template.name}</span>
+                    <span className="block text-sm font-medium">
+                      {template.name}
+                    </span>
                     <span className="text-muted-foreground block text-xs">
                       {template.description}
                     </span>
@@ -447,11 +597,16 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
             </div>
           )}
           {createArticle.isError && (
-            <p className="text-destructive text-sm">{createArticle.error.message}</p>
+            <p className="text-destructive text-sm">
+              {createArticle.error.message}
+            </p>
           )}
           <DialogFooter>
             <Button disabled={!name.trim()} onClick={submitDialog}>
-              {dialog?.mode === 'rename-folder' ? 'Save' : 'Create'}
+              {dialog?.mode === 'rename-folder' ||
+              dialog?.mode === 'rename-article'
+                ? 'Save'
+                : 'Create'}
             </Button>
           </DialogFooter>
         </DialogContent>
