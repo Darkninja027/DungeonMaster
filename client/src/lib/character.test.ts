@@ -33,7 +33,12 @@ function sample() {
   c.spellSlots = { 1: { total: 4, used: 1 }, 2: { total: 2, used: 0 } }
   c.attacks = [{ name: 'Longbow', bonus: 9, damage: '1d8+4' }]
   c.spells = [
-    { name: "[[Hunter's Mark]]", level: 1, damage: '1d6' },
+    {
+      name: "[[Hunter's Mark]]",
+      level: 1,
+      damage: '1d6',
+      damagePerLevel: '1d6',
+    },
     { name: 'Druidcraft', level: 0 },
   ]
   c.inventory = ['Longbow', '[[Flametongue]] (attuned)']
@@ -111,9 +116,23 @@ describe('derived 5e math', () => {
     expect(scaleSpellDamage('8d6', '1d6', 1)).toBe('9d6') // Fireball at 4th
     expect(scaleSpellDamage('3d4+3', '1d4+1', 0)).toBe('3d4+3')
     expect(scaleSpellDamage('3d4+3', null, 5)).toBe('3d4+3')
-    // incompatible dice or mod tokens fall back to the base roll
+    // incompatible dice fall back to the base roll
     expect(scaleSpellDamage('2d6', '1d8', 2)).toBe('2d6')
-    expect(scaleSpellDamage('2d8+mod', '1d8', 2)).toBe('2d8+mod')
+  })
+
+  it('scales a "+mod" base and keeps the token', () => {
+    expect(scaleSpellDamage('2d8+mod', '1d8', 2)).toBe('4d8+mod')
+    expect(scaleSpellDamage('3d8 + mod', '1d8', 1)).toBe('4d8+mod')
+    const c = sample() // wis caster, +3 mod
+    expect(resolveSpellDamage(scaleSpellDamage('2d8+mod', '1d8', 1), c)).toBe(
+      '3d8+3',
+    )
+    // a mod token mixed with numeric modifiers would need two modifiers in
+    // one roll, which rollDice can't do — fall back to the base
+    expect(scaleSpellDamage('3d8+1+mod', '1d8', 1)).toBe('3d8+1+mod')
+    expect(scaleSpellDamage('3d8+mod', '1d8+1', 1)).toBe('3d8+mod')
+    expect(scaleSpellDamage('3d8+mod', '1d8+mod', 1)).toBe('3d8+mod')
+    expect(scaleSpellDamage('3d8', '1d8+mod', 1)).toBe('3d8')
   })
 
   it('detects spell level from the article subtitle', () => {
@@ -177,6 +196,19 @@ describe('character frontmatter round-trip', () => {
     expect(parseCharacter('Just prose.').body).toBe('Just prose.')
     expect(isCharacterContent('# Not a character')).toBe(false)
     expect(isCharacterContent('---\ntype: location\n---\nx')).toBe(false)
+  })
+
+  it('tolerates hand-edited spell scaling fields', () => {
+    const { character } = parseCharacter(
+      '---\ntype: character\nspells:\n' +
+        '  - { name: Magic Missile, level: 1, damage: 3d4+3, damagePerLevel: 1d4+1 }\n' +
+        '  - { name: Bless, level: 1, damagePerLevel: "" }\n' +
+        '  - { name: Aid, level: 2, damagePerLevel: 5 }\n' +
+        '---\n',
+    )
+    expect(character.spells[0].damagePerLevel).toBe('1d4+1')
+    expect(character.spells[1].damagePerLevel).toBeUndefined()
+    expect(character.spells[2].damagePerLevel).toBeUndefined()
   })
 
   it('clamps out-of-range hand edits', () => {
