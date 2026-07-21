@@ -12,6 +12,8 @@ import {
   rollDice,
 } from '#/lib/formatMarkdown'
 import type { DiceResult } from '#/lib/formatMarkdown'
+import { logRoll } from '#/lib/rollLog'
+import type { RollSource } from '#/lib/rollLog'
 import type { Components } from 'react-markdown'
 
 /**
@@ -29,29 +31,56 @@ const COL_GAP = 40
 const CONTENT_W = PAGE_W - 2 * PAD_X // 712
 const CONTENT_H = PAGE_H - 2 * PAD_Y // 960
 
-function DiceChip({ notation }: { notation: string }) {
+function DiceChip({
+  notation,
+  label,
+  source,
+}: {
+  notation: string
+  /** Optional roll name, e.g. "Short Sword" from [Short Sword](dice:2d6+3). */
+  label?: string
+  source?: RollSource
+}) {
   const [result, setResult] = useState<DiceResult | null>(null)
   return (
     <button
       type="button"
       className="dnd-dice"
-      title={result ? result.detail : `Roll ${notation}`}
-      onClick={() => setResult(rollDice(notation))}
+      title={result ? `${notation}: ${result.detail}` : `Roll ${notation}`}
+      onClick={() => {
+        const rolled = rollDice(notation)
+        setResult(rolled)
+        if (rolled)
+          logRoll({
+            notation,
+            label,
+            total: rolled.total,
+            detail: rolled.detail,
+            source,
+          })
+      }}
     >
-      {notation}
+      {label ? `${label} | ${notation}` : notation}
       {result && <strong> = {result.total}</strong>}
     </button>
   )
 }
 
 /** Table whose first header cell is dice notation (d100, d12…) gets a Roll button. */
-function RollableTable({ children }: { children?: React.ReactNode }) {
+function RollableTable({
+  children,
+  source,
+}: {
+  children?: React.ReactNode
+  source?: RollSource
+}) {
   const ref = useRef<HTMLTableElement>(null)
   const [die, setDie] = useState<number | null>(null)
   const [rolled, setRolled] = useState<number | null>(null)
 
   useEffect(() => {
-    const header = ref.current?.querySelector('thead th')?.textContent.trim() ?? ''
+    const header =
+      ref.current?.querySelector('thead th')?.textContent.trim() ?? ''
     const m = header.match(/^d(\d+)$/i)
     setDie(m ? Number(m[1]) : null)
     setRolled(null)
@@ -61,10 +90,23 @@ function RollableTable({ children }: { children?: React.ReactNode }) {
     if (!die || !ref.current) return
     const n = 1 + Math.floor(Math.random() * die)
     setRolled(n)
+    let hitText = ''
     for (const tr of ref.current.querySelectorAll('tbody tr')) {
       const cell = tr.querySelector('td')?.textContent ?? ''
-      tr.classList.toggle('dnd-roll-hit', rangeMatches(cell, n))
+      const hit = rangeMatches(cell, n)
+      tr.classList.toggle('dnd-roll-hit', hit)
+      if (hit) hitText = tr.textContent.trim().replace(/\s+/g, ' ')
     }
+    // The second header cell names the table ("| d100 | Magic Item |").
+    const ths = ref.current.querySelectorAll('thead th')
+    const label = ths.length > 1 ? ths[1].textContent.trim() : ''
+    logRoll({
+      notation: `d${die}`,
+      label: label || undefined,
+      total: n,
+      detail: hitText,
+      source,
+    })
   }
 
   return (
@@ -142,13 +184,24 @@ function parseImageSrc(src: string | undefined): {
   return { src: src.slice(0, i), style, className }
 }
 
+/** Plain text of a rendered link's children — the visible label. */
+function childText(children: React.ReactNode): string {
+  if (typeof children === 'string') return children
+  if (typeof children === 'number') return String(children)
+  if (Array.isArray(children)) return children.map(childText).join('')
+  return ''
+}
+
 function createComponents(
   push: (href: string) => void,
   onCreateMissing?: (title: string) => void,
   worldId?: string,
+  source?: RollSource,
 ): Components {
   return {
-    table: ({ children }) => <RollableTable>{children}</RollableTable>,
+    table: ({ children }) => (
+      <RollableTable source={source}>{children}</RollableTable>
+    ),
     img: ({ src, alt, ...props }) => {
       const parsed = parseImageSrc(typeof src === 'string' ? src : undefined)
       // Markdown on disk references images by portable relative path
@@ -157,12 +210,26 @@ function createComponents(
         parsed.src = `world://${worldId}/${parsed.src}`
       }
       return (
-        <img src={parsed.src} alt={alt} style={parsed.style} className={parsed.className} {...props} />
+        <img
+          src={parsed.src}
+          alt={alt}
+          style={parsed.style}
+          className={parsed.className}
+          {...props}
+        />
       )
     },
     a: ({ href, children, ...props }) => {
       if (href?.startsWith('dice:')) {
-        return <DiceChip notation={decodeURIComponent(href.slice(5))} />
+        const notation = decodeURIComponent(href.slice(5))
+        const text = childText(children).trim()
+        return (
+          <DiceChip
+            notation={notation}
+            label={text && text !== notation ? text : undefined}
+            source={source}
+          />
+        )
       }
       if (href?.startsWith('missing:')) {
         const title = decodeURIComponent(href.slice(8))
@@ -204,6 +271,8 @@ interface RenderContext {
   articles?: Array<{ id: string; title: string }>
   worldId?: string
   onCreateMissing?: (title: string) => void
+  /** Where rolls made in this view are attributed in the roll history. */
+  source?: RollSource
 }
 
 /**
@@ -216,14 +285,23 @@ export function Markdown({
   articles,
   worldId,
   onCreateMissing,
+  source,
 }: { children: string; columns?: 1 | 2 } & RenderContext) {
   const router = useRouter()
   const components = useMemo(
-    () => createComponents((href) => router.history.push(href), onCreateMissing, worldId),
-    [router, onCreateMissing, worldId],
+    () =>
+      createComponents(
+        (href) => router.history.push(href),
+        onCreateMissing,
+        worldId,
+        source,
+      ),
+    [router, onCreateMissing, worldId, source],
   )
   const body = linkifyDice(
-    articles && worldId != null ? resolveWikiLinks(children, articles, worldId) : children,
+    articles && worldId != null
+      ? resolveWikiLinks(children, articles, worldId)
+      : children,
   )
 
   const measureRef = useRef<HTMLDivElement>(null)
@@ -234,7 +312,10 @@ export function Markdown({
     if (!el) return
     const colW = columns === 2 ? (CONTENT_W - COL_GAP) / 2 : CONTENT_W
     const measure = () => {
-      const cols = Math.max(1, Math.round((el.scrollWidth + COL_GAP) / (colW + COL_GAP)))
+      const cols = Math.max(
+        1,
+        Math.round((el.scrollWidth + COL_GAP) / (colW + COL_GAP)),
+      )
       setSheetCount(Math.ceil(cols / columns))
     }
     measure()
@@ -247,7 +328,11 @@ export function Markdown({
 
   const flowClass = cn('dnd-flow', columns === 2 ? 'dnd-flow-2' : 'dnd-flow-1')
   const markdown = (
-    <ReactMarkdown remarkPlugins={[remarkGfm]} components={components} urlTransform={(url) => url}>
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      components={components}
+      urlTransform={(url) => url}
+    >
       {body}
     </ReactMarkdown>
   )
@@ -269,7 +354,10 @@ export function Markdown({
           <div className="dnd-frame">
             <div
               className={flowClass}
-              style={{ width: CONTENT_W, marginLeft: i ? -i * (CONTENT_W + COL_GAP) : 0 }}
+              style={{
+                width: CONTENT_W,
+                marginLeft: i ? -i * (CONTENT_W + COL_GAP) : 0,
+              }}
             >
               {markdown}
             </div>
@@ -286,6 +374,7 @@ export function BookView({
   articles,
   worldId,
   onCreateMissing,
+  source,
 }: { children: string } & RenderContext) {
   const pages = parsePages(children)
   return (
@@ -297,6 +386,7 @@ export function BookView({
           articles={articles}
           worldId={worldId}
           onCreateMissing={onCreateMissing}
+          source={source}
         >
           {page.body}
         </Markdown>

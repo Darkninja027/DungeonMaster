@@ -75,7 +75,9 @@ export function parsePages(text: string): Array<BookPage> {
 
 export function serializePages(pages: Array<BookPage>): string {
   return pages
-    .map((page) => (page.columns ? `\\columns ${page.columns}\n\n${page.body}` : page.body))
+    .map((page) =>
+      page.columns ? `\\columns ${page.columns}\n\n${page.body}` : page.body,
+    )
     .join('\n\n\\page\n\n')
 }
 
@@ -97,7 +99,9 @@ export async function formatMarkdown(text: string): Promise<string> {
     pages.map(async (page) => ({
       ...page,
       // remark escapes [[wiki links]] to \[\[...]] — undo that
-      body: String(await processor.process(page.body)).trim().replaceAll('\\[\\[', '[['),
+      body: String(await processor.process(page.body))
+        .trim()
+        .replaceAll('\\[\\[', '[['),
     })),
   )
   return serializePages(formatted)
@@ -115,29 +119,63 @@ export function resolveWikiLinks(
   articles: Array<{ id: string; title: string }>,
   worldId: string,
 ): string {
-  const byTitle = new Map(articles.map((a) => [a.title.trim().toLowerCase(), a.id]))
+  const byTitle = new Map(
+    articles.map((a) => [a.title.trim().toLowerCase(), a.id]),
+  )
   // remark escapes leading brackets as \[\[ — normalize before matching
-  return text.replaceAll('\\[\\[', '[[').replace(WIKI_LINK, (_, title: string, display?: string) => {
-    const label = (display ?? title).trim()
-    const id = byTitle.get(title.trim().toLowerCase())
-    return id != null
-      ? `[${label}](/worlds/${worldId}/articles/${encodeURIComponent(id)})`
-      : `[${label}](missing:${encodeURIComponent(title.trim())})`
-  })
+  return text
+    .replaceAll('\\[\\[', '[[')
+    .replace(WIKI_LINK, (_, title: string, display?: string) => {
+      const label = (display ?? title).trim()
+      const id = byTitle.get(title.trim().toLowerCase())
+      return id != null
+        ? `[${label}](/worlds/${worldId}/articles/${encodeURIComponent(id)})`
+        : `[${label}](missing:${encodeURIComponent(title.trim())})`
+    })
 }
+
+const DICE_NOTATION = String.raw`\d{0,2}d\d{1,3}(?:[+-]\d{1,3})?`
+const CODE_SPANS = '```[\\s\\S]*?```|`[^`\\n]*`'
+// A complete named-roll link, either form: [Short Sword](2d6+3) or (dice:2d6+3)
+const NAMED_ROLL = new RegExp(
+  String.raw`\[([^\]\n]+)\]\((?:dice:)?(${DICE_NOTATION})\)`,
+  'g',
+)
+// Split patterns with exactly ONE capture group each, so split() alternates
+// plain (even index) / excluded (odd index) segments.
+const SKIP_CODE = new RegExp(`(${CODE_SPANS})`)
+const SKIP_CODE_AND_DICE_LINKS = new RegExp(
+  String.raw`(${CODE_SPANS}|\[[^\]\n]*\]\(dice:[^)\n]*\))`,
+)
 
 /**
  * Turn dice notation (2d6+3, d20, ...) into dice: links the renderer shows
- * as clickable roll chips. Code spans and fences are left alone.
+ * as clickable roll chips. Named rolls — [Short Sword](2d6+3) — become dice
+ * links keeping their label. Code spans and fences are left alone.
  */
 export function linkifyDice(text: string): string {
-  return text
-    .split(/(```[\s\S]*?```|`[^`\n]*`)/)
+  // Pass 1: normalize named rolls to dice: links.
+  const named = text
+    .split(SKIP_CODE)
     .map((segment, i) =>
       i % 2 === 1
         ? segment
         : segment.replace(
-            /(?<![\w/[])(\d{0,2}d\d{1,3}(?:[+-]\d{1,3})?)(?!\w)/g,
+            NAMED_ROLL,
+            (_, label: string, notation: string) =>
+              `[${label}](dice:${encodeURIComponent(notation)})`,
+          ),
+    )
+    .join('')
+  // Pass 2: auto-link bare notation, leaving named rolls (and their labels,
+  // which may themselves contain notation) untouched.
+  return named
+    .split(SKIP_CODE_AND_DICE_LINKS)
+    .map((segment, i) =>
+      i % 2 === 1
+        ? segment
+        : segment.replace(
+            new RegExp(String.raw`(?<![\w/[])(${DICE_NOTATION})(?!\w)`, 'g'),
             (m) => `[${m}](dice:${encodeURIComponent(m)})`,
           ),
     )
@@ -156,7 +194,10 @@ export function rollDice(notation: string): DiceResult | null {
   const sides = Number(m[2])
   const mod = m[3] ? Number(m[3]) : 0
   if (count < 1 || count > 100 || sides < 2 || sides > 1000) return null
-  const rolls = Array.from({ length: count }, () => 1 + Math.floor(Math.random() * sides))
+  const rolls = Array.from(
+    { length: count },
+    () => 1 + Math.floor(Math.random() * sides),
+  )
   return {
     total: rolls.reduce((a, b) => a + b, 0) + mod,
     detail: rolls.join(' + ') + (mod !== 0 ? ` (${m[3]})` : ''),
@@ -178,8 +219,10 @@ export const snippets = {
     '| Cell   | Cell   | Cell   |',
     '| Cell   | Cell   | Cell   |',
   ].join('\n'),
-  readAloud: '> Boxed read-aloud text: describe the scene to your players here.',
+  readAloud:
+    '> Boxed read-aloud text: describe the scene to your players here.',
   divider: '---',
+  namedRoll: '[Short Sword](1d20+5)',
   pageBreak: '\\page',
   singleColumn: '\\columns 1',
   portraitImage:
