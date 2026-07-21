@@ -3,7 +3,7 @@
   "productName": "DungeonMaster",
   "description": "Worldbuilding notebook for D&D — worlds are folders of markdown on your disk",
   "author": "Brent Searl",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "private": true,
   "type": "module",
   "imports": {
