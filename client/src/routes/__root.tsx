@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, Outlet, createRootRoute } from '@tanstack/react-router'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Castle, Moon, Sun } from 'lucide-react'
@@ -34,6 +34,22 @@ function ThemeToggle() {
 }
 
 function RootLayout() {
+  // Safety net for a known Radix race: opening a Dialog out of a DropdownMenu
+  // can leave pointer-events:none stuck on <body>, deadening clicks/typing
+  // app-wide until the next layer resets it. Clear an orphaned inline lock on
+  // any click so a stray one can never permanently wedge the app. Only fires
+  // when the style is exactly 'none'; a legitimately-open layer takes the click
+  // on its overlay, so real modals are unaffected.
+  useEffect(() => {
+    const unstick = () => {
+      if (document.body.style.pointerEvents === 'none') {
+        document.body.style.pointerEvents = ''
+      }
+    }
+    document.addEventListener('pointerdown', unstick, true)
+    return () => document.removeEventListener('pointerdown', unstick, true)
+  }, [])
+
   return (
     <QueryClientProvider client={queryClient}>
       <div className="flex h-screen flex-col">

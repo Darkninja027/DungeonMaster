@@ -202,15 +202,15 @@ export function atomicWrite(abs: string, content: string) {
   fs.renameSync(tmp, abs)
 }
 
-export function updateArticle(
+export async function updateArticle(
   worldId: string,
   articleId: string,
   input: { title: string; content: string },
-): Article {
+): Promise<Article> {
   const root = worldRoot(worldId)
   const abs = articleAbsPath(root, articleId)
   atomicWrite(abs, input.content)
-  const id = renameArticleFile(root, articleId, input.title.trim())
+  const id = await renameArticleFile(root, articleId, input.title.trim())
   return getArticle(worldId, id)
 }
 
@@ -219,11 +219,11 @@ export function updateArticle(
  * The single rename semantics shared by updateArticle and renameArticle.
  * Returns the article's (possibly unchanged) id.
  */
-function renameArticleFile(
+async function renameArticleFile(
   root: string,
   articleId: string,
   newTitle: string,
-): string {
+): Promise<string> {
   const slash = articleId.lastIndexOf('/')
   const oldTitle = articleId.slice(slash + 1)
   const folderId = slash < 0 ? null : articleId.slice(0, slash)
@@ -244,18 +244,18 @@ function renameArticleFile(
   noteSelfWrite(abs)
   noteSelfWrite(newAbs)
   fs.renameSync(abs, newAbs)
-  rewriteWikiLinks(root, oldTitle, newTitle)
+  await rewriteWikiLinks(root, oldTitle, newTitle)
   return folderId ? `${folderId}/${newTitle}` : newTitle
 }
 
 /** Rename without touching content — for the sidebar context menu. */
-export function renameArticle(
+export async function renameArticle(
   worldId: string,
   articleId: string,
   title: string,
-): Article {
+): Promise<Article> {
   const root = worldRoot(worldId)
-  const id = renameArticleFile(root, articleId, title.trim())
+  const id = await renameArticleFile(root, articleId, title.trim())
   return getArticle(worldId, id)
 }
 
@@ -274,15 +274,25 @@ export function duplicateArticle(worldId: string, articleId: string): Article {
   return getArticle(worldId, folderId ? `${folderId}/${copyTitle}` : copyTitle)
 }
 
-/** After a rename, update [[Old Title]] / [[Old Title|alias]] across the whole world. */
-function rewriteWikiLinks(root: string, oldTitle: string, newTitle: string) {
+/**
+ * After a rename, update [[Old Title]] / [[Old Title|alias]] across the whole
+ * world. Async so the per-article read/write loop yields to the event loop:
+ * on a large world this can touch hundreds of files, and blocking the single
+ * main-process thread synchronously would freeze the whole app (input, IPC,
+ * window events) until it finished.
+ */
+async function rewriteWikiLinks(
+  root: string,
+  oldTitle: string,
+  newTitle: string,
+) {
   const pattern = new RegExp(
     `\\[\\[\\s*${escapeRegExp(oldTitle)}\\s*(\\]\\]|\\|)`,
     'gi',
   )
   for (const article of readTree(root).articles) {
     const abs = resolveInWorld(root, article.id + '.md')
-    const content = fs.readFileSync(abs, 'utf8')
+    const content = await fs.promises.readFile(abs, 'utf8')
     const updated = content.replace(
       pattern,
       (_, tail: string) => `[[${newTitle}${tail}`,

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '#/lib/api'
-import { articleTemplates } from '#/lib/templates'
+import { articleTemplates, newArticleContent } from '#/lib/templates'
 import { cn } from '#/lib/utils'
 import { Button } from '#/components/ui/button'
 import {
@@ -37,12 +37,14 @@ export function CreateMissingArticleDialog({
   }, [title])
 
   const create = useMutation({
-    mutationFn: () =>
-      api.articles.create({
+    mutationFn: () => {
+      const template = articleTemplates.find((t) => t.id === templateId)
+      return api.articles.create({
         worldId,
         title: title ?? '',
-        content: articleTemplates.find((t) => t.id === templateId)?.body ?? '',
-      }),
+        content: template ? newArticleContent(template) : '',
+      })
+    },
     onSuccess: (created) => {
       queryClient.invalidateQueries({ queryKey: ['worlds', worldId] })
       onClose()

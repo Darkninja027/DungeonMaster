@@ -109,7 +109,7 @@ describe('worldStore against a real temp folder', () => {
     )
   })
 
-  it('rename rewrites inbound wiki-links across the world', () => {
+  it('rename rewrites inbound wiki-links across the world', async () => {
     createArticle({ worldId, title: 'Old Name', content: 'x' })
     createArticle({
       worldId,
@@ -117,7 +117,7 @@ describe('worldStore against a real temp folder', () => {
       content: 'See [[Old Name]] and [[old name|the guy]].',
     })
 
-    const updated = updateArticle(worldId, 'Old Name', {
+    const updated = await updateArticle(worldId, 'Old Name', {
       title: 'New Name',
       content: 'x',
     })
@@ -128,12 +128,12 @@ describe('worldStore against a real temp folder', () => {
     expect(() => getArticle(worldId, 'Old Name')).toThrow(/not found/)
   })
 
-  it('update on a stale path errors instead of recreating the file', () => {
+  it('update on a stale path errors instead of recreating the file', async () => {
     createArticle({ worldId, title: 'Here', content: '' })
-    updateArticle(worldId, 'Here', { title: 'There', content: '' })
-    expect(() =>
+    await updateArticle(worldId, 'Here', { title: 'There', content: '' })
+    await expect(
       updateArticle(worldId, 'Here', { title: 'Here', content: 'ghost' }),
-    ).toThrow(/not found/)
+    ).rejects.toThrow(/not found/)
   })
 
   it('moves articles between folders and blocks collisions', () => {
@@ -179,22 +179,24 @@ describe('worldStore against a real temp folder', () => {
     ])
   })
 
-  it('renameArticle rewrites inbound links without touching content', () => {
+  it('renameArticle rewrites inbound links without touching content', async () => {
     createArticle({ worldId, title: 'Old Name', content: '# Body stays' })
     createArticle({ worldId, title: 'Linker', content: 'See [[Old Name]].' })
 
-    const renamed = renameArticle(worldId, 'Old Name', 'New Name')
+    const renamed = await renameArticle(worldId, 'Old Name', 'New Name')
     expect(renamed.id).toBe('New Name')
     expect(renamed.content).toBe('# Body stays')
     expect(getArticle(worldId, 'Linker').content).toBe('See [[New Name]].')
     expect(() => getArticle(worldId, 'Old Name')).toThrow(/not found/)
   })
 
-  it('renameArticle rejects collisions but allows case-only renames', () => {
+  it('renameArticle rejects collisions but allows case-only renames', async () => {
     createArticle({ worldId, title: 'One' })
     createArticle({ worldId, title: 'Two' })
-    expect(() => renameArticle(worldId, 'One', 'Two')).toThrow(/already exists/)
-    expect(renameArticle(worldId, 'One', 'ONE').id).toBe('ONE')
+    await expect(renameArticle(worldId, 'One', 'Two')).rejects.toThrow(
+      /already exists/,
+    )
+    expect((await renameArticle(worldId, 'One', 'ONE')).id).toBe('ONE')
   })
 
   it('duplicateArticle copies content into the same folder with (copy) naming', () => {

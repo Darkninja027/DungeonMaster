@@ -499,8 +499,8 @@ a {
 }
 .dnd-flow > h1:first-child + p::first-letter {
   font-family: 'Cinzel', serif;
-  font-size: 3.6em;
-  line-height: 0.85;
+  font-size: 2.1em; /* match h1 */
+  line-height: 1;
   float: left;
   padding: 0.06em 0.12em 0 0;
   color: var(--dnd-red);
@@ -574,6 +574,124 @@ a {
 }
 .dnd-page tbody tr:nth-child(odd) {
   background: var(--dnd-green);
+}
+
+/* PHB-style monster stat block card (from a ```statblock fence) */
+.dnd-statblock {
+  background: color-mix(in oklab, var(--dnd-green) 55%, white);
+  border: 1px solid var(--dnd-gold);
+  border-top: 4px solid var(--dnd-red);
+  border-radius: 4px;
+  padding: 0.7em 0.9em;
+  margin: 1em 0;
+  break-inside: avoid;
+  color: var(--dnd-ink);
+}
+/* Header row: portrait (left) beside the name + AC/HP/Speed/CR block (right). */
+.dnd-statblock-header-withimg {
+  display: flex;
+  align-items: stretch;
+  gap: 0.8em;
+}
+.dnd-statblock-heading {
+  min-width: 0;
+  flex: 1;
+}
+/* The wrapper is a stretched flex item, so its height = the heading column's
+   height. The image is absolutely positioned to fill it without feeding its own
+   height back into the row — so the portrait can never run past AC/HP/Speed/CR. */
+.dnd-statblock-image-wrap {
+  align-self: stretch;
+  position: relative;
+  flex: 0 0 auto;
+  width: 30%;
+  max-width: 160px;
+}
+/* Override the generic .dnd-page img photo frame (cream border + outline +
+   shadow); the stat block uses its own thin gold border instead. */
+.dnd-page img.dnd-statblock-image {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  /* contain (not cover) so the whole portrait shows, scaled to fit — no crop */
+  object-fit: contain;
+  object-position: center;
+  border: 1px solid var(--dnd-gold);
+  border-radius: 3px;
+  outline: none;
+  box-shadow: none;
+}
+.dnd-page img.dnd-statblock-image-noframe {
+  border: none;
+  border-radius: 0;
+  outline: none;
+  box-shadow: none;
+}
+.dnd-statblock-name {
+  font-family: 'Cinzel', serif;
+  font-weight: 700;
+  font-size: 1.3em;
+  line-height: 1.1;
+  color: var(--dnd-red);
+}
+.dnd-statblock-subtitle {
+  font-style: italic;
+  font-size: 0.9em;
+  margin-bottom: 0.4em;
+}
+.dnd-statblock-attrs {
+  border-top: 1px solid var(--dnd-gold);
+  border-bottom: 1px solid var(--dnd-gold);
+  padding: 0.35em 0;
+  margin: 0.35em 0;
+  font-size: 0.95em;
+}
+.dnd-statblock-attr-label {
+  font-weight: 700;
+  color: var(--dnd-red);
+}
+/* The value renders through InlineMarkdown; keep it inline, no block margins */
+.dnd-statblock-attr-value,
+.dnd-statblock-attr-value p {
+  display: inline;
+  margin: 0;
+}
+.dnd-statblock-abilities {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 0.25em;
+  text-align: center;
+  margin: 0.5em 0;
+}
+.dnd-statblock-ability-name {
+  font-weight: 700;
+  color: var(--dnd-red);
+  font-size: 0.85em;
+}
+.dnd-statblock-ability-score {
+  font-size: 0.85em;
+  white-space: nowrap;
+}
+.dnd-statblock-extras {
+  font-size: 0.9em;
+  border-top: 1px solid var(--dnd-gold);
+  padding-top: 0.35em;
+  margin-top: 0.35em;
+}
+.dnd-statblock-extras > div {
+  margin-bottom: 0.15em;
+}
+.dnd-statblock-prose {
+  margin-top: 0.5em;
+  font-size: 0.95em;
+}
+.dnd-statblock-prose > :first-child {
+  margin-top: 0;
+}
+.dnd-statblock-prose > :last-child {
+  margin-bottom: 0;
 }
 
 .dnd-page code {

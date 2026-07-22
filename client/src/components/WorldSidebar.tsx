@@ -20,8 +20,9 @@ import {
 import { api } from '#/lib/api'
 import { useShortcut } from '#/lib/useShortcut'
 import type { ArticleSummary, FolderNode, WorldTree } from '#/lib/api'
-import { articleTemplates } from '#/lib/templates'
+import { articleTemplates, newArticleContent } from '#/lib/templates'
 import { cn } from '#/lib/utils'
+import { SmartViews } from '#/components/SmartViews'
 import { Button } from '#/components/ui/button'
 import {
   Dialog,
@@ -249,7 +250,7 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
         worldId,
         folderId: dialog.parentFolderId,
         title: name,
-        content: template?.body ?? '',
+        content: template ? newArticleContent(template) : '',
       })
     }
   }
@@ -257,7 +258,11 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
   const openDialog = (state: NameDialogState) => {
     setName(state.initial ?? '')
     setTemplateId('blank')
-    setDialog(state)
+    // Defer the overlay mount so a DropdownMenu that triggered this finishes
+    // closing first — otherwise Radix can leave pointer-events:none stuck on
+    // <body> and the whole app stops accepting clicks/typing until the next
+    // menu open/close resets it.
+    requestAnimationFrame(() => setDialog(state))
   }
 
   const handleDrop = (targetFolderId: string | null) => {
@@ -510,6 +515,7 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
           ))}
         </div>
       </div>
+      <SmartViews worldId={worldId} activeArticleId={activeArticleId} />
       <div className="flex items-center justify-between border-b px-3 py-2">
         <span className="text-muted-foreground text-xs font-semibold uppercase tracking-wide">
           Content

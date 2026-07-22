@@ -133,6 +133,10 @@ export function HowToDialog() {
               desc="Name a roll: the chip shows 'Short Sword | 1d20+5', and the roll history logs the name with the notation and dice breakdown."
             />
             <Row
+              code="[Sneak Attack #hidename](3d6)"
+              desc="Add #hidename to a named roll to hide the name on the chip (it shows just the dice) while still logging the name in roll history — handy for secret DM rolls."
+            />
+            <Row
               code="| d100 | Ore |"
               desc="A table whose first column header is dice notation gets a Roll button that highlights the winning row. Ranges like 01–20 work. The second header names the roll in the history."
             />
