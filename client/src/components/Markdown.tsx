@@ -47,11 +47,14 @@ const CONTENT_H = PAGE_H - 2 * PAD_Y // 960
 function DiceChip({
   notation,
   label,
+  hideLabel,
   source,
 }: {
   notation: string
   /** Optional roll name, e.g. "Short Sword" from [Short Sword](dice:2d6+3). */
   label?: string
+  /** Log the label to roll history but don't show it on the chip (#hidename). */
+  hideLabel?: boolean
   source?: RollSource
 }) {
   const [result, setResult] = useState<DiceResult | null>(null)
@@ -73,7 +76,7 @@ function DiceChip({
           })
       }}
     >
-      {label ? `${label} | ${notation}` : notation}
+      {label && !hideLabel ? `${label} | ${notation}` : notation}
       {result && <strong> = {result.total}</strong>}
     </button>
   )
@@ -394,11 +397,16 @@ function createComponents(
     a: ({ href, children, ...props }) => {
       if (href?.startsWith('dice:')) {
         const notation = decodeURIComponent(href.slice(5))
-        const text = childText(children).trim()
+        // A trailing #hidename keeps the name in roll history but hides it on
+        // the chip: [Sneak Attack #hidename](3d6) renders as just the dice.
+        const rawText = childText(children).trim()
+        const hideLabel = /#hidename\s*$/i.test(rawText)
+        const text = rawText.replace(/#hidename\s*$/i, '').trim()
         return (
           <DiceChip
             notation={notation}
             label={text && text !== notation ? text : undefined}
+            hideLabel={hideLabel}
             source={source}
           />
         )
