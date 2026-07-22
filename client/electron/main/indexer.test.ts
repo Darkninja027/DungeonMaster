@@ -40,11 +40,11 @@ describe('indexer', () => {
     fs.rmSync(root, { recursive: true, force: true })
   })
 
-  it('indexed results are identical to the disk-scan fallback', () => {
+  it('indexed results are identical to the disk-scan fallback', async () => {
     const scanSearch = searchWorld(worldId, 'vampire')
     const scanMentions = findMentions(worldId, 'Strahd')
 
-    buildIndex(worldId)
+    await buildIndex(worldId)
     expect(getIndex(worldId)).toBeDefined()
     expect(searchWorld(worldId, 'vampire')).toEqual(scanSearch)
     expect(findMentions(worldId, 'Strahd')).toEqual(scanMentions)
@@ -55,9 +55,9 @@ describe('indexer', () => {
     expect(searchWorld(worldId, 'misty')).toHaveLength(1)
   })
 
-  it('noteWrite makes app writes searchable without a rebuild', () => {
-    buildIndex(worldId)
-    const article = updateArticle(worldId, 'Unrelated', {
+  it('noteWrite makes app writes searchable without a rebuild', async () => {
+    await buildIndex(worldId)
+    const article = await updateArticle(worldId, 'Unrelated', {
       title: 'Unrelated',
       content: 'A hidden beholder lair.',
     })
@@ -67,28 +67,28 @@ describe('indexer', () => {
     ])
   })
 
-  it('noteDelete removes an article from results', () => {
-    buildIndex(worldId)
+  it('noteDelete removes an article from results', async () => {
+    await buildIndex(worldId)
     noteDelete(worldId, 'Unrelated')
     expect(searchWorld(worldId, 'nothing to see')).toHaveLength(0)
   })
 
-  it('refreshIndex picks up external file changes', () => {
-    buildIndex(worldId)
+  it('refreshIndex picks up external file changes', async () => {
+    await buildIndex(worldId)
     fs.writeFileSync(path.join(root, 'External.md'), 'A tarrasque approaches!')
     expect(searchWorld(worldId, 'tarrasque')).toHaveLength(0) // index is stale
-    refreshIndex(worldId)
+    await refreshIndex(worldId)
     expect(searchWorld(worldId, 'tarrasque').map((r) => r.id)).toEqual([
       'External',
     ])
   })
 
-  it('refreshIndex is a no-op when no index exists', () => {
-    refreshIndex(worldId)
+  it('refreshIndex is a no-op when no index exists', async () => {
+    await refreshIndex(worldId)
     expect(getIndex(worldId)).toBeUndefined()
   })
 
-  it('listCharacters finds frontmatter-typed articles, indexed or not', () => {
+  it('listCharacters finds frontmatter-typed articles, indexed or not', async () => {
     createArticle({
       worldId,
       title: 'Kaelen',
@@ -96,12 +96,12 @@ describe('indexer', () => {
     })
     const scan = listCharacters(worldId)
     expect(scan.map((c) => c.title)).toEqual(['Kaelen'])
-    buildIndex(worldId)
+    await buildIndex(worldId)
     expect(listCharacters(worldId)).toEqual(scan)
   })
 
-  it('getIndex is scoped to the built world', () => {
-    buildIndex(worldId)
+  it('getIndex is scoped to the built world', async () => {
+    await buildIndex(worldId)
     expect(getIndex('deadbeef')).toBeUndefined()
   })
 })

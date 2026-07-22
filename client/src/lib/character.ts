@@ -62,6 +62,8 @@ export interface Spell {
   level: number
   /** Damage notation, e.g. "3d4+3"; "mod" resolves to the spell modifier ("2d8+mod"). */
   damage?: string
+  /** Upcast increment added once per slot level above `level`, e.g. Magic Missile's "1d4+1". */
+  damagePerLevel?: string
 }
 
 export interface CharacterNote {
@@ -240,11 +242,15 @@ export function spellInfoFromContent(content: string): SpellInfo {
 }
 
 const NOTATION = /^(\d*)d(\d+)([+-]\d+)?$/i
+const MOD_TAIL = /\s*\+\s*mod$/i
 
 /**
  * Upcast damage: base plus damagePerLevel once per slot level above the base
- * ("3d4+3" + 2 × "1d4+1" -> "5d4+5"). Falls back to the base notation when
- * the two rolls use different dice or contain a "mod" token.
+ * ("3d4+3" + 2 × "1d4+1" -> "5d4+5"). A base ending in "+mod" scales too as
+ * long as neither roll carries a numeric modifier ("3d8+mod" + "1d8" ->
+ * "4d8+mod") — rollDice only accepts a single NdM±k term, so anything that
+ * would need two modifiers falls back to the base notation, as do rolls with
+ * different dice.
  */
 export function scaleSpellDamage(
   base: string,
@@ -252,13 +258,19 @@ export function scaleSpellDamage(
   levelsAbove: number,
 ): string {
   if (!perLevel || levelsAbove <= 0) return base
-  const b = base.replace(/\s+/g, '').match(NOTATION)
+  const hasMod = MOD_TAIL.test(base.trimEnd())
+  const b = base
+    .trimEnd()
+    .replace(MOD_TAIL, '')
+    .replace(/\s+/g, '')
+    .match(NOTATION)
   const p = perLevel.replace(/\s+/g, '').match(NOTATION)
   if (!b || !p || b[2] !== p[2]) return base
+  if (hasMod && (b[3] || p[3] || MOD_TAIL.test(perLevel.trimEnd()))) return base
   const count = Number(b[1] || 1) + levelsAbove * Number(p[1] || 1)
   const mod =
     (b[3] ? Number(b[3]) : 0) + levelsAbove * (p[3] ? Number(p[3]) : 0)
-  return `${count}d${b[2]}${mod !== 0 ? signed(mod) : ''}`
+  return `${count}d${b[2]}${mod !== 0 ? signed(mod) : ''}${hasMod ? '+mod' : ''}`
 }
 
 /**
@@ -435,6 +447,9 @@ export function parseCharacter(content: string): {
       }
       if (typeof s.damage === 'string' && s.damage.trim()) {
         spell.damage = s.damage.trim()
+      }
+      if (typeof s.damagePerLevel === 'string' && s.damagePerLevel.trim()) {
+        spell.damagePerLevel = s.damagePerLevel.trim()
       }
       return [spell]
     })

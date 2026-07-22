@@ -1,4 +1,11 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import {
+  isValidElement,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { useRouter } from '@tanstack/react-router'
@@ -15,6 +22,11 @@ import {
 import type { DiceResult } from '#/lib/formatMarkdown'
 import { logRoll } from '#/lib/rollLog'
 import type { RollSource } from '#/lib/rollLog'
+import {
+  ABILITY_ORDER,
+  abilityModLabel,
+  parseStatBlockCard,
+} from '#/lib/statblock'
 import type { Components } from 'react-markdown'
 
 /**
@@ -35,11 +47,14 @@ const CONTENT_H = PAGE_H - 2 * PAD_Y // 960
 function DiceChip({
   notation,
   label,
+  hideLabel,
   source,
 }: {
   notation: string
   /** Optional roll name, e.g. "Short Sword" from [Short Sword](dice:2d6+3). */
   label?: string
+  /** Log the label to roll history but don't show it on the chip (#hidename). */
+  hideLabel?: boolean
   source?: RollSource
 }) {
   const [result, setResult] = useState<DiceResult | null>(null)
@@ -61,7 +76,7 @@ function DiceChip({
           })
       }}
     >
-      {label ? `${label} | ${notation}` : notation}
+      {label && !hideLabel ? `${label} | ${notation}` : notation}
       {result && <strong> = {result.total}</strong>}
     </button>
   )
@@ -121,6 +136,151 @@ function RollableTable({
         </div>
       )}
       <table ref={ref}>{children}</table>
+    </div>
+  )
+}
+
+const ABILITY_LABEL: Record<(typeof ABILITY_ORDER)[number], string> = {
+  str: 'STR',
+  dex: 'DEX',
+  con: 'CON',
+  int: 'INT',
+  wis: 'WIS',
+  cha: 'CHA',
+}
+
+/**
+ * A PHB-style monster stat block rendered from a ```statblock fence. Fields lay
+ * out in dedicated slots (so nothing wraps the way a raw markdown table does),
+ * and the prose section is rendered as inline markdown so damage rolls and wiki
+ * links stay live inside traits and actions.
+ */
+function StatBlockCard({
+  fence,
+  worldId,
+  articles,
+  onCreateMissing,
+  source,
+}: { fence: string } & RenderContext) {
+  const card = parseStatBlockCard(fence)
+  const hasAbilities = ABILITY_ORDER.some((a) => card.abilities[a] != null)
+  const attributes: Array<{ label: string; value: string }> = [
+    ...(card.ac != null ? [{ label: 'Armor Class', value: card.ac }] : []),
+    ...(card.hp != null ? [{ label: 'Hit Points', value: card.hp }] : []),
+    ...(card.speed != null ? [{ label: 'Speed', value: card.speed }] : []),
+    ...(card.cr != null
+      ? [
+          {
+            label: 'Challenge',
+            value: card.xp != null ? `${card.cr} (${card.xp} XP)` : card.cr,
+          },
+        ]
+      : []),
+  ]
+
+  // Portable image paths (_images/foo.png) are served via the world:// protocol.
+  const imageSrc =
+    card.image && card.image.startsWith('_images/') && worldId
+      ? `world://${worldId}/${card.image}`
+      : card.image
+
+  return (
+    <div className="dnd-statblock">
+      {/* Header row: portrait on the left, name/type/AC-HP-Speed-CR on the right.
+          The image height tracks this row so it never runs past the stat lines. */}
+      <div
+        className={cn(
+          'dnd-statblock-header',
+          imageSrc && 'dnd-statblock-header-withimg',
+        )}
+      >
+        {imageSrc && (
+          <div className="dnd-statblock-image-wrap">
+            <img
+              className={cn(
+                'dnd-statblock-image',
+                card.imageNoFrame && 'dnd-statblock-image-noframe',
+              )}
+              src={imageSrc}
+              alt={card.name ?? 'Creature portrait'}
+              // A placeholder/broken path shouldn't leave an ugly broken-image
+              // icon in the card — hide it until a real image is set.
+              onError={(e) => {
+                const wrap = e.currentTarget.parentElement
+                if (wrap) wrap.style.display = 'none'
+              }}
+            />
+          </div>
+        )}
+        <div className="dnd-statblock-heading">
+          {card.name && <div className="dnd-statblock-name">{card.name}</div>}
+          {card.subtitle && (
+            <div className="dnd-statblock-subtitle">{card.subtitle}</div>
+          )}
+
+          {attributes.length > 0 && (
+            <div className="dnd-statblock-attrs">
+              {attributes.map((a) => (
+                <div key={a.label}>
+                  <span className="dnd-statblock-attr-label">{a.label}</span>{' '}
+                  <InlineMarkdown
+                    className="dnd-statblock-attr-value"
+                    worldId={worldId}
+                    articles={articles}
+                    onCreateMissing={onCreateMissing}
+                    source={source}
+                  >
+                    {a.value}
+                  </InlineMarkdown>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {hasAbilities && (
+        <div className="dnd-statblock-abilities">
+          {ABILITY_ORDER.map((key) => {
+            const score = card.abilities[key]
+            return (
+              <div key={key} className="dnd-statblock-ability">
+                <div className="dnd-statblock-ability-name">
+                  {ABILITY_LABEL[key]}
+                </div>
+                <div className="dnd-statblock-ability-score">
+                  {score == null
+                    ? '—'
+                    : `${score} (${abilityModLabel(score)})`}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {card.extras.length > 0 && (
+        <div className="dnd-statblock-extras">
+          {card.extras.map((e) => (
+            <div key={e.label}>
+              <span className="dnd-statblock-attr-label">{e.label}</span>{' '}
+              {e.value}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {card.prose && (
+        <InlineMarkdown
+          className="dnd-statblock-prose"
+          worldId={worldId}
+          articles={articles}
+          onCreateMissing={onCreateMissing}
+          source={source}
+        >
+          {card.prose}
+        </InlineMarkdown>
+      )}
     </div>
   )
 }
@@ -202,16 +362,56 @@ function childText(children: React.ReactNode): string {
   return ''
 }
 
+/**
+ * If a <pre>'s child is a ```statblock fenced code block, return its raw text;
+ * otherwise null. react-markdown renders the fence as a <code> element carrying
+ * `className="language-statblock"` and the literal fence body as its children.
+ */
+function statBlockFence(children: React.ReactNode): string | null {
+  const child = Array.isArray(children) ? children[0] : children
+  if (!isValidElement(child)) return null
+  const props = child.props as {
+    className?: string
+    children?: React.ReactNode
+  }
+  if (
+    typeof props.className === 'string' &&
+    /\blanguage-statblock\b/.test(props.className)
+  ) {
+    return childText(props.children)
+  }
+  return null
+}
+
 function createComponents(
   push: (href: string) => void,
   onCreateMissing?: (title: string) => void,
   worldId?: string,
   source?: RollSource,
+  articles?: Array<{ id: string; title: string }>,
 ): Components {
   return {
     table: ({ children }) => (
       <RollableTable source={source}>{children}</RollableTable>
     ),
+    pre: ({ children, ...props }) => {
+      // A ```statblock fence renders as a PHB monster card instead of a code
+      // block. react-markdown wraps fenced code in <pre><code class="language-…">;
+      // unwrap it here so the card isn't nested inside a <pre>.
+      const fence = statBlockFence(children)
+      if (fence != null) {
+        return (
+          <StatBlockCard
+            fence={fence}
+            worldId={worldId}
+            articles={articles}
+            onCreateMissing={onCreateMissing}
+            source={source}
+          />
+        )
+      }
+      return <pre {...props}>{children}</pre>
+    },
     img: ({ src, alt, ...props }) => {
       const parsed = parseImageSrc(typeof src === 'string' ? src : undefined)
       // Markdown on disk references images by portable relative path
@@ -232,11 +432,16 @@ function createComponents(
     a: ({ href, children, ...props }) => {
       if (href?.startsWith('dice:')) {
         const notation = decodeURIComponent(href.slice(5))
-        const text = childText(children).trim()
+        // A trailing #hidename keeps the name in roll history but hides it on
+        // the chip: [Sneak Attack #hidename](3d6) renders as just the dice.
+        const rawText = childText(children).trim()
+        const hideLabel = /#hidename\s*$/i.test(rawText)
+        const text = rawText.replace(/#hidename\s*$/i, '').trim()
         return (
           <DiceChip
             notation={notation}
             label={text && text !== notation ? text : undefined}
+            hideLabel={hideLabel}
             source={source}
           />
         )
@@ -306,8 +511,9 @@ export function InlineMarkdown({
         onCreateMissing,
         worldId,
         source,
+        articles,
       ),
-    [router, onCreateMissing, worldId, source],
+    [router, onCreateMissing, worldId, source, articles],
   )
   const body = linkifyDice(
     articles && worldId != null
@@ -347,8 +553,9 @@ export function Markdown({
         onCreateMissing,
         worldId,
         source,
+        articles,
       ),
-    [router, onCreateMissing, worldId, source],
+    [router, onCreateMissing, worldId, source, articles],
   )
   const body = linkifyDice(
     articles && worldId != null

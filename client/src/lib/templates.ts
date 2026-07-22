@@ -3,6 +3,24 @@ export interface ArticleTemplate {
   name: string
   description: string
   body: string
+  /**
+   * Article `type` for the frontmatter of new articles made from this template.
+   * Omitted for Blank (stays empty) and for templates whose body already
+   * carries its own frontmatter (spell, character).
+   */
+  type?: string
+}
+
+/**
+ * The starting content for a new article made from a template. When the
+ * template has a `type` and its body has no frontmatter of its own, a metadata
+ * header (`type:` + an empty `tags:` list, ready to fill in) is prepended so
+ * every non-blank article is born queryable — no hand-written YAML, no typos.
+ */
+export function newArticleContent(template: ArticleTemplate): string {
+  const hasFrontmatter = /^---\r?\n/.test(template.body)
+  if (!template.type || hasFrontmatter) return template.body
+  return `---\ntype: ${template.type}\ntags: []\n---\n\n${template.body}`
 }
 
 export const articleTemplates: Array<ArticleTemplate> = [
@@ -84,6 +102,7 @@ like [[Home Town]] welcome.
     id: 'location',
     name: 'Location',
     description: 'City, dungeon, region, or landmark',
+    type: 'location',
     body: `# Location Name
 
 > Read-aloud: what the party sees, hears, and smells when they first arrive.
@@ -122,6 +141,7 @@ Things the players don't know yet. What's really going on beneath the surface.
     id: 'portrait',
     name: 'Character Portrait',
     description: 'Portrait image with the story wrapping around it',
+    type: 'npc',
     body: `\\columns 1
 
 # Character Name
@@ -151,6 +171,7 @@ drives them today.
     id: 'npc',
     name: 'NPC',
     description: 'A character with goals and secrets',
+    type: 'npc',
     body: `# NPC Name
 
 *Race · Class or occupation · Alignment*
@@ -190,31 +211,32 @@ Use a standard stat block, or note: *use the stats of a [creature] (MM p.XXX)*.
     id: 'monster',
     name: 'Monster / Creature',
     description: 'Full stat block layout',
+    type: 'monster',
     body: `# Creature Name
 
-*Size type, alignment*
-
-| Stat | Value |
-| ---- | ----- |
-| Armor Class | 12 |
-| Hit Points | 22 (4d8 + 4) |
-| Speed | 30 ft. |
-| Challenge | 1 (200 XP) |
-
-| STR | DEX | CON | INT | WIS | CHA |
-| --- | --- | --- | --- | --- | --- |
-| 10 (+0) | 14 (+2) | 12 (+1) | 10 (+0) | 11 (+0) | 8 (-1) |
-
-**Senses** darkvision 60 ft., passive Perception 10
-**Languages** Common
-
-## Traits
-
+\`\`\`statblock
+name: Creature Name
+size: Medium humanoid, neutral evil
+image: _images/your-image.png
+ac: 12
+hp: 22 (4d8 + 4)
+speed: 30 ft.
+str: 10
+dex: 14
+con: 12
+int: 10
+wis: 11
+cha: 8
+cr: 1 (200 XP)
+Senses: darkvision 60 ft., passive Perception 10
+Languages: Common
+---
 **Trait Name.** Description of the trait.
 
 ## Actions
 
 **Attack Name.** *Melee Weapon Attack:* +4 to hit, reach 5 ft., one target. *Hit:* 5 (1d6 + 2) damage.
+\`\`\`
 
 ## Tactics & Lore
 
@@ -225,6 +247,7 @@ How it fights, where it lives, what it fears.
     id: 'item',
     name: 'Magic Item',
     description: 'Artifact, weapon, or wondrous item',
+    type: 'item',
     body: `# Item Name
 
 *Wondrous item, rarity (requires attunement)*
@@ -250,6 +273,7 @@ A curse, a cost, or a faction that wants it back.
     id: 'faction',
     name: 'Faction',
     description: 'Guild, cult, kingdom, or company',
+    type: 'faction',
     body: `# Faction Name
 
 *Symbol · Motto · Sphere of influence*
@@ -283,6 +307,7 @@ What they are doing *right now* that the party might collide with.
     id: 'quest',
     name: 'Quest / Adventure',
     description: 'Hook, scenes, and rewards',
+    type: 'quest',
     body: `# Quest Name
 
 *Level range · Expected sessions · Location*
@@ -320,6 +345,7 @@ What changes in the world if they succeed. What happens if they fail or walk awa
     id: 'session',
     name: 'Session Notes',
     description: 'Recap and running threads',
+    type: 'session',
     body: `# Session N — Title
 
 *Date played:*

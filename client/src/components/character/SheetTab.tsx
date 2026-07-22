@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { Dices, Plus, Sparkles, X } from 'lucide-react'
+import { ChevronDown, Dices, Plus, Sparkles, X } from 'lucide-react'
 import { api } from '#/lib/api'
 import { articleTemplates } from '#/lib/templates'
 import {
@@ -30,6 +30,12 @@ import type { RollSource } from '#/lib/rollLog'
 import { openSpellInPanel } from '#/lib/spellPanel'
 import { cn } from '#/lib/utils'
 import { Button } from '#/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '#/components/ui/dropdown-menu'
 import { Input } from '#/components/ui/input'
 import { Separator } from '#/components/ui/separator'
 import { NumField } from './NumField'
@@ -142,6 +148,10 @@ export function SheetTab({
   const set = (patch: Partial<Character>) => onChange({ ...c, ...patch })
   const prof = proficiencyBonus(c.level)
 
+  // Latest character for async callbacks (backfill patches after awaits).
+  const cRef = useRef(c)
+  cRef.current = c
+
   const [spellName, setSpellName] = useState('')
   const [spellLevel, setSpellLevel] = useState(0)
   const queryClient = useQueryClient()
@@ -201,9 +211,11 @@ export function SheetTab({
         // and changing it is how you upcast). Damage comes from the library,
         // scaled by damagePerLevel when added above the base level.
         let damage: string | undefined
+        let damagePerLevel: string | undefined
         try {
           const art = await api.articles.get(source.worldId, existing.id)
           const info = spellInfoFromContent(art.content)
+          damagePerLevel = info.damagePerLevel ?? undefined
           if (info.damage) {
             const levelsAbove =
               info.level !== null ? Math.max(0, input.level - info.level) : 0
@@ -216,7 +228,12 @@ export function SheetTab({
         } catch {
           // unreadable article: no damage prefill
         }
-        return { display: `[[${existing.title}]]`, level: input.level, damage }
+        return {
+          display: `[[${existing.title}]]`,
+          level: input.level,
+          damage,
+          damagePerLevel,
+        }
       }
       try {
         await api.folders.create({
@@ -246,11 +263,13 @@ export function SheetTab({
         display: `[[${created.title}]]`,
         level: input.level,
         damage: undefined as string | undefined,
+        damagePerLevel: undefined as string | undefined,
       }
     },
-    onSuccess: ({ display, level, damage }) => {
+    onSuccess: ({ display, level, damage, damagePerLevel }) => {
       const spell: Spell = { name: display, level }
       if (damage) spell.damage = damage
+      if (damagePerLevel) spell.damagePerLevel = damagePerLevel
       set({ spells: [...c.spells, spell] })
       setSpellName('')
       queryClient.invalidateQueries({ queryKey: ['worlds', source.worldId] })
@@ -273,17 +292,76 @@ export function SheetTab({
     return slot ? slot.total - slot.used : 0
   }
 
-  /** Cast = expend one slot of the spell's level (cantrips are at will). */
-  const castSpell = (spell: Spell) => {
+  // Sheets saved before damagePerLevel existed only carry base damage: pick
+  // the increment up from each spell's library article once so cast-time
+  // upcasting works without re-adding the spell.
+  const backfilled = useRef(false)
+  useEffect(() => {
+    if (backfilled.current || !articles?.length) return
+    backfilled.current = true
+    const targets = c.spells.flatMap((s) => {
+      if (s.damagePerLevel) return []
+      const title = wikiLinkTitle(s.name).trim().toLowerCase()
+      const art = articles.find((a) => a.title.toLowerCase() === title)
+      return art ? [{ name: s.name, articleId: art.id }] : []
+    })
+    if (targets.length === 0) return
+    Promise.all(
+      targets.map(async (t) => {
+        try {
+          const art = await api.articles.get(source.worldId, t.articleId)
+          return {
+            name: t.name,
+            perLevel: spellInfoFromContent(art.content).damagePerLevel,
+          }
+        } catch {
+          return { name: t.name, perLevel: null }
+        }
+      }),
+    ).then((results) => {
+      const found = new Map(
+        results
+          .filter((r) => r.perLevel)
+          .map((r) => [r.name, r.perLevel as string]),
+      )
+      if (found.size === 0) return
+      const cur = cRef.current
+      onChange({
+        ...cur,
+        spells: cur.spells.map((s) =>
+          !s.damagePerLevel && found.has(s.name)
+            ? { ...s, damagePerLevel: found.get(s.name) }
+            : s,
+        ),
+      })
+    })
+  }, [articles, c.spells, source.worldId, onChange])
+
+  /**
+   * Cast = expend one slot of the chosen level (defaults to the spell's own;
+   * cantrips are at will) and roll the spell's damage, scaled when upcast.
+   */
+  const castSpell = (spell: Spell, atLevel = spell.level) => {
     if (spell.level === 0) return
-    const slot = slotFor(spell.level)
+    const slot = slotFor(atLevel)
     if (!slot || slot.used >= slot.total) return
     set({
       spellSlots: {
         ...c.spellSlots,
-        [spell.level]: { ...slot, used: slot.used + 1 },
+        [atLevel]: { ...slot, used: slot.used + 1 },
       },
     })
+    if (spell.damage?.trim()) {
+      const scaled = scaleSpellDamage(
+        spell.damage.trim(),
+        spell.damagePerLevel,
+        atLevel - spell.level,
+      )
+      const label = `${wikiLinkTitle(spell.name)} damage${
+        atLevel > spell.level ? ` (L${atLevel})` : ''
+      }`
+      roll(label, resolveSpellDamage(scaled, c), source)
+    }
   }
 
   const toggleSave = (ability: Ability) =>
@@ -698,6 +776,15 @@ export function SheetTab({
               const idx = c.spells.indexOf(spell)
               const left = slotsLeft(spell.level)
               const title = wikiLinkTitle(spell.name)
+              // Higher slot levels this spell could be cast with (any level
+              // with slots configured, even if currently all expended).
+              const upcastLevels =
+                spell.level > 0
+                  ? Array.from(
+                      { length: 9 - spell.level },
+                      (_, i) => spell.level + 1 + i,
+                    ).filter((lvl) => (slotFor(lvl)?.total ?? 0) > 0)
+                  : []
               const target = (articles ?? []).find(
                 (a) => a.title.toLowerCase() === title.toLowerCase(),
               )
@@ -731,7 +818,11 @@ export function SheetTab({
                   <Input
                     value={spell.damage ?? ''}
                     placeholder="dmg"
-                    title='Damage notation — "mod" adds your spell modifier, e.g. 2d8+mod'
+                    title={`Damage notation — "mod" adds your spell modifier, e.g. 2d8+mod${
+                      spell.damagePerLevel
+                        ? `; upcasts +${spell.damagePerLevel} per slot level`
+                        : ''
+                    }`}
                     className="h-6 w-20 shrink-0 px-1 text-xs"
                     onChange={(e) =>
                       set({
@@ -743,34 +834,72 @@ export function SheetTab({
                       })
                     }
                   />
-                  {spell.damage?.trim() && (
-                    <RollChip
-                      label={`${wikiLinkTitle(spell.name)} damage`}
-                      notation={resolveSpellDamage(spell.damage, c)}
-                      source={source}
-                    />
-                  )}
                   {spell.level === 0 ? (
-                    <span className="text-muted-foreground shrink-0 text-xs">
-                      at will
-                    </span>
+                    <>
+                      {spell.damage?.trim() && (
+                        <RollChip
+                          label={`${title} damage`}
+                          notation={resolveSpellDamage(spell.damage, c)}
+                          source={source}
+                        />
+                      )}
+                      <span className="text-muted-foreground shrink-0 text-xs">
+                        at will
+                      </span>
+                    </>
                   ) : (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-6 shrink-0 gap-1 px-1.5 text-xs"
-                      disabled={left <= 0}
-                      title={
-                        left > 0
-                          ? `Expend a level ${spell.level} slot (${left} left)`
-                          : slotFor(spell.level)?.total
-                            ? `No level ${spell.level} slots left`
-                            : `Set level ${spell.level} slots above first`
-                      }
-                      onClick={() => castSpell(spell)}
-                    >
-                      <Sparkles className="size-3" /> Cast ({left})
-                    </Button>
+                    <>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-6 shrink-0 gap-1 px-1.5 text-xs"
+                        disabled={left <= 0}
+                        title={
+                          left > 0
+                            ? `Expend a level ${spell.level} slot (${left} left)${
+                                spell.damage?.trim() ? ' and roll damage' : ''
+                              }`
+                            : slotFor(spell.level)?.total
+                              ? `No level ${spell.level} slots left`
+                              : `Set level ${spell.level} slots above first`
+                        }
+                        onClick={() => castSpell(spell)}
+                      >
+                        <Sparkles className="size-3" /> Cast ({left})
+                      </Button>
+                      {upcastLevels.length > 0 && (
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-6 w-5 shrink-0 px-0"
+                              title="Cast with a higher-level slot"
+                            >
+                              <ChevronDown className="size-3" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            {upcastLevels.map((lvl) => (
+                              <DropdownMenuItem
+                                key={lvl}
+                                disabled={slotsLeft(lvl) <= 0}
+                                onClick={() => castSpell(spell, lvl)}
+                              >
+                                Level {lvl} ({slotsLeft(lvl)} left)
+                                {spell.damage?.trim() &&
+                                  spell.damagePerLevel &&
+                                  ` — ${scaleSpellDamage(
+                                    spell.damage.trim(),
+                                    spell.damagePerLevel,
+                                    lvl - spell.level,
+                                  )}`}
+                              </DropdownMenuItem>
+                            ))}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      )}
+                    </>
                   )}
                   <button
                     type="button"
