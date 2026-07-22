@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  extractImagePath,
   extractStatBlockFence,
   parseStatBlock,
   parseStatBlockCard,
@@ -108,6 +109,7 @@ dex: 20
 
 const FENCE = `name: Goblin
 size: Small humanoid, neutral evil
+image: _images/goblin.png
 ac: 15 (leather armor, shield)
 hp: 7 (2d6)
 speed: 30 ft.
@@ -132,6 +134,7 @@ describe('parseStatBlockCard', () => {
     const c = parseStatBlockCard(FENCE)
     expect(c.name).toBe('Goblin')
     expect(c.subtitle).toBe('Small humanoid, neutral evil')
+    expect(c.image).toBe('_images/goblin.png')
     expect(c.ac).toBe('15 (leather armor, shield)')
     expect(c.hp).toBe('7 (2d6)')
     expect(c.speed).toBe('30 ft.')
@@ -179,6 +182,40 @@ describe('extractStatBlockFence + parseStatBlock on a fence', () => {
     expect(sb.cr).toBe('1/4')
     expect(sb.xp).toBe(50)
     expect(sb.dexMod).toBe(2) // mod(14)
+  })
+})
+
+describe('extractImagePath', () => {
+  it('accepts a bare path', () => {
+    expect(extractImagePath('_images/owlbear.png')).toBe('_images/owlbear.png')
+  })
+  it('extracts the path from image picker markdown', () => {
+    expect(extractImagePath('![elfGuy](_images/elfGuy.png)')).toBe(
+      '_images/elfGuy.png',
+    )
+  })
+  it('url-decodes an encoded filename', () => {
+    expect(extractImagePath('![x](_images/elf%20guy.png)')).toBe(
+      '_images/elf guy.png',
+    )
+  })
+})
+
+describe('the image field accepts both bare and markdown forms', () => {
+  it('parses markdown-form image into a plain path', () => {
+    const c = parseStatBlockCard('image: ![elfGuy](_images/elfGuy.png)')
+    expect(c.image).toBe('_images/elfGuy.png')
+    expect(c.imageNoFrame).toBe(false)
+  })
+  it('strips #noframe and sets the flag', () => {
+    const c = parseStatBlockCard('image: _images/ghost.png#noframe')
+    expect(c.image).toBe('_images/ghost.png')
+    expect(c.imageNoFrame).toBe(true)
+  })
+  it('handles #noframe inside markdown-form images (picker output)', () => {
+    const c = parseStatBlockCard('image: ![g](_images/ghost.png#noframe)')
+    expect(c.image).toBe('_images/ghost.png')
+    expect(c.imageNoFrame).toBe(true)
   })
 })
 

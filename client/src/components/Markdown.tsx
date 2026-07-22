@@ -178,31 +178,66 @@ function StatBlockCard({
       : []),
   ]
 
+  // Portable image paths (_images/foo.png) are served via the world:// protocol.
+  const imageSrc =
+    card.image && card.image.startsWith('_images/') && worldId
+      ? `world://${worldId}/${card.image}`
+      : card.image
+
   return (
     <div className="dnd-statblock">
-      {card.name && <div className="dnd-statblock-name">{card.name}</div>}
-      {card.subtitle && (
-        <div className="dnd-statblock-subtitle">{card.subtitle}</div>
-      )}
+      {/* Header row: portrait on the left, name/type/AC-HP-Speed-CR on the right.
+          The image height tracks this row so it never runs past the stat lines. */}
+      <div
+        className={cn(
+          'dnd-statblock-header',
+          imageSrc && 'dnd-statblock-header-withimg',
+        )}
+      >
+        {imageSrc && (
+          <div className="dnd-statblock-image-wrap">
+            <img
+              className={cn(
+                'dnd-statblock-image',
+                card.imageNoFrame && 'dnd-statblock-image-noframe',
+              )}
+              src={imageSrc}
+              alt={card.name ?? 'Creature portrait'}
+              // A placeholder/broken path shouldn't leave an ugly broken-image
+              // icon in the card — hide it until a real image is set.
+              onError={(e) => {
+                const wrap = e.currentTarget.parentElement
+                if (wrap) wrap.style.display = 'none'
+              }}
+            />
+          </div>
+        )}
+        <div className="dnd-statblock-heading">
+          {card.name && <div className="dnd-statblock-name">{card.name}</div>}
+          {card.subtitle && (
+            <div className="dnd-statblock-subtitle">{card.subtitle}</div>
+          )}
 
-      {attributes.length > 0 && (
-        <div className="dnd-statblock-attrs">
-          {attributes.map((a) => (
-            <div key={a.label}>
-              <span className="dnd-statblock-attr-label">{a.label}</span>{' '}
-              <InlineMarkdown
-                className="dnd-statblock-attr-value"
-                worldId={worldId}
-                articles={articles}
-                onCreateMissing={onCreateMissing}
-                source={source}
-              >
-                {a.value}
-              </InlineMarkdown>
+          {attributes.length > 0 && (
+            <div className="dnd-statblock-attrs">
+              {attributes.map((a) => (
+                <div key={a.label}>
+                  <span className="dnd-statblock-attr-label">{a.label}</span>{' '}
+                  <InlineMarkdown
+                    className="dnd-statblock-attr-value"
+                    worldId={worldId}
+                    articles={articles}
+                    onCreateMissing={onCreateMissing}
+                    source={source}
+                  >
+                    {a.value}
+                  </InlineMarkdown>
+                </div>
+              ))}
             </div>
-          ))}
+          )}
         </div>
-      )}
+      </div>
 
       {hasAbilities && (
         <div className="dnd-statblock-abilities">

@@ -261,6 +261,7 @@ export const snippets = {
     '```statblock',
     'name: Creature Name',
     'size: Medium humanoid, neutral evil',
+    'image: _images/your-image.png',
     'ac: 12',
     'hp: 22 (4d8 + 4)',
     'speed: 30 ft.',

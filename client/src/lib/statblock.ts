@@ -124,6 +124,10 @@ export interface StatBlockCard {
   name: string | null
   /** The italic line under the name: "Small humanoid, neutral evil". */
   subtitle: string | null
+  /** Portrait image path (e.g. "_images/owlbear.png"), or null. */
+  image: string | null
+  /** #noframe on the image line — drop the border (for transparent PNGs). */
+  imageNoFrame: boolean
   ac: string | null
   hp: string | null
   speed: string | null
@@ -143,6 +147,7 @@ const CORE_KEYS = new Set([
   'subtitle',
   'size',
   'type',
+  'image',
   'ac',
   'hp',
   'speed',
@@ -150,6 +155,21 @@ const CORE_KEYS = new Set([
   'xp',
   ...ABILITY_ORDER,
 ])
+
+/**
+ * Normalize whatever the author puts on the `image:` line to a plain path.
+ * Accepts a bare path (_images/foo.png) or the markdown the image picker
+ * inserts (![alt](_images/foo%20.png)); URL-decodes the path either way.
+ */
+export function extractImagePath(value: string): string {
+  const md = value.match(/!\[[^\]]*\]\(([^)]+)\)/)
+  const raw = (md ? md[1] : value).trim()
+  try {
+    return decodeURIComponent(raw)
+  } catch {
+    return raw
+  }
+}
 
 /** A score → "+2" style modifier string for display on the card. */
 export function abilityModLabel(score: number): string {
@@ -178,6 +198,8 @@ export function parseStatBlockCard(fence: string): StatBlockCard {
   const card: StatBlockCard = {
     name: null,
     subtitle: null,
+    image: null,
+    imageNoFrame: false,
     ac: null,
     hp: null,
     speed: null,
@@ -223,6 +245,14 @@ export function parseStatBlockCard(fence: string): StatBlockCard {
     if (key === 'name') card.name = value
     else if (key === 'subtitle' || key === 'size' || key === 'type')
       card.subtitle = card.subtitle ? `${card.subtitle}, ${value}` : value
+    else if (key === 'image') {
+      // #noframe may sit inside the path or trail the whole value (markdown form
+      // ![alt](path)#noframe) — check the raw value, then strip any hash options.
+      if (/#[\w&,]*noframe/i.test(value)) card.imageNoFrame = true
+      const path = extractImagePath(value)
+      const hash = path.indexOf('#')
+      card.image = hash >= 0 ? path.slice(0, hash) : path
+    }
     else if (key === 'ac') card.ac = value
     else if (key === 'hp') card.hp = value
     else if (key === 'speed') card.speed = value
