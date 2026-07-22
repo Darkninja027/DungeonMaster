@@ -155,10 +155,13 @@ export function registerIpcHandlers() {
     const sender = e.sender
     startWatching(worldRoot(worldId), worldId, (batch) => {
       // External edits invalidate the index before the renderer refetches.
-      refreshIndex(worldId)
+      // Fire-and-forget: the batch is already pushed to the renderer, which
+      // refetches; the rebuild just refreshes the search index in the
+      // background and must not block the watcher callback.
+      void refreshIndex(worldId)
       if (!sender.isDestroyed()) sender.send('world:changed', batch)
     })
-    buildIndex(worldId)
+    return buildIndex(worldId)
   })
 
   ipcMain.handle('worlds:unwatch', () => {
@@ -186,7 +189,7 @@ export function registerIpcHandlers() {
       }: { worldId: string; folderId: string; name: string },
     ) => {
       renameFolder(worldId, folderId, name)
-      refreshIndex(worldId) // article ids under the folder changed
+      return refreshIndex(worldId) // article ids under the folder changed
     },
   )
 
@@ -201,7 +204,7 @@ export function registerIpcHandlers() {
       }: { worldId: string; folderId: string; parentFolderId: string | null },
     ) => {
       moveFolder(worldId, folderId, parentFolderId)
-      refreshIndex(worldId)
+      return refreshIndex(worldId)
     },
   )
 
@@ -213,7 +216,7 @@ export function registerIpcHandlers() {
     ) => {
       const abs = resolveInWorld(worldRoot(worldId), folderId)
       if (fs.existsSync(abs)) await trash(abs)
-      refreshIndex(worldId)
+      await refreshIndex(worldId)
     },
   )
 
@@ -243,7 +246,7 @@ export function registerIpcHandlers() {
 
   ipcMain.handle(
     'articles:update',
-    (
+    async (
       _e,
       {
         worldId,
@@ -252,9 +255,12 @@ export function registerIpcHandlers() {
         content,
       }: { worldId: string; articleId: string; title: string; content: string },
     ) => {
-      const article = updateArticle(worldId, articleId, { title, content })
+      const article = await updateArticle(worldId, articleId, {
+        title,
+        content,
+      })
       // A title change rewrites [[links]] world-wide — rebuild instead.
-      if (article.id !== articleId) refreshIndex(worldId)
+      if (article.id !== articleId) await refreshIndex(worldId)
       else noteWrite(article)
       return article
     },
@@ -262,7 +268,7 @@ export function registerIpcHandlers() {
 
   ipcMain.handle(
     'articles:rename',
-    (
+    async (
       _e,
       {
         worldId,
@@ -270,8 +276,8 @@ export function registerIpcHandlers() {
         title,
       }: { worldId: string; articleId: string; title: string },
     ) => {
-      const article = renameArticle(worldId, articleId, title)
-      refreshIndex(worldId)
+      const article = await renameArticle(worldId, articleId, title)
+      await refreshIndex(worldId)
       return article
     },
   )
@@ -296,7 +302,7 @@ export function registerIpcHandlers() {
       }: { worldId: string; articleId: string; folderId: string | null },
     ) => {
       moveArticle(worldId, articleId, folderId)
-      refreshIndex(worldId) // the article's id (its path) changed
+      return refreshIndex(worldId) // the article's id (its path) changed
     },
   )
 

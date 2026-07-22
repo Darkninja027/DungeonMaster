@@ -258,7 +258,11 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
   const openDialog = (state: NameDialogState) => {
     setName(state.initial ?? '')
     setTemplateId('blank')
-    setDialog(state)
+    // Defer the overlay mount so a DropdownMenu that triggered this finishes
+    // closing first — otherwise Radix can leave pointer-events:none stuck on
+    // <body> and the whole app stops accepting clicks/typing until the next
+    // menu open/close resets it.
+    requestAnimationFrame(() => setDialog(state))
   }
 
   const handleDrop = (targetFolderId: string | null) => {

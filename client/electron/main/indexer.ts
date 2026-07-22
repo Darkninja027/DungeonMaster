@@ -45,12 +45,18 @@ export function parseFrontmatter(
 
 let indexed: { worldId: string; index: WorldIndex } | null = null
 
-export function buildIndex(worldId: string): void {
+export async function buildIndex(worldId: string): Promise<void> {
   try {
     const root = worldRoot(worldId)
     const index: WorldIndex = new Map()
+    // Async per-article read so this whole-world scan yields to the event loop
+    // instead of blocking the single main-process thread (freezing input/IPC)
+    // on a large world.
     for (const a of readTree(root).articles) {
-      const content = fs.readFileSync(resolveInWorld(root, a.id + '.md'), 'utf8')
+      const content = await fs.promises.readFile(
+        resolveInWorld(root, a.id + '.md'),
+        'utf8',
+      )
       index.set(a.id, {
         id: a.id,
         folderId: a.folderId,
@@ -95,6 +101,6 @@ export function noteDelete(worldId: string, articleId: string): void {
  * ids, folder ops reshape the tree, external batches are untrusted) triggers
  * a full rebuild — same cost as a single pre-index search, and rare.
  */
-export function refreshIndex(worldId: string): void {
-  if (getIndex(worldId)) buildIndex(worldId)
+export async function refreshIndex(worldId: string): Promise<void> {
+  if (getIndex(worldId)) await buildIndex(worldId)
 }
