@@ -124,12 +124,32 @@ export interface WorldChangeBatch {
 }
 
 export interface ImageInfo {
+  /** '/'-separated path relative to _images/ — 'Maps/City/tavern.png'. */
   id: string
+  /** Basename only — 'tavern.png'. */
   fileName: string
+  /** Containing image folder id; null = the _images root. */
+  folderId: string | null
   contentType: string
   sizeBytes: number
   uploadedAt: string
   url: string
+  /** Portable disk path — '_images/Maps/City/tavern.png'. */
+  relPath: string
+  /** The same, per-segment percent-encoded. Use this in markdown. */
+  encodedRelPath: string
+}
+
+/** A folder under _images/. Mirrors FolderNode; ids are _images-relative. */
+export interface ImageFolder {
+  id: string
+  parentFolderId: string | null
+  name: string
+}
+
+export interface ImageTree {
+  folders: Array<ImageFolder>
+  images: Array<ImageInfo>
 }
 
 function invoke<T>(channel: string, args?: unknown): Promise<T> {
@@ -158,6 +178,16 @@ export const api = {
     /** Start watching the world folder for external changes. */
     watch: (worldId: string) => invoke<void>('worlds:watch', { worldId }),
     unwatch: (worldId: string) => invoke<void>('worlds:unwatch', { worldId }),
+    /**
+     * Show an article or folder in the OS file manager. Pass a null id to open
+     * the world folder itself. `kind` matters because an article id and a
+     * folder id can be the same string — only articles get '.md' appended.
+     */
+    reveal: (
+      worldId: string,
+      kind: 'article' | 'folder',
+      id: string | null = null,
+    ) => invoke<void>('worlds:reveal', { worldId, kind, id }),
     /** Subscribe to external-change batches; returns an unsubscribe fn. */
     onChanged: (cb: (batch: WorldChangeBatch) => void) =>
       window.dmApi.on('world:changed', (payload) =>
@@ -204,16 +234,61 @@ export const api = {
       invoke<void>('articles:delete', { worldId, articleId }),
   },
   images: {
-    list: (worldId: string) =>
-      invoke<Array<ImageInfo>>('images:list', { worldId }),
-    upload: async (worldId: string, file: File) =>
+    /** The whole _images/ tree: nested folders plus every image at any depth. */
+    tree: (worldId: string) => invoke<ImageTree>('images:tree', { worldId }),
+    /** Upload into `folderId` (null = the _images root). */
+    upload: async (
+      worldId: string,
+      file: File,
+      folderId: string | null = null,
+    ) =>
       invoke<ImageInfo>('images:upload', {
         worldId,
         fileName: file.name,
         bytes: await file.arrayBuffer(),
+        folderId,
       }),
+    /** Rename in place; repoints _images/ references world-wide. */
+    rename: (worldId: string, imageId: string, name: string) =>
+      invoke<ImageInfo>('images:rename', { worldId, imageId, name }),
+    /** Move between folders; repoints _images/ references world-wide. */
+    move: (worldId: string, imageId: string, folderId: string | null) =>
+      invoke<ImageInfo>('images:move', { worldId, imageId, folderId }),
+    /** To the Recycle Bin. References are left alone — the author decides. */
     delete: (worldId: string, imageId: string) =>
       invoke<void>('images:delete', { worldId, imageId }),
+    createFolder: (input: {
+      worldId: string
+      parentFolderId?: string | null
+      name: string
+    }) => invoke<ImageFolder>('images:createFolder', input),
+    renameFolder: (worldId: string, folderId: string, name: string) =>
+      invoke<{ id: string }>('images:renameFolder', {
+        worldId,
+        folderId,
+        name,
+      }),
+    moveFolder: (
+      worldId: string,
+      folderId: string,
+      parentFolderId: string | null,
+    ) =>
+      invoke<{ id: string }>('images:moveFolder', {
+        worldId,
+        folderId,
+        parentFolderId,
+      }),
+    deleteFolder: (worldId: string, folderId: string) =>
+      invoke<void>('images:deleteFolder', { worldId, folderId }),
+    /** Images under a folder subtree — for the delete confirmation. */
+    countIn: (worldId: string, folderId: string) =>
+      invoke<number>('images:countIn', { worldId, folderId }),
+    /**
+     * Show an image or image folder in the OS file manager. Pass '' for the
+     * _images folder itself.
+     */
+    reveal: (worldId: string, imageId: string) =>
+      invoke<void>('images:reveal', { worldId, imageId }),
   },
   characters: {
     /** Articles whose frontmatter declares `type: character`, sorted by title. */

@@ -8,6 +8,7 @@ import {
   FilePlus2,
   FileText,
   Folder as FolderIcon,
+  FolderOpen,
   FolderPlus,
   MoreHorizontal,
   Pencil,
@@ -265,6 +266,18 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
     requestAnimationFrame(() => setDialog(state))
   }
 
+  /** Show an article or folder in the OS file manager; null id = the world folder. */
+  const reveal = async (
+    kind: 'article' | 'folder',
+    id: string | null = null,
+  ) => {
+    try {
+      await api.worlds.reveal(worldId, kind, id)
+    } catch (error) {
+      alert((error as Error).message)
+    }
+  }
+
   const handleDrop = (targetFolderId: string | null) => {
     if (!dragItem) return
     if (dragItem.type === 'article') {
@@ -349,6 +362,9 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
           </DropdownMenuItem>
           <DropdownMenuItem onClick={() => duplicateArticle.mutate(article.id)}>
             <Copy /> Duplicate
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => reveal('article', article.id)}>
+            <FolderOpen /> Open file location
           </DropdownMenuItem>
           <DropdownMenuItem
             variant="destructive"
@@ -447,6 +463,9 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
               >
                 <Pencil /> Rename
               </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => reveal('folder', folder.id)}>
+                <FolderOpen /> Open file location
+              </DropdownMenuItem>
               <DropdownMenuItem
                 variant="destructive"
                 onClick={() => {
@@ -542,6 +561,15 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
             }
           >
             <FolderPlus className="size-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-7"
+            title="Open the world folder"
+            onClick={() => reveal('folder', null)}
+          >
+            <FolderOpen className="size-4" />
           </Button>
         </div>
       </div>

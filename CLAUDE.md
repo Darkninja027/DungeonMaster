@@ -56,7 +56,7 @@ the preload allowlist and `ipc.ts`, or the call is rejected.
 - `ipc.ts` — the single place every `ipcMain.handle(...)` lives; maps channels to functions.
 - `worldStore.ts` — the filesystem model. `readTree` walks the world folder (directories become folders, `*.md` files become articles). Writes are atomic (temp file + rename) so a crash never truncates an article. Renaming an article calls `rewriteWikiLinks` to fix `[[links]]` across the entire world.
 - `sanitize.ts` — **security-critical.** `resolveInWorld` rejects any path that escapes the world root, and **every** handler funnels through it before touching disk. `nameError` validates titles/folder names as filenames. World ids are **hex-encoded** absolute paths — hex (not base64) because the id also rides in the host of `world://` URLs, which get lowercased.
-- `images.ts` — serves world images read-only through a custom `world://<hexWorldId>/_images/<file>` protocol; enforces type/size limits on upload.
+- `images.ts` — serves world images read-only through a custom `world://<hexWorldId>/_images/<path>` protocol; enforces type/size limits on upload. Images live in **nested subfolders** under `_images/`, so it also owns folder create/rename/move/delete and image rename/move — each confined to `_images/` by a local `resolveInImages` (`resolveInWorld` alone would let `_images/../NPCs` through). Renaming or moving an image or image folder calls `rewriteImageRefs` to repoint `_images/` paths across the whole world, the image-side counterpart of `rewriteWikiLinks`. Because a reference on disk may be percent-encoded (what the picker inserts) or plain (what a human types in Obsidian), the rewriter matches both and preserves whichever style it found.
 - `recents.ts` — recent-worlds list, stored in `userData/config.json`.
 
 ### Client data access
@@ -70,6 +70,11 @@ through components.
 - **World id** = hex of the absolute folder path.
 - **Article id** = world-relative path minus `.md` (e.g. `NPCs/Strahd`).
 - **Folder id** = world-relative directory path. `null` folder = world root.
+- **Image id / image folder id** = path relative to **`_images/`**, not the world
+  root (e.g. `Maps/City/tavern.png`). `null` folder = the `_images` root. Markdown
+  stores `_images/` + that path; `ImageInfo.encodedRelPath` is the ready-to-paste
+  form. Encode paths **per segment** — whole-path `encodeURIComponent` turns the
+  separators into `%2F`, which the app tolerates but Obsidian does not.
 
 ### Markdown rendering
 
@@ -98,3 +103,4 @@ shadcn/ui — add components with `pnpm dlx shadcn@latest add <name>`, they land
 - `client/README.md` is **stale TanStack Start boilerplate** (Nitro servers, server functions, API routes) — none of it applies. Ignore it.
 - `server/` (an empty `Data/` dir) and `scripts/migrate-sqlite.mjs` are **dead remnants** of a removed .NET/SQLite server, kept only for one-time migration. They are not part of the running app.
 - Deletes go to the OS Recycle Bin via `shell.trashItem`, not `fs.rm`.
+- "Open file location" is two channels, not one: `worlds:reveal` for articles/folders/the world root (`revealPath` in `worldStore.ts`, which needs a `kind` because an article id and a folder id can be the same string), and `images:reveal` for images (`revealImage` in `images.ts`, ids relative to `_images/`). Both go through their module's path guard. The `shell` call lives in `ipc.ts` for the world one, keeping `worldStore.ts` Electron-free so it stays testable without mocks — `images.ts` already imports `shell`, so its reveal sits there.

@@ -145,7 +145,7 @@ export function countArticles(root: string): number {
 }
 
 /** Case-insensitive existence check — Windows filesystems are case-insensitive. */
-function entryExists(absDir: string, name: string): boolean {
+export function entryExists(absDir: string, name: string): boolean {
   if (!fs.existsSync(absDir)) return false
   const lower = name.toLowerCase()
   return fs.readdirSync(absDir).some((e) => e.toLowerCase() === lower)
@@ -155,6 +155,25 @@ function articleAbsPath(root: string, articleId: string): string {
   const abs = resolveInWorld(root, articleId + '.md')
   if (!fs.existsSync(abs))
     throw new Error('Article not found — it may have been moved or renamed.')
+  return abs
+}
+
+/**
+ * Absolute path of an article, folder, or the world root, for revealing in the
+ * OS file manager. `kind` disambiguates because an article id and a folder id
+ * can be the same string ('NPCs' could be either) — only the article gets '.md'
+ * appended. Pass a null id for the world folder itself.
+ */
+export function revealPath(
+  worldId: string,
+  kind: 'article' | 'folder',
+  id: string | null,
+): string {
+  const root = worldRoot(worldId)
+  if (id === null) return root
+  const abs =
+    kind === 'article' ? articleAbsPath(root, id) : resolveInWorld(root, id)
+  if (!fs.existsSync(abs)) throw new Error('That is no longer on disk.')
   return abs
 }
 

@@ -16,6 +16,7 @@ import {
   readWorldMeta,
   renameArticle,
   renameFolder,
+  revealPath,
   updateArticle,
   worldRoot,
   writeWorldMeta,
@@ -28,7 +29,19 @@ import {
   searchWorld,
 } from './search'
 import type { ArticleQuery } from './search'
-import { deleteImage, listImages, uploadImage } from './images'
+import {
+  countImagesIn,
+  createImageFolder,
+  deleteImage,
+  deleteImageFolder,
+  listImageTree,
+  moveImage,
+  moveImageFolder,
+  renameImage,
+  renameImageFolder,
+  revealImage,
+  uploadImage,
+} from './images'
 import { readSession, readViews, writeSession, writeViews } from './session'
 import { noteSelfWrite, startWatching, stopWatching } from './watcher'
 import {
@@ -168,6 +181,28 @@ export function registerIpcHandlers() {
     stopWatching()
     dropIndex()
   })
+
+  // Reveal an article, folder, or the world folder itself in the OS file
+  // manager. A world is just a folder on disk, so showing people where their
+  // files actually live is genuinely useful.
+  ipcMain.handle(
+    'worlds:reveal',
+    (
+      _e,
+      {
+        worldId,
+        kind,
+        id,
+      }: { worldId: string; kind: 'article' | 'folder'; id: string | null },
+    ) => {
+      const abs = revealPath(worldId, kind, id)
+      // For the world folder itself, open it — showItemInFolder would select it
+      // inside its parent, which isn't what "open the world folder" means.
+      if (id === null) return shell.openPath(abs)
+      // Otherwise select the item inside its parent, files and folders alike.
+      shell.showItemInFolder(abs)
+    },
+  )
 
   // Folders -----------------------------------------------------------------
   ipcMain.handle(
@@ -325,8 +360,8 @@ export function registerIpcHandlers() {
   )
 
   // Images ------------------------------------------------------------------
-  ipcMain.handle('images:list', (_e, { worldId }: { worldId: string }) =>
-    listImages(worldId),
+  ipcMain.handle('images:tree', (_e, { worldId }: { worldId: string }) =>
+    listImageTree(worldId),
   )
 
   ipcMain.handle(
@@ -337,14 +372,116 @@ export function registerIpcHandlers() {
         worldId,
         fileName,
         bytes,
-      }: { worldId: string; fileName: string; bytes: ArrayBuffer },
-    ) => uploadImage(worldId, fileName, bytes),
+        folderId,
+      }: {
+        worldId: string
+        fileName: string
+        bytes: ArrayBuffer
+        folderId?: string | null
+      },
+    ) => uploadImage(worldId, fileName, bytes, folderId ?? null),
   )
 
   ipcMain.handle(
     'images:delete',
     (_e, { worldId, imageId }: { worldId: string; imageId: string }) =>
       deleteImage(worldId, imageId),
+  )
+
+  // The four handlers below repoint _images/ references across the world, so
+  // article bodies change on disk — refresh the search index like folders:rename.
+  ipcMain.handle(
+    'images:rename',
+    async (
+      _e,
+      {
+        worldId,
+        imageId,
+        name,
+      }: { worldId: string; imageId: string; name: string },
+    ) => {
+      const info = await renameImage(worldId, imageId, name)
+      await refreshIndex(worldId)
+      return info
+    },
+  )
+
+  ipcMain.handle(
+    'images:move',
+    async (
+      _e,
+      {
+        worldId,
+        imageId,
+        folderId,
+      }: { worldId: string; imageId: string; folderId: string | null },
+    ) => {
+      const info = await moveImage(worldId, imageId, folderId)
+      await refreshIndex(worldId)
+      return info
+    },
+  )
+
+  ipcMain.handle(
+    'images:createFolder',
+    (
+      _e,
+      {
+        worldId,
+        parentFolderId,
+        name,
+      }: { worldId: string; parentFolderId?: string | null; name: string },
+    ) => createImageFolder(worldId, parentFolderId ?? null, name),
+  )
+
+  ipcMain.handle(
+    'images:renameFolder',
+    async (
+      _e,
+      {
+        worldId,
+        folderId,
+        name,
+      }: { worldId: string; folderId: string; name: string },
+    ) => {
+      const result = await renameImageFolder(worldId, folderId, name)
+      await refreshIndex(worldId)
+      return result
+    },
+  )
+
+  ipcMain.handle(
+    'images:moveFolder',
+    async (
+      _e,
+      {
+        worldId,
+        folderId,
+        parentFolderId,
+      }: { worldId: string; folderId: string; parentFolderId: string | null },
+    ) => {
+      const result = await moveImageFolder(worldId, folderId, parentFolderId)
+      await refreshIndex(worldId)
+      return result
+    },
+  )
+
+  ipcMain.handle(
+    'images:deleteFolder',
+    (_e, { worldId, folderId }: { worldId: string; folderId: string }) =>
+      deleteImageFolder(worldId, folderId),
+  )
+
+  ipcMain.handle(
+    'images:countIn',
+    (_e, { worldId, folderId }: { worldId: string; folderId: string }) =>
+      countImagesIn(worldId, folderId),
+  )
+
+  ipcMain.handle(
+    'images:reveal',
+    (_e, { worldId, imageId }: { worldId: string; imageId: string }) =>
+      revealImage(worldId, imageId),
   )
 
   // Characters ----------------------------------------------------------------

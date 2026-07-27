@@ -18,6 +18,7 @@ import {
   moveFolder,
   readTree,
   renameArticle,
+  revealPath,
   updateArticle,
 } from './worldStore'
 import { findMentions, searchWorld } from './search'
@@ -221,5 +222,53 @@ describe('worldStore against a real temp folder', () => {
     fs.mkdirSync(path.join(root, '_images'))
     fs.writeFileSync(path.join(root, '_images', 'map.png'), 'x')
     expect(readTree(root).folders).toHaveLength(0)
+  })
+
+  describe('revealPath', () => {
+    it('resolves articles, folders and the world root', () => {
+      createFolder({ worldId, name: 'NPCs' })
+      createArticle({ worldId, folderId: 'NPCs', title: 'Strahd' })
+      expect(revealPath(worldId, 'article', 'NPCs/Strahd')).toBe(
+        path.join(root, 'NPCs', 'Strahd.md'),
+      )
+      expect(revealPath(worldId, 'folder', 'NPCs')).toBe(
+        path.join(root, 'NPCs'),
+      )
+      expect(revealPath(worldId, 'folder', null)).toBe(root)
+    })
+
+    it('distinguishes an article from a folder of the same name', () => {
+      // 'NPCs' is a valid id for both; only the article gets '.md' appended.
+      createFolder({ worldId, name: 'NPCs' })
+      createArticle({ worldId, title: 'NPCs' })
+      expect(revealPath(worldId, 'article', 'NPCs')).toBe(
+        path.join(root, 'NPCs.md'),
+      )
+      expect(revealPath(worldId, 'folder', 'NPCs')).toBe(
+        path.join(root, 'NPCs'),
+      )
+    })
+
+    it('throws for something no longer on disk', () => {
+      expect(() => revealPath(worldId, 'article', 'Gone')).toThrow()
+      expect(() => revealPath(worldId, 'folder', 'Gone')).toThrow(/no longer/)
+    })
+
+    it('rejects traversal attempts', () => {
+      expect(() => revealPath(worldId, 'folder', '../..')).toThrow()
+      expect(() => revealPath(worldId, 'article', '../../outside')).toThrow()
+    })
+  })
+
+  it('ignores nested image folders in the tree', () => {
+    // Image organisation lives under _images/; none of it may leak into the
+    // article tree, however deep it goes.
+    fs.mkdirSync(path.join(root, '_images', 'Maps', 'City'), {
+      recursive: true,
+    })
+    fs.writeFileSync(path.join(root, '_images', 'Maps', 'City', 'x.png'), 'x')
+    const tree = readTree(root)
+    expect(tree.folders).toHaveLength(0)
+    expect(tree.articles).toHaveLength(0)
   })
 })
