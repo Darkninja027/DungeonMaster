@@ -9,6 +9,7 @@ import {
   parseCharacter,
   passivePerception,
   proficiencyBonus,
+  resolveSkills,
   resolveSpellDamage,
   scaleSpellDamage,
   spellInfoFromContent,
@@ -218,5 +219,91 @@ describe('character frontmatter round-trip', () => {
     expect(character.level).toBe(20)
     expect(character.abilities.str).toBe(1)
     expect(character.deathSaves.fail).toBe(3)
+  })
+})
+
+describe('customizable skills', () => {
+  it('overrides the ability a built-in skill keys off', () => {
+    const c = sample() // int 12 (+1), wis 16 (+3), prof +3
+    // Religion normally keys off INT; swap it to WIS.
+    c.skillOverrides = { religion: 'wis' }
+    expect(skillBonus(c, 'religion')).toBe(3) // wis 3, not int 1
+    expect(resolveSkills(c).find((s) => s.id === 'religion')?.ability).toBe(
+      'wis',
+    )
+  })
+
+  it('adds homebrew skills and rolls their bonus', () => {
+    const c = sample() // dex 18 (+4), prof +3
+    c.extraSkills = [{ id: 'forgery', name: 'Forgery', ability: 'dex' }]
+    c.skills = ['forgery']
+    expect(skillBonus(c, 'forgery')).toBe(7) // dex 4 + prof 3
+    // still 18 built-ins + 1 extra
+    expect(resolveSkills(c)).toHaveLength(19)
+  })
+
+  it('keeps the skill list alphabetical after adding extras', () => {
+    const c = sample()
+    c.extraSkills = [
+      { id: 'forgery', name: 'Forgery', ability: 'dex' },
+      { id: 'cooking', name: 'Cooking', ability: 'wis' },
+    ]
+    const names = resolveSkills(c).map((s) => s.name)
+    expect(names).toEqual([...names].sort((a, b) => a.localeCompare(b)))
+    // extras land in place, not tacked on the end
+    expect(names.indexOf('Cooking')).toBeLessThan(names.indexOf('Deception'))
+    expect(names.indexOf('Forgery')).toBeLessThan(names.indexOf('History'))
+    expect(names.indexOf('Forgery')).toBeGreaterThan(names.indexOf('Deception'))
+  })
+
+  it('lets an extra skill override a built-in by id', () => {
+    const c = sample()
+    c.extraSkills = [{ id: 'arcana', name: 'Arcana', ability: 'cha' }]
+    expect(resolveSkills(c)).toHaveLength(18) // replaced, not added
+    expect(resolveSkills(c).find((s) => s.id === 'arcana')?.ability).toBe('cha')
+  })
+
+  it('round-trips overrides and extra skills, omitting when empty', () => {
+    const plain = serializeCharacter(sample(), '')
+    expect(plain).not.toContain('skillOverrides')
+    expect(plain).not.toContain('extraSkills')
+
+    const c = sample()
+    c.skillOverrides = { religion: 'wis' }
+    c.extraSkills = [{ id: 'forgery', name: 'Forgery', ability: 'dex' }]
+    c.skills = ['perception', 'forgery']
+    const parsed = parseCharacter(serializeCharacter(c, '# X'))
+    expect(parsed.character.skillOverrides).toEqual({ religion: 'wis' })
+    expect(parsed.character.extraSkills).toEqual([
+      { id: 'forgery', name: 'Forgery', ability: 'dex' },
+    ])
+    expect(parsed.character.skills).toContain('forgery')
+  })
+
+  it('drops invalid overrides and malformed extra skills', () => {
+    const { character } = parseCharacter(
+      '---\ntype: character\n' +
+        'skillOverrides: { religion: wis, arcana: bogus }\n' +
+        'extraSkills:\n' +
+        '  - { id: forgery, name: Forgery, ability: dex }\n' +
+        '  - { id: nope, ability: xyz }\n' +
+        '  - { name: "No id", ability: str }\n' +
+        '  - { id: bare }\n' +
+        '---\n',
+    )
+    expect(character.skillOverrides).toEqual({ religion: 'wis' }) // bogus dropped
+    expect(character.extraSkills).toEqual([
+      { id: 'forgery', name: 'Forgery', ability: 'dex' },
+    ])
+  })
+
+  it('defaults name to id when an extra skill omits it', () => {
+    const { character } = parseCharacter(
+      '---\ntype: character\n' +
+        'extraSkills:\n  - { id: cooking, ability: wis }\n---\n',
+    )
+    expect(character.extraSkills).toEqual([
+      { id: 'cooking', name: 'cooking', ability: 'wis' },
+    ])
   })
 })

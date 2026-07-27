@@ -9,12 +9,10 @@ import { useShortcut } from '#/lib/useShortcut'
 import type { RollSource } from '#/lib/rollLog'
 import { Button } from '#/components/ui/button'
 import { Input } from '#/components/ui/input'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '#/components/ui/tabs'
-import { Textarea } from '#/components/ui/textarea'
 import { NumField } from '#/components/character/NumField'
 import { SheetTab } from '#/components/character/SheetTab'
-import { InventoryTab } from '#/components/character/InventoryTab'
-import { NotesTab } from '#/components/character/NotesTab'
+import { CharacterHowToDialog } from '#/components/character/CharacterHowToDialog'
+import { CharacterSidePanel } from '#/components/character/CharacterSidePanel'
 import { CreateMissingArticleDialog } from '#/components/CreateMissingArticleDialog'
 
 export const Route = createFileRoute('/worlds/$worldId/characters/$articleId')({
@@ -39,6 +37,7 @@ function CharacterPage() {
   const [character, setCharacter] = useState<Character | null>(null)
   const [body, setBody] = useState('')
   const [dirty, setDirty] = useState(false)
+  const [panelOpen, setPanelOpen] = useState(true)
   // Broken [[link]] clicked in inventory/notes -> offer to create the article.
   const [missingTitle, setMissingTitle] = useState<string | null>(null)
 
@@ -177,6 +176,7 @@ function CharacterPage() {
           />
         </label>
         <div className="ml-auto flex items-center gap-1.5">
+          <CharacterHowToDialog />
           <Button variant="ghost" size="sm" className="h-8 text-xs" asChild>
             <Link
               to="/worlds/$worldId/articles/$articleId"
@@ -214,24 +214,8 @@ function CharacterPage() {
         </p>
       )}
 
-      <Tabs defaultValue="sheet" className="min-h-0 flex-1 gap-0">
-        <div className="border-b px-4 py-1.5">
-          <TabsList className="h-8">
-            <TabsTrigger value="sheet" className="text-xs">
-              Sheet
-            </TabsTrigger>
-            <TabsTrigger value="inventory" className="text-xs">
-              Inventory ({character.inventory.length})
-            </TabsTrigger>
-            <TabsTrigger value="notes" className="text-xs">
-              Notes ({character.notes.length})
-            </TabsTrigger>
-            <TabsTrigger value="backstory" className="text-xs">
-              Backstory
-            </TabsTrigger>
-          </TabsList>
-        </div>
-        <TabsContent value="sheet" className="min-h-0 flex-1 overflow-y-auto">
+      <div className="flex min-h-0 flex-1">
+        <div className="min-h-0 flex-1 overflow-y-auto">
           <SheetTab
             character={character}
             onChange={update}
@@ -239,40 +223,22 @@ function CharacterPage() {
             articles={tree.data?.articles}
             onCreateMissing={setMissingTitle}
           />
-        </TabsContent>
-        <TabsContent
-          value="inventory"
-          className="min-h-0 flex-1 overflow-y-auto"
-        >
-          <InventoryTab
-            character={character}
-            onChange={update}
-            worldId={worldId}
-            articles={tree.data?.articles}
-            onCreateMissing={setMissingTitle}
-          />
-        </TabsContent>
-        <TabsContent value="notes" className="min-h-0 flex-1 overflow-y-auto">
-          <NotesTab
-            character={character}
-            onChange={update}
-            worldId={worldId}
-            articles={tree.data?.articles}
-            onCreateMissing={setMissingTitle}
-          />
-        </TabsContent>
-        <TabsContent value="backstory" className="flex min-h-0 flex-1 flex-col">
-          <Textarea
-            value={body}
-            placeholder="Backstory, bonds, ideals, flaws — markdown with [[wiki links]]."
-            className="h-full min-h-0 flex-1 resize-none rounded-none border-none font-mono text-sm shadow-none focus-visible:ring-0"
-            onChange={(e) => {
-              setBody(e.target.value)
-              setDirty(true)
-            }}
-          />
-        </TabsContent>
-      </Tabs>
+        </div>
+        <CharacterSidePanel
+          character={character}
+          onChange={update}
+          worldId={worldId}
+          body={body}
+          onBodyChange={(next) => {
+            setBody(next)
+            setDirty(true)
+          }}
+          articles={tree.data?.articles}
+          onCreateMissing={setMissingTitle}
+          open={panelOpen}
+          onOpenChange={setPanelOpen}
+        />
+      </div>
 
       <CreateMissingArticleDialog
         worldId={worldId}

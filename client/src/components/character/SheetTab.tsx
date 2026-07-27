@@ -6,12 +6,12 @@ import { articleTemplates } from '#/lib/templates'
 import {
   ABILITIES,
   ABILITY_NAMES,
-  SKILLS,
   abilityMod,
   d20,
   initiativeBonus,
   passivePerception,
   proficiencyBonus,
+  resolveSkills,
   resolveSpellDamage,
   saveBonus,
   scaleSpellDamage,
@@ -446,7 +446,7 @@ export function SheetTab({
             Click the dot to cycle: none → proficient → expertise
           </p>
           <div className="grid gap-y-1">
-            {SKILLS.map((skill) => {
+            {resolveSkills(c).map((skill) => {
               const expert = c.expertise.includes(skill.id)
               const proficient = c.skills.includes(skill.id)
               return (

@@ -84,6 +84,10 @@ export interface Character {
   /** Proficient skill ids; `expertise` doubles proficiency. */
   skills: Array<string>
   expertise: Array<string>
+  /** Override the ability a built-in skill keys off, e.g. `{ religion: 'wis' }`. */
+  skillOverrides: Record<string, Ability>
+  /** Homebrew skills beyond the standard 18. */
+  extraSkills: Array<{ id: string; name: string; ability: Ability }>
   ac: number
   /** Misc initiative bonus on top of the DEX modifier. */
   initiativeBonus: number
@@ -114,6 +118,8 @@ export function emptyCharacter(): Character {
     saves: [],
     skills: [],
     expertise: [],
+    skillOverrides: {},
+    extraSkills: [],
     ac: 10,
     initiativeBonus: 0,
     speed: 30,
@@ -147,8 +153,29 @@ export function saveBonus(c: Character, ability: Ability): number {
   )
 }
 
+/**
+ * The character's effective skill list, sorted alphabetically by name: the
+ * built-in 18 with any per-character ability override applied, plus homebrew
+ * `extraSkills` slotted into place. An extra skill sharing an id with a built-in
+ * replaces it. This is the single source of truth for which skills a character
+ * has and off which ability each keys — the sheet UI and `skillBonus` both go
+ * through it rather than the global `SKILLS`.
+ */
+export function resolveSkills(
+  c: Character,
+): Array<{ id: string; name: string; ability: Ability }> {
+  const extraIds = new Set(c.extraSkills.map((s) => s.id))
+  const base = SKILLS.filter((s) => !extraIds.has(s.id)).map((s) => ({
+    ...s,
+    ability: c.skillOverrides[s.id] ?? s.ability,
+  }))
+  return [...base, ...c.extraSkills].sort((a, b) =>
+    a.name.localeCompare(b.name),
+  )
+}
+
 export function skillBonus(c: Character, skillId: string): number {
-  const skill = SKILLS.find((s) => s.id === skillId)
+  const skill = resolveSkills(c).find((s) => s.id === skillId)
   if (!skill) return 0
   const prof = c.expertise.includes(skillId)
     ? proficiencyBonus(c.level) * 2
@@ -380,9 +407,31 @@ export function parseCharacter(content: string): {
     const a = parseAbility(s)
     return a ? [a] : []
   })
-  const knownSkill = (id: string) => SKILLS.some((s) => s.id === id)
-  c.skills = strList(r.skills).filter(knownSkill)
-  c.expertise = strList(r.expertise).filter(knownSkill)
+
+  if (typeof r.skillOverrides === 'object' && r.skillOverrides !== null) {
+    for (const [id, value] of Object.entries(
+      r.skillOverrides as Record<string, unknown>,
+    )) {
+      const a = parseAbility(value)
+      if (a) c.skillOverrides[id] = a
+    }
+  }
+  if (Array.isArray(r.extraSkills)) {
+    c.extraSkills = r.extraSkills.flatMap(
+      (entry): Array<{ id: string; name: string; ability: Ability }> => {
+        if (typeof entry !== 'object' || entry === null) return []
+        const s = entry as Record<string, unknown>
+        const ability = parseAbility(s.ability)
+        if (typeof s.id !== 'string' || !s.id.trim() || !ability) return []
+        return [{ id: s.id, name: str(s.name, s.id), ability }]
+      },
+    )
+  }
+
+  // A skill id is valid if it resolves — a built-in or a declared extra skill.
+  const known = new Set(resolveSkills(c).map((s) => s.id))
+  c.skills = strList(r.skills).filter((id) => known.has(id))
+  c.expertise = strList(r.expertise).filter((id) => known.has(id))
 
   c.ac = Math.max(0, num(r.ac, c.ac))
   c.initiativeBonus = num(r.initiativeBonus, c.initiativeBonus)
@@ -489,6 +538,13 @@ export function serializeCharacter(character: Character, body: string): string {
     saves: character.saves,
     skills: character.skills,
     expertise: character.expertise,
+    // Only emitted when customized, so standard sheets stay clean.
+    ...(Object.keys(character.skillOverrides).length > 0 && {
+      skillOverrides: character.skillOverrides,
+    }),
+    ...(character.extraSkills.length > 0 && {
+      extraSkills: character.extraSkills,
+    }),
     ac: character.ac,
     initiativeBonus: character.initiativeBonus,
     speed: character.speed,
