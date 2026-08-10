@@ -71,6 +71,159 @@ export interface CharacterNote {
   text: string
 }
 
+/** The paper-doll slots, in the order the silhouette lays them out. */
+export const EQUIP_SLOTS = [
+  'head',
+  'necklace',
+  'cloak',
+  'armor',
+  'gloves',
+  'belt',
+  'boots',
+  'ring1',
+  'ring2',
+  'mainHand',
+  'offHand',
+] as const
+export type EquipSlot = (typeof EQUIP_SLOTS)[number]
+
+export const EQUIP_SLOT_NAMES: Record<EquipSlot, string> = {
+  head: 'Head',
+  necklace: 'Necklace',
+  cloak: 'Cloak',
+  armor: 'Armor',
+  gloves: 'Gloves',
+  belt: 'Belt',
+  boots: 'Boots',
+  ring1: 'Ring (left)',
+  ring2: 'Ring (right)',
+  mainHand: 'Main hand',
+  offHand: 'Off hand',
+}
+
+/**
+ * Slot names for the "fits" picker, where the left/right distinction is
+ * meaningless — an item that fits one ring finger fits the other.
+ */
+export const SLOT_FIT_NAMES: Record<EquipSlot, string> = {
+  ...EQUIP_SLOT_NAMES,
+  ring1: 'Ring',
+  ring2: 'Ring',
+  mainHand: 'Weapon',
+  offHand: 'Shield',
+}
+
+export interface InventoryItem {
+  /**
+   * The row exactly as the user typed it — [[wiki links]], "(attuned)" and any
+   * legacy " x5" suffix included. Never reconstructed from the other fields,
+   * which is what lets an unweighed row round-trip back to a bare YAML string.
+   */
+  text: string
+  /** How many. 1 unless set, or read from a legacy " xN" suffix. */
+  qty: number
+  /** Pounds *per unit*, as 5e sources list it; contributes qty * weight. */
+  weight: number
+  /** Which paper-doll slot this occupies, or null if merely carried. */
+  slot: EquipSlot | null
+  /**
+   * Which slot this item *can* go in, so the paper doll doesn't offer to put
+   * rations on your head. `undefined` means never set — the UI falls back to
+   * `guessSlot` on the name. `null` means "deliberately nothing", which is how
+   * you tell the app an item is not wearable and silence the guess.
+   */
+  fits?: EquipSlot | null
+  /** Whether this item is currently attuned, counting against the limit. */
+  attuned?: boolean
+}
+
+/** 5e gives you three attunement slots; a character may be set otherwise. */
+export const DEFAULT_ATTUNEMENT_SLOTS = 3
+
+/**
+ * The long-standing convention for marking attunement in a free-text row,
+ * e.g. "[[Flametongue]] (attuned)". Read on parse so existing sheets carry
+ * over, but never written — the `attuned` field is the source of truth and
+ * the row's text is left exactly as the user typed it.
+ */
+const ATTUNED_TEXT = /\(\s*attun(?:ed|ement)\s*\)/i
+
+/**
+ * Keyword guesses for which slot an item belongs in. Only a trailing `\b` is
+ * used, not a leading one: 5e names compound constantly ("Longsword",
+ * "Greataxe", "Warhammer", "Shortbow"), so requiring a word boundary before
+ * the noun would miss most real weapons. Order matters — the first match
+ * wins, so "Ring Mail" is armor before it is a ring.
+ *
+ * Only ever a default: `fits` overrides it, and anything unmatched simply
+ * isn't offered a slot.
+ */
+const SLOT_KEYWORDS: Array<[RegExp, EquipSlot]> = [
+  [/(helm|helmet|hat|cap|circlet|crown|hood|mask)\b/i, 'head'],
+  [/(amulet|necklace|pendant|periapt|talisman|medallion)\b/i, 'necklace'],
+  [/(cloak|cape|mantle|robe)s?\b/i, 'cloak'],
+  [/(armor|armour|mail|plate|breastplate|cuirass|leather)s?\b/i, 'armor'],
+  [/(glove|gauntlet|bracer|mitten)s?\b/i, 'gloves'],
+  [/(belt|girdle|sash)\b/i, 'belt'],
+  [/(boot|shoe|sandal|greave|slipper)s?\b/i, 'boots'],
+  [/\bring\b/i, 'ring1'],
+  [/(shield|buckler)\b/i, 'offHand'],
+  [
+    /(sword|axe|mace|hammer|dagger|spear|staff|wand|bow|flail|glaive|halberd|rapier|scimitar|club|maul|pike|lance|whip|sickle|trident|blade|morningstar|javelin|dart|sling)s?\b/i,
+    'mainHand',
+  ],
+]
+
+/**
+ * Best guess at the slot an item goes in, from its name. Returns null when
+ * nothing matches — rations, rope and torches get no slot and so are never
+ * offered on the paper doll.
+ *
+ * Matched against the cleaned name first, then the raw row: a parenthetical
+ * is often where the type actually lives ("Flametongue (longsword)"), and
+ * `inventoryItemName` strips those. The "(attuned)" marker is dropped first
+ * so it can't be mistaken for a type hint.
+ */
+export function guessSlot(text: string): EquipSlot | null {
+  const name = inventoryItemName(text)
+  const raw = text.replace(ATTUNED_TEXT, ' ')
+  for (const [re, slot] of SLOT_KEYWORDS) {
+    if (re.test(name) || re.test(raw)) return slot
+  }
+  return null
+}
+
+/**
+ * The slot an item may be equipped in: an explicit `fits` if the user set one
+ * (including a deliberate null), otherwise the name guess.
+ */
+export function slotFor(item: InventoryItem): EquipSlot | null {
+  return item.fits !== undefined ? item.fits : guessSlot(item.text)
+}
+
+/**
+ * Whether an item can go in a given slot. Rings are interchangeable, so an
+ * item that fits `ring1` fits `ring2` too; likewise a one-handed weapon or
+ * shield can go in either hand.
+ */
+export function fitsSlot(item: InventoryItem, slot: EquipSlot): boolean {
+  const fits = slotFor(item)
+  if (fits === null) return false
+  if (fits === slot) return true
+  const rings = fits.startsWith('ring') && slot.startsWith('ring')
+  const hands =
+    (fits === 'mainHand' || fits === 'offHand') &&
+    (slot === 'mainHand' || slot === 'offHand')
+  return rings || hands
+}
+
+export interface EncumbranceSettings {
+  /** Off by default, so existing sheets see no change at all. */
+  enabled: boolean
+  /** 5e counts coins at 50/lb; sub-toggle for tables that don't bother. */
+  countCoins: boolean
+}
+
 export interface Character {
   class: string
   level: number
@@ -97,8 +250,11 @@ export interface Character {
   spellSlots: Record<number, SpellSlots>
   spells: Array<Spell>
   currency: Record<'cp' | 'sp' | 'ep' | 'gp' | 'pp', number>
-  /** Free-text rows; [[wiki links]] resolve to articles. */
-  inventory: Array<string>
+  /** Free-text rows with optional weight/qty/slot; [[wiki links]] resolve. */
+  inventory: Array<InventoryItem>
+  encumbrance: EncumbranceSettings
+  /** How many items may be attuned at once. 3 by RAW; homebrew varies. */
+  attunementSlots: number
   notes: Array<CharacterNote>
 }
 
@@ -126,6 +282,8 @@ export function emptyCharacter(): Character {
     spells: [],
     currency: { cp: 0, sp: 0, ep: 0, gp: 0, pp: 0 },
     inventory: [],
+    encumbrance: { enabled: false, countCoins: true },
+    attunementSlots: DEFAULT_ATTUNEMENT_SLOTS,
     notes: [],
   }
 }
@@ -174,6 +332,150 @@ export function spellSaveDc(c: Character): number | null {
 export function spellAttackBonus(c: Character): number | null {
   if (!c.spellAbility) return null
   return proficiencyBonus(c.level) + abilityMod(c.abilities[c.spellAbility])
+}
+
+// --- Encumbrance (5e variant rules, opt-in per character) -------------------
+
+/** 5e: 50 coins weigh a pound, whatever the denomination. */
+export const COINS_PER_POUND = 50
+
+export type EncumbranceTier =
+  'none' | 'encumbered' | 'heavily-encumbered' | 'over'
+
+export const ENCUMBRANCE_LABELS: Record<EncumbranceTier, string> = {
+  none: 'Unencumbered',
+  encumbered: 'Encumbered',
+  'heavily-encumbered': 'Heavily encumbered',
+  over: 'Over capacity',
+}
+
+/** Weight of the coin purse in pounds; 0 when the sub-toggle is off. */
+export function coinWeight(c: Character): number {
+  if (!c.encumbrance.countCoins) return 0
+  const coins = Object.values(c.currency).reduce((sum, n) => sum + n, 0)
+  return coins / COINS_PER_POUND
+}
+
+/**
+ * Pounds carried: every row's qty x per-unit weight, plus coins. Rounded to
+ * two places so float noise on the coin division can't nudge a character over
+ * a threshold that they land on exactly.
+ */
+export function carriedWeight(c: Character): number {
+  const items = c.inventory.reduce(
+    (sum, item) => sum + item.qty * item.weight,
+    0,
+  )
+  return Math.round((items + coinWeight(c)) * 100) / 100
+}
+
+/** STR x 15 — past this you cannot move at all. */
+export function carryCapacity(c: Character): number {
+  return c.abilities.str * 15
+}
+
+export function encumbranceThresholds(c: Character): {
+  encumbered: number
+  heavy: number
+  max: number
+} {
+  const str = c.abilities.str
+  return { encumbered: str * 5, heavy: str * 10, max: str * 15 }
+}
+
+/**
+ * Which band the character is in. Returns 'none' whenever the feature is off,
+ * so callers never need to guard — the opt-in is enforced here alone.
+ * Boundaries are RAW: you are encumbered once weight *exceeds* STR x 5.
+ */
+export function encumbranceTier(c: Character): EncumbranceTier {
+  if (!c.encumbrance.enabled) return 'none'
+  const w = carriedWeight(c)
+  const { encumbered, heavy, max } = encumbranceThresholds(c)
+  if (w > max) return 'over'
+  if (w > heavy) return 'heavily-encumbered'
+  if (w > encumbered) return 'encumbered'
+  return 'none'
+}
+
+/** Speed reduction in feet for a tier. */
+export function encumbrancePenalty(tier: EncumbranceTier): number {
+  return tier === 'encumbered' ? 10 : tier === 'heavily-encumbered' ? 20 : 0
+}
+
+/**
+ * Walking speed after encumbrance. Over your maximum carrying capacity your
+ * speed is 0 (RAW), not speed - 20; never negative either way.
+ */
+export function effectiveSpeed(c: Character): number {
+  const tier = encumbranceTier(c)
+  if (tier === 'over') return 0
+  return Math.max(0, c.speed - encumbrancePenalty(tier))
+}
+
+// --- Attunement -------------------------------------------------------------
+
+/** How many items are currently attuned. */
+export function attunedCount(c: Character): number {
+  return c.inventory.filter((i) => i.attuned).length
+}
+
+/** The character's attunement limit, floored at 0. */
+export function attunementLimit(c: Character): number {
+  return Math.max(0, Math.floor(c.attunementSlots))
+}
+
+/**
+ * Whether a *new* attunement would exceed the limit. An already-attuned item
+ * is always allowed to stay attuned, so a hand-edited file over the cap can
+ * still be unpicked one item at a time rather than being stuck.
+ */
+export function canAttune(c: Character, item: InventoryItem): boolean {
+  return Boolean(item.attuned) || attunedCount(c) < attunementLimit(c)
+}
+
+// --- Equipment slots --------------------------------------------------------
+
+/** The item occupying a slot, or null. Parse guarantees at most one. */
+export function equippedIn(
+  items: Array<InventoryItem>,
+  slot: EquipSlot,
+): InventoryItem | null {
+  return items.find((i) => i.slot === slot) ?? null
+}
+
+/**
+ * Move the item at `index` into `slot` (or unequip it with null), evicting
+ * whatever held that slot. Index-addressed to match how InventoryTab already
+ * edits rows, and it can't orphan a slot: deleting the row deletes the slot.
+ */
+export function equipItem(
+  items: Array<InventoryItem>,
+  index: number,
+  slot: EquipSlot | null,
+): Array<InventoryItem> {
+  return items.map((item, i) =>
+    i === index
+      ? { ...item, slot }
+      : slot !== null && item.slot === slot
+        ? { ...item, slot: null }
+        : item,
+  )
+}
+
+/**
+ * Set quantity, keeping any legacy " xN" suffix in the text in sync so the
+ * two can never disagree on screen.
+ */
+export function withQty(item: InventoryItem, qty: number): InventoryItem {
+  const n = Math.max(1, Math.floor(qty))
+  return QTY_SUFFIX.test(item.text)
+    ? {
+        ...item,
+        qty: n,
+        text: item.text.replace(QTY_SUFFIX, n > 1 ? ` x${n}` : ''),
+      }
+    : { ...item, qty: n }
 }
 
 /**
@@ -333,6 +635,154 @@ function parseAbility(v: unknown): Ability | null {
     : null
 }
 
+// --- Inventory rows ---------------------------------------------------------
+
+/** Legacy quantity suffix: "Rations x5", "Torch X10". */
+const QTY_SUFFIX = /\s+x(\d+)\s*$/i
+
+function parseEquipSlot(v: unknown): EquipSlot | null {
+  return typeof v === 'string' && (EQUIP_SLOTS as readonly string[]).includes(v)
+    ? (v as EquipSlot)
+    : null
+}
+
+/** Best-effort text for a row that is neither a string nor a usable mapping. */
+function unknownRowText(entry: unknown): string {
+  if (entry === null || entry === undefined) return ''
+  if (typeof entry === 'object') {
+    try {
+      return stringifyYaml(entry)
+        .trim()
+        .replace(/\s*\n\s*/g, ' ')
+    } catch {
+      return ''
+    }
+  }
+  return String(entry)
+}
+
+/**
+ * One inventory row, from either shape:
+ *   - Longsword                                   (legacy bare string)
+ *   - Rations x5                                  (legacy, quantity in text)
+ *   - { text: Plate Armor, weight: 65, slot: armor }
+ *   - { name: Shield, weight: 6 }                 (hand-written `name:` alias)
+ * Never returns null — an unrecognised value is stringified rather than
+ * dropped, because dropping it means the next autosave deletes it from disk.
+ */
+function parseInventoryItem(entry: unknown): InventoryItem {
+  if (typeof entry === 'string') {
+    const m = entry.match(QTY_SUFFIX)
+    // The suffix is read into qty but left in the text: stripping and
+    // re-rendering it would mangle near-misses like "Arrows (silvered) x20".
+    const item: InventoryItem = {
+      text: entry,
+      qty: m ? Math.max(1, Number(m[1])) : 1,
+      weight: 0,
+      slot: null,
+    }
+    // Carry over the old "(attuned)" convention; the text keeps saying it.
+    if (ATTUNED_TEXT.test(entry)) item.attuned = true
+    return item
+  }
+  if (typeof entry === 'object' && entry !== null && !Array.isArray(entry)) {
+    const it = entry as Record<string, unknown>
+    const raw = typeof it.text === 'string' ? it.text : it.name
+    const text = typeof raw === 'string' ? raw : ''
+    if (text.trim()) {
+      const suffix = text.match(QTY_SUFFIX)
+      const item: InventoryItem = {
+        text,
+        qty: Math.max(
+          1,
+          Math.floor(num(it.qty, suffix ? Number(suffix[1]) : 1)),
+        ),
+        weight: Math.max(0, num(it.weight, 0)),
+        slot: parseEquipSlot(it.slot),
+      }
+      // Present-but-unusable (`fits: none`, `fits: junk`) is a deliberate
+      // null — "not wearable". Absent stays undefined so the guess applies.
+      if ('fits' in it) item.fits = parseEquipSlot(it.fits)
+      // An explicit `attuned: false` beats the legacy text, so un-attuning an
+      // item whose name still reads "(attuned)" actually sticks.
+      if ('attuned' in it) {
+        if (it.attuned === true) item.attuned = true
+      } else if (ATTUNED_TEXT.test(text)) {
+        item.attuned = true
+      }
+      return item
+    }
+  }
+  return { text: unknownRowText(entry), qty: 1, weight: 0, slot: null }
+}
+
+/**
+ * Parse the whole list, enforcing one item per slot: a hand-edited file with
+ * two `slot: mainHand` rows keeps the first and un-equips the rest — the row
+ * itself always survives, only its slot is cleared.
+ */
+export function parseInventory(v: unknown): Array<InventoryItem> {
+  if (!Array.isArray(v)) return []
+  const taken = new Set<EquipSlot>()
+  const items: Array<InventoryItem> = []
+  for (const entry of v) {
+    const item = parseInventoryItem(entry)
+    // A row that reduced to nothing at all was an empty YAML entry.
+    if (!item.text.trim()) continue
+    if (item.slot) {
+      if (taken.has(item.slot)) item.slot = null
+      else taken.add(item.slot)
+    }
+    items.push(item)
+  }
+  return items
+}
+
+/**
+ * Collapse a row with nothing set back to a bare YAML string, so a character
+ * nobody has weighed round-trips byte-identically and the file still reads as
+ * a plain list in Obsidian. Only rows carrying real data become mappings, and
+ * each omits keys left at their default.
+ */
+function serializeInventoryItem(
+  item: InventoryItem,
+): string | Record<string, unknown> {
+  const suffixQty = item.text.match(QTY_SUFFIX)
+  const qtyIsImplied = suffixQty
+    ? Number(suffixQty[1]) === item.qty
+    : item.qty === 1
+  // `fits` is noise whenever it merely restates what the name already implies.
+  const fitsIsImplied =
+    item.fits === undefined || item.fits === guessSlot(item.text)
+  // Likewise `attuned`, when the row's own "(attuned)" text already says so.
+  const textSaysAttuned = ATTUNED_TEXT.test(item.text)
+  const attunedIsImplied = Boolean(item.attuned) === textSaysAttuned
+  if (
+    qtyIsImplied &&
+    fitsIsImplied &&
+    attunedIsImplied &&
+    item.weight === 0 &&
+    item.slot === null
+  ) {
+    return item.text
+  }
+  const out: Record<string, unknown> = { text: item.text }
+  if (!qtyIsImplied) out.qty = item.qty
+  if (item.weight !== 0) out.weight = item.weight
+  if (item.slot !== null) out.slot = item.slot
+  // YAML `null` reads as "explicitly not wearable" on the way back in.
+  if (!fitsIsImplied) out.fits = item.fits
+  // `false` is meaningful here: it overrides a legacy "(attuned)" in the text.
+  if (!attunedIsImplied) out.attuned = Boolean(item.attuned)
+  return out
+}
+
+export function serializeInventory(
+  items: Array<InventoryItem>,
+): Array<string | Record<string, unknown>> {
+  return items.map(serializeInventoryItem)
+}
+
 /** Whether raw article content is a character sheet. */
 export function isCharacterContent(content: string): boolean {
   const { frontmatter } = splitFrontmatter(content)
@@ -462,7 +912,19 @@ export function parseCharacter(content: string): {
     }
   }
 
-  c.inventory = strList(r.inventory)
+  c.inventory = parseInventory(r.inventory)
+  if (typeof r.encumbrance === 'object' && r.encumbrance !== null) {
+    const e = r.encumbrance as Record<string, unknown>
+    // Strict opt-in: junk means off. Coins opt *out*: absent means the 5e default.
+    c.encumbrance = {
+      enabled: e.enabled === true,
+      countCoins: e.countCoins !== false,
+    }
+  }
+  c.attunementSlots = Math.max(
+    0,
+    Math.floor(num(r.attunementSlots, c.attunementSlots)),
+  )
   if (Array.isArray(r.notes)) {
     c.notes = r.notes.flatMap((entry): Array<CharacterNote> => {
       if (typeof entry !== 'object' || entry === null) return []
@@ -500,7 +962,9 @@ export function serializeCharacter(character: Character, body: string): string {
     spellSlots: character.spellSlots,
     spells: character.spells,
     currency: character.currency,
-    inventory: character.inventory,
+    inventory: serializeInventory(character.inventory),
+    encumbrance: character.encumbrance,
+    attunementSlots: character.attunementSlots,
     notes: character.notes,
   }
   const yaml = stringifyYaml(data).trimEnd()

@@ -14,6 +14,7 @@ import { Textarea } from '#/components/ui/textarea'
 import { NumField } from '#/components/character/NumField'
 import { SheetTab } from '#/components/character/SheetTab'
 import { InventoryTab } from '#/components/character/InventoryTab'
+import { EquipmentTab } from '#/components/character/EquipmentTab'
 import { NotesTab } from '#/components/character/NotesTab'
 import { CreateMissingArticleDialog } from '#/components/CreateMissingArticleDialog'
 
@@ -223,6 +224,9 @@ function CharacterPage() {
             <TabsTrigger value="inventory" className="text-xs">
               Inventory ({character.inventory.length})
             </TabsTrigger>
+            <TabsTrigger value="equipment" className="text-xs">
+              Equipment
+            </TabsTrigger>
             <TabsTrigger value="notes" className="text-xs">
               Notes ({character.notes.length})
             </TabsTrigger>
@@ -251,6 +255,12 @@ function CharacterPage() {
             articles={tree.data?.articles}
             onCreateMissing={setMissingTitle}
           />
+        </TabsContent>
+        <TabsContent
+          value="equipment"
+          className="min-h-0 flex-1 overflow-y-auto"
+        >
+          <EquipmentTab character={character} onChange={update} />
         </TabsContent>
         <TabsContent value="notes" className="min-h-0 flex-1 overflow-y-auto">
           <NotesTab

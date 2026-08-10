@@ -6,9 +6,12 @@ import { articleTemplates } from '#/lib/templates'
 import {
   ABILITIES,
   ABILITY_NAMES,
+  ENCUMBRANCE_LABELS,
   SKILLS,
   abilityMod,
   d20,
+  effectiveSpeed,
+  encumbranceTier,
   initiativeBonus,
   passivePerception,
   proficiencyBonus,
@@ -515,6 +518,16 @@ export function SheetTab({
                 className="w-12"
                 onCommit={(v) => set({ speed: v })}
               />
+              {/* The field edits base speed; encumbrance shows alongside it. */}
+              {encumbranceTier(c) !== 'none' && (
+                <span
+                  className="text-muted-foreground text-xs"
+                  title={ENCUMBRANCE_LABELS[encumbranceTier(c)]}
+                >
+                  → <strong>{effectiveSpeed(c)}</strong> ft{' '}
+                  {ENCUMBRANCE_LABELS[encumbranceTier(c)].toLowerCase()}
+                </span>
+              )}
             </label>
             <span>
               Proficiency <strong>{signed(prof)}</strong>

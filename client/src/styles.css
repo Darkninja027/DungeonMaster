@@ -7,6 +7,9 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
+  /* Tells the engine to render native controls (select popups, scrollbars,
+     date pickers) light — without this they stay light even under .dark. */
+  color-scheme: light;
   --sea-ink: #173a40;
   --sea-ink-soft: #416166;
   --lagoon: #4fb8b2;
@@ -63,6 +66,7 @@
 }
 
 .dark {
+  color-scheme: dark;
   --sea-ink: #d7ece8;
   --sea-ink-soft: #afcdc8;
   --lagoon: #60d7cf;
