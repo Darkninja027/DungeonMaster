@@ -133,6 +133,11 @@ export interface Spell {
   damage?: string
   /** Upcast increment added once per slot level above `level`, e.g. Magic Missile's "1d4+1". */
   damagePerLevel?: string
+  /**
+   * Whether this spell is currently prepared, counting against the limit.
+   * Meaningless for cantrips, which are always available.
+   */
+  prepared?: boolean
 }
 
 export interface CharacterNote {
@@ -369,6 +374,12 @@ export interface Character {
   /** Keyed by spell level 1-9. */
   spellSlots: Record<number, SpellSlots>
   spells: Array<Spell>
+  /**
+   * How many non-cantrip spells may be prepared at once. 0 means this character
+   * doesn't prepare spells at all (sorcerers, warlocks, monsters) and no
+   * preparation UI appears — see {@link tracksPreparation}.
+   */
+  preparedLimit: number
   currency: Record<'cp' | 'sp' | 'ep' | 'gp' | 'pp', number>
   /** Free-text rows with optional weight/qty/slot; [[wiki links]] resolve. */
   inventory: Array<InventoryItem>
@@ -411,6 +422,7 @@ export function emptyCharacter(): Character {
     spellAbility: null,
     spellSlots: {},
     spells: [],
+    preparedLimit: 0,
     currency: { cp: 0, sp: 0, ep: 0, gp: 0, pp: 0 },
     inventory: [],
     encumbrance: { enabled: false, countCoins: true },
@@ -488,7 +500,9 @@ export function cycleDamage(c: Character, id: string): Partial<Character> {
         ? [...without(c.resistances), id]
         : without(c.resistances),
     immunities:
-      next === 'immune' ? [...without(c.immunities), id] : without(c.immunities),
+      next === 'immune'
+        ? [...without(c.immunities), id]
+        : without(c.immunities),
     vulnerabilities:
       next === 'vulnerable'
         ? [...without(c.vulnerabilities), id]
@@ -624,6 +638,43 @@ export function attunementLimit(c: Character): number {
  */
 export function canAttune(c: Character, item: InventoryItem): boolean {
   return Boolean(item.attuned) || attunedCount(c) < attunementLimit(c)
+}
+
+// --- Spell preparation ------------------------------------------------------
+
+/**
+ * How many spells are prepared. Cantrips are always available and never count
+ * against the limit, so they are excluded here rather than at each call site.
+ */
+export function preparedCount(c: Character): number {
+  return c.spells.filter((s) => s.level > 0 && s.prepared).length
+}
+
+/** The prepared-spell limit, floored at 0. */
+export function preparedSpellLimit(c: Character): number {
+  return Math.max(0, Math.floor(c.preparedLimit))
+}
+
+/**
+ * Whether this character prepares spells at all. A limit of 0 means no — a
+ * sorcerer or warlock casts everything they know, so no preparation UI should
+ * appear. This is the single opt-in gate; callers check it instead of the
+ * number, the way `encumbranceTier` owns the encumbrance opt-in.
+ */
+export function tracksPreparation(c: Character): boolean {
+  return preparedSpellLimit(c) > 0
+}
+
+/**
+ * Whether a *new* preparation would exceed the limit. An already-prepared
+ * spell is always allowed to stay prepared, so a sheet over the cap (hand-
+ * edited, or after lowering the limit) can be unpicked one spell at a time
+ * rather than being stuck with every toggle disabled. Cantrips need no
+ * preparation and are always allowed.
+ */
+export function canPrepare(c: Character, spell: Spell): boolean {
+  if (spell.level === 0) return true
+  return Boolean(spell.prepared) || preparedCount(c) < preparedSpellLimit(c)
 }
 
 // --- Equipment slots --------------------------------------------------------
@@ -1012,6 +1063,24 @@ export function serializeInventory(
   return items.map(serializeInventoryItem)
 }
 
+/**
+ * Drop `prepared` unless it is actually true, so sheets that don't prepare
+ * spells stay byte-identical instead of growing a `prepared: false` on every
+ * row. Cantrips never carry the key at all — preparation is meaningless there.
+ */
+function serializeSpell(spell: Spell): Record<string, unknown> {
+  const out: Record<string, unknown> = {
+    name: spell.name,
+    level: spell.level,
+  }
+  if (spell.damage !== undefined) out.damage = spell.damage
+  if (spell.damagePerLevel !== undefined) {
+    out.damagePerLevel = spell.damagePerLevel
+  }
+  if (spell.prepared && spell.level > 0) out.prepared = true
+  return out
+}
+
 /** Whether raw article content is a character sheet. */
 export function isCharacterContent(content: string): boolean {
   const { frontmatter } = splitFrontmatter(content)
@@ -1165,6 +1234,9 @@ export function parseCharacter(content: string): {
       if (typeof s.damagePerLevel === 'string' && s.damagePerLevel.trim()) {
         spell.damagePerLevel = s.damagePerLevel.trim()
       }
+      // Strict: only a real `true` prepares a spell, so junk reads as not
+      // prepared rather than silently arming half the list.
+      if (s.prepared === true) spell.prepared = true
       return [spell]
     })
   }
@@ -1188,6 +1260,10 @@ export function parseCharacter(content: string): {
   c.attunementSlots = Math.max(
     0,
     Math.floor(num(r.attunementSlots, c.attunementSlots)),
+  )
+  c.preparedLimit = Math.max(
+    0,
+    Math.floor(num(r.preparedLimit, c.preparedLimit)),
   )
   if (Array.isArray(r.notes)) {
     c.notes = r.notes.flatMap((entry): Array<CharacterNote> => {
@@ -1235,7 +1311,8 @@ export function serializeCharacter(character: Character, body: string): string {
     features: character.features,
     spellAbility: character.spellAbility,
     spellSlots: character.spellSlots,
-    spells: character.spells,
+    spells: character.spells.map(serializeSpell),
+    preparedLimit: character.preparedLimit,
     currency: character.currency,
     inventory: serializeInventory(character.inventory),
     encumbrance: character.encumbrance,

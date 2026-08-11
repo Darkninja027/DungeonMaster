@@ -322,4 +322,57 @@ describe('paginateSpellRows', () => {
     }
     expect(pages.flat()).toEqual(rows)
   })
+
+  it('charges a heading two half-rows, since it spans both columns', () => {
+    // Budget 4: cap0 (2) + one cantrip (1) = 3, and cap1 needs 2 more, so it
+    // cannot fit — under the old one-per-row costing all four would have.
+    const rows = spellRows([spell('Fire Bolt', 0), spell('Bless', 1)])
+    const pages = paginateSpellRows(rows, 4, 4)
+    expect(pages).toHaveLength(2)
+    expect(pages[0]).toEqual([
+      { kind: 'cap', level: 0 },
+      { kind: 'spell', spell: spell('Fire Bolt', 0) },
+    ])
+    expect(pages.flat()).toEqual(rows)
+  })
+
+  it('pads a half-filled row before a heading', () => {
+    // cap0 (2) + two cantrips (2) = 4 fills two whole rows; a third cantrip
+    // leaves the next row half-empty, so cap1 must pay 1 to pad it out.
+    const rows = spellRows([
+      spell('Fire Bolt', 0),
+      spell('Light', 0),
+      spell('Mending', 0),
+      spell('Bless', 1),
+    ])
+    // 2 + 3 = 5 used, +1 pad +2 cap +1 spell = 9; a budget of 8 can't hold it.
+    const pages = paginateSpellRows(rows, 8, 8)
+    expect(pages).toHaveLength(2)
+    expect(pages[1][0]).toEqual({ kind: 'cap', level: 1 })
+    expect(pages.flat()).toEqual(rows)
+  })
+
+  it('never loses or reorders rows across a realistic spell list', () => {
+    const rows = spellRows([
+      ...nums(3).map((i) => spell(`Cantrip ${i}`, 0)),
+      ...nums(7).map((i) => spell(`First ${i}`, 1)),
+      ...nums(5).map((i) => spell(`Second ${i}`, 2)),
+      ...nums(2).map((i) => spell(`Third ${i}`, 3)),
+    ])
+    const pages = paginateSpellRows(rows, 12, 12)
+    expect(pages.flat()).toEqual(rows)
+    for (const page of pages.slice(0, -1)) {
+      expect(page[page.length - 1]?.kind).not.toBe('cap')
+    }
+  })
+
+  it('yields no pages for an empty list', () => {
+    expect(paginateSpellRows([], 10, 10)).toEqual([])
+  })
+
+  it('falls back to one page when a capacity is non-positive', () => {
+    const rows = spellRows([spell('Bless', 1)])
+    expect(paginateSpellRows(rows, 0, 10)).toEqual([rows])
+    expect(paginateSpellRows(rows, 10, 0)).toEqual([rows])
+  })
 })

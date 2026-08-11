@@ -1,6 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { ChevronDown, Dices, Plus, Sparkles, X } from 'lucide-react'
+import {
+  BookOpen,
+  BookOpenCheck,
+  ChevronDown,
+  Dices,
+  Plus,
+  Sparkles,
+  X,
+} from 'lucide-react'
 import { api } from '#/lib/api'
 import { articleTemplates } from '#/lib/templates'
 import {
@@ -13,6 +21,7 @@ import {
   SKILLS,
   WEAPON_CATEGORIES,
   abilityMod,
+  canPrepare,
   cycleDamage,
   d20,
   damageStance,
@@ -20,6 +29,8 @@ import {
   encumbranceTier,
   initiativeBonus,
   passivePerception,
+  preparedCount,
+  preparedSpellLimit,
   proficiencyBonus,
   proficiencyLabel,
   resolveSpellDamage,
@@ -31,6 +42,7 @@ import {
   spellAttackBonus,
   spellInfoFromContent,
   spellSaveDc,
+  tracksPreparation,
   wikiLinkTitle,
 } from '#/lib/character'
 import type {
@@ -498,6 +510,10 @@ export function SheetTab({
     const slot = slotFor(level)
     return slot ? slot.total - slot.used : 0
   }
+
+  const prepared = preparedCount(c)
+  const prepareLimit = preparedSpellLimit(c)
+  const showPrepare = tracksPreparation(c)
 
   // Sheets saved before damagePerLevel existed only carry base damage: pick
   // the increment up from each spell's library article once so cast-time
@@ -1051,6 +1067,75 @@ export function SheetTab({
 
         <Section title="Spells">
           <div className="space-y-1">
+            <div className="mb-2 flex items-center justify-between gap-3 rounded-md border px-3 py-2">
+              {tracksPreparation(c) ? (
+                <div className="flex items-center gap-2 text-sm">
+                  <BookOpenCheck
+                    className={cn(
+                      'size-4',
+                      prepared > 0 ? 'text-amber-500' : 'text-muted-foreground',
+                    )}
+                  />
+                  <span>
+                    <strong
+                      className={cn(
+                        prepared > prepareLimit && 'text-destructive',
+                      )}
+                    >
+                      {prepared}
+                    </strong>
+                    <span className="text-muted-foreground">
+                      {' '}
+                      / {prepareLimit}
+                    </span>{' '}
+                    prepared
+                  </span>
+                  {prepared > prepareLimit ? (
+                    <span className="text-destructive text-xs">
+                      (over the limit — unprepare {prepared - prepareLimit})
+                    </span>
+                  ) : (
+                    prepared === prepareLimit && (
+                      <span className="text-muted-foreground text-xs">
+                        (all prepared)
+                      </span>
+                    )
+                  )}
+                  {prepared > 0 && (
+                    <button
+                      type="button"
+                      className="text-muted-foreground hover:text-foreground text-xs underline underline-offset-2"
+                      title="Unprepare everything — for swapping the list after a long rest"
+                      onClick={() =>
+                        set({
+                          spells: c.spells.map((s) => ({
+                            ...s,
+                            prepared: undefined,
+                          })),
+                        })
+                      }
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <span className="text-muted-foreground text-xs">
+                  Set a limit to track which spells are prepared.
+                </span>
+              )}
+              <label className="text-muted-foreground flex items-center gap-1.5 text-xs">
+                Prepared limit
+                <NumField
+                  value={c.preparedLimit}
+                  min={0}
+                  max={25}
+                  className="w-12"
+                  title="How many non-cantrip spells may be prepared at once — 0 to not track preparation at all (sorcerers, warlocks)"
+                  onCommit={(v) => set({ preparedLimit: v })}
+                />
+              </label>
+            </div>
             {c.spells.length === 0 && (
               <p className="text-muted-foreground text-xs">
                 No spells known. Use [[wiki links]] as names so the spell links
@@ -1073,18 +1158,66 @@ export function SheetTab({
               const target = (articles ?? []).find(
                 (a) => a.title.toLowerCase() === title.toLowerCase(),
               )
+              // Cantrips need no preparation, so they keep a spacer instead of
+              // a toggle and all the names stay in one column.
+              const prepareBlocked = !canPrepare(c, spell)
+              // Unprepared spells read as inactive, so the live list stands out
+              // at a glance. Order never changes — the printed sheet shares it.
+              const dimmed = showPrepare && spell.level > 0 && !spell.prepared
               return (
                 <div
                   key={`${spell.name}-${idx}`}
                   className="group flex items-center gap-1.5 text-sm"
                 >
+                  {showPrepare &&
+                    (spell.level === 0 ? (
+                      <span className="w-5 shrink-0" />
+                    ) : (
+                      <button
+                        type="button"
+                        className={cn(
+                          'shrink-0 rounded p-0.5',
+                          spell.prepared
+                            ? 'text-amber-500 hover:text-amber-400'
+                            : prepareBlocked
+                              ? 'text-muted-foreground/25'
+                              : 'text-muted-foreground hover:text-foreground hover:bg-muted',
+                        )}
+                        title={
+                          spell.prepared
+                            ? 'Prepared — click to unprepare'
+                            : prepareBlocked
+                              ? `All ${prepareLimit} prepared spells are in use — unprepare one first, or raise the limit above`
+                              : 'Prepare this spell'
+                        }
+                        disabled={prepareBlocked}
+                        onClick={() =>
+                          set({
+                            spells: c.spells.map((s, j) =>
+                              j === idx
+                                ? { ...s, prepared: !s.prepared || undefined }
+                                : s,
+                            ),
+                          })
+                        }
+                      >
+                        {spell.prepared ? (
+                          <BookOpenCheck className="size-3.5" />
+                        ) : (
+                          <BookOpen className="size-3.5" />
+                        )}
+                      </button>
+                    ))}
                   <span className="bg-muted w-9 shrink-0 rounded text-center font-mono text-xs">
                     {spell.level === 0 ? 'C' : `L${spell.level}`}
                   </span>
                   {target ? (
                     <button
                       type="button"
-                      className="text-primary min-w-0 flex-1 truncate text-left underline underline-offset-2"
+                      className={cn(
+                        'text-primary min-w-0 flex-1 truncate text-left underline underline-offset-2',
+                        dimmed && 'opacity-60',
+                      )}
                       title="Read in the spell panel"
                       onClick={() => openSpellInPanel(target.id)}
                     >
@@ -1093,7 +1226,10 @@ export function SheetTab({
                   ) : (
                     <button
                       type="button"
-                      className="min-w-0 flex-1 truncate text-left underline decoration-dashed opacity-70 hover:opacity-100"
+                      className={cn(
+                        'min-w-0 flex-1 truncate text-left underline decoration-dashed opacity-70 hover:opacity-100',
+                        dimmed && 'opacity-40',
+                      )}
                       title={`No article called "${title}" yet — click to create it`}
                       onClick={() => onCreateMissing?.(title)}
                     >

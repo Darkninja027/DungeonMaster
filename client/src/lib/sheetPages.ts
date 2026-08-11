@@ -191,25 +191,57 @@ export function paginateFeatureRows(
 }
 
 /**
+ * What one row costs against a page budget, counted in half-rows because the
+ * list runs two columns. A spell fills one cell; a level heading spans both
+ * columns and so consumes a whole visual row. Getting this wrong clips spells
+ * silently, which is the whole reason pagination lives here.
+ */
+function spellCost(row: SpellRow): number {
+  return row.kind === 'cap' ? 2 : 1
+}
+
+/**
  * Paginate spell rows, moving a page-trailing level heading to the next page
  * so it always sits with at least one of its spells.
+ *
+ * A heading also has to start a fresh grid row, so an odd number of spells
+ * before it leaves one empty cell — charged here so the page can't overflow.
  */
 export function paginateSpellRows(
   rows: Array<SpellRow>,
   first: number,
   rest: number,
 ): Array<Array<SpellRow>> {
-  const pages = paginate(rows, first, rest)
-  // paginate never emits an empty page, so every page has a last row. Sweeping
-  // forwards means a heading pushed onto page i+1 is re-checked on the next
-  // iteration, which is what handles several headings in a row.
-  for (let i = 0; i < pages.length - 1; i++) {
-    const page = pages[i]
-    const last = page[page.length - 1]
-    if (last.kind === 'cap') {
-      page.pop()
-      pages[i + 1].unshift(last)
+  if (rows.length === 0) return []
+  if (first <= 0 || rest <= 0) return [rows]
+
+  const pages: Array<Array<SpellRow>> = []
+  let page: Array<SpellRow> = []
+  let used = 0
+
+  for (const row of rows) {
+    const budget = pages.length === 0 ? first : rest
+    // A heading starts a new grid row, so pad out any half-filled one first.
+    const pad = row.kind === 'cap' && used % 2 === 1 ? 1 : 0
+    const cost = pad + spellCost(row)
+    if (page.length > 0 && used + cost > budget) {
+      // A heading that would end a page belongs with its spells overleaf.
+      const last = page[page.length - 1]
+      if (last.kind === 'cap') {
+        page.pop()
+        pages.push(page)
+        page = [last, row]
+        used = spellCost(last) + spellCost(row)
+        continue
+      }
+      pages.push(page)
+      page = [row]
+      used = spellCost(row)
+      continue
     }
+    page.push(row)
+    used += cost
   }
+  if (page.length > 0) pages.push(page)
   return pages
 }

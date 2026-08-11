@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import type { EquipSlot, InventoryItem } from './character'
+import type { EquipSlot, InventoryItem, Spell } from './character'
 import {
   abilityMod,
   attunedCount,
   attunementLimit,
   canAttune,
+  canPrepare,
   carriedWeight,
   carryCapacity,
   coinWeight,
@@ -25,6 +26,8 @@ import {
   isCharacterContent,
   parseCharacter,
   passivePerception,
+  preparedCount,
+  preparedSpellLimit,
   proficiencyBonus,
   proficiencyLabel,
   resolveSpellDamage,
@@ -38,6 +41,7 @@ import {
   sortedFeatures,
   sortedSpells,
   spellSaveDc,
+  tracksPreparation,
   wikiLinkTitle,
   withQty,
 } from './character'
@@ -77,15 +81,19 @@ function sample() {
     { level: 2, name: 'Fighting Style' },
     { level: 3, name: 'Primeval Awareness' },
   ]
+  // One prepared spell and one cantrip, so the round-trip covers the flag and
+  // the omitted-flag branches.
   c.spells = [
     {
       name: "[[Hunter's Mark]]",
       level: 1,
       damage: '1d6',
       damagePerLevel: '1d6',
+      prepared: true,
     },
     { name: 'Druidcraft', level: 0 },
   ]
+  c.preparedLimit = 4
   // Covers all three row shapes so the round-trip test does real work.
   c.inventory = [
     { text: 'Longbow', qty: 1, weight: 2, slot: 'mainHand' },
@@ -367,7 +375,7 @@ describe('other proficiencies', () => {
       '---\ntype: character\n' +
         'armor: [light, shields]\n' +
         'weapons: [martial, Longsword]\n' +
-        "tools: [\"Smith's tools\", Dice set]\n" +
+        'tools: ["Smith\'s tools", Dice set]\n' +
         'languages: [Common, Dwarvish]\n' +
         '---\n',
     )
@@ -994,6 +1002,124 @@ describe('attunement', () => {
     expect(at('-2')).toBe(0)
     expect(at('2.7')).toBe(2)
     expect(at('"lots"')).toBe(3) // unparseable -> the default
+  })
+})
+
+describe('spell preparation', () => {
+  const withSpells = (
+    rows: Array<Partial<Spell> & { name: string }>,
+    limit?: number,
+  ) => {
+    const c = emptyCharacter()
+    c.spells = rows.map((r) => ({ level: 1, ...r }))
+    if (limit !== undefined) c.preparedLimit = limit
+    return c
+  }
+
+  it('counts prepared spells but never cantrips', () => {
+    const c = withSpells(
+      [
+        { name: 'Bless', prepared: true },
+        { name: 'Cure Wounds', prepared: true },
+        { name: 'Heroism' },
+        // A hand-edited cantrip may carry the flag; it still must not count.
+        { name: 'Sacred Flame', level: 0, prepared: true },
+      ],
+      4,
+    )
+    expect(preparedCount(c)).toBe(2)
+  })
+
+  it('is inert until the character sets a limit', () => {
+    const off = withSpells([{ name: 'Bless' }])
+    expect(tracksPreparation(off)).toBe(false)
+    expect(preparedSpellLimit(off)).toBe(0)
+    // With no limit there is nowhere to put a preparation, so a new one is
+    // refused — but the UI never offers one, because tracksPreparation is the
+    // gate. Both are pinned here so the split stays deliberate.
+    expect(canPrepare(off, off.spells[0])).toBe(false)
+    expect(tracksPreparation(withSpells([{ name: 'Bless' }], 1))).toBe(true)
+  })
+
+  it('floors the limit at 0 and truncates fractions', () => {
+    const at = (n: number) =>
+      preparedSpellLimit(withSpells([{ name: 'Bless' }], n))
+    expect(at(4)).toBe(4)
+    expect(at(0)).toBe(0)
+    expect(at(-3)).toBe(0)
+    expect(at(4.7)).toBe(4)
+  })
+
+  it('always allows cantrips, whatever the limit', () => {
+    const c = withSpells(
+      [
+        { name: 'Bless', prepared: true },
+        { name: 'Sacred Flame', level: 0 },
+      ],
+      1,
+    )
+    expect(preparedCount(c)).toBe(1) // the limit is already full
+    expect(canPrepare(c, c.spells[1])).toBe(true)
+  })
+
+  it('blocks a new preparation at the limit but never an existing one', () => {
+    const c = withSpells(
+      [
+        { name: 'Bless', prepared: true },
+        { name: 'Cure Wounds', prepared: true },
+        { name: 'Divine Favor', prepared: true },
+        { name: 'Shield of Faith', prepared: true },
+        { name: 'Heroism' },
+      ],
+      4,
+    )
+    expect(canPrepare(c, c.spells[4])).toBe(false) // would be a 5th
+    expect(canPrepare(c, c.spells[0])).toBe(true) // already prepared
+    // Raising the limit unblocks it; lowering it never strands you.
+    expect(canPrepare({ ...c, preparedLimit: 5 }, c.spells[4])).toBe(true)
+    const over = { ...c, preparedLimit: 2 }
+    expect(canPrepare(over, c.spells[0])).toBe(true) // can still unprepare
+    expect(canPrepare(over, c.spells[4])).toBe(false)
+  })
+
+  it('omits the flag for unprepared spells and cantrips', () => {
+    const c = withSpells(
+      [
+        { name: 'Bless', prepared: true },
+        { name: 'Heroism' },
+        { name: 'Sacred Flame', level: 0, prepared: true },
+      ],
+      4,
+    )
+    const yaml = serializeCharacter(c, '')
+    expect(yaml).not.toContain('prepared: false')
+    // Exactly one row carries it: the level-1 prepared spell.
+    expect(yaml.match(/prepared: true/g)).toHaveLength(1)
+  })
+
+  it('round-trips the flag and treats junk as unprepared', () => {
+    const c = withSpells([{ name: 'Bless', prepared: true }], 4)
+    const back = parseCharacter(serializeCharacter(c, '')).character
+    expect(back.spells[0].prepared).toBe(true)
+    expect(back.preparedLimit).toBe(4)
+    const flag = (v: string) =>
+      parseCharacter(
+        `---\ntype: character\nspells:\n  - name: Bless\n    level: 1\n    prepared: ${v}\n---\n`,
+      ).character.spells[0].prepared
+    expect(flag('true')).toBe(true)
+    expect(flag('false')).toBeUndefined()
+    expect(flag('"yes"')).toBeUndefined() // only a real boolean prepares
+  })
+
+  it('round-trips a custom limit and clamps junk', () => {
+    const at = (v: string) =>
+      parseCharacter(`---\ntype: character\npreparedLimit: ${v}\n---\n`)
+        .character.preparedLimit
+    expect(at('4')).toBe(4)
+    expect(at('0')).toBe(0)
+    expect(at('-2')).toBe(0)
+    expect(at('4.7')).toBe(4)
+    expect(at('"four"')).toBe(0) // unparseable -> the default, i.e. not tracked
   })
 })
 

@@ -20,6 +20,8 @@ import {
   initiativeBonus,
   inventoryItemName,
   passivePerception,
+  preparedCount,
+  preparedSpellLimit,
   proficiencyBonus,
   proficiencyLabel,
   resolveSpellDamage,
@@ -28,6 +30,7 @@ import {
   skillBonus,
   spellAttackBonus,
   spellSaveDc,
+  tracksPreparation,
   wikiLinkTitle,
 } from '#/lib/character'
 import type {
@@ -77,6 +80,9 @@ export interface SheetPreviewProps {
  * Per-page capacities. Rows are 24px and the lists run two columns, so these
  * are (available height / 24) * 2, measured against the rendered page rather
  * than guessed — too low wastes half a sheet, too high clips silently.
+ *
+ * The spell budgets are spent in half-rows: a spell costs 1, a level heading
+ * costs 2 because it spans both grid columns. See paginateSpellRows.
  */
 const ATTACK_ROWS = 8
 const SPELL_ROWS_FIRST = 54
@@ -740,6 +746,7 @@ function SpellPage({
   const dc = spellSaveDc(c)
   const atk = spellAttackBonus(c)
   const showSlots = anySlots(c)
+  const showPrepare = tracksPreparation(c)
 
   return (
     <div className="dnd-page">
@@ -818,11 +825,19 @@ function SpellPage({
           )}
 
           <div className="dnd-cs-box" style={{ flex: '1 1 auto' }}>
-            <div className="dnd-cs-cap">Spells</div>
+            <div className="dnd-cs-cap">
+              Spells
+              {showPrepare && (
+                <span style={{ fontWeight: 'normal' }}>
+                  {' — '}
+                  {preparedCount(c)} / {preparedSpellLimit(c)} prepared
+                </span>
+              )}
+            </div>
             {rows.length === 0 ? (
               <p className="dnd-cs-truncated">No spells recorded.</p>
             ) : (
-              <div className="dnd-cs-scroll dnd-cs-2col">
+              <div className="dnd-cs-scroll dnd-cs-spellgrid">
                 {rows.map((row, i) =>
                   row.kind === 'cap' ? (
                     <div
@@ -838,6 +853,26 @@ function SpellPage({
                       className="dnd-cs-row"
                       style={{ height: 24 }}
                     >
+                      {showPrepare && (
+                        /* Shape, not colour — this has to read in black ink.
+                           Cantrips need no preparation, so they get a blank. */
+                        <span
+                          className="dnd-cs-prep"
+                          title={
+                            row.spell.level === 0
+                              ? 'Cantrip — always available'
+                              : row.spell.prepared
+                                ? 'Prepared'
+                                : 'Not prepared'
+                          }
+                        >
+                          {row.spell.level === 0
+                            ? ''
+                            : row.spell.prepared
+                              ? '●'
+                              : '○'}
+                        </span>
+                      )}
                       <span className="dnd-cs-lvl">
                         {row.spell.level === 0 ? 'C' : row.spell.level}
                       </span>
@@ -938,7 +973,6 @@ function GearPage({
   pageLabel: string
   notes: boolean
 }) {
-  const coins = COINS.filter(({ key }) => c.currency[key] > 0)
   const equipped = EQUIP_SLOTS.flatMap((slot) => {
     const item = equippedIn(c.inventory, slot)
     return item ? [{ slot, item }] : []
@@ -950,17 +984,19 @@ function GearPage({
       <div className="dnd-cs">
         <Banner title={`${title} — ${pageLabel}`} small />
         <div className="dnd-cs-body">
-          {showHeader && coins.length > 0 && (
+          {showHeader && (
             <div className="dnd-cs-box" style={{ flex: '0 0 auto' }}>
               <div className="dnd-cs-cap">Treasure</div>
+              {/* All five denominations, always — a printed sheet wants a 0 to
+                  write over, not a missing box. */}
               <div
                 style={{
                   display: 'grid',
-                  gridTemplateColumns: `repeat(${coins.length}, 1fr)`,
+                  gridTemplateColumns: `repeat(${COINS.length}, 1fr)`,
                   gap: 8,
                 }}
               >
-                {coins.map(({ key, name }) => (
+                {COINS.map(({ key, name }) => (
                   <StatBox
                     key={key}
                     label={name}
@@ -1003,7 +1039,9 @@ function GearPage({
               className="dnd-cs-box"
               style={{ flex: '0 0 auto', maxHeight: PROF_BOX_HEIGHT }}
             >
-              <div className="dnd-cs-cap">Other Proficiencies &amp; Languages</div>
+              <div className="dnd-cs-cap">
+                Other Proficiencies &amp; Languages
+              </div>
               <div style={{ display: 'grid', gap: 3 }}>
                 <ProfLine label="Armor" values={c.armor} />
                 <ProfLine label="Weapons" values={c.weapons} />
@@ -1145,6 +1183,9 @@ export function SheetPreview({
   )
 
   const casts = hasSpellcasting(c)
+  // The Treasure box always shows all five denominations once the page exists,
+  // but empty purses alone don't earn a sheet — otherwise every character with
+  // no gear at all would print a page of nothing but zeroes.
   const anyCoin = COINS.some(({ key }) => c.currency[key] > 0)
   const showGear =
     gearPages.length > 0 ||
