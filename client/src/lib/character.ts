@@ -138,6 +138,12 @@ export interface Spell {
    * Meaningless for cantrips, which are always available.
    */
   prepared?: boolean
+  /**
+   * Prepared for free and exempt from the limit — a cleric's domain spells, a
+   * paladin's oath spells, a Warlock or Land druid's circle spells. Wins over
+   * `prepared` when both are set, so the two can never disagree.
+   */
+  alwaysPrepared?: boolean
 }
 
 export interface CharacterNote {
@@ -643,11 +649,56 @@ export function canAttune(c: Character, item: InventoryItem): boolean {
 // --- Spell preparation ------------------------------------------------------
 
 /**
- * How many spells are prepared. Cantrips are always available and never count
- * against the limit, so they are excluded here rather than at each call site.
+ * Where a spell sits: not prepared, prepared against the limit, or always
+ * prepared for free (domain/oath/circle spells). Cantrips are 'always' — they
+ * need no preparation and can never be switched off.
+ */
+export type PreparationState = 'none' | 'prepared' | 'always'
+
+/**
+ * Read a spell's preparation as one value, so `alwaysPrepared` and `prepared`
+ * can never be seen disagreeing: `alwaysPrepared` wins, and a cantrip is always
+ * available whatever the flags say.
+ */
+export function preparationState(spell: Spell): PreparationState {
+  if (spell.level === 0 || spell.alwaysPrepared) return 'always'
+  return spell.prepared ? 'prepared' : 'none'
+}
+
+/**
+ * Cycle a spell none -> prepared -> always -> none, mirroring `cycleDamage`.
+ * Returns the flags to spread over the spell, so the "never disagreeing"
+ * invariant is unit-testable rather than living in the component.
+ *
+ * Cantrips are left alone: they are always available, so there is nothing to
+ * cycle and the UI shows no toggle for them.
+ */
+export function cyclePreparation(
+  spell: Spell,
+): Pick<Spell, 'prepared' | 'alwaysPrepared'> {
+  if (spell.level === 0) return {}
+  switch (preparationState(spell)) {
+    case 'none':
+      return { prepared: true, alwaysPrepared: undefined }
+    case 'prepared':
+      return { prepared: undefined, alwaysPrepared: true }
+    default:
+      return { prepared: undefined, alwaysPrepared: undefined }
+  }
+}
+
+/**
+ * How many spells are prepared *against the limit*. Cantrips and always-
+ * prepared spells are free by RAW, so both are excluded here rather than at
+ * each call site.
  */
 export function preparedCount(c: Character): number {
-  return c.spells.filter((s) => s.level > 0 && s.prepared).length
+  return c.spells.filter((s) => preparationState(s) === 'prepared').length
+}
+
+/** How many spells are prepared for free, outside the limit. */
+export function alwaysPreparedCount(c: Character): number {
+  return c.spells.filter((s) => s.level > 0 && s.alwaysPrepared).length
 }
 
 /** The prepared-spell limit, floored at 0. */
@@ -666,15 +717,18 @@ export function tracksPreparation(c: Character): boolean {
 }
 
 /**
- * Whether a *new* preparation would exceed the limit. An already-prepared
- * spell is always allowed to stay prepared, so a sheet over the cap (hand-
- * edited, or after lowering the limit) can be unpicked one spell at a time
- * rather than being stuck with every toggle disabled. Cantrips need no
- * preparation and are always allowed.
+ * Whether a *new* preparation would exceed the limit. A spell that already
+ * counts is always allowed to stay, so a sheet over the cap (hand-edited, or
+ * after lowering the limit) can be unpicked one spell at a time rather than
+ * being stuck with every toggle disabled.
+ *
+ * Cantrips and always-prepared spells never consume the limit, so cycling one
+ * is always allowed — note this means a *full* character can still promote a
+ * prepared spell to always-prepared, which frees a slot rather than using one.
  */
 export function canPrepare(c: Character, spell: Spell): boolean {
-  if (spell.level === 0) return true
-  return Boolean(spell.prepared) || preparedCount(c) < preparedSpellLimit(c)
+  if (preparationState(spell) !== 'none') return true
+  return preparedCount(c) < preparedSpellLimit(c)
 }
 
 // --- Equipment slots --------------------------------------------------------
@@ -1064,9 +1118,10 @@ export function serializeInventory(
 }
 
 /**
- * Drop `prepared` unless it is actually true, so sheets that don't prepare
+ * Drop the preparation flags unless actually true, so sheets that don't prepare
  * spells stay byte-identical instead of growing a `prepared: false` on every
- * row. Cantrips never carry the key at all — preparation is meaningless there.
+ * row. Cantrips never carry either key — preparation is meaningless there — and
+ * only one of the two is ever written, matching `preparationState`.
  */
 function serializeSpell(spell: Spell): Record<string, unknown> {
   const out: Record<string, unknown> = {
@@ -1077,7 +1132,10 @@ function serializeSpell(spell: Spell): Record<string, unknown> {
   if (spell.damagePerLevel !== undefined) {
     out.damagePerLevel = spell.damagePerLevel
   }
-  if (spell.prepared && spell.level > 0) out.prepared = true
+  if (spell.level > 0) {
+    if (spell.alwaysPrepared) out.alwaysPrepared = true
+    else if (spell.prepared) out.prepared = true
+  }
   return out
 }
 
@@ -1236,7 +1294,10 @@ export function parseCharacter(content: string): {
       }
       // Strict: only a real `true` prepares a spell, so junk reads as not
       // prepared rather than silently arming half the list.
-      if (s.prepared === true) spell.prepared = true
+      if (s.alwaysPrepared === true) spell.alwaysPrepared = true
+      // `alwaysPrepared` wins, so the two flags can't come back disagreeing
+      // even if a hand-edited file sets both.
+      else if (s.prepared === true) spell.prepared = true
       return [spell]
     })
   }

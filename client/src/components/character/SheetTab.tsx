@@ -21,14 +21,17 @@ import {
   SKILLS,
   WEAPON_CATEGORIES,
   abilityMod,
+  alwaysPreparedCount,
   canPrepare,
   cycleDamage,
+  cyclePreparation,
   d20,
   damageStance,
   effectiveSpeed,
   encumbranceTier,
   initiativeBonus,
   passivePerception,
+  preparationState,
   preparedCount,
   preparedSpellLimit,
   proficiencyBonus,
@@ -512,6 +515,7 @@ export function SheetTab({
   }
 
   const prepared = preparedCount(c)
+  const alwaysPrepared = alwaysPreparedCount(c)
   const prepareLimit = preparedSpellLimit(c)
   const showPrepare = tracksPreparation(c)
 
@@ -1090,6 +1094,15 @@ export function SheetTab({
                     </span>{' '}
                     prepared
                   </span>
+                  {alwaysPrepared > 0 && (
+                    <span
+                      className="text-sky-600 dark:text-sky-400 flex items-center gap-1 text-xs"
+                      title="Domain, oath or circle spells — always prepared and free of the limit"
+                    >
+                      <Sparkles className="size-3 fill-current" />+
+                      {alwaysPrepared} always
+                    </span>
+                  )}
                   {prepared > prepareLimit ? (
                     <span className="text-destructive text-xs">
                       (over the limit — unprepare {prepared - prepareLimit})
@@ -1105,7 +1118,7 @@ export function SheetTab({
                     <button
                       type="button"
                       className="text-muted-foreground hover:text-foreground text-xs underline underline-offset-2"
-                      title="Unprepare everything — for swapping the list after a long rest"
+                      title="Unprepare everything — for swapping the list after a long rest. Always-prepared spells are left alone."
                       onClick={() =>
                         set({
                           spells: c.spells.map((s) => ({
@@ -1161,9 +1174,10 @@ export function SheetTab({
               // Cantrips need no preparation, so they keep a spacer instead of
               // a toggle and all the names stay in one column.
               const prepareBlocked = !canPrepare(c, spell)
+              const state = preparationState(spell)
               // Unprepared spells read as inactive, so the live list stands out
               // at a glance. Order never changes — the printed sheet shares it.
-              const dimmed = showPrepare && spell.level > 0 && !spell.prepared
+              const dimmed = showPrepare && state === 'none'
               return (
                 <div
                   key={`${spell.name}-${idx}`}
@@ -1177,31 +1191,35 @@ export function SheetTab({
                         type="button"
                         className={cn(
                           'shrink-0 rounded p-0.5',
-                          spell.prepared
-                            ? 'text-amber-500 hover:text-amber-400'
-                            : prepareBlocked
-                              ? 'text-muted-foreground/25'
-                              : 'text-muted-foreground hover:text-foreground hover:bg-muted',
+                          state === 'always'
+                            ? 'text-sky-500 hover:text-sky-400'
+                            : state === 'prepared'
+                              ? 'text-amber-500 hover:text-amber-400'
+                              : prepareBlocked
+                                ? 'text-muted-foreground/25'
+                                : 'text-muted-foreground hover:text-foreground hover:bg-muted',
                         )}
                         title={
-                          spell.prepared
-                            ? 'Prepared — click to unprepare'
-                            : prepareBlocked
-                              ? `All ${prepareLimit} prepared spells are in use — unprepare one first, or raise the limit above`
-                              : 'Prepare this spell'
+                          state === 'always'
+                            ? 'Always prepared (domain, oath or circle spell) — free, outside the limit. Click to unprepare'
+                            : state === 'prepared'
+                              ? 'Prepared — click to make it always prepared'
+                              : prepareBlocked
+                                ? `All ${prepareLimit} prepared spells are in use — unprepare one first, or raise the limit above`
+                                : 'Prepare this spell'
                         }
                         disabled={prepareBlocked}
                         onClick={() =>
                           set({
                             spells: c.spells.map((s, j) =>
-                              j === idx
-                                ? { ...s, prepared: !s.prepared || undefined }
-                                : s,
+                              j === idx ? { ...s, ...cyclePreparation(s) } : s,
                             ),
                           })
                         }
                       >
-                        {spell.prepared ? (
+                        {state === 'always' ? (
+                          <Sparkles className="size-3.5 fill-current" />
+                        ) : state === 'prepared' ? (
                           <BookOpenCheck className="size-3.5" />
                         ) : (
                           <BookOpen className="size-3.5" />

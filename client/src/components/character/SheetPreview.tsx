@@ -19,7 +19,9 @@ import {
   hasOtherProficiencies,
   initiativeBonus,
   inventoryItemName,
+  alwaysPreparedCount,
   passivePerception,
+  preparationState,
   preparedCount,
   preparedSpellLimit,
   proficiencyBonus,
@@ -37,6 +39,7 @@ import type {
   Ability,
   Character,
   InventoryItem,
+  PreparationState,
   SpellSlots,
 } from '#/lib/character'
 import {
@@ -149,6 +152,23 @@ function anySlots(c: Character): boolean {
  */
 function hasSpellcasting(c: Character): boolean {
   return c.spells.length > 0 || anySlots(c)
+}
+
+/**
+ * Preparation markers for the printed sheet. Distinct *shapes*, not colours, so
+ * they survive a black-ink print: a star for the free domain/oath/circle spells,
+ * a filled dot for one spent against the limit, a hollow one for not prepared.
+ */
+const PREP_GLYPHS: Record<PreparationState, string> = {
+  always: '★',
+  prepared: '●',
+  none: '○',
+}
+
+const PREP_TITLES: Record<PreparationState, string> = {
+  always: 'Always prepared — free of the limit',
+  prepared: 'Prepared',
+  none: 'Not prepared',
 }
 
 const COINS: Array<{ key: keyof Character['currency']; name: string }> = [
@@ -831,6 +851,8 @@ function SpellPage({
                 <span style={{ fontWeight: 'normal' }}>
                   {' — '}
                   {preparedCount(c)} / {preparedSpellLimit(c)} prepared
+                  {alwaysPreparedCount(c) > 0 &&
+                    ` + ${alwaysPreparedCount(c)} always (★)`}
                 </span>
               )}
             </div>
@@ -854,23 +876,21 @@ function SpellPage({
                       style={{ height: 24 }}
                     >
                       {showPrepare && (
-                        /* Shape, not colour — this has to read in black ink.
-                           Cantrips need no preparation, so they get a blank. */
+                        /* Shape, not colour — this has to read in black ink. A
+                           star marks the free domain/oath/circle spells, a
+                           filled dot the ones spent against the limit, and
+                           cantrips need no marker at all. */
                         <span
                           className="dnd-cs-prep"
                           title={
                             row.spell.level === 0
                               ? 'Cantrip — always available'
-                              : row.spell.prepared
-                                ? 'Prepared'
-                                : 'Not prepared'
+                              : PREP_TITLES[preparationState(row.spell)]
                           }
                         >
                           {row.spell.level === 0
                             ? ''
-                            : row.spell.prepared
-                              ? '●'
-                              : '○'}
+                            : PREP_GLYPHS[preparationState(row.spell)]}
                         </span>
                       )}
                       <span className="dnd-cs-lvl">

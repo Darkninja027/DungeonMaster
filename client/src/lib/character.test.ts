@@ -2,11 +2,13 @@ import { describe, expect, it } from 'vitest'
 import type { EquipSlot, InventoryItem, Spell } from './character'
 import {
   abilityMod,
+  alwaysPreparedCount,
   attunedCount,
   attunementLimit,
   canAttune,
   canPrepare,
   carriedWeight,
+  cyclePreparation,
   carryCapacity,
   coinWeight,
   cycleDamage,
@@ -26,6 +28,7 @@ import {
   isCharacterContent,
   parseCharacter,
   passivePerception,
+  preparationState,
   preparedCount,
   preparedSpellLimit,
   proficiencyBonus,
@@ -81,8 +84,8 @@ function sample() {
     { level: 2, name: 'Fighting Style' },
     { level: 3, name: 'Primeval Awareness' },
   ]
-  // One prepared spell and one cantrip, so the round-trip covers the flag and
-  // the omitted-flag branches.
+  // One prepared, one always-prepared and one cantrip, so the round-trip covers
+  // every preparation branch including the omitted-flag one.
   c.spells = [
     {
       name: "[[Hunter's Mark]]",
@@ -91,6 +94,7 @@ function sample() {
       damagePerLevel: '1d6',
       prepared: true,
     },
+    { name: 'Cure Wounds', level: 1, alwaysPrepared: true },
     { name: 'Druidcraft', level: 0 },
   ]
   c.preparedLimit = 4
@@ -1030,6 +1034,69 @@ describe('spell preparation', () => {
     expect(preparedCount(c)).toBe(2)
   })
 
+  it('reads a spell state, with alwaysPrepared winning over prepared', () => {
+    const st = (s: Partial<Spell>) =>
+      preparationState({ name: 'X', level: 1, ...s })
+    expect(st({})).toBe('none')
+    expect(st({ prepared: true })).toBe('prepared')
+    expect(st({ alwaysPrepared: true })).toBe('always')
+    // A hand-edited file setting both must not read as two things at once.
+    expect(st({ prepared: true, alwaysPrepared: true })).toBe('always')
+    // Cantrips are always available whatever the flags say.
+    expect(st({ level: 0 })).toBe('always')
+    expect(st({ level: 0, prepared: true })).toBe('always')
+  })
+
+  it('cycles none -> prepared -> always -> none', () => {
+    const spell: Spell = { name: 'Bless', level: 1 }
+    const step = (s: Spell): Spell => ({ ...s, ...cyclePreparation(s) })
+    const one = step(spell)
+    expect(preparationState(one)).toBe('prepared')
+    const two = step(one)
+    expect(preparationState(two)).toBe('always')
+    // The flags never accumulate: promoting drops `prepared` rather than
+    // leaving both set.
+    expect(two.prepared).toBeUndefined()
+    const three = step(two)
+    expect(preparationState(three)).toBe('none')
+    expect(three.prepared).toBeUndefined()
+    expect(three.alwaysPrepared).toBeUndefined()
+  })
+
+  it('leaves cantrips alone when cycled', () => {
+    const cantrip: Spell = { name: 'Sacred Flame', level: 0 }
+    expect(cyclePreparation(cantrip)).toEqual({})
+  })
+
+  it('exempts always-prepared spells from the limit', () => {
+    const c = withSpells(
+      [
+        { name: 'Bless', prepared: true },
+        { name: 'Cure Wounds', prepared: true },
+        // Oath spells: prepared for free, outside the count.
+        { name: 'Divine Favor', alwaysPrepared: true },
+        { name: 'Searing Smite', alwaysPrepared: true },
+        { name: 'Heroism' },
+      ],
+      2,
+    )
+    expect(preparedCount(c)).toBe(2) // the two limited ones only
+    expect(alwaysPreparedCount(c)).toBe(2)
+    // The limit is full, yet an always-prepared spell can still be cycled and
+    // a fresh one can still be promoted straight to always.
+    expect(canPrepare(c, c.spells[2])).toBe(true)
+    expect(canPrepare(c, c.spells[4])).toBe(false) // would be a 3rd limited one
+  })
+
+  it('never counts an always-prepared cantrip as a free slot', () => {
+    const c = withSpells(
+      [{ name: 'Sacred Flame', level: 0, alwaysPrepared: true }],
+      4,
+    )
+    expect(alwaysPreparedCount(c)).toBe(0)
+    expect(preparedCount(c)).toBe(0)
+  })
+
   it('is inert until the character sets a limit', () => {
     const off = withSpells([{ name: 'Bless' }])
     expect(tracksPreparation(off)).toBe(false)
@@ -1082,33 +1149,61 @@ describe('spell preparation', () => {
     expect(canPrepare(over, c.spells[4])).toBe(false)
   })
 
-  it('omits the flag for unprepared spells and cantrips', () => {
+  it('omits the flags for unprepared spells and cantrips', () => {
     const c = withSpells(
       [
         { name: 'Bless', prepared: true },
         { name: 'Heroism' },
         { name: 'Sacred Flame', level: 0, prepared: true },
+        { name: 'Divine Favor', alwaysPrepared: true },
       ],
       4,
     )
     const yaml = serializeCharacter(c, '')
     expect(yaml).not.toContain('prepared: false')
-    // Exactly one row carries it: the level-1 prepared spell.
-    expect(yaml.match(/prepared: true/g)).toHaveLength(1)
+    // `alwaysPrepared: true` also matches /prepared: true/, so count precisely:
+    // one plain prepared row and one always row, and no cantrip flag.
+    expect(yaml.match(/^\s+prepared: true$/gm)).toHaveLength(1)
+    expect(yaml.match(/^\s+alwaysPrepared: true$/gm)).toHaveLength(1)
   })
 
-  it('round-trips the flag and treats junk as unprepared', () => {
-    const c = withSpells([{ name: 'Bless', prepared: true }], 4)
+  it('writes only one of the two flags when both are set', () => {
+    const c = withSpells(
+      [{ name: 'Bless', prepared: true, alwaysPrepared: true }],
+      4,
+    )
+    const yaml = serializeCharacter(c, '')
+    expect(yaml).toContain('alwaysPrepared: true')
+    expect(yaml.match(/^\s+prepared: true$/gm)).toBeNull()
+  })
+
+  it('round-trips the flags and treats junk as unprepared', () => {
+    const c = withSpells(
+      [
+        { name: 'Bless', prepared: true },
+        { name: 'Divine Favor', alwaysPrepared: true },
+      ],
+      4,
+    )
     const back = parseCharacter(serializeCharacter(c, '')).character
     expect(back.spells[0].prepared).toBe(true)
+    expect(back.spells[1].alwaysPrepared).toBe(true)
+    expect(back.spells[1].prepared).toBeUndefined()
     expect(back.preparedLimit).toBe(4)
-    const flag = (v: string) =>
+    const spellYaml = (keys: string) =>
       parseCharacter(
-        `---\ntype: character\nspells:\n  - name: Bless\n    level: 1\n    prepared: ${v}\n---\n`,
-      ).character.spells[0].prepared
-    expect(flag('true')).toBe(true)
-    expect(flag('false')).toBeUndefined()
-    expect(flag('"yes"')).toBeUndefined() // only a real boolean prepares
+        `---\ntype: character\nspells:\n  - name: Bless\n    level: 1\n${keys}---\n`,
+      ).character.spells[0]
+    expect(spellYaml('    prepared: true\n').prepared).toBe(true)
+    expect(spellYaml('    prepared: false\n').prepared).toBeUndefined()
+    // only a real boolean prepares
+    expect(spellYaml('    prepared: "yes"\n').prepared).toBeUndefined()
+    expect(spellYaml('    alwaysPrepared: true\n').alwaysPrepared).toBe(true)
+    // Both set on disk: alwaysPrepared wins and `prepared` is dropped.
+    const both = spellYaml('    prepared: true\n    alwaysPrepared: true\n')
+    expect(both.alwaysPrepared).toBe(true)
+    expect(both.prepared).toBeUndefined()
+    expect(preparationState(both)).toBe('always')
   })
 
   it('round-trips a custom limit and clamps junk', () => {
