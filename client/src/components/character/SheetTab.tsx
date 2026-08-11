@@ -6,15 +6,22 @@ import { articleTemplates } from '#/lib/templates'
 import {
   ABILITIES,
   ABILITY_NAMES,
+  ARMOR_PROFICIENCIES,
+  CONDITIONS,
+  DAMAGE_TYPES,
   ENCUMBRANCE_LABELS,
   SKILLS,
+  WEAPON_CATEGORIES,
   abilityMod,
+  cycleDamage,
   d20,
+  damageStance,
   effectiveSpeed,
   encumbranceTier,
   initiativeBonus,
   passivePerception,
   proficiencyBonus,
+  proficiencyLabel,
   resolveSpellDamage,
   saveBonus,
   scaleSpellDamage,
@@ -26,9 +33,14 @@ import {
   spellSaveDc,
   wikiLinkTitle,
 } from '#/lib/character'
-import type { Ability, Character, Spell, SpellSlots } from '#/lib/character'
-import { rollDice } from '#/lib/formatMarkdown'
-import { logRoll } from '#/lib/rollLog'
+import type {
+  Ability,
+  Character,
+  DamageStance,
+  Spell,
+  SpellSlots,
+} from '#/lib/character'
+import { roll } from '#/lib/rollAction'
 import type { RollSource } from '#/lib/rollLog'
 import { openSpellInPanel } from '#/lib/spellPanel'
 import { cn } from '#/lib/utils'
@@ -51,19 +63,6 @@ interface SheetProps {
   source: RollSource
   articles?: Array<{ id: string; title: string; folderId?: string | null }>
   onCreateMissing?: (title: string) => void
-}
-
-function roll(label: string, notation: string, source: RollSource) {
-  const result = rollDice(notation)
-  if (result) {
-    logRoll({
-      notation,
-      label,
-      total: result.total,
-      detail: result.detail,
-      source,
-    })
-  }
 }
 
 /** A small "roll this" chip: shows the bonus, clicking rolls + logs it. */
@@ -138,6 +137,211 @@ function Section({
       </h3>
       {children}
     </section>
+  )
+}
+
+/** Free-text list: type and press Enter to add, click the x to remove. */
+function ChipList({
+  values,
+  placeholder,
+  empty,
+  onChange,
+}: {
+  values: Array<string>
+  placeholder: string
+  /** Hint shown when the list is empty; omitted where the context is obvious. */
+  empty?: string
+  onChange: (next: Array<string>) => void
+}) {
+  const [draft, setDraft] = useState('')
+
+  const add = () => {
+    const value = draft.trim()
+    if (!value) return
+    // Case-insensitive: "Dwarvish" twice is always a mistake, not two languages.
+    const dupe = values.some((v) => v.toLowerCase() === value.toLowerCase())
+    if (!dupe) onChange([...values, value])
+    setDraft('')
+  }
+
+  return (
+    <div className="space-y-1.5">
+      {/* Skipped entirely when there is nothing to show and no hint, so the row
+          doesn't leave an empty gap above the input. */}
+      {(values.length > 0 || empty) && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          {values.length === 0 ? (
+            <span className="text-muted-foreground text-xs">{empty}</span>
+          ) : (
+            values.map((value, i) => (
+              <span
+                key={`${value}-${i}`}
+                className="bg-muted inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs"
+              >
+                {proficiencyLabel(value)}
+                <button
+                  type="button"
+                  className="text-muted-foreground hover:text-destructive"
+                  title={`Remove ${proficiencyLabel(value)}`}
+                  onClick={() => onChange(values.filter((_, j) => j !== i))}
+                >
+                  <X className="size-3" />
+                </button>
+              </span>
+            ))
+          )}
+        </div>
+      )}
+      <div className="flex items-center gap-1.5">
+        <Input
+          value={draft}
+          placeholder={placeholder}
+          className="h-7 max-w-64 text-sm"
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault()
+              add()
+            }
+          }}
+        />
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-7 gap-1 px-2"
+          disabled={!draft.trim()}
+          onClick={add}
+        >
+          <Plus className="size-3" /> Add
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+/** Checkbox row over a closed set, matching the saving-throw idiom above. */
+function TokenChecks({
+  options,
+  values,
+  onChange,
+}: {
+  options: Array<{ id: string; name: string }>
+  values: Array<string>
+  onChange: (next: Array<string>) => void
+}) {
+  const has = (id: string) => values.some((v) => v.toLowerCase() === id)
+  const toggle = (id: string) =>
+    onChange(
+      has(id) ? values.filter((v) => v.toLowerCase() !== id) : [...values, id],
+    )
+
+  return (
+    <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
+      {options.map((option) => (
+        <label key={option.id} className="flex items-center gap-1.5">
+          <input
+            type="checkbox"
+            checked={has(option.id)}
+            onChange={() => toggle(option.id)}
+          />
+          {option.name}
+        </label>
+      ))}
+    </div>
+  )
+}
+
+/**
+ * A closed-set proficiency: checkboxes for the known categories plus a chip list
+ * for anything else. Both halves live in one array, so it is split on the way in
+ * and always re-joined as [...tokens, ...extras] — a stable order keeps toggling
+ * from churning the on-disk field and dirtying the user's git history.
+ */
+function TokenSection({
+  options,
+  values,
+  placeholder,
+  onChange,
+}: {
+  options: Array<{ id: string; name: string }>
+  values: Array<string>
+  placeholder: string
+  onChange: (next: Array<string>) => void
+}) {
+  const isToken = (v: string) =>
+    options.some((o) => o.id === v.trim().toLowerCase())
+  const tokens = values.filter(isToken)
+  const extras = values.filter((v) => !isToken(v))
+
+  return (
+    <div className="space-y-1.5">
+      <TokenChecks
+        options={options}
+        values={tokens}
+        onChange={(next) => onChange([...next, ...extras])}
+      />
+      {/* No empty-state line: the checkboxes above and the input's own
+          placeholder already say what this row is for. */}
+      <ChipList
+        values={extras}
+        placeholder={placeholder}
+        onChange={(next) => onChange([...tokens, ...next])}
+      />
+    </div>
+  )
+}
+
+const STANCE_STYLES: Record<DamageStance, string> = {
+  none: 'bg-transparent',
+  resistant: 'bg-primary',
+  immune: 'bg-primary ring-primary/40 ring-2',
+  vulnerable: 'bg-destructive',
+}
+
+const STANCE_LABELS: Record<DamageStance, string> = {
+  none: '—',
+  resistant: 'Resistant',
+  immune: 'Immune',
+  vulnerable: 'Vulnerable',
+}
+
+/** The 13 damage types, each cycling through the four stances on click. */
+function DamageGrid({
+  character: c,
+  onChange,
+}: {
+  character: Character
+  onChange: (next: Character) => void
+}) {
+  return (
+    <div className="grid gap-y-1 sm:grid-cols-2">
+      {DAMAGE_TYPES.map((type) => {
+        const stance = damageStance(c, type.id)
+        return (
+          <div key={type.id} className="flex items-center gap-2 pr-4 text-sm">
+            <button
+              type="button"
+              title={STANCE_LABELS[stance]}
+              className={cn(
+                'size-3.5 shrink-0 rounded-full border',
+                STANCE_STYLES[stance],
+              )}
+              onClick={() => onChange({ ...c, ...cycleDamage(c, type.id) })}
+            />
+            <span className="min-w-0 flex-1 truncate">{type.name}</span>
+            {stance !== 'none' && (
+              <span className="text-muted-foreground text-xs uppercase">
+                {stance === 'resistant'
+                  ? 'res'
+                  : stance === 'immune'
+                    ? 'imm'
+                    : 'vuln'}
+              </span>
+            )}
+          </div>
+        )
+      })}
+    </div>
   )
 }
 
@@ -614,6 +818,74 @@ export function SheetTab({
               />
             </span>
           </div>
+        </Section>
+
+        <Section title="Proficiencies">
+          <div className="space-y-2 text-sm">
+            <div>
+              <p className="text-muted-foreground mb-1 text-xs">Armor</p>
+              <TokenSection
+                options={ARMOR_PROFICIENCIES}
+                values={c.armor}
+                placeholder="Anything else, e.g. Mithral plate"
+                onChange={(armor) => set({ armor })}
+              />
+            </div>
+
+            <Separator className="my-2" />
+
+            <div>
+              <p className="text-muted-foreground mb-1 text-xs">Weapons</p>
+              <TokenSection
+                options={WEAPON_CATEGORIES}
+                values={c.weapons}
+                placeholder="Individual weapon, e.g. Longsword"
+                onChange={(weapons) => set({ weapons })}
+              />
+            </div>
+
+            <Separator className="my-2" />
+
+            <div>
+              <p className="text-muted-foreground mb-1 text-xs">Tools</p>
+              <ChipList
+                values={c.tools}
+                placeholder="e.g. Smith's tools"
+                empty="No tool proficiencies — a background usually grants one or two."
+                onChange={(tools) => set({ tools })}
+              />
+            </div>
+
+            <Separator className="my-2" />
+
+            <div>
+              <p className="text-muted-foreground mb-1 text-xs">Languages</p>
+              <ChipList
+                values={c.languages}
+                placeholder="e.g. Dwarvish"
+                empty="No languages — most characters at least speak Common."
+                onChange={(languages) => set({ languages })}
+              />
+            </div>
+          </div>
+        </Section>
+
+        <Section title="Defenses">
+          <p className="text-muted-foreground mb-1.5 text-xs">
+            Click the dot to cycle: none → resistant → immune → vulnerable
+          </p>
+          <DamageGrid character={c} onChange={onChange} />
+
+          <Separator className="my-3" />
+
+          <p className="text-muted-foreground mb-1 text-xs">
+            Condition immunities
+          </p>
+          <TokenChecks
+            options={CONDITIONS}
+            values={c.conditionImmunities}
+            onChange={(conditionImmunities) => set({ conditionImmunities })}
+          />
         </Section>
 
         <Section title="Attacks">

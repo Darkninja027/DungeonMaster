@@ -8,7 +8,9 @@ import {
   carriedWeight,
   carryCapacity,
   coinWeight,
+  cycleDamage,
   d20,
+  damageStance,
   effectiveSpeed,
   emptyCharacter,
   encumbranceTier,
@@ -16,12 +18,15 @@ import {
   equippedIn,
   fitsSlot,
   guessSlot,
+  hasDefenses,
+  hasOtherProficiencies,
   initiativeBonus,
   inventoryItemName,
   isCharacterContent,
   parseCharacter,
   passivePerception,
   proficiencyBonus,
+  proficiencyLabel,
   resolveSpellDamage,
   scaleSpellDamage,
   spellInfoFromContent,
@@ -30,6 +35,7 @@ import {
   serializeCharacter,
   skillBonus,
   slotFor,
+  sortedFeatures,
   sortedSpells,
   spellSaveDc,
   wikiLinkTitle,
@@ -44,9 +50,33 @@ function sample() {
   c.saves = ['dex', 'wis']
   c.skills = ['perception']
   c.expertise = ['stealth']
+  // A known token plus free text in one list, so the round-trip covers both.
+  c.armor = ['light', 'medium', 'shields']
+  c.weapons = ['simple', 'martial', 'Longsword']
+  c.tools = ["Smith's tools"]
+  c.languages = ['Common', 'Elvish']
+  c.resistances = ['cold', 'nonmagical bludgeoning']
+  c.immunities = ['poison']
+  c.vulnerabilities = ['fire']
+  c.conditionImmunities = ['charmed', 'frightened']
   c.spellAbility = 'wis'
   c.spellSlots = { 1: { total: 4, used: 1 }, 2: { total: 2, used: 0 } }
   c.attacks = [{ name: 'Longbow', bonus: 9, damage: '1d8+4' }]
+  c.traits = [
+    { name: 'Darkvision', text: 'See in dim light within 60 feet.' },
+    { name: 'Fey Ancestry' },
+  ]
+  c.feats = [
+    { name: 'Sharpshooter', text: 'Ignore long range and half cover.' },
+    { name: 'Alert' },
+  ]
+  // One feature with rules text and one without, so the round-trip covers
+  // both the text and the omitted-text branches.
+  c.features = [
+    { level: 1, name: 'Favored Enemy', text: 'Advantage on [[Survival]].' },
+    { level: 2, name: 'Fighting Style' },
+    { level: 3, name: 'Primeval Awareness' },
+  ]
   c.spells = [
     {
       name: "[[Hunter's Mark]]",
@@ -249,6 +279,331 @@ describe('character frontmatter round-trip', () => {
     expect(character.level).toBe(20)
     expect(character.abilities.str).toBe(1)
     expect(character.deathSaves.fail).toBe(3)
+  })
+})
+
+describe('racial traits', () => {
+  it('reads name and optional text, keeping the authored order', () => {
+    const { character } = parseCharacter(
+      '---\ntype: character\nrace: Halfling\ntraits:\n' +
+        "  - { name: Lucky, text: 'Reroll a 1 on an attack, check or save.' }\n" +
+        '  - { name: Brave }\n' +
+        '---\n',
+    )
+    expect(character.traits).toEqual([
+      { name: 'Lucky', text: 'Reroll a 1 on an attack, check or save.' },
+      { name: 'Brave' },
+    ])
+  })
+
+  it('keeps hand-written bare strings and drops blanks', () => {
+    const { character } = parseCharacter(
+      '---\ntype: character\ntraits:\n  - Darkvision\n  - "  "\n  - { name: "  " }\n---\n',
+    )
+    expect(character.traits).toEqual([{ name: 'Darkvision' }])
+  })
+
+  it('omits empty text rather than writing an empty string', () => {
+    const { character } = parseCharacter(
+      '---\ntype: character\ntraits:\n  - { name: Bare, text: "   " }\n---\n',
+    )
+    expect(character.traits[0].text).toBeUndefined()
+  })
+
+  it('defaults to no traits when the field is missing or junk', () => {
+    expect(
+      parseCharacter('---\ntype: character\n---\n').character.traits,
+    ).toEqual([])
+    expect(
+      parseCharacter('---\ntype: character\ntraits: nope\n---\n').character
+        .traits,
+    ).toEqual([])
+  })
+})
+
+describe('feats', () => {
+  it('reads name and optional text, keeping the authored order', () => {
+    const { character } = parseCharacter(
+      '---\ntype: character\nfeats:\n' +
+        "  - { name: Sharpshooter, text: 'Ignore long range and half cover.' }\n" +
+        '  - { name: Alert }\n' +
+        '---\n',
+    )
+    expect(character.feats).toEqual([
+      { name: 'Sharpshooter', text: 'Ignore long range and half cover.' },
+      { name: 'Alert' },
+    ])
+  })
+
+  it('keeps hand-written bare strings and drops blanks', () => {
+    const { character } = parseCharacter(
+      '---\ntype: character\nfeats:\n  - Lucky\n  - "  "\n  - { name: "  " }\n---\n',
+    )
+    expect(character.feats).toEqual([{ name: 'Lucky' }])
+  })
+
+  it('defaults to no feats when the field is missing or junk', () => {
+    expect(
+      parseCharacter('---\ntype: character\n---\n').character.feats,
+    ).toEqual([])
+    expect(
+      parseCharacter('---\ntype: character\nfeats: nope\n---\n').character
+        .feats,
+    ).toEqual([])
+  })
+
+  it('keeps feats and traits independent', () => {
+    const { character } = parseCharacter(
+      '---\ntype: character\ntraits:\n  - Darkvision\nfeats:\n  - Alert\n---\n',
+    )
+    expect(character.traits).toEqual([{ name: 'Darkvision' }])
+    expect(character.feats).toEqual([{ name: 'Alert' }])
+  })
+})
+
+describe('other proficiencies', () => {
+  it('reads all four lists as free text', () => {
+    const { character } = parseCharacter(
+      '---\ntype: character\n' +
+        'armor: [light, shields]\n' +
+        'weapons: [martial, Longsword]\n' +
+        "tools: [\"Smith's tools\", Dice set]\n" +
+        'languages: [Common, Dwarvish]\n' +
+        '---\n',
+    )
+    expect(character.armor).toEqual(['light', 'shields'])
+    expect(character.weapons).toEqual(['martial', 'Longsword'])
+    expect(character.tools).toEqual(["Smith's tools", 'Dice set'])
+    expect(character.languages).toEqual(['Common', 'Dwarvish'])
+  })
+
+  it('keeps unknown values instead of dropping them like skills do', () => {
+    // Homebrew and individually granted weapons must survive a hand edit — a
+    // closed vocabulary here would silently delete the user's own data.
+    const { character } = parseCharacter(
+      '---\ntype: character\narmor: [mithral plate]\nweapons: [gythka]\n---\n',
+    )
+    expect(character.armor).toEqual(['mithral plate'])
+    expect(character.weapons).toEqual(['gythka'])
+  })
+
+  it('trims and drops blank hand-typed entries', () => {
+    const { character } = parseCharacter(
+      '---\ntype: character\ntools: ["  Lute  ", "   ", ""]\n---\n',
+    )
+    expect(character.tools).toEqual(['Lute'])
+  })
+
+  it('drops non-string entries', () => {
+    const { character } = parseCharacter(
+      '---\ntype: character\nlanguages: [Common, 5, null, { name: Elvish }]\n---\n',
+    )
+    expect(character.languages).toEqual(['Common'])
+  })
+
+  it('defaults to empty when the fields are missing or junk', () => {
+    const bare = parseCharacter('---\ntype: character\n---\n').character
+    expect(bare.armor).toEqual([])
+    expect(bare.weapons).toEqual([])
+    expect(bare.tools).toEqual([])
+    expect(bare.languages).toEqual([])
+    const junk = parseCharacter(
+      '---\ntype: character\narmor: nope\ntools: 7\nlanguages: {}\n---\n',
+    ).character
+    expect(junk.armor).toEqual([])
+    expect(junk.tools).toEqual([])
+    expect(junk.languages).toEqual([])
+  })
+
+  it('keeps the four lists independent', () => {
+    const { character } = parseCharacter(
+      '---\ntype: character\narmor: [heavy]\nlanguages: [Orc]\n---\n',
+    )
+    expect(character.armor).toEqual(['heavy'])
+    expect(character.weapons).toEqual([])
+    expect(character.tools).toEqual([])
+    expect(character.languages).toEqual(['Orc'])
+  })
+
+  it('labels known tokens and passes free text through', () => {
+    expect(proficiencyLabel('light')).toBe('Light armor')
+    expect(proficiencyLabel('MARTIAL')).toBe('Martial weapons')
+    expect(proficiencyLabel('fire')).toBe('Fire')
+    expect(proficiencyLabel('frightened')).toBe('Frightened')
+    expect(proficiencyLabel('Mithral plate')).toBe('Mithral plate')
+  })
+
+  it('reports whether anything is set', () => {
+    expect(hasOtherProficiencies(emptyCharacter())).toBe(false)
+    expect(hasOtherProficiencies(sample())).toBe(true)
+    expect(
+      hasOtherProficiencies({ ...emptyCharacter(), languages: ['Common'] }),
+    ).toBe(true)
+  })
+
+  it('serializes the lists between the skill proficiencies and ac', () => {
+    const yaml = serializeCharacter(sample(), '')
+    expect(yaml.indexOf('expertise:')).toBeLessThan(yaml.indexOf('armor:'))
+    expect(yaml.indexOf('languages:')).toBeLessThan(yaml.indexOf('ac:'))
+  })
+})
+
+describe('defenses', () => {
+  it('reads the three damage lists and condition immunities', () => {
+    const { character } = parseCharacter(
+      '---\ntype: character\n' +
+        'resistances: [cold, nonmagical bludgeoning]\n' +
+        'immunities: [poison]\n' +
+        'vulnerabilities: [fire]\n' +
+        'conditionImmunities: [charmed, frightened]\n' +
+        '---\n',
+    )
+    expect(character.resistances).toEqual(['cold', 'nonmagical bludgeoning'])
+    expect(character.immunities).toEqual(['poison'])
+    expect(character.vulnerabilities).toEqual(['fire'])
+    expect(character.conditionImmunities).toEqual(['charmed', 'frightened'])
+  })
+
+  it('defaults to empty when the fields are missing or junk', () => {
+    const bare = parseCharacter('---\ntype: character\n---\n').character
+    expect(bare.resistances).toEqual([])
+    expect(bare.immunities).toEqual([])
+    expect(bare.vulnerabilities).toEqual([])
+    expect(bare.conditionImmunities).toEqual([])
+    expect(
+      parseCharacter('---\ntype: character\nresistances: nope\n---\n').character
+        .resistances,
+    ).toEqual([])
+  })
+
+  it('reports where a damage type currently sits', () => {
+    const c = sample()
+    expect(damageStance(c, 'cold')).toBe('resistant')
+    expect(damageStance(c, 'poison')).toBe('immune')
+    expect(damageStance(c, 'fire')).toBe('vulnerable')
+    expect(damageStance(c, 'acid')).toBe('none')
+  })
+
+  it('cycles none -> resistant -> immune -> vulnerable -> none', () => {
+    let c = emptyCharacter()
+    const step = () => {
+      c = { ...c, ...cycleDamage(c, 'fire') }
+      return damageStance(c, 'fire')
+    }
+    expect(step()).toBe('resistant')
+    expect(step()).toBe('immune')
+    expect(step()).toBe('vulnerable')
+    expect(step()).toBe('none')
+  })
+
+  it('never leaves a damage type in two lists at once', () => {
+    let c = emptyCharacter()
+    for (let i = 0; i < 5; i++) {
+      c = { ...c, ...cycleDamage(c, 'fire') }
+      const listed = [c.resistances, c.immunities, c.vulnerabilities].filter(
+        (list) => list.includes('fire'),
+      )
+      expect(listed.length).toBeLessThanOrEqual(1)
+    }
+  })
+
+  it('leaves the other damage types alone when cycling one', () => {
+    const c = { ...emptyCharacter(), resistances: ['cold'] }
+    const next = { ...c, ...cycleDamage(c, 'fire') }
+    expect(next.resistances).toEqual(['cold', 'fire'])
+    const off = { ...next, ...cycleDamage(next, 'fire') }
+    expect(off.resistances).toEqual(['cold'])
+    expect(off.immunities).toEqual(['fire'])
+  })
+
+  it('reports whether any defense is set', () => {
+    expect(hasDefenses(emptyCharacter())).toBe(false)
+    expect(hasDefenses(sample())).toBe(true)
+    expect(
+      hasDefenses({ ...emptyCharacter(), conditionImmunities: ['prone'] }),
+    ).toBe(true)
+  })
+})
+
+describe('back-compat with sheets written before these fields existed', () => {
+  it('round-trips an old character without losing anything', () => {
+    const old = '---\ntype: character\nclass: Bard\nlevel: 2\n---\n\nProse.'
+    const { character, body } = parseCharacter(old)
+    const again = parseCharacter(serializeCharacter(character, body))
+    expect(again.character).toEqual(character)
+    expect(again.body).toBe('Prose.')
+  })
+})
+
+describe('class features', () => {
+  it('reads level, name and optional text', () => {
+    const { character } = parseCharacter(
+      '---\ntype: character\nclass: Rogue\nlevel: 3\nfeatures:\n' +
+        "  - { level: 2, name: Cunning Action, text: 'Dash, Disengage or Hide as a bonus action.' }\n" +
+        '  - { level: 3, name: "Thief: Fast Hands" }\n' +
+        '---\n',
+    )
+    expect(character.features).toEqual([
+      {
+        level: 2,
+        name: 'Cunning Action',
+        text: 'Dash, Disengage or Hide as a bonus action.',
+      },
+      { level: 3, name: 'Thief: Fast Hands' },
+    ])
+  })
+
+  it('keeps a hand-written bare string as a level 1 feature', () => {
+    const { character } = parseCharacter(
+      '---\ntype: character\nfeatures:\n  - Sneak Attack\n  - "  "\n---\n',
+    )
+    expect(character.features).toEqual([{ level: 1, name: 'Sneak Attack' }])
+  })
+
+  it('clamps out-of-range levels and drops nameless rows', () => {
+    const { character } = parseCharacter(
+      '---\ntype: character\nfeatures:\n' +
+        '  - { level: 99, name: Too High }\n' +
+        '  - { level: 0, name: Too Low }\n' +
+        '  - { level: 3 }\n' +
+        '  - { level: 4, name: "   " }\n' +
+        '---\n',
+    )
+    expect(character.features).toEqual([
+      { level: 20, name: 'Too High' },
+      { level: 1, name: 'Too Low' },
+    ])
+  })
+
+  it('omits empty text rather than writing an empty string', () => {
+    const { character } = parseCharacter(
+      '---\ntype: character\nfeatures:\n' +
+        '  - { level: 1, name: Bare, text: "   " }\n---\n',
+    )
+    expect(character.features[0].text).toBeUndefined()
+  })
+
+  it('sorts by level then name', () => {
+    expect(
+      sortedFeatures([
+        { level: 3, name: 'Steady Aim' },
+        { level: 1, name: 'Sneak Attack' },
+        { level: 3, name: 'Fast Hands' },
+      ]),
+    ).toEqual([
+      { level: 1, name: 'Sneak Attack' },
+      { level: 3, name: 'Fast Hands' },
+      { level: 3, name: 'Steady Aim' },
+    ])
+  })
+
+  it('leaves the input array untouched when sorting', () => {
+    const input = [
+      { level: 3, name: 'Later' },
+      { level: 1, name: 'Earlier' },
+    ]
+    sortedFeatures(input)
+    expect(input[0].name).toBe('Later')
   })
 })
 

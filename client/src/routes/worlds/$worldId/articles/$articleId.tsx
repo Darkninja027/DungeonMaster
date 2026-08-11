@@ -1,4 +1,4 @@
-import { useDeferredValue, useEffect, useRef, useState } from 'react'
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
@@ -14,7 +14,7 @@ import {
   Wand2,
 } from 'lucide-react'
 import { api } from '#/lib/api'
-import { isCharacterContent } from '#/lib/character'
+import { isCharacterContent, parseCharacter } from '#/lib/character'
 import { useShortcut } from '#/lib/useShortcut'
 import type { RollSource } from '#/lib/rollLog'
 import { exportPdf } from '#/lib/exportPdf'
@@ -37,6 +37,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '#/components/ui/tabs'
 import { Textarea } from '#/components/ui/textarea'
 import { cn } from '#/lib/utils'
 import { BookView } from '#/components/Markdown'
+import { SheetPreview } from '#/components/character/SheetPreview'
 import { ImagePickerDialog } from '#/components/ImagePickerDialog'
 import { HowToDialog } from '#/components/HowToDialog'
 import { CreateMissingArticleDialog } from '#/components/CreateMissingArticleDialog'
@@ -268,6 +269,14 @@ function ArticlePage() {
     ? { worldId, articleId: article.data.id, title: article.data.title }
     : undefined
 
+  // Characters preview as a parchment sheet rather than as prose, since all
+  // their data lives in the frontmatter that BookView deliberately strips.
+  const isCharacter = isCharacterContent(content)
+  const parsedCharacter = useMemo(
+    () => (isCharacter ? parseCharacter(content) : null),
+    [isCharacter, content],
+  )
+
   const insertAtCursor = (snippet: string) => {
     const textarea = textareaRef.current
     setContent((prev) => {
@@ -431,7 +440,7 @@ function ArticlePage() {
           {save.error.message}
         </p>
       )}
-      {isCharacterContent(content) && (
+      {isCharacter && (
         <div className="bg-accent/40 flex items-center gap-2 border-b px-4 py-1 text-sm">
           <span>This is a character — the frontmatter is its sheet data.</span>
           <Button variant="outline" size="sm" className="h-6 text-xs" asChild>
@@ -579,7 +588,18 @@ function ArticlePage() {
           className="min-h-0 flex-1 overflow-y-auto bg-stone-800/90 dark:bg-stone-950"
         >
           <div className="print-area p-6 md:p-10">
-            {content.trim() ? (
+            {!content.trim() ? (
+              <p className="text-stone-400">Nothing to preview yet.</p>
+            ) : parsedCharacter ? (
+              <SheetPreview
+                character={parsedCharacter.character}
+                body={parsedCharacter.body}
+                title={title}
+                source={rollSource ?? { worldId, articleId, title }}
+                worldId={worldId}
+                articles={tree.data?.articles}
+              />
+            ) : (
               <BookView
                 articles={tree.data?.articles}
                 worldId={worldId}
@@ -588,8 +608,6 @@ function ArticlePage() {
               >
                 {content}
               </BookView>
-            ) : (
-              <p className="text-stone-400">Nothing to preview yet.</p>
             )}
           </div>
         </TabsContent>

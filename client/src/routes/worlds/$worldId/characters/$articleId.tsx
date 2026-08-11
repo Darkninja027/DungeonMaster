@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { FileText, Save, Trash2 } from 'lucide-react'
+import { Eye, FileDown, FileText, Loader2, Save, Trash2 } from 'lucide-react'
 import { api } from '#/lib/api'
 import { parseCharacter, serializeCharacter } from '#/lib/character'
 import type { Character } from '#/lib/character'
+import { exportPdf } from '#/lib/exportPdf'
 import { useShortcut } from '#/lib/useShortcut'
 import type { RollSource } from '#/lib/rollLog'
 import { Button } from '#/components/ui/button'
@@ -15,7 +16,9 @@ import { NumField } from '#/components/character/NumField'
 import { SheetTab } from '#/components/character/SheetTab'
 import { InventoryTab } from '#/components/character/InventoryTab'
 import { EquipmentTab } from '#/components/character/EquipmentTab'
+import { FeaturesTab } from '#/components/character/FeaturesTab'
 import { NotesTab } from '#/components/character/NotesTab'
+import { SheetFitPane, SheetPreview } from '#/components/character/SheetPreview'
 import { CreateMissingArticleDialog } from '#/components/CreateMissingArticleDialog'
 
 export const Route = createFileRoute('/worlds/$worldId/characters/$articleId')({
@@ -42,6 +45,9 @@ function CharacterPage() {
   const [dirty, setDirty] = useState(false)
   // Broken [[link]] clicked in inventory/notes -> offer to create the article.
   const [missingTitle, setMissingTitle] = useState<string | null>(null)
+  // Controlled so Export PDF can switch to the preview before capturing it.
+  const [tab, setTab] = useState('sheet')
+  const [exporting, setExporting] = useState(false)
 
   // Same guarded reset as the article editor: only load fresh state when a
   // different character arrives or nothing is unsaved.
@@ -188,6 +194,30 @@ function CharacterPage() {
             </Link>
           </Button>
           <Button
+            variant="outline"
+            size="icon"
+            className="size-8"
+            title="Export the character sheet as PDF"
+            disabled={exporting}
+            onClick={async () => {
+              setTab('preview')
+              setExporting(true)
+              try {
+                // let the preview tab mount and paint before capturing
+                await new Promise((r) =>
+                  requestAnimationFrame(() => requestAnimationFrame(r)),
+                )
+                const area = document.querySelector<HTMLElement>('.print-area')
+                if (area)
+                  await exportPdf(area, `${title.trim() || 'character'}.pdf`)
+              } finally {
+                setExporting(false)
+              }
+            }}
+          >
+            {exporting ? <Loader2 className="animate-spin" /> : <FileDown />}
+          </Button>
+          <Button
             size="sm"
             disabled={!dirty || !title.trim() || save.isPending}
             onClick={() => save.mutate()}
@@ -215,7 +245,7 @@ function CharacterPage() {
         </p>
       )}
 
-      <Tabs defaultValue="sheet" className="min-h-0 flex-1 gap-0">
+      <Tabs value={tab} onValueChange={setTab} className="min-h-0 flex-1 gap-0">
         <div className="border-b px-4 py-1.5">
           <TabsList className="h-8">
             <TabsTrigger value="sheet" className="text-xs">
@@ -227,11 +257,17 @@ function CharacterPage() {
             <TabsTrigger value="equipment" className="text-xs">
               Equipment
             </TabsTrigger>
+            <TabsTrigger value="features" className="text-xs">
+              Features ({character.features.length})
+            </TabsTrigger>
             <TabsTrigger value="notes" className="text-xs">
               Notes ({character.notes.length})
             </TabsTrigger>
             <TabsTrigger value="backstory" className="text-xs">
               Backstory
+            </TabsTrigger>
+            <TabsTrigger value="preview" className="text-xs">
+              <Eye className="size-3.5" /> Preview
             </TabsTrigger>
           </TabsList>
         </div>
@@ -262,6 +298,12 @@ function CharacterPage() {
         >
           <EquipmentTab character={character} onChange={update} />
         </TabsContent>
+        <TabsContent
+          value="features"
+          className="min-h-0 flex-1 overflow-y-auto"
+        >
+          <FeaturesTab character={character} onChange={update} />
+        </TabsContent>
         <TabsContent value="notes" className="min-h-0 flex-1 overflow-y-auto">
           <NotesTab
             character={character}
@@ -281,6 +323,25 @@ function CharacterPage() {
               setDirty(true)
             }}
           />
+        </TabsContent>
+        <TabsContent
+          value="preview"
+          className="min-h-0 flex-1 overflow-y-auto bg-stone-800/90 dark:bg-stone-950"
+        >
+          {/* .print-area sits outside the zoom wrapper so browser Ctrl+P
+              doesn't inherit the scale; exportPdf finds .dnd-page either way. */}
+          <div className="print-area">
+            <SheetFitPane>
+              <SheetPreview
+                character={character}
+                body={body}
+                title={title}
+                source={source}
+                worldId={worldId}
+                articles={tree.data?.articles}
+              />
+            </SheetFitPane>
+          </div>
         </TabsContent>
       </Tabs>
 

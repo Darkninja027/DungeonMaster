@@ -698,6 +698,450 @@ a {
   margin-bottom: 0;
 }
 
+/* --- Character sheet preview (see character/SheetPreview.tsx) ---------------
+   A classic 5e sheet drawn in the book's own vocabulary. Everything is nested
+   under .dnd-page because that is where --dnd-red/gold/ink/green are declared,
+   and the boxes centre their contents rather than relying on exact line-height
+   math so a missing webfont degrades instead of clipping. */
+
+.dnd-page .dnd-cs {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  font-size: 13px;
+  line-height: 1.35;
+}
+/* The clip boundary we control: an overflowing column can never push the
+   banner off the sheet or bleed into the page padding. */
+.dnd-page .dnd-cs-body {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.dnd-page .dnd-cs-body-split {
+  display: grid;
+  grid-template-columns: 168px 1fr;
+  column-gap: 20px;
+}
+.dnd-page .dnd-cs-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+}
+
+/* Banner */
+.dnd-page .dnd-cs-banner {
+  border-bottom: 2px solid var(--dnd-gold);
+  padding-bottom: 6px;
+  flex: 0 0 auto;
+}
+.dnd-page .dnd-cs-name {
+  font-family: 'Cinzel', serif;
+  font-weight: 700;
+  font-size: 30px;
+  line-height: 1.1;
+  color: var(--dnd-red);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dnd-page .dnd-cs-name-sm {
+  font-size: 21px;
+}
+.dnd-page .dnd-cs-sub {
+  font-size: 13px;
+  font-variant: small-caps;
+  letter-spacing: 0.03em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-top: 2px;
+}
+.dnd-page .dnd-cs-sub-sep {
+  color: var(--dnd-gold);
+  margin: 0 0.5em;
+}
+
+/* Generic gold box + section cap — the workhorse pair */
+.dnd-page .dnd-cs-box {
+  border: 1px solid var(--dnd-gold);
+  border-radius: 4px;
+  background: color-mix(in oklab, var(--dnd-green) 30%, white);
+  padding: 5px 8px;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.dnd-page .dnd-cs-cap {
+  font-family: 'Cinzel', serif;
+  font-size: 9.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--dnd-red);
+  border-bottom: 1px solid var(--dnd-gold);
+  margin-bottom: 4px;
+  padding-bottom: 2px;
+  flex: 0 0 auto;
+}
+.dnd-page .dnd-cs-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Left rail: the gap absorbs the modifier oval overhanging each box */
+.dnd-page .dnd-cs-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-height: 0;
+}
+.dnd-page .dnd-cs-ability {
+  flex: 0 0 auto;
+  height: 100px;
+  border: 2px solid var(--dnd-gold);
+  border-radius: 8px;
+  background: color-mix(in oklab, var(--dnd-green) 35%, white);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding-bottom: 8px;
+  position: relative;
+}
+.dnd-page .dnd-cs-ability-name {
+  font-family: 'Cinzel', serif;
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--dnd-red);
+}
+.dnd-page .dnd-cs-ability-score {
+  font-family: 'Cinzel', serif;
+  font-size: 36px;
+  line-height: 1;
+  color: var(--dnd-ink);
+}
+/* The modifier oval straddles the bottom border, as on the printed sheet */
+.dnd-page .dnd-cs-ability-mod {
+  position: absolute;
+  bottom: -13px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 54px;
+  height: 26px;
+  border: 2px solid var(--dnd-gold);
+  border-radius: 13px;
+  background: #f7efdd;
+  font-family: 'Cinzel', serif;
+  font-size: 15px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+}
+
+/* AC shield — clip-path, no SVG and no asset */
+.dnd-page .dnd-cs-shield {
+  background: var(--dnd-gold);
+  clip-path: polygon(50% 0, 100% 12%, 100% 62%, 50% 100%, 0 62%, 0 12%);
+  padding: 3px;
+  height: 100%;
+}
+.dnd-page .dnd-cs-shield-inner {
+  width: 100%;
+  height: 100%;
+  background: color-mix(in oklab, var(--dnd-green) 30%, white);
+  clip-path: polygon(50% 0, 100% 12%, 100% 62%, 50% 100%, 0 62%, 0 12%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding-bottom: 8px;
+}
+.dnd-page .dnd-cs-shield-value {
+  font-family: 'Cinzel', serif;
+  font-size: 28px;
+  line-height: 1;
+  color: var(--dnd-ink);
+}
+
+/* Stat box: Initiative / Speed / Proficiency / Passive Perception */
+.dnd-page .dnd-cs-stat {
+  border: 1px solid var(--dnd-gold);
+  border-radius: 4px;
+  background: color-mix(in oklab, var(--dnd-green) 30%, white);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 4px;
+  overflow: hidden;
+}
+.dnd-page .dnd-cs-stat-value {
+  font-family: 'Cinzel', serif;
+  font-size: 22px;
+  line-height: 1;
+}
+.dnd-page .dnd-cs-stat-label {
+  font-size: 8.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--dnd-red);
+  text-align: center;
+  line-height: 1.2;
+}
+.dnd-page .dnd-cs-stat-note {
+  font-size: 9px;
+  opacity: 0.7;
+}
+
+/* HP box — the red cap echoes the stat block's top border */
+.dnd-page .dnd-cs-hp {
+  border: 1px solid var(--dnd-gold);
+  border-top: 4px solid var(--dnd-red);
+  border-radius: 4px;
+  background: color-mix(in oklab, var(--dnd-green) 30%, white);
+  padding: 5px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  overflow: hidden;
+}
+.dnd-page .dnd-cs-hp-current {
+  font-family: 'Cinzel', serif;
+  font-size: 32px;
+  line-height: 1;
+  color: var(--dnd-red);
+}
+/* Temp HP: same box, muted cap so it reads as the secondary pool */
+.dnd-page .dnd-cs-hp-temp {
+  align-items: center;
+  border-top-color: var(--dnd-gold);
+}
+.dnd-page .dnd-cs-hp-tempvalue {
+  font-family: 'Cinzel', serif;
+  font-size: 26px;
+  line-height: 1;
+  flex: 1;
+  display: flex;
+  align-items: center;
+}
+
+/* Proficiency dot: none / proficient / expertise */
+.dnd-page .dnd-cs-dot {
+  width: 9px;
+  height: 9px;
+  flex: 0 0 9px;
+  border-radius: 50%;
+  border: 1.5px solid var(--dnd-red);
+  background: transparent;
+  box-sizing: border-box;
+}
+.dnd-page .dnd-cs-dot-prof {
+  background: var(--dnd-red);
+}
+.dnd-page .dnd-cs-dot-exp {
+  background: var(--dnd-red);
+  outline: 1.5px solid var(--dnd-red);
+  outline-offset: 1.5px;
+}
+
+/* One skill / saving-throw line */
+.dnd-page .dnd-cs-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  font-size: 12.5px;
+  border-bottom: 1px dotted
+    color-mix(in oklab, var(--dnd-gold) 70%, transparent);
+}
+/* The trailing rule would push the last row past a fixed-height box */
+.dnd-page .dnd-cs-row:last-child {
+  border-bottom: none;
+}
+.dnd-page .dnd-cs-row-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dnd-page .dnd-cs-row-abil {
+  font-size: 8.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.6;
+  flex: 0 0 auto;
+}
+.dnd-page .dnd-cs-row-bonus {
+  font-family: 'Cinzel', serif;
+  font-size: 13px;
+  min-width: 26px;
+  text-align: right;
+  flex: 0 0 auto;
+}
+
+/* Two-column lists (skills, spells, inventory) inside a fixed box */
+.dnd-page .dnd-cs-2col {
+  column-count: 2;
+  column-gap: 24px;
+  min-height: 0;
+  overflow: hidden;
+}
+.dnd-page .dnd-cs-2col > * {
+  break-inside: avoid;
+}
+
+/* Static pips: death saves, spell slots */
+.dnd-page .dnd-cs-pips {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+}
+.dnd-page .dnd-cs-pip {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  border: 1.5px solid var(--dnd-ink);
+  display: inline-block;
+  box-sizing: border-box;
+}
+.dnd-page .dnd-cs-pip-used {
+  background: var(--dnd-red);
+}
+.dnd-page .dnd-cs-pip-fail {
+  background: #7a1010;
+}
+.dnd-page .dnd-cs-pip-ok {
+  background: #35601f;
+}
+
+/* Class features: name + optional rules text, grouped under a level cap */
+.dnd-page .dnd-cs-feature {
+  break-inside: avoid;
+  margin-bottom: 7px;
+}
+/* Keep a level heading with its first feature across the column break —
+   the JS paginator guards page boundaries, this guards column ones. */
+.dnd-page .dnd-cs-2col > .dnd-cs-cap {
+  break-after: avoid;
+  break-inside: avoid;
+}
+.dnd-page .dnd-cs-feature-name {
+  font-family: 'Cinzel', serif;
+  font-size: 12px;
+  color: var(--dnd-red);
+  line-height: 1.3;
+}
+.dnd-page .dnd-cs-feature-text {
+  font-size: 11px;
+  line-height: 1.35;
+  text-align: justify;
+  /* A justified last line would stretch a short one ("3rd Level: Bane") across
+     the whole column, which looks broken in a hand-typed list. */
+  text-align-last: start;
+  hyphens: auto;
+}
+/* Paragraphs inside a description sit tight and don't re-indent */
+.dnd-page .dnd-cs-feature-text p {
+  margin: 0 0 0.3em;
+  text-indent: 0;
+}
+.dnd-page .dnd-cs-feature-text p:last-child {
+  margin-bottom: 0;
+}
+/* A bulleted description keeps its markers inside the column */
+.dnd-page .dnd-cs-feature-text ul,
+.dnd-page .dnd-cs-feature-text ol {
+  margin: 0.15em 0;
+  padding-left: 1.1em;
+}
+/* Not yet gained — kept on the sheet so a build can be planned ahead */
+.dnd-page .dnd-cs-feature-future {
+  opacity: 0.45;
+}
+.dnd-page .dnd-cs-feature-future .dnd-cs-feature-name {
+  font-style: italic;
+}
+
+/* Spell level badge */
+.dnd-page .dnd-cs-lvl {
+  flex: 0 0 20px;
+  text-align: center;
+  font-family: 'Cinzel', serif;
+  font-size: 10px;
+  color: var(--dnd-red);
+  border: 1px solid var(--dnd-gold);
+  border-radius: 3px;
+  line-height: 1.5;
+}
+
+/* Attacks table: the page table look, tightened */
+.dnd-page table.dnd-cs-attacks {
+  margin: 0;
+  font-size: 12.5px;
+  table-layout: fixed;
+}
+.dnd-page table.dnd-cs-attacks th,
+.dnd-page table.dnd-cs-attacks td {
+  padding: 2px 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dnd-page .dnd-cs-truncated {
+  font-style: italic;
+  font-size: 11px;
+  opacity: 0.75;
+  padding-top: 3px;
+}
+
+/* Chips are interactive-only and get filtered out of the PDF by class, so the
+   number they sit beside is always plain text and the slot is fixed-width —
+   dropping the chip must not reflow the row. The margin reset overrides the
+   block-level .dnd-page .dnd-roll-bar rule further down this file. */
+.dnd-page .dnd-cs .dnd-roll-bar {
+  display: inline-flex;
+  margin: 0;
+  vertical-align: middle;
+  flex: 0 0 auto;
+}
+.dnd-page .dnd-cs-chip {
+  font-family: inherit;
+  font-size: 10px;
+  line-height: 1;
+  color: var(--dnd-red);
+  background: rgba(88, 24, 13, 0.08);
+  border: 1px solid var(--dnd-gold);
+  border-radius: 4px;
+  padding: 2px 4px;
+  cursor: pointer;
+}
+.dnd-page .dnd-cs-chip:hover {
+  background: rgba(88, 24, 13, 0.18);
+}
+/* Inert dashed text for unresolved wiki links, matching WikiText */
+.dnd-page .dnd-cs-link {
+  color: var(--dnd-red);
+  text-decoration: underline;
+  text-decoration-color: var(--dnd-gold);
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  cursor: pointer;
+}
+
 .dnd-page code {
   font-size: 0.9em;
   background: rgba(88, 24, 13, 0.08);

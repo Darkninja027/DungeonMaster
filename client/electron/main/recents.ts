@@ -10,13 +10,28 @@ function configPath(): string {
   return path.join(app.getPath('userData'), 'config.json')
 }
 
+// config.json is a plain file users (and older builds) can hand-edit, so an
+// entry may not be the bare path string we write. Salvage what we can and drop
+// the rest — one bad row must not take down the whole recents list.
+function normalizeRecent(entry: unknown): string | null {
+  if (typeof entry === 'string') return entry
+  if (entry && typeof entry === 'object') {
+    const legacy = (entry as { path?: unknown }).path
+    if (typeof legacy === 'string') return legacy
+  }
+  return null
+}
+
 export function readConfig(): Config {
   try {
-    const raw = JSON.parse(
-      fs.readFileSync(configPath(), 'utf8'),
-    ) as Partial<Config>
+    const raw = JSON.parse(fs.readFileSync(configPath(), 'utf8')) as {
+      recentWorlds?: unknown
+    }
+    const entries = Array.isArray(raw.recentWorlds) ? raw.recentWorlds : []
     return {
-      recentWorlds: Array.isArray(raw.recentWorlds) ? raw.recentWorlds : [],
+      recentWorlds: entries
+        .map(normalizeRecent)
+        .filter((p): p is string => p !== null),
     }
   } catch {
     return { recentWorlds: [] }

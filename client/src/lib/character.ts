@@ -42,6 +42,75 @@ export const SKILLS: Array<{ id: string; name: string; ability: Ability }> = [
   { id: 'survival', name: 'Survival', ability: 'wis' },
 ]
 
+/**
+ * Armor and weapon proficiency is a closed set in 5e, so these drive quick
+ * checkboxes in the editor. They are *not* a filter: classes and races also
+ * grant individual weapons ("longsword"), and homebrew grants anything at all.
+ * Dropping an unknown value would delete something hand-written in Obsidian.
+ */
+export const ARMOR_PROFICIENCIES: Array<{ id: string; name: string }> = [
+  { id: 'light', name: 'Light armor' },
+  { id: 'medium', name: 'Medium armor' },
+  { id: 'heavy', name: 'Heavy armor' },
+  { id: 'shields', name: 'Shields' },
+]
+
+export const WEAPON_CATEGORIES: Array<{ id: string; name: string }> = [
+  { id: 'simple', name: 'Simple weapons' },
+  { id: 'martial', name: 'Martial weapons' },
+]
+
+/** The 13 damage types, alphabetical as the rules list them. */
+export const DAMAGE_TYPES: Array<{ id: string; name: string }> = [
+  { id: 'acid', name: 'Acid' },
+  { id: 'bludgeoning', name: 'Bludgeoning' },
+  { id: 'cold', name: 'Cold' },
+  { id: 'fire', name: 'Fire' },
+  { id: 'force', name: 'Force' },
+  { id: 'lightning', name: 'Lightning' },
+  { id: 'necrotic', name: 'Necrotic' },
+  { id: 'piercing', name: 'Piercing' },
+  { id: 'poison', name: 'Poison' },
+  { id: 'psychic', name: 'Psychic' },
+  { id: 'radiant', name: 'Radiant' },
+  { id: 'slashing', name: 'Slashing' },
+  { id: 'thunder', name: 'Thunder' },
+]
+
+/** The 15 conditions a creature can be immune to. */
+export const CONDITIONS: Array<{ id: string; name: string }> = [
+  { id: 'blinded', name: 'Blinded' },
+  { id: 'charmed', name: 'Charmed' },
+  { id: 'deafened', name: 'Deafened' },
+  { id: 'exhaustion', name: 'Exhaustion' },
+  { id: 'frightened', name: 'Frightened' },
+  { id: 'grappled', name: 'Grappled' },
+  { id: 'incapacitated', name: 'Incapacitated' },
+  { id: 'invisible', name: 'Invisible' },
+  { id: 'paralyzed', name: 'Paralyzed' },
+  { id: 'petrified', name: 'Petrified' },
+  { id: 'poisoned', name: 'Poisoned' },
+  { id: 'prone', name: 'Prone' },
+  { id: 'restrained', name: 'Restrained' },
+  { id: 'stunned', name: 'Stunned' },
+  { id: 'unconscious', name: 'Unconscious' },
+]
+
+/**
+ * Display label for a stored token: "light" -> "Light armor". Anything not in a
+ * known set is free text the user typed, so it passes through untouched.
+ */
+export function proficiencyLabel(value: string): string {
+  const id = value.trim().toLowerCase()
+  const known = [
+    ...ARMOR_PROFICIENCIES,
+    ...WEAPON_CATEGORIES,
+    ...DAMAGE_TYPES,
+    ...CONDITIONS,
+  ].find((p) => p.id === id)
+  return known ? known.name : value
+}
+
 export interface Attack {
   name: string
   /** To-hit bonus, e.g. 9 renders a d20+9 chip. */
@@ -70,6 +139,36 @@ export interface CharacterNote {
   at: string // ISO date
   text: string
 }
+
+/**
+ * A class feature gained at a given level — "Cunning Action" at rogue 2, a
+ * subclass feature at 3. Features above the character's current level are kept
+ * (so you can plan a build ahead of time) and shown greyed out.
+ */
+export interface ClassFeature {
+  /** Character level this is gained at, 1-20. */
+  level: number
+  name: string
+  /** Optional rules text; [[wiki links]] and dice notation stay live. */
+  text?: string
+}
+
+/**
+ * A named entry with optional rules text, used for anything that isn't gained
+ * at a specific class level: racial traits (Darkvision, Lucky) and feats
+ * (Alert, Lucky, Sharpshooter). Both render as flat lists.
+ */
+export interface NamedEntry {
+  name: string
+  /** Optional rules text; [[wiki links]] and dice notation stay live. */
+  text?: string
+}
+
+/** A racial trait — Darkvision, Fey Ancestry, Halfling Nimbleness. */
+export type RacialTrait = NamedEntry
+
+/** A feat — Alert, Sharpshooter, War Caster. */
+export type Feat = NamedEntry
 
 /** The paper-doll slots, in the order the silhouette lays them out. */
 export const EQUIP_SLOTS = [
@@ -237,6 +336,21 @@ export interface Character {
   /** Proficient skill ids; `expertise` doubles proficiency. */
   skills: Array<string>
   expertise: Array<string>
+  /**
+   * Other proficiencies. Free text so homebrew and individually granted weapons
+   * survive; `ARMOR_PROFICIENCIES` / `WEAPON_CATEGORIES` are editor affordances,
+   * not filters. Known tokens store lowercase, free text keeps its own casing.
+   */
+  armor: Array<string>
+  weapons: Array<string>
+  tools: Array<string>
+  languages: Array<string>
+  /** Damage types by `DAMAGE_TYPES` id. A type belongs to at most one list. */
+  resistances: Array<string>
+  immunities: Array<string>
+  vulnerabilities: Array<string>
+  /** Conditions by `CONDITIONS` id. */
+  conditionImmunities: Array<string>
   ac: number
   /** Misc initiative bonus on top of the DEX modifier. */
   initiativeBonus: number
@@ -245,6 +359,12 @@ export interface Character {
   hitDice: { size: number; total: number; used: number }
   deathSaves: { success: number; fail: number }
   attacks: Array<Attack>
+  /** Racial traits, granted at creation and so not levelled. */
+  traits: Array<RacialTrait>
+  /** Feats taken via ASI or a variant-human start; not tied to a level. */
+  feats: Array<Feat>
+  /** Class/subclass features, each tagged with the level it's gained at. */
+  features: Array<ClassFeature>
   spellAbility: Ability | null
   /** Keyed by spell level 1-9. */
   spellSlots: Record<number, SpellSlots>
@@ -270,6 +390,14 @@ export function emptyCharacter(): Character {
     saves: [],
     skills: [],
     expertise: [],
+    armor: [],
+    weapons: [],
+    tools: [],
+    languages: [],
+    resistances: [],
+    immunities: [],
+    vulnerabilities: [],
+    conditionImmunities: [],
     ac: 10,
     initiativeBonus: 0,
     speed: 30,
@@ -277,6 +405,9 @@ export function emptyCharacter(): Character {
     hitDice: { size: 8, total: 1, used: 0 },
     deathSaves: { success: 0, fail: 0 },
     attacks: [],
+    traits: [],
+    feats: [],
+    features: [],
     spellAbility: null,
     spellSlots: {},
     spells: [],
@@ -322,6 +453,67 @@ export function initiativeBonus(c: Character): number {
 
 export function passivePerception(c: Character): number {
   return 10 + skillBonus(c, 'perception')
+}
+
+// --- Other proficiencies and defenses ---------------------------------------
+
+/** Where a damage type currently sits. A type is never in two lists at once. */
+export type DamageStance = 'none' | 'resistant' | 'immune' | 'vulnerable'
+
+export function damageStance(c: Character, id: string): DamageStance {
+  if (c.resistances.includes(id)) return 'resistant'
+  if (c.immunities.includes(id)) return 'immune'
+  if (c.vulnerabilities.includes(id)) return 'vulnerable'
+  return 'none'
+}
+
+/**
+ * Cycle a damage type none -> resistant -> immune -> vulnerable -> none. Lives
+ * here rather than in the component so the "never in two lists" invariant is
+ * unit-testable; returns a patch to spread over the character.
+ */
+export function cycleDamage(c: Character, id: string): Partial<Character> {
+  const next: DamageStance =
+    damageStance(c, id) === 'none'
+      ? 'resistant'
+      : damageStance(c, id) === 'resistant'
+        ? 'immune'
+        : damageStance(c, id) === 'immune'
+          ? 'vulnerable'
+          : 'none'
+  const without = (list: Array<string>) => list.filter((d) => d !== id)
+  return {
+    resistances:
+      next === 'resistant'
+        ? [...without(c.resistances), id]
+        : without(c.resistances),
+    immunities:
+      next === 'immune' ? [...without(c.immunities), id] : without(c.immunities),
+    vulnerabilities:
+      next === 'vulnerable'
+        ? [...without(c.vulnerabilities), id]
+        : without(c.vulnerabilities),
+  }
+}
+
+/** True when any of the four defensive lists is set. */
+export function hasDefenses(c: Character): boolean {
+  return (
+    c.resistances.length > 0 ||
+    c.immunities.length > 0 ||
+    c.vulnerabilities.length > 0 ||
+    c.conditionImmunities.length > 0
+  )
+}
+
+/** True when any of the four other-proficiency lists is set. */
+export function hasOtherProficiencies(c: Character): boolean {
+  return (
+    c.armor.length > 0 ||
+    c.weapons.length > 0 ||
+    c.tools.length > 0 ||
+    c.languages.length > 0
+  )
 }
 
 export function spellSaveDc(c: Character): number | null {
@@ -610,6 +802,15 @@ export function sortedSpells(spells: Array<Spell>): Array<Spell> {
   )
 }
 
+/** Features sorted for display: by level, then by name within a level. */
+export function sortedFeatures(
+  features: Array<ClassFeature>,
+): Array<ClassFeature> {
+  return [...features].sort(
+    (a, b) => a.level - b.level || a.name.localeCompare(b.name),
+  )
+}
+
 /** "+3" / "-1" — dice notation and display both want the sign. */
 export function signed(n: number): string {
   return n >= 0 ? `+${n}` : `${n}`
@@ -628,11 +829,39 @@ const str = (v: unknown, fallback: string): string =>
   typeof v === 'string' ? v : fallback
 const strList = (v: unknown): Array<string> =>
   Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []
+/**
+ * Free-text list field: trims and drops blanks. Unlike `skills`, these lists
+ * have no known vocabulary to filter against, so a blank hand-typed entry would
+ * otherwise reach the UI and the printed sheet as an empty row.
+ */
+const textList = (v: unknown): Array<string> =>
+  strList(v)
+    .map((s) => s.trim())
+    .filter(Boolean)
 
 function parseAbility(v: unknown): Ability | null {
   return typeof v === 'string' && (ABILITIES as readonly string[]).includes(v)
     ? (v as Ability)
     : null
+}
+
+/**
+ * Racial traits and feats share a shape: a name plus optional rules text. A
+ * bare string is accepted as a name-only entry, which is how people tend to
+ * jot them down by hand in Obsidian.
+ */
+function parseNamedEntries(list: Array<unknown>): Array<NamedEntry> {
+  return list.flatMap((raw): Array<NamedEntry> => {
+    if (typeof raw === 'string') {
+      return raw.trim() ? [{ name: raw.trim() }] : []
+    }
+    if (typeof raw !== 'object' || raw === null) return []
+    const e = raw as Record<string, unknown>
+    if (typeof e.name !== 'string' || !e.name.trim()) return []
+    const entry: NamedEntry = { name: e.name.trim() }
+    if (typeof e.text === 'string' && e.text.trim()) entry.text = e.text.trim()
+    return [entry]
+  })
 }
 
 // --- Inventory rows ---------------------------------------------------------
@@ -834,6 +1063,17 @@ export function parseCharacter(content: string): {
   c.skills = strList(r.skills).filter(knownSkill)
   c.expertise = strList(r.expertise).filter(knownSkill)
 
+  // Deliberately unfiltered, unlike skills above: an unrecognised entry is
+  // homebrew or an individually granted weapon, not a mistake to discard.
+  c.armor = textList(r.armor)
+  c.weapons = textList(r.weapons)
+  c.tools = textList(r.tools)
+  c.languages = textList(r.languages)
+  c.resistances = textList(r.resistances)
+  c.immunities = textList(r.immunities)
+  c.vulnerabilities = textList(r.vulnerabilities)
+  c.conditionImmunities = textList(r.conditionImmunities)
+
   c.ac = Math.max(0, num(r.ac, c.ac))
   c.initiativeBonus = num(r.initiativeBonus, c.initiativeBonus)
   c.speed = Math.max(0, num(r.speed, c.speed))
@@ -868,6 +1108,30 @@ export function parseCharacter(content: string): {
           damage: str(at.damage, ''),
         },
       ]
+    })
+  }
+
+  if (Array.isArray(r.traits)) c.traits = parseNamedEntries(r.traits)
+  if (Array.isArray(r.feats)) c.feats = parseNamedEntries(r.feats)
+
+  if (Array.isArray(r.features)) {
+    c.features = r.features.flatMap((entry): Array<ClassFeature> => {
+      // A bare string is a feature with no level yet — keep it at level 1
+      // rather than dropping something the user hand-wrote in Obsidian.
+      if (typeof entry === 'string') {
+        return entry.trim() ? [{ level: 1, name: entry.trim() }] : []
+      }
+      if (typeof entry !== 'object' || entry === null) return []
+      const f = entry as Record<string, unknown>
+      if (typeof f.name !== 'string' || !f.name.trim()) return []
+      const feature: ClassFeature = {
+        level: Math.max(1, Math.min(20, Math.floor(num(f.level, 1)))),
+        name: f.name.trim(),
+      }
+      if (typeof f.text === 'string' && f.text.trim()) {
+        feature.text = f.text.trim()
+      }
+      return [feature]
     })
   }
 
@@ -951,6 +1215,14 @@ export function serializeCharacter(character: Character, body: string): string {
     saves: character.saves,
     skills: character.skills,
     expertise: character.expertise,
+    armor: character.armor,
+    weapons: character.weapons,
+    tools: character.tools,
+    languages: character.languages,
+    resistances: character.resistances,
+    immunities: character.immunities,
+    vulnerabilities: character.vulnerabilities,
+    conditionImmunities: character.conditionImmunities,
     ac: character.ac,
     initiativeBonus: character.initiativeBonus,
     speed: character.speed,
@@ -958,6 +1230,9 @@ export function serializeCharacter(character: Character, body: string): string {
     hitDice: character.hitDice,
     deathSaves: character.deathSaves,
     attacks: character.attacks,
+    traits: character.traits,
+    feats: character.feats,
+    features: character.features,
     spellAbility: character.spellAbility,
     spellSlots: character.spellSlots,
     spells: character.spells,
