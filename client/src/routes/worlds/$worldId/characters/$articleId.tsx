@@ -3,8 +3,14 @@ import { Link, createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Eye, FileDown, FileText, Loader2, Save, Trash2 } from 'lucide-react'
 import { api } from '#/lib/api'
-import { parseCharacter, serializeCharacter } from '#/lib/character'
+import { parseCharacter, serializeCharacter, setLevel } from '#/lib/character'
 import type { Character } from '#/lib/character'
+import {
+  CLASSES,
+  findClass,
+  subclassLabelFor,
+  subclassesFor,
+} from '#/lib/classes'
 import { exportPdf } from '#/lib/exportPdf'
 import { useShortcut } from '#/lib/useShortcut'
 import type { RollSource } from '#/lib/rollLog'
@@ -146,12 +152,44 @@ function CharacterPage() {
           className="h-7 w-28 text-sm"
           onChange={(e) => update({ ...character, race: e.target.value })}
         />
+        {/* A datalist, not a <select>: the 12 PHB names are one click away but
+            homebrew classes stay typeable, which the on-disk format requires. */}
         <Input
+          list="dm-classes"
           value={character.class}
           placeholder="Class"
           className="h-7 w-28 text-sm"
-          onChange={(e) => update({ ...character, class: e.target.value })}
+          onChange={(e) => {
+            const value = e.target.value
+            const known = findClass(value)
+            update({
+              ...character,
+              class: value,
+              // Naming a known class sets its hit die; homebrew leaves whatever
+              // size the sheet already had.
+              hitDice: known
+                ? { ...character.hitDice, size: known.hitDie }
+                : character.hitDice,
+            })
+          }}
         />
+        <datalist id="dm-classes">
+          {CLASSES.map((cl) => (
+            <option key={cl.id} value={cl.name} />
+          ))}
+        </datalist>
+        <Input
+          list="dm-subclasses"
+          value={character.subclass}
+          placeholder={subclassLabelFor(character.class)}
+          className="h-7 w-36 text-sm"
+          onChange={(e) => update({ ...character, subclass: e.target.value })}
+        />
+        <datalist id="dm-subclasses">
+          {subclassesFor(character.class).map((name) => (
+            <option key={name} value={name} />
+          ))}
+        </datalist>
         <label className="flex items-center gap-1 text-sm">
           Lvl
           <NumField
@@ -159,7 +197,9 @@ function CharacterPage() {
             min={1}
             max={20}
             className="w-10"
-            onCommit={(v) => update({ ...character, level: v })}
+            // setLevel, not a bare assignment: hit dice follow the level unless
+            // the sheet has pinned them.
+            onCommit={(v) => update(setLevel(character, v))}
           />
         </label>
         <Input

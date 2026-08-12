@@ -10,6 +10,7 @@ import {
   carriedWeight,
   cyclePreparation,
   carryCapacity,
+  clampHitDie,
   coinWeight,
   cycleDamage,
   d20,
@@ -23,6 +24,7 @@ import {
   guessSlot,
   hasDefenses,
   hasOtherProficiencies,
+  hitDiceArePinned,
   initiativeBonus,
   inventoryItemName,
   isCharacterContent,
@@ -39,6 +41,7 @@ import {
   spellLevelFromContent,
   saveBonus,
   serializeCharacter,
+  setLevel,
   skillBonus,
   slotFor,
   sortedFeatures,
@@ -52,7 +55,11 @@ import {
 function sample() {
   const c = emptyCharacter()
   c.class = 'Ranger'
+  c.subclass = 'Hunter'
   c.level = 5
+  // Unpinned: a level 5 ranger has five d10s, so `total` is omitted on write
+  // and the round-trip covers the auto-tracking path.
+  c.hitDice = { size: 10, total: 5, used: 2 }
   c.abilities = { str: 10, dex: 18, con: 14, int: 12, wis: 16, cha: 8 }
   c.saves = ['dex', 'wis']
   c.skills = ['perception']
@@ -544,6 +551,117 @@ describe('back-compat with sheets written before these fields existed', () => {
     const again = parseCharacter(serializeCharacter(character, body))
     expect(again.character).toEqual(character)
     expect(again.body).toBe('Prose.')
+  })
+
+  it('leaves subclass blank rather than guessing one', () => {
+    const { character } = parseCharacter(
+      '---\ntype: character\nclass: Bard\nlevel: 2\n---\n',
+    )
+    expect(character.subclass).toBe('')
+  })
+
+  it('reads a pre-existing total of 1 on a levelled sheet as a pin', () => {
+    // Sheets written before the total tracked level all carry `total: 1`. On a
+    // level 5 character that reads as a deliberate pin, which is the safe way
+    // round: the sheet shows what it was saved with, and the editor offers a
+    // reset rather than silently rewriting someone's multiclass maths.
+    const { character } = parseCharacter(
+      '---\ntype: character\nclass: Bard\nlevel: 5\nhitDice: { size: 8, total: 1, used: 0 }\n---\n',
+    )
+    expect(character.hitDice.total).toBe(1)
+    expect(hitDiceArePinned(character)).toBe(true)
+    expect(setLevel(character, 6).hitDice.total).toBe(1)
+  })
+})
+
+describe('hit dice', () => {
+  it('defaults the total to the level when hitDice is missing entirely', () => {
+    const { character } = parseCharacter(
+      '---\ntype: character\nclass: Fighter\nlevel: 7\n---\n',
+    )
+    expect(character.hitDice.total).toBe(7)
+    expect(hitDiceArePinned(character)).toBe(false)
+  })
+
+  it('defaults the total to the level when hitDice omits it', () => {
+    const { character } = parseCharacter(
+      '---\ntype: character\nlevel: 4\nhitDice: { size: 10, used: 1 }\n---\n',
+    )
+    expect(character.hitDice).toEqual({ size: 10, total: 4, used: 1 })
+  })
+
+  it('omits a total that matches the level so it keeps tracking', () => {
+    const c = emptyCharacter()
+    c.level = 7
+    c.hitDice = { size: 10, total: 7, used: 2 }
+    const yaml = serializeCharacter(c, '')
+    expect(yaml).not.toMatch(/total:/)
+    // ...and levelling the *file* up without touching hitDice still tracks.
+    const { character } = parseCharacter(yaml.replace('level: 7', 'level: 9'))
+    expect(character.hitDice.total).toBe(9)
+    expect(character.hitDice.used).toBe(2)
+  })
+
+  it('keeps a total that differs from the level', () => {
+    const c = emptyCharacter()
+    c.level = 7
+    c.hitDice = { size: 10, total: 5, used: 0 }
+    const yaml = serializeCharacter(c, '')
+    expect(yaml).toMatch(/total: 5/)
+    expect(parseCharacter(yaml).character.hitDice.total).toBe(5)
+  })
+
+  it('clamps used to the pool and snaps a nonsense die size', () => {
+    const { character } = parseCharacter(
+      '---\ntype: character\nlevel: 3\nhitDice: { size: 7, total: 3, used: 99 }\n---\n',
+    )
+    expect(character.hitDice.size).toBe(6)
+    expect(character.hitDice.used).toBe(3)
+  })
+
+  it('snaps every hand-edited die size to a real die', () => {
+    expect(clampHitDie(10)).toBe(10)
+    expect(clampHitDie(7)).toBe(6)
+    expect(clampHitDie(9)).toBe(8)
+    expect(clampHitDie(0)).toBe(4)
+    expect(clampHitDie(-3)).toBe(4)
+    expect(clampHitDie(100)).toBe(20)
+    expect(clampHitDie(Number.NaN)).toBe(8)
+  })
+})
+
+describe('setLevel', () => {
+  it('carries an unpinned total up and down with the level', () => {
+    const c = emptyCharacter()
+    c.level = 3
+    c.hitDice = { size: 10, total: 3, used: 1 }
+    expect(setLevel(c, 8).hitDice.total).toBe(8)
+    expect(setLevel(c, 8).hitDice.used).toBe(1)
+  })
+
+  it('clamps spent dice when the level drops below them', () => {
+    const c = emptyCharacter()
+    c.level = 6
+    c.hitDice = { size: 8, total: 6, used: 5 }
+    const down = setLevel(c, 2)
+    expect(down.hitDice.total).toBe(2)
+    expect(down.hitDice.used).toBe(2)
+  })
+
+  it('leaves a pinned total alone', () => {
+    const c = emptyCharacter()
+    c.level = 6
+    c.hitDice = { size: 8, total: 4, used: 1 }
+    const up = setLevel(c, 9)
+    expect(up.level).toBe(9)
+    expect(up.hitDice).toEqual({ size: 8, total: 4, used: 1 })
+  })
+
+  it('clamps the level to 1-20', () => {
+    const c = emptyCharacter()
+    expect(setLevel(c, 0).level).toBe(1)
+    expect(setLevel(c, 99).level).toBe(20)
+    expect(setLevel(c, 99).hitDice.total).toBe(20)
   })
 })
 

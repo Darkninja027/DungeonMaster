@@ -90,18 +90,48 @@ export interface SheetPreviewProps {
 const ATTACK_ROWS = 8
 const SPELL_ROWS_FIRST = 54
 const SPELL_ROWS_REST = 74
-const GEAR_ROWS_FIRST = 56
+// The always-present Treasure box (~86px) moved off this page to page one's
+// left rail, freeing ceil(86 / 24) * 2 = 8 more half-rows on the first page.
+const GEAR_ROWS_FIRST = 64
 const GEAR_ROWS_REST = 74
 /**
- * The two optional boxes at the head of the gear page. Both hold four labelled
- * lines plus a cap, which measures 103px, so 120 seats that with room for one
- * line to wrap. The cap stops a very long list from shoving the Equipment box
- * past the clip; the height is charged back against GEAR_ROWS_FIRST at the same
+ * The optional box at the head of the gear page. It holds four labelled lines
+ * plus a cap, which measures 103px, so 120 seats that with room for one line to
+ * wrap. The cap stops a very long list from shoving the Equipment box past the
+ * clip; the height is charged back against GEAR_ROWS_FIRST at the same
  * (h / 24) * 2 rate as everything else — see gearPages below.
  */
 const PROF_BOX_HEIGHT = 120
-const DEFENSE_BOX_HEIGHT = 120
 const gearBoxCost = (height: number) => Math.ceil(height / 24) * 2
+
+/**
+ * The three boxes under the ability scores in page one's left rail.
+ *
+ * Measured in the running app, not derived: the body clips at 889px and the six
+ * ability boxes plus their gaps eat 690, leaving 199px, which the tightened rail
+ * gaps in styles.css bring to ~209px of usable box. .dnd-cs-body clips
+ * silently, so going over loses the bottom of the sheet with no error at all —
+ * re-measure (scrollHeight > clientHeight on .dnd-cs-body) after touching any of
+ * this.
+ *
+ * Passive (3 lines) and Treasure (5 coins, two-up) measure 58px at their natural
+ * height and are pinned there. Defenses is the variable one, so it takes the
+ * remainder; RailDefenses collapses its lists into one flowing paragraph rather
+ * than clipping any away when all four are populated.
+ */
+const RAIL_PASSIVE_HEIGHT = 58
+const RAIL_DEFENSE_HEIGHT = 61
+const RAIL_TREASURE_HEIGHT = 50
+
+/**
+ * The right column's two fixed boxes. Combat holds the tile row plus the hit
+ * dice / death saves footer; Skills & Saves holds the six saves three-across
+ * then eighteen skills in two columns (9 rows of 26px). AttacksTable takes
+ * whatever is left over as the column's only flexible block, so these two are
+ * what decide how much room it gets. Both measured against the rendered page.
+ */
+const COMBAT_HEIGHT = 150
+const SKILLS_HEIGHT = 396
 /**
  * Features are costed in text lines, not rows — see lib/sheetPages.ts. The
  * box measures 868px across two columns at ~14.85px a line, so ~116 lines
@@ -222,18 +252,101 @@ function AbilityBox({
   source: RollSource
 }) {
   const mod = abilityMod(c.abilities[ability])
+  const save = saveBonus(c, ability)
+  const proficient = c.saves.includes(ability)
   return (
     <div className="dnd-cs-ability">
       <div className="dnd-cs-ability-name">{ABILITY_NAMES[ability]}</div>
       <div className="dnd-cs-ability-score">{c.abilities[ability]}</div>
+      {/* One badge carrying both d20 bonuses this ability grants: the check
+          modifier and the saving throw, split by a hairline. The save lives here
+          rather than in a box across the page, beside the score it keys off. */}
+      {/* Each half is itself the roll target — a d20 chip beside both numbers
+          made the badge unreadable at this size, and the halves are already
+          labelled, so clicking the number you want is unambiguous. */}
       <div className="dnd-cs-ability-mod">
-        {signed(mod)}
-        <SheetChip
-          label={`${ABILITY_NAMES[ability]} check`}
-          bonus={mod}
-          source={source}
-        />
+        <button
+          type="button"
+          className="dnd-cs-ability-modhalf"
+          title={`Roll ${ABILITY_NAMES[ability]} check (${d20(mod)})`}
+          onClick={() =>
+            roll(`${ABILITY_NAMES[ability]} check`, d20(mod), source)
+          }
+        >
+          {signed(mod)}
+        </button>
+        <button
+          type="button"
+          className={cn(
+            'dnd-cs-ability-modhalf',
+            'dnd-cs-ability-modsave',
+            proficient && 'dnd-cs-ability-modsave-prof',
+          )}
+          title={`Roll ${ABILITY_NAMES[ability]} save (${d20(save)})${
+            proficient ? ' — proficient' : ''
+          }`}
+          onClick={() =>
+            roll(`${ABILITY_NAMES[ability]} save`, d20(save), source)
+          }
+        >
+          {signed(save)}
+        </button>
       </div>
+      <div className="dnd-cs-ability-modkeys" aria-hidden="true">
+        <span>Modifier</span>
+        <span>Save</span>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * The defenses box for the 168px left rail. Labels sit inline before their
+ * comma-joined values — ProfLine's fixed 62px label column is sized for the
+ * 712px-wide gear page and would leave almost nothing for the values here.
+ *
+ * The box only gets RAIL_DEFENSE_HEIGHT, and a character with all four lists
+ * full wants half again as much. Rather than clip lines away invisibly, the
+ * lists run together into one flowing paragraph once there are two or more of
+ * them: denser to read, but nothing goes missing off a printed sheet.
+ */
+function RailDefenses({ c }: { c: Character }) {
+  const lists = [
+    { label: 'Res', values: c.resistances },
+    { label: 'Imm', values: c.immunities },
+    { label: 'Vul', values: c.vulnerabilities },
+    { label: 'Cond', values: c.conditionImmunities },
+  ].filter((l) => l.values.length > 0)
+
+  const join = (values: Array<string>) =>
+    values.map(proficiencyLabel).join(', ')
+
+  return (
+    <div
+      className="dnd-cs-box"
+      style={{ flex: '0 0 auto', maxHeight: RAIL_DEFENSE_HEIGHT }}
+    >
+      <div className="dnd-cs-cap">Defenses</div>
+      {lists.length >= 2 ? (
+        <div className="dnd-cs-raildef dnd-cs-raildef-flow">
+          {lists.map((l, i) => (
+            <span key={l.label}>
+              {i > 0 && ' '}
+              <span className="dnd-cs-raildef-label">{l.label}</span>
+              {join(l.values)}
+            </span>
+          ))}
+        </div>
+      ) : (
+        <div style={{ display: 'grid', gap: 1 }}>
+          {lists.map((l) => (
+            <div key={l.label} className="dnd-cs-raildef">
+              <span className="dnd-cs-raildef-label">{l.label}</span>
+              {join(l.values)}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -352,18 +465,20 @@ function AttacksTable({ c, source }: { c: Character; source: RollSource }) {
         <p className="dnd-cs-truncated">No attacks recorded.</p>
       ) : (
         <table className="dnd-cs-attacks">
+          {/* Widths and alignment are in styles.css so the heads and their data
+              can't drift apart — see table.dnd-cs-attacks. */}
           <thead>
             <tr>
-              <th style={{ width: '55%', textAlign: 'left' }}>Name</th>
-              <th style={{ width: '20%' }}>Atk</th>
-              <th style={{ width: '25%' }}>Damage</th>
+              <th>Name</th>
+              <th>Atk</th>
+              <th>Damage</th>
             </tr>
           </thead>
           <tbody>
             {shown.map((atk, i) => (
               <tr key={`${atk.name}-${i}`}>
                 <td>{atk.name || '—'}</td>
-                <td style={{ textAlign: 'center' }}>
+                <td>
                   {signed(atk.bonus)}
                   <SheetChip
                     label={`${atk.name || 'Attack'} to hit`}
@@ -371,7 +486,7 @@ function AttacksTable({ c, source }: { c: Character; source: RollSource }) {
                     source={source}
                   />
                 </td>
-                <td style={{ textAlign: 'center' }}>
+                <td>
                   {atk.damage || '—'}
                   {atk.damage.trim() && (
                     <SheetChip
@@ -415,7 +530,9 @@ function CorePage({
     <div className="dnd-page">
       <div className="dnd-cs">
         <Banner title={title}>
-          {[c.race, c.class && `${c.class} ${c.level}`]
+          {/* "Human Champion Fighter 7" — the subclass sits in front of the
+              class the way 5e says it aloud. */}
+          {[c.race, c.subclass, c.class && `${c.class} ${c.level}`]
             .filter(Boolean)
             .join(' ') || `Level ${c.level}`}
           {c.background && (
@@ -435,7 +552,11 @@ function CorePage({
         </Banner>
 
         <div className="dnd-cs-body dnd-cs-body-split">
-          {/* Left rail: ability scores, then the passive senses */}
+          {/* Left rail: ability scores, then the things you reach for mid-combat
+              — passive senses, defenses and the purse. The six ability boxes
+              only fill ~690px of the 960px body, and .dnd-cs-body clips
+              silently, so every box below them is capped rather than left to
+              grow into its neighbours. */}
           <div className="dnd-cs-rail">
             {ABILITIES.map((ability) => (
               <AbilityBox
@@ -445,7 +566,10 @@ function CorePage({
                 source={source}
               />
             ))}
-            <div className="dnd-cs-box" style={{ flex: '0 0 auto' }}>
+            <div
+              className="dnd-cs-box"
+              style={{ flex: '0 0 auto', maxHeight: RAIL_PASSIVE_HEIGHT }}
+            >
               <div className="dnd-cs-cap">Passive</div>
               {(
                 [
@@ -454,79 +578,104 @@ function CorePage({
                   ['Insight', 10 + skillBonus(c, 'insight')],
                 ] as const
               ).map(([name, value]) => (
-                <div
-                  key={name}
-                  style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    fontSize: 11,
-                  }}
-                >
+                <div key={name} className="dnd-cs-railrow">
                   <span>{name}</span>
                   <strong>{value}</strong>
                 </div>
               ))}
             </div>
+
+            {hasDefenses(c) && <RailDefenses c={c} />}
+
+            {/* Always shown, even at zero: a printed sheet wants a 0 to write
+                over, not a missing box. */}
+            <div
+              className="dnd-cs-box"
+              style={{ flex: '0 0 auto', maxHeight: RAIL_TREASURE_HEIGHT }}
+            >
+              <div className="dnd-cs-cap">Treasure</div>
+              <div className="dnd-cs-railcoins">
+                {COINS.map(({ key, name }) => (
+                  <div key={key} className="dnd-cs-railrow" title={name}>
+                    <span>{key.toUpperCase()}</span>
+                    <strong>{c.currency[key]}</strong>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
 
-          {/* Right column */}
+          {/* Right column: one Combat box holding everything you touch in a
+              fight, then attacks, then skills and saves together. Fewer boxes
+              than the old five — every extra box cost a cap, two borders and a
+              10px gap, which is where page one's white space was going. */}
           <div className="dnd-cs-col">
             <div
-              style={{
-                flex: '0 0 86px',
-                display: 'grid',
-                gridTemplateColumns: '86px 1fr 1fr 1fr',
-                gap: 8,
-              }}
+              className="dnd-cs-box"
+              style={{ flex: `0 0 ${COMBAT_HEIGHT}px` }}
             >
-              <div className="dnd-cs-shield">
-                <div className="dnd-cs-shield-inner">
-                  <div className="dnd-cs-shield-value">{c.ac}</div>
-                  <div className="dnd-cs-stat-label">Armor</div>
+              <div className="dnd-cs-cap">Combat</div>
+              <div className="dnd-cs-combat">
+                <div className="dnd-cs-shield">
+                  <div className="dnd-cs-shield-inner">
+                    <div className="dnd-cs-shield-value">{c.ac}</div>
+                    <div className="dnd-cs-stat-label">Armor</div>
+                  </div>
+                </div>
+                <StatBox
+                  label="Initiative"
+                  value={signed(init)}
+                  chip={
+                    <SheetChip
+                      label="Initiative"
+                      bonus={init}
+                      source={source}
+                    />
+                  }
+                />
+                <StatBox
+                  label="Speed"
+                  value={`${speed} ft`}
+                  // A bare 0 looks like a bug rather than "too heavy to move".
+                  note={
+                    speed === c.speed
+                      ? undefined
+                      : speed === 0
+                        ? 'over capacity'
+                        : `base ${c.speed}`
+                  }
+                />
+                <StatBox label="Proficiency" value={signed(prof)} />
+                {/* HP keeps the red cap and the big number — it's the one value
+                    that changes every round. Temp sits inside it as its own
+                    pool rather than paying for a whole extra box. */}
+                <div className="dnd-cs-hp">
+                  <div className="dnd-cs-cap">Hit Points</div>
+                  <div className="dnd-cs-hp-line">
+                    <span className="dnd-cs-hp-current">{c.hp.current}</span>
+                    <span style={{ fontSize: 13 }}>/ {c.hp.max}</span>
+                  </div>
+                </div>
+                {/* Temp HP is a separate pool in 5e, so it gets its own tile
+                    with its own cap — same shape as the HP tile beside it, muted
+                    top border so it reads as the secondary pool. */}
+                <div className="dnd-cs-hp dnd-cs-hp-temp">
+                  <div className="dnd-cs-cap">Temp</div>
+                  <div className="dnd-cs-hp-line">
+                    <span className="dnd-cs-hp-tempvalue">
+                      {c.hp.temp > 0 ? c.hp.temp : '—'}
+                    </span>
+                  </div>
                 </div>
               </div>
-              <StatBox
-                label="Initiative"
-                value={signed(init)}
-                chip={
-                  <SheetChip label="Initiative" bonus={init} source={source} />
-                }
-              />
-              <StatBox
-                label="Speed"
-                value={`${speed} ft`}
-                // A bare 0 looks like a bug rather than "too heavy to move".
-                note={
-                  speed === c.speed
-                    ? undefined
-                    : speed === 0
-                      ? 'over capacity'
-                      : `base ${c.speed}`
-                }
-              />
-              <StatBox label="Proficiency" value={signed(prof)} />
-            </div>
 
-            <div
-              style={{
-                flex: '0 0 96px',
-                display: 'grid',
-                gridTemplateColumns: '1fr 84px 168px',
-                gap: 10,
-              }}
-            >
-              <div className="dnd-cs-hp">
-                <div className="dnd-cs-cap">Hit Points</div>
-                <div
-                  style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}
-                >
-                  <span className="dnd-cs-hp-current">{c.hp.current}</span>
-                  <span style={{ fontSize: 13 }}>/ {c.hp.max}</span>
-                </div>
-                <div style={{ fontSize: 11, display: 'flex', gap: 5 }}>
-                  <span>
-                    Hit dice {hitDiceLeft}/{c.hitDice.total} d{c.hitDice.size}
-                  </span>
+              <div className="dnd-cs-combat-foot">
+                <span>
+                  Hit dice{' '}
+                  <strong>
+                    {hitDiceLeft}/{c.hitDice.total}
+                  </strong>{' '}
+                  d{c.hitDice.size}
                   {hitDiceLeft > 0 && (
                     <SheetChip
                       label={`Hit die (d${c.hitDice.size})`}
@@ -535,66 +684,20 @@ function CorePage({
                       glyph="roll"
                     />
                   )}
-                </div>
-              </div>
-              {/* Temp HP is a separate pool in 5e, so it gets its own box
-                  rather than hiding as a footnote beside current/max. */}
-              <div className="dnd-cs-hp dnd-cs-hp-temp">
-                <div className="dnd-cs-cap">Temp</div>
-                <div className="dnd-cs-hp-tempvalue">
-                  {c.hp.temp > 0 ? `+${c.hp.temp}` : '—'}
-                </div>
-              </div>
-              <div className="dnd-cs-box">
-                <div className="dnd-cs-cap">Death Saves</div>
-                <div style={{ fontSize: 11, display: 'grid', gap: 4 }}>
-                  <div
-                    style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                    }}
-                  >
-                    <span>Successes</span>
+                </span>
+                <span className="dnd-cs-deathsaves">
+                  Death saves
+                  <span title="Successes">
                     <Pips
                       total={3}
                       filled={c.deathSaves.success}
                       variant="ok"
                     />
-                  </div>
-                  <div
-                    style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                    }}
-                  >
-                    <span>Failures</span>
+                  </span>
+                  <span title="Failures">
                     <Pips total={3} filled={c.deathSaves.fail} variant="fail" />
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="dnd-cs-box" style={{ flex: '0 0 116px' }}>
-              <div className="dnd-cs-cap">Saving Throws</div>
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: '1fr 1fr',
-                  columnGap: 16,
-                }}
-              >
-                {ABILITIES.map((ability) => (
-                  <ProfRow
-                    key={ability}
-                    name={ABILITY_NAMES[ability]}
-                    ability={ability}
-                    bonus={saveBonus(c, ability)}
-                    proficient={c.saves.includes(ability)}
-                    source={source}
-                  />
-                ))}
+                  </span>
+                </span>
               </div>
             </div>
 
@@ -602,17 +705,24 @@ function CorePage({
                 page, not here — this page has no room to spare. */}
             <AttacksTable c={c} source={source} />
 
-            {/* 9 rows of 26px + the cap + padding. Sized exactly, because a
-                short box clips the last skill row without any warning. */}
-            <div className="dnd-cs-box" style={{ flex: '0 0 272px' }}>
+            {/* Saving throws live inside the ability boxes in the left rail,
+                beside the score each one keys off — see AbilityBox. Sized
+                exactly: a short box clips the last skill row with no warning. */}
+            <div
+              className="dnd-cs-box"
+              style={{ flex: `0 0 ${SKILLS_HEIGHT}px` }}
+            >
               <div className="dnd-cs-cap">Skills</div>
+              {/* space-between, not start: the box is taller than 9 rows of
+                  26px, so the rows share the slack instead of leaving a gap
+                  under the last one. */}
               <div
                 className="dnd-cs-scroll"
                 style={{
                   display: 'grid',
                   gridTemplateColumns: '1fr 1fr',
                   columnGap: 20,
-                  alignContent: 'start',
+                  alignContent: 'space-between',
                 }}
               >
                 {SKILLS.map((skill) => (
@@ -1004,30 +1114,8 @@ function GearPage({
       <div className="dnd-cs">
         <Banner title={`${title} — ${pageLabel}`} small />
         <div className="dnd-cs-body">
-          {showHeader && (
-            <div className="dnd-cs-box" style={{ flex: '0 0 auto' }}>
-              <div className="dnd-cs-cap">Treasure</div>
-              {/* All five denominations, always — a printed sheet wants a 0 to
-                  write over, not a missing box. */}
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: `repeat(${COINS.length}, 1fr)`,
-                  gap: 8,
-                }}
-              >
-                {COINS.map(({ key, name }) => (
-                  <StatBox
-                    key={key}
-                    label={name}
-                    value={c.currency[key]}
-                    note={key}
-                  />
-                ))}
-              </div>
-            </div>
-          )}
-
+          {/* Treasure and Defenses print in page one's left rail, not here —
+              they're both wanted mid-combat, on the sheet you're holding. */}
           {showHeader && equipped.length > 0 && (
             <div className="dnd-cs-box" style={{ flex: '0 0 auto' }}>
               <div className="dnd-cs-cap">Equipped</div>
@@ -1067,21 +1155,6 @@ function GearPage({
                 <ProfLine label="Weapons" values={c.weapons} />
                 <ProfLine label="Tools" values={c.tools} />
                 <ProfLine label="Languages" values={c.languages} />
-              </div>
-            </div>
-          )}
-
-          {showHeader && hasDefenses(c) && (
-            <div
-              className="dnd-cs-box"
-              style={{ flex: '0 0 auto', maxHeight: DEFENSE_BOX_HEIGHT }}
-            >
-              <div className="dnd-cs-cap">Damage &amp; Condition Defenses</div>
-              <div style={{ display: 'grid', gap: 3 }}>
-                <ProfLine label="Resistant" values={c.resistances} />
-                <ProfLine label="Immune" values={c.immunities} />
-                <ProfLine label="Vulnerable" values={c.vulnerabilities} />
-                <ProfLine label="Conditions" values={c.conditionImmunities} />
               </div>
             </div>
           )}
@@ -1183,11 +1256,11 @@ export function SheetPreview({
     () =>
       paginate(
         c.inventory,
-        // The proficiency and defense boxes sit above Equipment on page one, so
-        // page one carries fewer rows when either is shown.
+        // The proficiency box sits above Equipment on page one, so page one
+        // carries fewer rows when it's shown. Treasure and Defenses used to be
+        // charged here too; both now print in page one's left rail instead.
         GEAR_ROWS_FIRST -
-          (hasOtherProficiencies(c) ? gearBoxCost(PROF_BOX_HEIGHT) : 0) -
-          (hasDefenses(c) ? gearBoxCost(DEFENSE_BOX_HEIGHT) : 0),
+          (hasOtherProficiencies(c) ? gearBoxCost(PROF_BOX_HEIGHT) : 0),
         GEAR_ROWS_REST,
       ),
     [c],
@@ -1203,16 +1276,11 @@ export function SheetPreview({
   )
 
   const casts = hasSpellcasting(c)
-  // The Treasure box always shows all five denominations once the page exists,
-  // but empty purses alone don't earn a sheet — otherwise every character with
-  // no gear at all would print a page of nothing but zeroes.
-  const anyCoin = COINS.some(({ key }) => c.currency[key] > 0)
+  // Coins and defenses no longer count towards earning this page — both print on
+  // page one now, so a character with 3gp and nothing else would otherwise get a
+  // sheet holding one empty Equipment box.
   const showGear =
-    gearPages.length > 0 ||
-    anyCoin ||
-    c.notes.length > 0 ||
-    hasOtherProficiencies(c) ||
-    hasDefenses(c)
+    gearPages.length > 0 || c.notes.length > 0 || hasOtherProficiencies(c)
   const prose = body?.trim()
   // Most backstories already open with their own "# Name" heading — only add
   // one when the prose doesn't start with a heading of its own.

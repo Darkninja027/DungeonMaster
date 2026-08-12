@@ -64,6 +64,7 @@ What the spell does. Damage like 3d6 becomes a clickable roll.
     body: `---
 type: character
 class: Fighter
+subclass: Champion
 level: 1
 race: Human
 background: Soldier
@@ -85,7 +86,7 @@ ac: 16
 initiativeBonus: 0
 speed: 30
 hp: { current: 12, max: 12, temp: 0 }
-hitDice: { size: 10, total: 1, used: 0 }
+hitDice: { size: 10, used: 0 }
 deathSaves: { success: 0, fail: 0 }
 attacks:
   - { name: Longsword, bonus: 5, damage: 1d8+3 }

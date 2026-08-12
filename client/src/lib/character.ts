@@ -336,6 +336,12 @@ export interface EncumbranceSettings {
 
 export interface Character {
   class: string
+  /**
+   * Free text like `class`. The editor suggests the PHB names for the chosen
+   * class (see lib/classes.ts), but homebrew and hand-edited values pass
+   * through untouched.
+   */
+  subclass: string
   level: number
   race: string
   background: string
@@ -367,6 +373,12 @@ export interface Character {
   initiativeBonus: number
   speed: number
   hp: { current: number; max: number; temp: number }
+  /**
+   * `total` tracks `level` unless the sheet pins it — a total that differs from
+   * the level is a deliberate override (multiclass, homebrew) and survives both
+   * serialization and levelling up. See {@link setLevel} and
+   * {@link hitDiceArePinned}.
+   */
   hitDice: { size: number; total: number; used: number }
   deathSaves: { success: number; fail: number }
   attacks: Array<Attack>
@@ -398,6 +410,7 @@ export interface Character {
 export function emptyCharacter(): Character {
   return {
     class: '',
+    subclass: '',
     level: 1,
     race: '',
     background: '',
@@ -445,6 +458,48 @@ export function abilityMod(score: number): number {
 
 export function proficiencyBonus(level: number): number {
   return Math.ceil(Math.max(1, level) / 4) + 1
+}
+
+/** The die sizes a 5e class can have, plus room for homebrew at either end. */
+export const HIT_DIE_SIZES = [4, 6, 8, 10, 12, 20] as const
+
+/**
+ * Snaps a hand-edited die size to the nearest real die. A `d7` is a typo, not a
+ * house rule, but the value is never zeroed — the closest die is always a more
+ * useful sheet than a blank one.
+ */
+export function clampHitDie(size: number): number {
+  if (!Number.isFinite(size)) return 8
+  return HIT_DIE_SIZES.reduce((best, die) =>
+    Math.abs(die - size) < Math.abs(best - size) ? die : best,
+  )
+}
+
+/**
+ * Whether this sheet's hit-dice total has been pinned away from its level.
+ * An unpinned total follows the level; a pinned one is left alone.
+ */
+export function hitDiceArePinned(c: Character): boolean {
+  return c.hitDice.total !== c.level
+}
+
+/**
+ * Applies a level change, carrying an unpinned hit-dice total along with it.
+ * `used` is clamped so a long-rest tally can never exceed the pool it's spent
+ * against.
+ */
+export function setLevel(c: Character, level: number): Character {
+  const next = Math.max(1, Math.min(20, level))
+  if (hitDiceArePinned(c)) return { ...c, level: next }
+  return {
+    ...c,
+    level: next,
+    hitDice: {
+      ...c.hitDice,
+      total: next,
+      used: Math.min(c.hitDice.used, next),
+    },
+  }
 }
 
 export function saveBonus(c: Character, ability: Ability): number {
@@ -1167,6 +1222,7 @@ export function parseCharacter(content: string): {
   const r = raw as Record<string, unknown>
 
   c.class = str(r.class, c.class)
+  c.subclass = str(r.subclass, c.subclass)
   c.level = Math.max(1, Math.min(20, num(r.level, c.level)))
   c.race = str(r.race, c.race)
   c.background = str(r.background, c.background)
@@ -1211,9 +1267,14 @@ export function parseCharacter(content: string): {
     c.hp.current = Math.max(0, num(hp.current, c.hp.max))
     c.hp.temp = Math.max(0, num(hp.temp, 0))
   }
+  // Default the total to the level *outside* the guard below: a sheet with no
+  // hitDice key at all still gets one die per level, which the old code missed
+  // (it left a level 7 fighter printing "1/1"). serializeCharacter omits `total`
+  // whenever it equals the level, so an unpinned sheet keeps following it.
+  c.hitDice.total = c.level
   if (typeof r.hitDice === 'object' && r.hitDice !== null) {
     const hd = r.hitDice as Record<string, unknown>
-    c.hitDice.size = num(hd.size, c.hitDice.size)
+    c.hitDice.size = clampHitDie(num(hd.size, c.hitDice.size))
     c.hitDice.total = Math.max(0, num(hd.total, c.level))
     c.hitDice.used = Math.max(0, Math.min(c.hitDice.total, num(hd.used, 0)))
   }
@@ -1343,6 +1404,7 @@ export function serializeCharacter(character: Character, body: string): string {
   const data: Record<string, unknown> = {
     type: 'character',
     class: character.class,
+    subclass: character.subclass,
     level: character.level,
     race: character.race,
     background: character.background,
@@ -1364,7 +1426,15 @@ export function serializeCharacter(character: Character, body: string): string {
     initiativeBonus: character.initiativeBonus,
     speed: character.speed,
     hp: character.hp,
-    hitDice: character.hitDice,
+    hitDice: {
+      size: character.hitDice.size,
+      // Omitted while it matches the level, so the sheet keeps auto-tracking as
+      // the character grows. A written total is therefore always a pin.
+      ...(hitDiceArePinned(character)
+        ? { total: character.hitDice.total }
+        : {}),
+      used: character.hitDice.used,
+    },
     deathSaves: character.deathSaves,
     attacks: character.attacks,
     traits: character.traits,

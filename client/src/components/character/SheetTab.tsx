@@ -18,6 +18,7 @@ import {
   CONDITIONS,
   DAMAGE_TYPES,
   ENCUMBRANCE_LABELS,
+  HIT_DIE_SIZES,
   SKILLS,
   WEAPON_CATEGORIES,
   abilityMod,
@@ -29,6 +30,7 @@ import {
   damageStance,
   effectiveSpeed,
   encumbranceTier,
+  hitDiceArePinned,
   initiativeBonus,
   passivePerception,
   preparationState,
@@ -790,7 +792,29 @@ export function SheetTab({
               />
             </label>
             <span className="flex items-center gap-1.5">
-              Hit dice d{c.hitDice.size}
+              Hit dice
+              {/* Die size is a genuinely closed set, so a native select is
+                  right here — unlike class, which must stay free text. */}
+              <select
+                className="bg-background text-foreground h-7 rounded border px-1 text-sm"
+                value={c.hitDice.size}
+                title="Hit die size — set automatically when you pick a class"
+                onChange={(e) =>
+                  set({
+                    hitDice: { ...c.hitDice, size: Number(e.target.value) },
+                  })
+                }
+              >
+                {HIT_DIE_SIZES.map((size) => (
+                  <option
+                    key={size}
+                    value={size}
+                    className="bg-background text-foreground"
+                  >
+                    d{size}
+                  </option>
+                ))}
+              </select>
               <NumField
                 value={c.hitDice.total - c.hitDice.used}
                 min={0}
@@ -803,7 +827,48 @@ export function SheetTab({
                   })
                 }
               />
-              / {c.hitDice.total}
+              /
+              {/* An unpinned total is derived, so it reads as text; a pinned one
+                  is editable, with a way back to tracking the level. */}
+              {hitDiceArePinned(c) ? (
+                <>
+                  <NumField
+                    value={c.hitDice.total}
+                    min={0}
+                    className="w-10"
+                    title={`Pinned to ${c.hitDice.total} instead of your level (${c.level})`}
+                    onCommit={(v) =>
+                      set({
+                        hitDice: {
+                          ...c.hitDice,
+                          total: v,
+                          used: Math.min(c.hitDice.used, v),
+                        },
+                      })
+                    }
+                  />
+                  <button
+                    type="button"
+                    className="text-muted-foreground hover:text-foreground text-xs underline"
+                    title={`Track your level (${c.level}) again`}
+                    onClick={() =>
+                      set({
+                        hitDice: {
+                          ...c.hitDice,
+                          total: c.level,
+                          used: Math.min(c.hitDice.used, c.level),
+                        },
+                      })
+                    }
+                  >
+                    reset
+                  </button>
+                </>
+              ) : (
+                <strong title="One die per level — edit the frontmatter to pin a different total">
+                  {c.hitDice.total}
+                </strong>
+              )}
               <RollChip
                 label="Hit die"
                 notation={`d${c.hitDice.size}${
