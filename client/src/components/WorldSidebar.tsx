@@ -20,6 +20,7 @@ import {
 import { api } from '#/lib/api'
 import { useShortcut } from '#/lib/useShortcut'
 import type { ArticleSummary, FolderNode, WorldTree } from '#/lib/api'
+import { isLibraryFolder } from '#/lib/libraryFolders'
 import { articleTemplates, newArticleContent } from '#/lib/templates'
 import { cn } from '#/lib/utils'
 import { SmartViews } from '#/components/SmartViews'
@@ -105,6 +106,9 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
     queryKey: ['worlds', worldId, 'search', searchTerm],
     queryFn: () => api.worlds.search(worldId, searchTerm),
     enabled: searchTerm.length > 0,
+    // Search backs the Content tree, so it hides library hits the same way —
+    // spells and monsters are searched from their own panels.
+    select: (results) => results.filter((r) => !isLibraryFolder(r.folderId)),
   })
 
   // Prefix invalidation: tree, characters list, search, world meta.
@@ -474,6 +478,15 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
     )
   }
 
+  // Library folders (Characters/Spells/Monsters) have their own homes in the
+  // UI, so the world tree omits them and stays purely about worldbuilding.
+  const rootFolders = (tree.data?.folders ?? []).filter(
+    (f) => f.parentFolderId === null && !isLibraryFolder(f.id),
+  )
+  const rootArticles = (tree.data?.articles ?? []).filter(
+    (a) => a.folderId === null,
+  )
+
   return (
     <div className="bg-muted/30 flex h-full w-72 shrink-0 flex-col border-r">
       <div className="border-b">
@@ -614,18 +627,13 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
             )}
             {tree.data && (
               <>
-                {tree.data.folders
-                  .filter((f) => f.parentFolderId === null)
-                  .map((f) => renderFolder(tree.data, f, 0))}
-                {tree.data.articles
-                  .filter((a) => a.folderId === null)
-                  .map((a) => renderArticle(a, 0))}
-                {tree.data.folders.length === 0 &&
-                  tree.data.articles.length === 0 && (
-                    <p className="text-muted-foreground px-2 py-4 text-sm">
-                      Nothing here yet. Create an article or folder above.
-                    </p>
-                  )}
+                {rootFolders.map((f) => renderFolder(tree.data, f, 0))}
+                {rootArticles.map((a) => renderArticle(a, 0))}
+                {rootFolders.length === 0 && rootArticles.length === 0 && (
+                  <p className="text-muted-foreground px-2 py-4 text-sm">
+                    Nothing here yet. Create an article or folder above.
+                  </p>
+                )}
               </>
             )}
           </div>
