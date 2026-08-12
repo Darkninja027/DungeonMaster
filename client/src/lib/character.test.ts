@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import type { EquipSlot, InventoryItem, Spell } from './character'
 import {
   abilityMod,
+  addFeatureEntry,
+  allNoteTags,
   alwaysPreparedCount,
   attunedCount,
   attunementLimit,
@@ -20,6 +22,10 @@ import {
   encumbranceTier,
   equipItem,
   equippedIn,
+  featureBadge,
+  featureEntries,
+  filterFeatures,
+  filterNotes,
   fitsSlot,
   guessSlot,
   hasDefenses,
@@ -28,6 +34,10 @@ import {
   initiativeBonus,
   inventoryItemName,
   isCharacterContent,
+  isUnearned,
+  normalizeTag,
+  normalizeTags,
+  notePreview,
   parseCharacter,
   passivePerception,
   preparationState,
@@ -35,6 +45,7 @@ import {
   preparedSpellLimit,
   proficiencyBonus,
   proficiencyLabel,
+  removeFeatureEntry,
   resolveSpellDamage,
   scaleSpellDamage,
   spellInfoFromContent,
@@ -45,9 +56,11 @@ import {
   skillBonus,
   slotFor,
   sortedFeatures,
+  sortedNotes,
   sortedSpells,
   spellSaveDc,
   tracksPreparation,
+  updateFeatureEntry,
   wikiLinkTitle,
   withQty,
 } from './character'
@@ -1353,5 +1366,206 @@ describe('equipment slots', () => {
     expect(next[0].text).toBe('Longsword') // row survives, just unequipped
     expect(next[1].slot).toBe('mainHand')
     expect(equipItem(next, 1, null)[1].slot).toBeNull()
+  })
+})
+
+describe('session notes', () => {
+  const notes = () => [
+    {
+      at: '2026-08-06',
+      title: 'Strahd offer',
+      text: 'He offered passage.',
+      tags: ['npc', 'lore'],
+    },
+    {
+      at: '2026-08-13',
+      title: 'Ambush',
+      text: 'Jumped on the road.',
+      tags: ['session'],
+    },
+    { at: '', text: 'Undated jotting.' },
+  ]
+
+  it('sorts newest first, undated last', () => {
+    // An empty `at` is a note missing its date, not one from the year zero.
+    expect(sortedNotes(notes()).map((n) => n.at)).toEqual([
+      '2026-08-13',
+      '2026-08-06',
+      '',
+    ])
+  })
+
+  it('normalizes tags to one canonical form', () => {
+    expect(normalizeTag('#Session')).toBe('session')
+    expect(normalizeTag('  Sea of Swords ')).toBe('sea-of-swords')
+    expect(normalizeTag('##')).toBe('')
+    // Dedupes case variants rather than splitting one bucket into two.
+    expect(normalizeTags(['Session', 'session', '#SESSION', ''])).toEqual([
+      'session',
+    ])
+  })
+
+  it('lists every tag in use, once, alphabetically', () => {
+    expect(allNoteTags(notes())).toEqual(['lore', 'npc', 'session'])
+  })
+
+  it('searches title, body, date and tags', () => {
+    const find = (q: string) => filterNotes(notes(), q, []).map((n) => n.at)
+    expect(find('strahd')).toEqual(['2026-08-06']) // title
+    expect(find('road')).toEqual(['2026-08-13']) // body
+    expect(find('npc')).toEqual(['2026-08-06']) // tag
+    expect(find('2026-08-13')).toEqual(['2026-08-13']) // date
+    expect(find('')).toHaveLength(3)
+  })
+
+  it('ANDs tag filters so picking two narrows rather than widens', () => {
+    expect(filterNotes(notes(), '', ['npc'])).toHaveLength(1)
+    expect(filterNotes(notes(), '', ['npc', 'lore'])).toHaveLength(1)
+    expect(filterNotes(notes(), '', ['npc', 'session'])).toHaveLength(0)
+  })
+
+  it('previews the first real line without its markdown punctuation', () => {
+    expect(notePreview('## Recap\n\nbody')).toBe('Recap')
+    expect(notePreview('- **Bought** rope')).toBe('Bought rope')
+    expect(notePreview('\n\n> Met [[Strahd|the count]] here')).toBe(
+      'Met the count here',
+    )
+    expect(notePreview('')).toBe('')
+  })
+
+  it('round-trips titles and tags through frontmatter', () => {
+    const c = emptyCharacter()
+    c.notes = [
+      { at: '2026-08-13', title: 'Ambush', text: 'Jumped.', tags: ['session'] },
+    ]
+    const parsed = parseCharacter(serializeCharacter(c, '')).character
+    expect(parsed.notes).toEqual(c.notes)
+  })
+
+  it('leaves untitled, untagged notes byte-identical on write', () => {
+    const c = emptyCharacter()
+    c.notes = [{ at: '2026-08-13', text: 'Plain note.' }]
+    const yaml = serializeCharacter(c, '')
+    // No `title:` / `tags:` keys grow on a note that has neither.
+    expect(yaml).not.toMatch(/title:/)
+    expect(yaml).not.toMatch(/tags:/)
+    expect(parseCharacter(yaml).character.notes).toEqual(c.notes)
+  })
+
+  it('accepts hand-written notes: bare strings and comma-separated tags', () => {
+    const yaml = [
+      '---',
+      'type: character',
+      'notes:',
+      '  - Just a jotted line',
+      '  - { text: Tagged one, tags: "Session, NPC" }',
+      '---',
+      '',
+    ].join('\n')
+    const parsed = parseCharacter(yaml).character.notes
+    expect(parsed[0]).toEqual({ at: '', text: 'Just a jotted line' })
+    expect(parsed[1].tags).toEqual(['session', 'npc'])
+  })
+})
+
+describe('unified feature view', () => {
+  const sheet = () => {
+    const c = emptyCharacter()
+    c.level = 5
+    c.traits = [{ name: 'Darkvision', text: 'See 60ft.' }]
+    c.feats = [{ name: 'Sharpshooter' }]
+    c.features = [
+      { level: 14, name: 'Blindsense' },
+      { level: 2, name: 'Cunning Action', text: 'Bonus action Dash.' },
+    ]
+    return c
+  }
+
+  it('merges the three arrays: traits, then feats, then class by level', () => {
+    expect(featureEntries(sheet()).map((e) => e.name)).toEqual([
+      'Darkvision',
+      'Sharpshooter',
+      'Cunning Action',
+      'Blindsense',
+    ])
+  })
+
+  it('badges each row with where it came from', () => {
+    const [trait, feat, cls] = featureEntries(sheet())
+    expect(featureBadge(trait)).toBe('Racial')
+    expect(featureBadge(feat)).toBe('Feat')
+    expect(featureBadge(cls)).toBe('Class · Lv2')
+  })
+
+  it('marks class features above the current level as not yet gained', () => {
+    const c = sheet()
+    const byName = (n: string) => featureEntries(c).find((e) => e.name === n)!
+    expect(isUnearned(byName('Blindsense'), c)).toBe(true) // level 14 > 5
+    expect(isUnearned(byName('Cunning Action'), c)).toBe(false)
+    expect(isUnearned(byName('Darkvision'), c)).toBe(false) // never levelled
+  })
+
+  it('searches name, text and source label', () => {
+    const all = featureEntries(sheet())
+    const find = (q: string) => filterFeatures(all, q).map((e) => e.name)
+    expect(find('dark')).toEqual(['Darkvision'])
+    expect(find('bonus action')).toEqual(['Cunning Action']) // body text
+    expect(find('racial')).toEqual(['Darkvision']) // badge
+    expect(find('')).toHaveLength(4)
+  })
+
+  it('routes an edit back to the array the row came from', () => {
+    const c = sheet()
+    // The merged list is sorted, so the display position of "Cunning Action"
+    // (index 2) is not its position in c.features (index 1).
+    const cunning = featureEntries(c).find((e) => e.name === 'Cunning Action')!
+    expect(cunning.index).toBe(1)
+    const patched = { ...c, ...updateFeatureEntry(c, cunning, { level: 3 }) }
+    expect(patched.features[1]).toEqual({
+      level: 3,
+      name: 'Cunning Action',
+      text: 'Bonus action Dash.',
+    })
+    expect(patched.features[0].name).toBe('Blindsense') // untouched
+    expect(patched.traits).toEqual(c.traits)
+  })
+
+  it('clamps a hand-typed level to 1-20', () => {
+    const c = sheet()
+    const cls = featureEntries(c).find((e) => e.name === 'Blindsense')!
+    expect(updateFeatureEntry(c, cls, { level: 99 }).features![0].level).toBe(
+      20,
+    )
+    expect(updateFeatureEntry(c, cls, { level: 0 }).features![0].level).toBe(1)
+  })
+
+  it('clears a description emptied to blank rather than storing an empty string', () => {
+    const c = sheet()
+    const trait = featureEntries(c)[0]
+    expect(updateFeatureEntry(c, trait, { text: '' }).traits![0]).toEqual({
+      name: 'Darkvision',
+    })
+  })
+
+  it('removes from the right array only', () => {
+    const c = sheet()
+    const feat = featureEntries(c).find((e) => e.source === 'feat')!
+    const next = { ...c, ...removeFeatureEntry(c, feat) }
+    expect(next.feats).toEqual([])
+    expect(next.traits).toHaveLength(1)
+    expect(next.features).toHaveLength(2)
+  })
+
+  it('adds to the array named by source, levelling only class features', () => {
+    const c = emptyCharacter()
+    expect(addFeatureEntry(c, 'trait', 'Lucky', '', 3).traits).toEqual([
+      { name: 'Lucky' },
+    ])
+    expect(addFeatureEntry(c, 'feat', 'Alert', 'Bonus init.', 3).feats).toEqual(
+      [{ name: 'Alert', text: 'Bonus init.' }],
+    )
+    expect(addFeatureEntry(c, 'class', 'Evasion', '', 7).features).toEqual([
+      { level: 7, name: 'Evasion' },
+    ])
   })
 })

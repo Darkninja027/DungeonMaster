@@ -29,6 +29,7 @@ import {
   saveBonus,
   signed,
   skillBonus,
+  sortedNotes,
   spellAttackBonus,
   spellSaveDc,
   tracksPreparation,
@@ -1162,6 +1163,7 @@ function GearPage({
   showHeader,
   pageLabel,
   notes,
+  source,
 }: {
   c: Character
   title: string
@@ -1171,6 +1173,7 @@ function GearPage({
   showHeader: boolean
   pageLabel: string
   notes: boolean
+  source?: RollSource
 }) {
   const tier = encumbranceTier(c)
 
@@ -1258,16 +1261,36 @@ function GearPage({
             <div className="dnd-cs-box" style={{ flex: '0 0 200px' }}>
               <div className="dnd-cs-cap">Session Notes</div>
               <div className="dnd-cs-scroll" style={{ fontSize: 11 }}>
-                {c.notes.map((note, i) => (
-                  <div key={`${note.at}-${i}`} style={{ marginBottom: 4 }}>
-                    <span className="dnd-cs-row-abil">
-                      {note.at.slice(0, 10)}
-                    </span>{' '}
-                    <WikiText
-                      text={note.text}
-                      worldId={worldId}
-                      articles={articles}
-                    />
+                {sortedNotes(c.notes).map((note, i) => (
+                  <div key={`${note.at}-${i}`} style={{ marginBottom: 6 }}>
+                    {/* Date, title and tags form one header line; the markdown
+                        body is a block, so it sits underneath rather than
+                        trying to flow inline after them. */}
+                    <div>
+                      <span className="dnd-cs-row-abil">
+                        {note.at.slice(0, 10)}
+                      </span>{' '}
+                      {note.title && <strong>{note.title}</strong>}
+                      {note.tags && note.tags.length > 0 && (
+                        <span className="dnd-cs-row-abil">
+                          {' '}
+                          {note.tags.map((t) => `#${t}`).join(' ')}
+                        </span>
+                      )}
+                    </div>
+                    {/* Bodies are authored as markdown in the Notes tab, so
+                        they render as markdown here too — printing the raw
+                        "## Recap" and "- bullet" source would be unreadable. */}
+                    {note.text.trim() && (
+                      <InlineMarkdown
+                        className="dnd-cs-note-text"
+                        worldId={worldId}
+                        articles={articles}
+                        source={source}
+                      >
+                        {preserveLineBreaks(note.text)}
+                      </InlineMarkdown>
+                    )}
                   </div>
                 ))}
               </div>
@@ -1373,6 +1396,7 @@ export function SheetPreview({
             showHeader={i === 0}
             pageLabel={i === 0 ? 'Equipment & Treasure' : 'Equipment (cont.)'}
             notes={i === (gearPages.length || 1) - 1}
+            source={source}
           />
         ))}
 

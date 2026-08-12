@@ -149,6 +149,111 @@ export interface Spell {
 export interface CharacterNote {
   at: string // ISO date
   text: string
+  /**
+   * Optional headline, so a long note collapses to one readable row instead of
+   * a date and a wall of prose. Absent on notes written before titles existed
+   * and on anything jotted down in Obsidian as a bare `text:`.
+   */
+  title?: string
+  /**
+   * Freeform labels — "session", "lore", "npc". Lowercased and de-duplicated on
+   * the way in so `#Session` and `session` can't split one bucket into two.
+   */
+  tags?: Array<string>
+}
+
+/** The tags offered as one-click suggestions when a note has none of its own. */
+export const SUGGESTED_NOTE_TAGS = [
+  'session',
+  'lore',
+  'npc',
+  'quest',
+  'loot',
+  'downtime',
+] as const
+
+/**
+ * Normalize one tag for storage: lowercase, no leading '#', inner whitespace
+ * collapsed to single dashes so "Sea of Swords" and "sea-of-swords" are one tag
+ * rather than two. Returns '' for anything that reduces to nothing.
+ */
+export function normalizeTag(raw: string): string {
+  return raw
+    .trim()
+    .replace(/^#+/, '')
+    .toLowerCase()
+    .replace(/\s+/g, '-')
+    .replace(/^-+|-+$/g, '')
+}
+
+/** Normalize a list of tags, dropping blanks and duplicates but keeping order. */
+export function normalizeTags(raw: Array<string>): Array<string> {
+  const out: Array<string> = []
+  for (const tag of raw) {
+    const t = normalizeTag(tag)
+    if (t && !out.includes(t)) out.push(t)
+  }
+  return out
+}
+
+/** Every tag in use on this character, alphabetical, each listed once. */
+export function allNoteTags(notes: Array<CharacterNote>): Array<string> {
+  const seen = new Set<string>()
+  for (const note of notes) for (const tag of note.tags ?? []) seen.add(tag)
+  return [...seen].sort()
+}
+
+/**
+ * Notes newest-first. Undated notes sort last rather than first: an empty `at`
+ * is a hand-written note missing its date, not one from the year zero.
+ */
+export function sortedNotes(notes: Array<CharacterNote>): Array<CharacterNote> {
+  return [...notes].sort((a, b) => {
+    if (!a.at && !b.at) return 0
+    if (!a.at) return 1
+    if (!b.at) return -1
+    return b.at.localeCompare(a.at)
+  })
+}
+
+/**
+ * Filter notes by a free-text query and a set of required tags. The query
+ * matches title, body or tag, so typing "strahd" finds the note whether the
+ * name is in the headline or buried in the recap. Tags are AND-ed — picking
+ * two chips narrows rather than widens.
+ */
+export function filterNotes(
+  notes: Array<CharacterNote>,
+  query: string,
+  tags: Array<string>,
+): Array<CharacterNote> {
+  const q = query.trim().toLowerCase()
+  return notes.filter((note) => {
+    if (!tags.every((t) => note.tags?.includes(t))) return false
+    if (!q) return true
+    return (
+      note.title?.toLowerCase().includes(q) ||
+      note.text.toLowerCase().includes(q) ||
+      note.at.toLowerCase().includes(q) ||
+      (note.tags ?? []).some((t) => t.includes(q))
+    )
+  })
+}
+
+/**
+ * A one-line preview of a note's body for its collapsed row — the first
+ * non-empty line, stripped of the markdown that would otherwise read as
+ * punctuation noise ("## Recap" -> "Recap", "- **Bought** rope" -> "Bought rope").
+ */
+export function notePreview(text: string): string {
+  const line = text.split('\n').find((l) => l.trim()) ?? ''
+  return line
+    .replace(/^\s*#{1,6}\s*/, '')
+    .replace(/^\s*[-*+]\s+/, '')
+    .replace(/^\s*>\s*/, '')
+    .replace(/\[\[([^\][\n|]+)(?:\|([^\][\n]+))?\]\]/g, (_, t, a) => a ?? t)
+    .replace(/(\*\*|__|\*|_|`)/g, '')
+    .trim()
 }
 
 /**
@@ -962,6 +1067,187 @@ export function sortedSpells(spells: Array<Spell>): Array<Spell> {
   )
 }
 
+// --- Unified feature view ---------------------------------------------------
+
+/**
+ * Where a feature came from. The three live in separate frontmatter arrays
+ * (`traits`, `feats`, `features`) because only class features carry a level,
+ * but the editor shows them as one list badged by source — three stacked
+ * sections made it hard to find anything.
+ */
+export type FeatureSource = 'trait' | 'feat' | 'class'
+
+export const FEATURE_SOURCE_NAMES: Record<FeatureSource, string> = {
+  trait: 'Racial',
+  feat: 'Feat',
+  class: 'Class',
+}
+
+/**
+ * One row of the unified list: a named entry plus which array it lives in and,
+ * for class features, the level it's gained at. `index` is its position within
+ * its own source array, which is how edits are routed back — the merged view is
+ * sorted, so a position in it means nothing to the stored data.
+ */
+export interface FeatureEntry {
+  source: FeatureSource
+  index: number
+  name: string
+  text?: string
+  /** Only ever set for `class` features. */
+  level?: number
+}
+
+/**
+ * Merge the three arrays into one display list: racial traits, then feats, then
+ * class features by level. Within a source the stored order is kept — there's
+ * no natural sort for traits or feats, and re-ordering a hand-written list on
+ * every render would be surprising.
+ */
+export function featureEntries(c: Character): Array<FeatureEntry> {
+  const flat = (source: 'trait' | 'feat', entries: Array<NamedEntry>) =>
+    entries.map((e, index): FeatureEntry => ({
+      source,
+      index,
+      name: e.name,
+      text: e.text,
+    }))
+  // Sorted by level for display, but each row remembers where it actually sits
+  // in `c.features` so edits land on the right entry.
+  const classFeatures = c.features
+    .map((f, index): FeatureEntry => ({
+      source: 'class',
+      index,
+      name: f.name,
+      text: f.text,
+      level: f.level,
+    }))
+    .sort((a, b) => a.level! - b.level! || a.name.localeCompare(b.name))
+  return [
+    ...flat('trait', c.traits),
+    ...flat('feat', c.feats),
+    ...classFeatures,
+  ]
+}
+
+/** The badge text for a row: "Racial", "Feat", or "Class · Lv7". */
+export function featureBadge(entry: FeatureEntry): string {
+  const name = FEATURE_SOURCE_NAMES[entry.source]
+  return entry.source === 'class' ? `${name} · Lv${entry.level}` : name
+}
+
+/**
+ * Whether a row is a class feature the character hasn't reached yet. Those are
+ * kept so a build can be planned ahead, and shown muted rather than hidden.
+ */
+export function isUnearned(entry: FeatureEntry, c: Character): boolean {
+  return entry.source === 'class' && (entry.level ?? 1) > c.level
+}
+
+/**
+ * Free-text search over the merged list: matches name, rules text, and the
+ * source label so "racial" or "feat" narrows the list the same way the filter
+ * chips do.
+ */
+export function filterFeatures(
+  entries: Array<FeatureEntry>,
+  query: string,
+): Array<FeatureEntry> {
+  const q = query.trim().toLowerCase()
+  if (!q) return entries
+  return entries.filter(
+    (e) =>
+      e.name.toLowerCase().includes(q) ||
+      e.text?.toLowerCase().includes(q) ||
+      featureBadge(e).toLowerCase().includes(q),
+  )
+}
+
+/**
+ * Apply an edit to whichever array the row came from, returning a patch to
+ * spread over the character. Routing lives here rather than in the component so
+ * the "index is per-source" invariant is unit-testable.
+ */
+export function updateFeatureEntry(
+  c: Character,
+  entry: FeatureEntry,
+  patch: { name?: string; text?: string; level?: number },
+): Partial<Character> {
+  const { name, text, level } = patch
+  const applyNamed = (list: Array<NamedEntry>) =>
+    list.map((e, i) =>
+      i === entry.index
+        ? {
+            ...e,
+            ...(name !== undefined ? { name } : {}),
+            ...(text !== undefined ? { text: text || undefined } : {}),
+          }
+        : e,
+    )
+  switch (entry.source) {
+    case 'trait':
+      return { traits: applyNamed(c.traits) }
+    case 'feat':
+      return { feats: applyNamed(c.feats) }
+    default:
+      return {
+        features: c.features.map((f, i) =>
+          i === entry.index
+            ? {
+                ...f,
+                ...(name !== undefined ? { name } : {}),
+                ...(text !== undefined ? { text: text || undefined } : {}),
+                ...(level !== undefined
+                  ? { level: Math.max(1, Math.min(20, level)) }
+                  : {}),
+              }
+            : f,
+        ),
+      }
+  }
+}
+
+/** Remove a row from whichever array it came from. */
+export function removeFeatureEntry(
+  c: Character,
+  entry: FeatureEntry,
+): Partial<Character> {
+  const without = <T>(list: Array<T>) =>
+    list.filter((_, i) => i !== entry.index)
+  switch (entry.source) {
+    case 'trait':
+      return { traits: without(c.traits) }
+    case 'feat':
+      return { feats: without(c.feats) }
+    default:
+      return { features: without(c.features) }
+  }
+}
+
+/** Append a new entry to the array for `source`. */
+export function addFeatureEntry(
+  c: Character,
+  source: FeatureSource,
+  name: string,
+  text: string,
+  level: number,
+): Partial<Character> {
+  const named: NamedEntry = text ? { name, text } : { name }
+  switch (source) {
+    case 'trait':
+      return { traits: [...c.traits, named] }
+    case 'feat':
+      return { feats: [...c.feats, named] }
+    default:
+      return {
+        features: [
+          ...c.features,
+          text ? { level, name, text } : { level, name },
+        ],
+      }
+  }
+}
+
 /** Features sorted for display: by level, then by name within a level. */
 export function sortedFeatures(
   features: Array<ClassFeature>,
@@ -1194,6 +1480,19 @@ function serializeSpell(spell: Spell): Record<string, unknown> {
   return out
 }
 
+/**
+ * Drop the optional note keys unless set, so notes written before titles and
+ * tags existed round-trip byte-identically instead of growing a `title: null`
+ * on every entry.
+ */
+function serializeNote(note: CharacterNote): Record<string, unknown> {
+  const out: Record<string, unknown> = { at: note.at }
+  if (note.title?.trim()) out.title = note.title.trim()
+  if (note.tags && note.tags.length > 0) out.tags = note.tags
+  out.text = note.text
+  return out
+}
+
 /** Whether raw article content is a character sheet. */
 export function isCharacterContent(content: string): boolean {
   const { frontmatter } = splitFrontmatter(content)
@@ -1389,10 +1688,28 @@ export function parseCharacter(content: string): {
   )
   if (Array.isArray(r.notes)) {
     c.notes = r.notes.flatMap((entry): Array<CharacterNote> => {
+      // A bare string is a note somebody typed straight into the YAML list;
+      // keep it as an undated body rather than dropping their writing.
+      if (typeof entry === 'string') {
+        return entry.trim() ? [{ at: '', text: entry }] : []
+      }
       if (typeof entry !== 'object' || entry === null) return []
       const n = entry as Record<string, unknown>
       if (typeof n.text !== 'string') return []
-      return [{ at: str(n.at, ''), text: n.text }]
+      const note: CharacterNote = { at: str(n.at, ''), text: n.text }
+      if (typeof n.title === 'string' && n.title.trim()) {
+        note.title = n.title.trim()
+      }
+      // Accept a hand-written "session, lore" string as well as a YAML list —
+      // both are natural to type, and normalizeTags settles the casing.
+      const rawTags = Array.isArray(n.tags)
+        ? strList(n.tags)
+        : typeof n.tags === 'string'
+          ? n.tags.split(',')
+          : []
+      const tags = normalizeTags(rawTags)
+      if (tags.length > 0) note.tags = tags
+      return [note]
     })
   }
 
@@ -1448,7 +1765,7 @@ export function serializeCharacter(character: Character, body: string): string {
     inventory: serializeInventory(character.inventory),
     encumbrance: character.encumbrance,
     attunementSlots: character.attunementSlots,
-    notes: character.notes,
+    notes: character.notes.map(serializeNote),
   }
   const yaml = stringifyYaml(data).trimEnd()
   return joinFrontmatter(yaml, body)

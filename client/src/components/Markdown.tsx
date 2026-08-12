@@ -249,9 +249,7 @@ function StatBlockCard({
                   {ABILITY_LABEL[key]}
                 </div>
                 <div className="dnd-statblock-ability-score">
-                  {score == null
-                    ? '—'
-                    : `${score} (${abilityModLabel(score)})`}
+                  {score == null ? '—' : `${score} (${abilityModLabel(score)})`}
                 </div>
               </div>
             )
@@ -481,6 +479,15 @@ function createComponents(
     },
   }
 }
+
+/**
+ * Compact prose styling for markdown rendered inside a panel or list row rather
+ * than on a book page: headings shrink to body size, lists get their bullets and
+ * indent back (Tailwind's reset strips both), and vertical margins tighten so a
+ * short description doesn't sit in a sea of white space.
+ */
+export const PANEL_PROSE =
+  'text-sm [&_h1]:text-sm [&_h1]:font-semibold [&_h2]:text-sm [&_h2]:font-semibold [&_h3]:text-sm [&_h3]:font-semibold [&_li]:ml-4 [&_li]:list-disc [&_p]:my-1 [&_table]:my-1 [&_td]:border [&_td]:px-1 [&_th]:border [&_th]:px-1'
 
 interface RenderContext {
   articles?: Array<{ id: string; title: string }>

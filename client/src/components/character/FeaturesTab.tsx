@@ -1,347 +1,460 @@
-import { useRef, useState } from 'react'
-import { Plus, X } from 'lucide-react'
-import { sortedFeatures } from '#/lib/character'
-import type { Character, ClassFeature, NamedEntry } from '#/lib/character'
+import { useMemo, useRef, useState } from 'react'
+import { ChevronRight, Plus, Search, X } from 'lucide-react'
+import {
+  FEATURE_SOURCE_NAMES,
+  addFeatureEntry,
+  featureBadge,
+  featureEntries,
+  filterFeatures,
+  isUnearned,
+  removeFeatureEntry,
+  updateFeatureEntry,
+} from '#/lib/character'
+import type { Character, FeatureEntry, FeatureSource } from '#/lib/character'
 import { cn } from '#/lib/utils'
 import { Button } from '#/components/ui/button'
 import { Input } from '#/components/ui/input'
 import { Textarea } from '#/components/ui/textarea'
+import { InlineMarkdown, PANEL_PROSE } from '#/components/Markdown'
 import { NumField } from './NumField'
 
 /**
- * Racial traits, feats and class features. All three are a title plus a
- * description; class features additionally carry the level they're gained at,
- * and anything above the character's current level is kept and shown muted so
- * a build can be planned ahead.
+ * Racial traits, feats and class features in a single badged list. They live in
+ * three separate frontmatter arrays (only class features carry a level), but
+ * three stacked sections made anything hard to find, so the editor merges them
+ * and marks each row with where it came from.
  *
- * Descriptions are plain textareas here; the sheet preview renders them as
- * markdown so [[wiki links]] and dice notation come alive there.
+ * Rows collapse to a title line and expand to an editor — a level 12 character
+ * has twenty-odd features, and always-open textareas turned that into a page of
+ * scrolling. Descriptions render as markdown when collapsed-open for reading and
+ * swap to a raw textarea while editing.
  */
 
-/** Shared add form: title, description, and an optional level field. */
+type Filter = 'all' | FeatureSource
+
+const FILTERS: Array<{ id: Filter; label: string }> = [
+  { id: 'all', label: 'All' },
+  { id: 'trait', label: 'Racial' },
+  { id: 'feat', label: 'Feats' },
+  { id: 'class', label: 'Class' },
+]
+
+/** Per-source colour, so the eye can sort the list without reading badges. */
+const BADGE_CLASS: Record<FeatureSource, string> = {
+  trait: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300',
+  feat: 'bg-amber-500/15 text-amber-700 dark:text-amber-300',
+  class: 'bg-sky-500/15 text-sky-700 dark:text-sky-300',
+}
+
+function Badge({ entry }: { entry: FeatureEntry }) {
+  return (
+    <span
+      className={cn(
+        'shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide',
+        BADGE_CLASS[entry.source],
+      )}
+    >
+      {featureBadge(entry)}
+    </span>
+  )
+}
+
+/** The add form, which picks a source and only asks for a level when relevant. */
 function AddForm({
-  levelValue,
-  onLevelChange,
-  titlePlaceholder,
-  textPlaceholder,
+  character,
   onAdd,
 }: {
-  levelValue?: number
-  onLevelChange?: (v: number) => void
-  titlePlaceholder: string
-  textPlaceholder: string
-  onAdd: (name: string, text: string) => void
+  character: Character
+  onAdd: (
+    source: FeatureSource,
+    name: string,
+    text: string,
+    level: number,
+  ) => void
 }) {
+  const [open, setOpen] = useState(false)
+  const [source, setSource] = useState<FeatureSource>('class')
   const [name, setName] = useState('')
   const [text, setText] = useState('')
+  const [level, setLevel] = useState(character.level)
   const textRef = useRef<HTMLTextAreaElement>(null)
 
   const submit = () => {
     if (!name.trim()) return
-    onAdd(name.trim(), text.trim())
+    onAdd(source, name.trim(), text.trim(), level)
     setName('')
     setText('')
   }
 
+  if (!open) {
+    return (
+      <Button size="sm" variant="outline" onClick={() => setOpen(true)}>
+        <Plus className="size-3.5" /> Add feature
+      </Button>
+    )
+  }
+
   return (
-    <div className="space-y-1.5 rounded-md border p-3">
+    <div className="space-y-2 rounded-md border p-3">
       <div className="flex flex-wrap items-center gap-2">
-        {levelValue !== undefined && onLevelChange && (
+        {/* Source first: it decides whether a level is even meaningful. */}
+        <div className="flex gap-1">
+          {(['trait', 'feat', 'class'] as const).map((id) => (
+            <button
+              key={id}
+              type="button"
+              className={cn(
+                'rounded px-2 py-1 text-xs',
+                source === id
+                  ? BADGE_CLASS[id]
+                  : 'text-muted-foreground hover:bg-muted',
+              )}
+              onClick={() => setSource(id)}
+            >
+              {FEATURE_SOURCE_NAMES[id]}
+            </button>
+          ))}
+        </div>
+        {source === 'class' && (
           <label className="flex items-center gap-1 text-sm">
             Level
             <NumField
-              value={levelValue}
+              value={level}
               min={1}
               max={20}
               className="w-12"
-              onCommit={onLevelChange}
+              onCommit={setLevel}
             />
           </label>
         )}
-        <Input
-          value={name}
-          placeholder={titlePlaceholder}
-          className="h-8 min-w-56 flex-1 text-sm"
-          onChange={(e) => setName(e.target.value)}
-          onKeyDown={(e) => {
-            // Enter in the title jumps to the description rather than
-            // submitting, so a description is the norm and not an afterthought.
-            if (e.key === 'Enter') {
-              e.preventDefault()
-              textRef.current?.focus()
-            }
-          }}
-        />
       </div>
+      <Input
+        autoFocus
+        value={name}
+        placeholder={
+          source === 'trait'
+            ? 'Title, e.g. Darkvision'
+            : source === 'feat'
+              ? 'Title, e.g. Sharpshooter'
+              : 'Title, e.g. Cunning Action'
+        }
+        className="h-8 text-sm"
+        onChange={(e) => setName(e.target.value)}
+        onKeyDown={(e) => {
+          // Enter in the title jumps to the description rather than submitting,
+          // so a description is the norm and not an afterthought.
+          if (e.key === 'Enter') {
+            e.preventDefault()
+            textRef.current?.focus()
+          }
+        }}
+      />
       <Textarea
         ref={textRef}
         value={text}
-        placeholder={textPlaceholder}
+        placeholder="Description — what it does. [[Wiki links]] and dice like 2d6 stay live."
         className="min-h-16 text-sm"
         onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) submit()
         }}
       />
-      <Button size="sm" disabled={!name.trim()} onClick={submit}>
-        <Plus className="size-3.5" /> Add
-      </Button>
+      <div className="flex gap-2">
+        <Button size="sm" disabled={!name.trim()} onClick={submit}>
+          <Plus className="size-3.5" /> Add
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={() => {
+            setOpen(false)
+            setName('')
+            setText('')
+          }}
+        >
+          Done
+        </Button>
+      </div>
     </div>
   )
 }
 
-/** One editable row: title, optional level, description, delete. */
-function EntryRow({
-  name,
-  text,
-  level,
+/** One row: collapsed to a title line, expanded to a reader/editor. */
+function FeatureRow({
+  entry,
   muted,
-  onName,
-  onText,
-  onLevel,
+  expanded,
+  editing,
+  worldId,
+  articles,
+  onCreateMissing,
+  onToggle,
+  onEdit,
+  onChange,
   onRemove,
 }: {
-  name: string
-  text?: string
-  level?: number
-  muted?: boolean
-  onName: (v: string) => void
-  onText: (v: string | undefined) => void
-  onLevel?: (v: number) => void
+  entry: FeatureEntry
+  muted: boolean
+  expanded: boolean
+  editing: boolean
+  worldId?: string
+  articles?: Array<{ id: string; title: string }>
+  onCreateMissing?: (title: string) => void
+  onToggle: () => void
+  onEdit: () => void
+  onChange: (patch: { name?: string; text?: string; level?: number }) => void
   onRemove: () => void
 }) {
   return (
-    <li className={cn('group rounded-md border p-2.5', muted && 'opacity-60')}>
-      <div className="flex items-center gap-2">
-        <Input
-          value={name}
-          placeholder="Title"
-          className="h-7 flex-1 text-sm font-medium"
-          onChange={(e) => onName(e.target.value)}
-        />
-        {level !== undefined && onLevel && (
-          <NumField
-            value={level}
-            min={1}
-            max={20}
-            className="w-12"
-            onCommit={onLevel}
-          />
-        )}
+    <li className={cn('group rounded-md border', muted && 'opacity-60')}>
+      <div className="flex items-center gap-2 p-2">
         <button
           type="button"
-          className="hover:text-destructive text-muted-foreground opacity-0 group-hover:opacity-100"
+          className="text-muted-foreground hover:text-foreground flex min-w-0 flex-1 items-center gap-2 text-left"
+          onClick={onToggle}
+          title={expanded ? 'Collapse' : 'Expand'}
+        >
+          <ChevronRight
+            className={cn(
+              'size-3.5 shrink-0 transition-transform',
+              expanded && 'rotate-90',
+            )}
+          />
+          <span className="text-foreground truncate text-sm font-medium">
+            {entry.name || 'Untitled'}
+          </span>
+          <Badge entry={entry} />
+          {muted && (
+            <span className="text-muted-foreground shrink-0 text-[10px]">
+              not yet gained
+            </span>
+          )}
+        </button>
+        <button
+          type="button"
+          className="hover:text-destructive text-muted-foreground shrink-0 opacity-0 group-hover:opacity-100"
           title="Delete"
           onClick={onRemove}
         >
           <X className="size-3.5" />
         </button>
       </div>
-      {/* Always an editable box: an entry is a title *and* a description, so
-          the description shouldn't hide behind a hover-only toggle. */}
-      <Textarea
-        value={text ?? ''}
-        placeholder="Description — what it does."
-        className="mt-1.5 min-h-14 text-sm"
-        onChange={(e) => onText(e.target.value || undefined)}
-      />
-    </li>
-  )
-}
 
-/**
- * An un-levelled list — racial traits or feats. Entries keep the order they
- * were added in, since there's no natural sort for either.
- */
-function FlatSection({
-  heading,
-  subtitle,
-  entries,
-  titlePlaceholder,
-  textPlaceholder,
-  empty,
-  onChange,
-}: {
-  heading: string
-  subtitle?: string
-  entries: Array<NamedEntry>
-  titlePlaceholder: string
-  textPlaceholder: string
-  empty: string
-  onChange: (next: Array<NamedEntry>) => void
-}) {
-  return (
-    <section className="space-y-3">
-      <h2 className="text-sm font-semibold">
-        {heading}
-        {subtitle && (
-          <span className="text-muted-foreground font-normal">
-            {' '}
-            — {subtitle}
-          </span>
-        )}
-      </h2>
-      <AddForm
-        titlePlaceholder={titlePlaceholder}
-        textPlaceholder={textPlaceholder}
-        onAdd={(name, text) =>
-          onChange([...entries, text ? { name, text } : { name }])
-        }
-      />
-      {entries.length === 0 ? (
-        <p className="text-muted-foreground text-sm">{empty}</p>
-      ) : (
-        <ul className="space-y-2">
-          {entries.map((entry, i) => (
-            <EntryRow
-              key={`${entry.name}-${i}`}
-              name={entry.name}
-              text={entry.text}
-              onName={(v) =>
-                onChange(
-                  entries.map((e, j) => (j === i ? { ...e, name: v } : e)),
-                )
-              }
-              onText={(v) =>
-                onChange(
-                  entries.map((e, j) => (j === i ? { ...e, text: v } : e)),
-                )
-              }
-              onRemove={() => onChange(entries.filter((_, j) => j !== i))}
-            />
-          ))}
-        </ul>
+      {expanded && (
+        <div className="space-y-2 border-t px-2.5 py-2">
+          {editing ? (
+            <>
+              <div className="flex items-center gap-2">
+                <Input
+                  value={entry.name}
+                  placeholder="Title"
+                  className="h-7 flex-1 text-sm font-medium"
+                  onChange={(e) => onChange({ name: e.target.value })}
+                />
+                {entry.source === 'class' && (
+                  <label className="text-muted-foreground flex items-center gap-1 text-xs">
+                    Lv
+                    <NumField
+                      value={entry.level ?? 1}
+                      min={1}
+                      max={20}
+                      className="w-12"
+                      onCommit={(v) => onChange({ level: v })}
+                    />
+                  </label>
+                )}
+              </div>
+              <Textarea
+                autoFocus
+                value={entry.text ?? ''}
+                placeholder="Description — what it does."
+                className="min-h-24 text-sm"
+                onChange={(e) => onChange({ text: e.target.value })}
+              />
+              <Button size="sm" variant="ghost" onClick={onEdit}>
+                Done
+              </Button>
+            </>
+          ) : (
+            <>
+              {/* Rendered, not raw: wiki links and dice are live here the same
+                  as they are on the printed sheet. */}
+              {entry.text?.trim() ? (
+                <InlineMarkdown
+                  className={PANEL_PROSE}
+                  worldId={worldId}
+                  articles={articles}
+                  onCreateMissing={onCreateMissing}
+                >
+                  {entry.text}
+                </InlineMarkdown>
+              ) : (
+                <p className="text-muted-foreground text-sm italic">
+                  No description yet.
+                </p>
+              )}
+              <Button size="sm" variant="ghost" onClick={onEdit}>
+                Edit
+              </Button>
+            </>
+          )}
+        </div>
       )}
-    </section>
+    </li>
   )
 }
 
 export function FeaturesTab({
   character,
   onChange,
+  worldId,
+  articles,
+  onCreateMissing,
 }: {
   character: Character
   onChange: (next: Character) => void
+  worldId?: string
+  articles?: Array<{ id: string; title: string }>
+  onCreateMissing?: (title: string) => void
 }) {
-  const [level, setLevel] = useState(character.level)
+  const [query, setQuery] = useState('')
+  const [filter, setFilter] = useState<Filter>('all')
+  // Keyed by source+index rather than by object identity: rows are recreated on
+  // every edit, so identity would collapse the row you are typing in.
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const [editing, setEditing] = useState<string | null>(null)
 
-  // --- class features (grouped by level) -----------------------------------
-  const addFeature = (name: string, text: string) =>
-    onChange({
-      ...character,
-      features: [
-        ...character.features,
-        text ? { level, name, text } : { level, name },
-      ],
+  const entries = useMemo(() => featureEntries(character), [character])
+  const shown = useMemo(() => {
+    const byFilter =
+      filter === 'all' ? entries : entries.filter((e) => e.source === filter)
+    return filterFeatures(byFilter, query)
+  }, [entries, filter, query])
+
+  const keyOf = (e: FeatureEntry) => `${e.source}:${e.index}`
+  const counts = {
+    all: entries.length,
+    trait: character.traits.length,
+    feat: character.feats.length,
+    class: character.features.length,
+  }
+
+  const toggle = (key: string) =>
+    setExpanded((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
     })
-
-  // Rows are edited by identity, not index: the list renders sorted, so an
-  // index into the sorted view would not match the stored array.
-  const updateFeature = (target: ClassFeature, patch: Partial<ClassFeature>) =>
-    onChange({
-      ...character,
-      features: character.features.map((f) =>
-        f === target ? { ...f, ...patch } : f,
-      ),
-    })
-
-  const removeFeature = (target: ClassFeature) =>
-    onChange({
-      ...character,
-      features: character.features.filter((f) => f !== target),
-    })
-
-  const sorted = sortedFeatures(character.features)
-  const levels = [...new Set(sorted.map((f) => f.level))]
 
   return (
-    <div className="mx-auto max-w-4xl space-y-6 p-4">
-      <FlatSection
-        heading="Racial traits"
-        subtitle={character.race || undefined}
-        entries={character.traits}
-        titlePlaceholder="Title, e.g. Darkvision"
-        textPlaceholder="Description, e.g. See in dim light within 60 feet as if it were bright light."
-        empty="No racial traits yet — Darkvision, Lucky, Fey Ancestry and the like."
-        onChange={(traits) => onChange({ ...character, traits })}
+    <div className="mx-auto max-w-3xl space-y-3 p-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative min-w-48 flex-1">
+          <Search className="text-muted-foreground pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2" />
+          <Input
+            value={query}
+            placeholder="Search features…"
+            className="h-8 pl-7 text-sm"
+            onChange={(e) => setQuery(e.target.value)}
+          />
+        </div>
+        <div className="flex gap-1">
+          {FILTERS.map((f) => (
+            <button
+              key={f.id}
+              type="button"
+              className={cn(
+                'rounded px-2 py-1 text-xs',
+                filter === f.id
+                  ? 'bg-primary text-primary-foreground'
+                  : 'text-muted-foreground hover:bg-muted',
+              )}
+              onClick={() => setFilter(f.id)}
+            >
+              {f.label} ({counts[f.id]})
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <AddForm
+        character={character}
+        onAdd={(source, name, text, level) =>
+          onChange({
+            ...character,
+            ...addFeatureEntry(character, source, name, text, level),
+          })
+        }
       />
 
-      <FlatSection
-        heading="Feats"
-        entries={character.feats}
-        titlePlaceholder="Title, e.g. Sharpshooter"
-        textPlaceholder="Description, e.g. Attacking at long range doesn't impose disadvantage, and you ignore half and three-quarters cover."
-        empty="No feats yet — taken with an Ability Score Improvement, or at level 1 as a variant human."
-        onChange={(feats) => onChange({ ...character, feats })}
-      />
+      {entries.length > 0 && shown.length > 1 && (
+        <div className="flex items-center gap-3 text-xs">
+          <button
+            type="button"
+            className="text-muted-foreground hover:text-foreground"
+            onClick={() => setExpanded(new Set(shown.map(keyOf)))}
+          >
+            Expand all
+          </button>
+          <button
+            type="button"
+            className="text-muted-foreground hover:text-foreground"
+            onClick={() => {
+              setExpanded(new Set())
+              setEditing(null)
+            }}
+          >
+            Collapse all
+          </button>
+        </div>
+      )}
 
-      <section className="space-y-3">
-        <h2 className="text-sm font-semibold">
-          Class features
-          {character.class && (
-            <span className="text-muted-foreground font-normal">
-              {' '}
-              — {character.class}
-            </span>
-          )}
-        </h2>
-        <AddForm
-          levelValue={level}
-          onLevelChange={setLevel}
-          titlePlaceholder="Title, e.g. Cunning Action"
-          textPlaceholder="Description, e.g. Can use a bonus action to Dash, Disengage or Hide. [[Wiki links]] and dice like 2d6 stay live on the sheet."
-          onAdd={addFeature}
-        />
-        {sorted.length === 0 ? (
-          <p className="text-muted-foreground text-sm">
-            No features yet. Add what your class grants at each level — a
-            rogue's Cunning Action at 2, a subclass feature at 3 — and they
-            appear on the sheet preview grouped by level.
-          </p>
-        ) : (
-          <div className="space-y-4">
-            {levels.map((lvl) => {
-              const earned = lvl <= character.level
-              return (
-                <section key={lvl}>
-                  <h3
-                    className={cn(
-                      'mb-1.5 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide',
-                      earned
-                        ? 'text-muted-foreground'
-                        : 'text-muted-foreground/60',
-                    )}
-                  >
-                    Level {lvl}
-                    {!earned && (
-                      <span className="font-normal normal-case tracking-normal">
-                        — not yet gained
-                      </span>
-                    )}
-                  </h3>
-                  <ul className="space-y-2">
-                    {sorted
-                      .filter((f) => f.level === lvl)
-                      .map((feature, i) => (
-                        <EntryRow
-                          key={`${feature.name}-${i}`}
-                          name={feature.name}
-                          text={feature.text}
-                          level={feature.level}
-                          muted={!earned}
-                          onName={(v) => updateFeature(feature, { name: v })}
-                          onText={(v) => updateFeature(feature, { text: v })}
-                          onLevel={(v) => updateFeature(feature, { level: v })}
-                          onRemove={() => removeFeature(feature)}
-                        />
-                      ))}
-                  </ul>
-                </section>
-              )
-            })}
-          </div>
-        )}
-      </section>
+      {shown.length === 0 ? (
+        <p className="text-muted-foreground text-sm">
+          {entries.length === 0
+            ? 'Nothing yet. Add a racial trait like Darkvision, a feat like Sharpshooter, or a class feature such as Cunning Action at level 2 — they all land in this one list, badged by where they came from.'
+            : 'No features match that search.'}
+        </p>
+      ) : (
+        <ul className="space-y-1.5">
+          {shown.map((entry) => {
+            const key = keyOf(entry)
+            return (
+              <FeatureRow
+                key={key}
+                entry={entry}
+                muted={isUnearned(entry, character)}
+                expanded={expanded.has(key)}
+                editing={editing === key}
+                worldId={worldId}
+                articles={articles}
+                onCreateMissing={onCreateMissing}
+                onToggle={() => toggle(key)}
+                onEdit={() => {
+                  // Editing implies expanded — clicking Edit on a collapsed row
+                  // should never leave you typing into something invisible.
+                  setExpanded((prev) => new Set(prev).add(key))
+                  setEditing(editing === key ? null : key)
+                }}
+                onChange={(patch) =>
+                  onChange({
+                    ...character,
+                    ...updateFeatureEntry(character, entry, patch),
+                  })
+                }
+                onRemove={() => {
+                  setEditing(null)
+                  onChange({
+                    ...character,
+                    ...removeFeatureEntry(character, entry),
+                  })
+                }}
+              />
+            )
+          })}
+        </ul>
+      )}
     </div>
   )
 }

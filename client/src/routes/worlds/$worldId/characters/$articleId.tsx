@@ -298,7 +298,11 @@ function CharacterPage() {
               Equipment
             </TabsTrigger>
             <TabsTrigger value="features" className="text-xs">
-              Features ({character.features.length})
+              Features (
+              {character.features.length +
+                character.traits.length +
+                character.feats.length}
+              )
             </TabsTrigger>
             <TabsTrigger value="notes" className="text-xs">
               Notes ({character.notes.length})
@@ -342,7 +346,13 @@ function CharacterPage() {
           value="features"
           className="min-h-0 flex-1 overflow-y-auto"
         >
-          <FeaturesTab character={character} onChange={update} />
+          <FeaturesTab
+            character={character}
+            onChange={update}
+            worldId={worldId}
+            articles={tree.data?.articles}
+            onCreateMissing={setMissingTitle}
+          />
         </TabsContent>
         <TabsContent value="notes" className="min-h-0 flex-1 overflow-y-auto">
           <NotesTab

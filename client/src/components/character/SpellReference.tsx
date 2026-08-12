@@ -19,7 +19,7 @@ import { articleTemplates } from '#/lib/templates'
 import { Button } from '#/components/ui/button'
 import { Input } from '#/components/ui/input'
 import { ScrollArea } from '#/components/ui/scroll-area'
-import { InlineMarkdown } from '#/components/Markdown'
+import { InlineMarkdown, PANEL_PROSE } from '#/components/Markdown'
 
 const SPELLS_FOLDER = 'Spells'
 
@@ -51,7 +51,7 @@ function SpellArticle({
       worldId={worldId}
       articles={articles}
       source={{ worldId, articleId, title }}
-      className="text-sm [&_h1]:text-sm [&_h1]:font-semibold [&_h2]:text-sm [&_h2]:font-semibold [&_h3]:text-sm [&_h3]:font-semibold [&_li]:ml-4 [&_li]:list-disc [&_p]:my-1 [&_table]:my-1 [&_td]:border [&_td]:px-1 [&_th]:border [&_th]:px-1"
+      className={PANEL_PROSE}
     >
       {splitFrontmatter(article.data.content).body}
     </InlineMarkdown>
