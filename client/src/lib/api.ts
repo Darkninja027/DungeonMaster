@@ -239,6 +239,16 @@ export const api = {
     set: (worldId: string, state: Array<SavedView>) =>
       invoke<void>('views:set', { worldId, state }),
   },
+  worldSettings: {
+    /**
+     * Raw worldSettings.json — deliberately `unknown`, because the file is
+     * hand-editable and the renderer owns the tolerant parse
+     * (lib/worldSettings.ts). null means missing or unparseable.
+     */
+    get: (worldId: string) => invoke<unknown>('worldSettings:get', { worldId }),
+    set: (worldId: string, state: unknown) =>
+      invoke<void>('worldSettings:set', { worldId, state }),
+  },
   updates: {
     /** Subscribe to auto-update status; returns an unsubscribe fn. */
     onStatus: (cb: (status: UpdateStatus) => void) =>

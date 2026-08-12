@@ -32,6 +32,8 @@ const CHANNELS = new Set([
   'session:set',
   'views:get',
   'views:set',
+  'worldSettings:get',
+  'worldSettings:set',
   'updates:quitAndInstall',
 ])
 

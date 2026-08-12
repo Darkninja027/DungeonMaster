@@ -30,6 +30,12 @@ import {
 import type { ArticleQuery } from './search'
 import { deleteImage, listImages, uploadImage } from './images'
 import { readSession, readViews, writeSession, writeViews } from './session'
+import {
+  WORLD_SETTINGS_FILE,
+  readWorldSettings,
+  seedWorldSettings,
+  writeWorldSettings,
+} from './worldSettings'
 import { noteSelfWrite, startWatching, stopWatching } from './watcher'
 import {
   buildIndex,
@@ -45,6 +51,25 @@ function worldSummary(root: string): WorldSummary {
     id: encodeWorldId(root),
     ...readWorldMeta(root),
     articleCount: countArticles(root),
+  }
+}
+
+/**
+ * Give a freshly created or newly adopted world its settings file, so the folder
+ * is complete before anyone opens it in Obsidian. Called here rather than from
+ * initWorld to keep worldStore.ts from importing worldSettings.ts, which imports
+ * it back for atomicWrite.
+ *
+ * Never fatal: a world the user can't write to still opens, and readWorldSettings
+ * serves the seed from memory. Skipped if a file is already there — including a
+ * corrupt one, which is a hand edit to preserve, not to clobber.
+ */
+function scaffoldSettings(root: string): void {
+  try {
+    if (fs.existsSync(path.join(root, WORLD_SETTINGS_FILE))) return
+    seedWorldSettings(root)
+  } catch {
+    // read-only folder or a race with another window — the getter copes.
   }
 }
 
@@ -80,6 +105,7 @@ export function registerIpcHandlers() {
     if (!fs.existsSync(path.join(dir, 'world.json'))) {
       initWorld(dir, path.basename(dir), '')
     }
+    scaffoldSettings(dir)
     addRecentWorld(dir)
     return worldSummary(dir)
   })
@@ -98,6 +124,7 @@ export function registerIpcHandlers() {
         throw new Error(`"${dir}" already exists and is not empty.`)
       }
       initWorld(dir, input.name.trim(), input.description ?? '')
+      scaffoldSettings(dir)
       addRecentWorld(dir)
       return worldSummary(dir)
     },
@@ -158,7 +185,12 @@ export function registerIpcHandlers() {
       // Fire-and-forget: the batch is already pushed to the renderer, which
       // refetches; the rebuild just refreshes the search index in the
       // background and must not block the watcher callback.
-      void refreshIndex(worldId)
+      //
+      // Only article changes can affect the index, so an images-only or
+      // settings-only batch skips it — the index holds neither.
+      if (batch.treeChanged || batch.articleIds.length > 0) {
+        void refreshIndex(worldId)
+      }
       if (!sender.isDestroyed()) sender.send('world:changed', batch)
     })
     return buildIndex(worldId)
@@ -372,5 +404,18 @@ export function registerIpcHandlers() {
     'views:set',
     (_e, { worldId, state }: { worldId: string; state: unknown }) =>
       writeViews(worldId, state),
+  )
+
+  // Per-world settings (the class/subclass list) ------------------------------
+  // The getter scaffolds the file for worlds that predate the feature; the
+  // renderer owns the tolerant parse, so this returns the raw JSON.
+  ipcMain.handle('worldSettings:get', (_e, { worldId }: { worldId: string }) =>
+    readWorldSettings(worldId),
+  )
+
+  ipcMain.handle(
+    'worldSettings:set',
+    (_e, { worldId, state }: { worldId: string; state: unknown }) =>
+      writeWorldSettings(worldId, state),
   )
 }

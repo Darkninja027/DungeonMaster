@@ -1,15 +1,26 @@
 /**
- * The 12 PHB classes: hit die and subclass *names* only.
+ * Class lookups over a caller-supplied list, plus the 12 PHB classes as the seed
+ * for a new world.
+ *
+ * The live list comes from each world's `worldSettings.json` (see
+ * lib/worldSettings.ts), so homebrew travels with the world folder. These
+ * functions take the list as their first argument rather than closing over a
+ * constant: it keeps them pure and testable without a world, and stops any
+ * caller from quietly reading the built-ins instead of the world's own list.
  *
  * Deliberately not a rules engine — no features by level, no spell slot
- * progression. This table exists so the sheet can offer a dropdown and fill in
- * the hit die, and so a subclass field can suggest sensible values. Everything
- * downstream treats `Character.class` and `Character.subclass` as free text
- * (see the note on ARMOR_PROFICIENCIES in character.ts): a homebrew class must
+ * progression. The list exists so the sheet can offer a dropdown and fill in the
+ * hit die, and so a subclass field can suggest sensible values. Everything
+ * downstream treats `Character.class` and `Character.subclass` as free text (see
+ * the note on ARMOR_PROFICIENCIES in character.ts): a homebrew class must
  * survive a round trip through the editor untouched.
  */
 
 export interface ClassInfo {
+  /**
+   * Derived from the name (trimmed, lowercased) — never stored on disk, where
+   * the name is the only identity. Used for React keys and lookup.
+   */
   id: string
   name: string
   /** Hit die size, e.g. 10 for a d10. */
@@ -24,7 +35,11 @@ export interface ClassInfo {
   subclasses: Array<string>
 }
 
-export const CLASSES: Array<ClassInfo> = [
+/**
+ * The seed written into a new world's `worldSettings.json`, and the synchronous
+ * fallback the sheet uses while that file is loading or when it can't be read.
+ */
+export const PHB_CLASSES: Array<ClassInfo> = [
   {
     id: 'barbarian',
     name: 'Barbarian',
@@ -137,25 +152,34 @@ export const CLASSES: Array<ClassInfo> = [
 ]
 
 /**
- * Looks a class up by name or id, case- and whitespace-insensitively. Returns
- * undefined for homebrew — callers must treat that as "leave it alone", never
- * as an error.
+ * Looks a class up in `classes` by name or id, case- and whitespace-
+ * insensitively. Returns undefined for anything not in the list — callers must
+ * treat that as "leave it alone", never as an error.
  */
-export function findClass(name: string): ClassInfo | undefined {
+export function findClass(
+  classes: Array<ClassInfo>,
+  name: string,
+): ClassInfo | undefined {
   const key = name.trim().toLowerCase()
   if (key === '') return undefined
-  return CLASSES.find((cl) => cl.id === key || cl.name.toLowerCase() === key)
+  return classes.find((cl) => cl.id === key || cl.name.toLowerCase() === key)
 }
 
-/** Subclass suggestions for a class name; empty for homebrew or blank. */
-export function subclassesFor(className: string): Array<string> {
-  return findClass(className)?.subclasses ?? []
+/** Subclass suggestions for a class name; empty when unknown or blank. */
+export function subclassesFor(
+  classes: Array<ClassInfo>,
+  className: string,
+): Array<string> {
+  return findClass(classes, className)?.subclasses ?? []
 }
 
 /**
  * The subclass field's placeholder. Falls back to the generic word when the
- * class is homebrew or not yet filled in.
+ * class isn't in the list or isn't filled in yet.
  */
-export function subclassLabelFor(className: string): string {
-  return findClass(className)?.subclassLabel ?? 'Subclass'
+export function subclassLabelFor(
+  classes: Array<ClassInfo>,
+  className: string,
+): string {
+  return findClass(classes, className)?.subclassLabel ?? 'Subclass'
 }

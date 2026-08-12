@@ -5,12 +5,8 @@ import { Eye, FileDown, FileText, Loader2, Save, Trash2 } from 'lucide-react'
 import { api } from '#/lib/api'
 import { parseCharacter, serializeCharacter, setLevel } from '#/lib/character'
 import type { Character } from '#/lib/character'
-import {
-  CLASSES,
-  findClass,
-  subclassLabelFor,
-  subclassesFor,
-} from '#/lib/classes'
+import { findClass, subclassLabelFor, subclassesFor } from '#/lib/classes'
+import { useClasses } from '#/lib/useWorldSettings'
 import { exportPdf } from '#/lib/exportPdf'
 import { useShortcut } from '#/lib/useShortcut'
 import type { RollSource } from '#/lib/rollLog'
@@ -44,6 +40,9 @@ function CharacterPage() {
     queryKey: ['worlds', worldId, 'tree'],
     queryFn: () => api.worlds.tree(worldId),
   })
+  // This world's own class list, from its worldSettings.json — homebrew included.
+  // Must stay above the early return below: hook order can't be conditional.
+  const classes = useClasses(worldId)
 
   const [title, setTitle] = useState('')
   const [character, setCharacter] = useState<Character | null>(null)
@@ -152,8 +151,9 @@ function CharacterPage() {
           className="h-7 w-28 text-sm"
           onChange={(e) => update({ ...character, race: e.target.value })}
         />
-        {/* A datalist, not a <select>: the 12 PHB names are one click away but
-            homebrew classes stay typeable, which the on-disk format requires. */}
+        {/* A datalist, not a <select>: the world's class names are one click
+            away but homebrew stays typeable, which the on-disk format
+            requires. */}
         <Input
           list="dm-classes"
           value={character.class}
@@ -161,7 +161,7 @@ function CharacterPage() {
           className="h-7 w-28 text-sm"
           onChange={(e) => {
             const value = e.target.value
-            const known = findClass(value)
+            const known = findClass(classes, value)
             update({
               ...character,
               class: value,
@@ -174,19 +174,19 @@ function CharacterPage() {
           }}
         />
         <datalist id="dm-classes">
-          {CLASSES.map((cl) => (
+          {classes.map((cl) => (
             <option key={cl.id} value={cl.name} />
           ))}
         </datalist>
         <Input
           list="dm-subclasses"
           value={character.subclass}
-          placeholder={subclassLabelFor(character.class)}
+          placeholder={subclassLabelFor(classes, character.class)}
           className="h-7 w-36 text-sm"
           onChange={(e) => update({ ...character, subclass: e.target.value })}
         />
         <datalist id="dm-subclasses">
-          {subclassesFor(character.class).map((name) => (
+          {subclassesFor(classes, character.class).map((name) => (
             <option key={name} value={name} />
           ))}
         </datalist>

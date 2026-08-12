@@ -69,7 +69,12 @@ function classify(watch: ActiveWatch, relPath: string): void {
     treeChanged: false,
     imagesChanged: false,
   })
-  if (rel === '_images' || rel.startsWith('_images/')) {
+  if (rel.toLowerCase() === 'worldsettings.json') {
+    // App state at the world root, not content: invisible to readTree and to
+    // the search index, so it must not claim the tree changed. The batch is
+    // still emitted with no flags set — the renderer refetches everything under
+    // ['worlds', worldId], which covers the settings query by prefix.
+  } else if (rel === '_images' || rel.startsWith('_images/')) {
     batch.imagesChanged = true
   } else if (rel.toLowerCase().endsWith('.md')) {
     const id = rel.slice(0, -3)
