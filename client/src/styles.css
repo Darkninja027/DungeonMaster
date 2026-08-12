@@ -842,14 +842,6 @@ a {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* Coins three-up: five stacked rows would cost ~70px of a tight 199px rail
-   budget, and PP/GP/EP/SP/CP with their values are short enough to read in two
-   lines of three. The height saved goes to the Defenses box above. */
-.dnd-page .dnd-cs-railcoins {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  column-gap: 6px;
-}
 /* Defenses in the rail: a small caps label inline before its comma-joined
    values, because 168px can't carry ProfLine's side-by-side label column and
    still leave room to read the values. */
@@ -1066,6 +1058,80 @@ a {
   align-items: baseline;
   gap: 5px;
   flex-wrap: wrap;
+}
+
+/* Skills and Equipped share the bottom of the right column, side by side. The
+   row owns the height (SKILLS_HEIGHT), so both boxes clip at the same line. */
+.dnd-page .dnd-cs-lowerrow {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  min-height: 0;
+}
+/* The right half stacks Equipped over Treasure; Equipped takes the slack. */
+.dnd-page .dnd-cs-lowerstack {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+}
+.dnd-page .dnd-cs-lowerstack > .dnd-cs-box:first-child {
+  flex: 1;
+  min-height: 0;
+}
+/* 18 skills in one narrow column, so the rows tighten from 26px to 21px. */
+.dnd-page .dnd-cs-skilllist .dnd-cs-row,
+.dnd-page .dnd-cs-equiplist .dnd-cs-equiprow {
+  height: 21px;
+}
+/* The slots spread across whatever height Equipped ends up with, rather than
+   bunching at the top and leaving a gap under the last one. */
+.dnd-page .dnd-cs-equiplist {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  overflow: hidden;
+}
+/* One row per coin, full names — this half of the page has the width for it and
+   a line each is what you'd actually write on. */
+.dnd-page .dnd-cs-coingrid {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  overflow: hidden;
+}
+.dnd-page .dnd-cs-coingrid .dnd-cs-railrow {
+  font-size: 11px;
+  border-bottom: 1px dotted color-mix(in oklab, var(--dnd-gold) 55%, white);
+}
+.dnd-page .dnd-cs-coinabbr {
+  font-size: 8.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--dnd-red);
+  opacity: 0.8;
+}
+/* Slot label then item name, the label in a fixed rail so the names line up. */
+.dnd-page .dnd-cs-equiprow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  border-bottom: 1px dotted color-mix(in oklab, var(--dnd-gold) 55%, white);
+}
+.dnd-page .dnd-cs-equiprow .dnd-cs-row-abil {
+  flex: 0 0 62px;
+}
+.dnd-page .dnd-cs-equiprow .dnd-cs-row-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* HP tile — sits inside the Combat box alongside the stat tiles, so it matches

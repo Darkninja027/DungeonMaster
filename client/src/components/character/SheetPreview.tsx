@@ -16,7 +16,6 @@ import {
   encumbranceTier,
   equippedIn,
   hasDefenses,
-  hasOtherProficiencies,
   initiativeBonus,
   inventoryItemName,
   alwaysPreparedCount,
@@ -90,9 +89,10 @@ export interface SheetPreviewProps {
 const ATTACK_ROWS = 8
 const SPELL_ROWS_FIRST = 54
 const SPELL_ROWS_REST = 74
-// The always-present Treasure box (~86px) moved off this page to page one's
-// left rail, freeing ceil(86 / 24) * 2 = 8 more half-rows on the first page.
-const GEAR_ROWS_FIRST = 64
+// Treasure (~86px, always shown) and Equipped (~150px when anything was worn)
+// both moved off this page to page one, so the first gear page carries a lot
+// more than it used to. Measured against the rendered page, not derived.
+const GEAR_ROWS_FIRST = 74
 const GEAR_ROWS_REST = 74
 /**
  * The optional box at the head of the gear page. It holds four labelled lines
@@ -114,24 +114,30 @@ const gearBoxCost = (height: number) => Math.ceil(height / 24) * 2
  * re-measure (scrollHeight > clientHeight on .dnd-cs-body) after touching any of
  * this.
  *
- * Passive (3 lines) and Treasure (5 coins, two-up) measure 58px at their natural
- * height and are pinned there. Defenses is the variable one, so it takes the
- * remainder; RailDefenses collapses its lists into one flowing paragraph rather
- * than clipping any away when all four are populated.
+ * Passive is fixed at 3 lines. Defenses and Languages both flow as one wrapped
+ * paragraph, so they clip rather than push — RailDefenses collapses its four
+ * lists into a single run when they're all populated.
  */
 const RAIL_PASSIVE_HEIGHT = 58
-const RAIL_DEFENSE_HEIGHT = 61
-const RAIL_TREASURE_HEIGHT = 50
+const RAIL_DEFENSE_HEIGHT = 68
+const RAIL_LANGUAGE_HEIGHT = 46
 
 /**
- * The right column's two fixed boxes. Combat holds the tile row plus the hit
- * dice / death saves footer; Skills & Saves holds the six saves three-across
- * then eighteen skills in two columns (9 rows of 26px). AttacksTable takes
- * whatever is left over as the column's only flexible block, so these two are
- * what decide how much room it gets. Both measured against the rendered page.
+ * The purse, in the right half of the lower row under Equipped: a cap plus one
+ * row per denomination at 21px, matching the Equipped slot rows above it.
+ */
+const TREASURE_HEIGHT = 132
+
+/**
+ * The right column's two fixed heights. Combat holds the tile row plus the hit
+ * dice / death saves footer. SKILLS_HEIGHT sizes the bottom row — Skills beside
+ * Equipped — against its taller side: eighteen skills in one column at 21px a
+ * row. AttacksTable takes whatever is left over as the column's only flexible
+ * block, so these two decide how much room it gets. Both measured against the
+ * rendered page; a short box clips its last row with no warning.
  */
 const COMBAT_HEIGHT = 150
-const SKILLS_HEIGHT = 396
+const SKILLS_HEIGHT = 412
 /**
  * Features are costed in text lines, not rows — see lib/sheetPages.ts. The
  * box measures 868px across two columns at ~14.85px a line, so ~116 lines
@@ -172,6 +178,15 @@ function preserveLineBreaks(text: string): string {
 
 function anySlots(c: Character): boolean {
   return SLOT_LEVELS.some((lvl) => slotFor(c, lvl).total > 0)
+}
+
+/**
+ * Like character.ts's hasOtherProficiencies, minus languages: those print in
+ * page one's left rail now, so a character whose only entry is a language must
+ * not earn an otherwise-empty box on the gear page.
+ */
+function hasPrintedProficiencies(c: Character): boolean {
+  return c.armor.length > 0 || c.weapons.length > 0 || c.tools.length > 0
 }
 
 /**
@@ -512,6 +527,59 @@ function AttacksTable({ c, source }: { c: Character; source: RollSource }) {
   )
 }
 
+/**
+ * What the character is actually wearing, beside the skills on page one — it's
+ * the other half of "what can I do right now?", and it used to sit on the gear
+ * page where you'd never look mid-fight.
+ *
+ * Every slot prints, filled or not: a printed sheet wants an empty line to write
+ * on rather than a slot that silently vanished.
+ */
+function EquippedBox({ c }: { c: Character }) {
+  return (
+    <div className="dnd-cs-box">
+      <div className="dnd-cs-cap">Equipped</div>
+      <div className="dnd-cs-equiplist">
+        {EQUIP_SLOTS.map((slot) => {
+          const item = equippedIn(c.inventory, slot)
+          return (
+            <div key={slot} className="dnd-cs-equiprow">
+              <span className="dnd-cs-row-abil">{EQUIP_SLOT_NAMES[slot]}</span>
+              <span className="dnd-cs-row-name">
+                {item ? inventoryItemName(item.text) : '—'}
+              </span>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+/**
+ * The purse, in its own box under Equipped — the eleven slots above don't fill
+ * their half of the page, and coins are the other thing you reach for between
+ * fights. All five denominations print even at zero: a sheet wants a 0 to write
+ * over, not a missing line.
+ */
+function TreasureBox({ c }: { c: Character }) {
+  return (
+    <div className="dnd-cs-box" style={{ flex: `0 0 ${TREASURE_HEIGHT}px` }}>
+      <div className="dnd-cs-cap">Treasure</div>
+      <div className="dnd-cs-coingrid">
+        {COINS.map(({ key, name }) => (
+          <div key={key} className="dnd-cs-railrow">
+            <span>
+              {name} <span className="dnd-cs-coinabbr">{key}</span>
+            </span>
+            <strong>{c.currency[key]}</strong>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 function CorePage({
   c,
   title,
@@ -587,22 +655,20 @@ function CorePage({
 
             {hasDefenses(c) && <RailDefenses c={c} />}
 
-            {/* Always shown, even at zero: a printed sheet wants a 0 to write
-                over, not a missing box. */}
-            <div
-              className="dnd-cs-box"
-              style={{ flex: '0 0 auto', maxHeight: RAIL_TREASURE_HEIGHT }}
-            >
-              <div className="dnd-cs-cap">Treasure</div>
-              <div className="dnd-cs-railcoins">
-                {COINS.map(({ key, name }) => (
-                  <div key={key} className="dnd-cs-railrow" title={name}>
-                    <span>{key.toUpperCase()}</span>
-                    <strong>{c.currency[key]}</strong>
-                  </div>
-                ))}
+            {/* Languages took this slot when Treasure moved beside Equipped —
+                they're read aloud at the table constantly, and they were buried
+                on the gear page's proficiency box before. */}
+            {c.languages.length > 0 && (
+              <div
+                className="dnd-cs-box"
+                style={{ flex: '0 0 auto', maxHeight: RAIL_LANGUAGE_HEIGHT }}
+              >
+                <div className="dnd-cs-cap">Languages</div>
+                <div className="dnd-cs-raildef dnd-cs-raildef-flow">
+                  {c.languages.join(', ')}
+                </div>
               </div>
-            </div>
+            )}
           </div>
 
           {/* Right column: one Combat box holding everything you touch in a
@@ -705,37 +771,40 @@ function CorePage({
                 page, not here — this page has no room to spare. */}
             <AttacksTable c={c} source={source} />
 
-            {/* Saving throws live inside the ability boxes in the left rail,
-                beside the score each one keys off — see AbilityBox. Sized
-                exactly: a short box clips the last skill row with no warning. */}
+            {/* Skills beside what you're wearing. Saving throws live inside the
+                ability boxes in the left rail now, beside the score each one
+                keys off — see AbilityBox. Both boxes are sized exactly: a short
+                one clips its last row with no warning at all. */}
             <div
-              className="dnd-cs-box"
+              className="dnd-cs-lowerrow"
               style={{ flex: `0 0 ${SKILLS_HEIGHT}px` }}
             >
-              <div className="dnd-cs-cap">Skills</div>
-              {/* space-between, not start: the box is taller than 9 rows of
-                  26px, so the rows share the slack instead of leaving a gap
-                  under the last one. */}
-              <div
-                className="dnd-cs-scroll"
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: '1fr 1fr',
-                  columnGap: 20,
-                  alignContent: 'space-between',
-                }}
-              >
-                {SKILLS.map((skill) => (
-                  <ProfRow
-                    key={skill.id}
-                    name={skill.name}
-                    ability={skill.ability}
-                    bonus={skillBonus(c, skill.id)}
-                    proficient={c.skills.includes(skill.id)}
-                    expertise={c.expertise.includes(skill.id)}
-                    source={source}
-                  />
-                ))}
+              <div className="dnd-cs-box">
+                <div className="dnd-cs-cap">Skills</div>
+                {/* One column, not two: the box is half as wide as it was, and
+                    18 rows at 21px still seat inside SKILLS_HEIGHT. */}
+                <div
+                  className="dnd-cs-scroll dnd-cs-skilllist"
+                  style={{ alignContent: 'space-between' }}
+                >
+                  {SKILLS.map((skill) => (
+                    <ProfRow
+                      key={skill.id}
+                      name={skill.name}
+                      ability={skill.ability}
+                      bonus={skillBonus(c, skill.id)}
+                      proficient={c.skills.includes(skill.id)}
+                      expertise={c.expertise.includes(skill.id)}
+                      source={source}
+                    />
+                  ))}
+                </div>
+              </div>
+              {/* Equipped over Treasure: eleven slots leave slack in this half,
+                  and the purse fills it as its own box. */}
+              <div className="dnd-cs-lowerstack">
+                <EquippedBox c={c} />
+                <TreasureBox c={c} />
               </div>
             </div>
           </div>
@@ -1103,10 +1172,6 @@ function GearPage({
   pageLabel: string
   notes: boolean
 }) {
-  const equipped = EQUIP_SLOTS.flatMap((slot) => {
-    const item = equippedIn(c.inventory, slot)
-    return item ? [{ slot, item }] : []
-  })
   const tier = encumbranceTier(c)
 
   return (
@@ -1114,47 +1179,22 @@ function GearPage({
       <div className="dnd-cs">
         <Banner title={`${title} — ${pageLabel}`} small />
         <div className="dnd-cs-body">
-          {/* Treasure and Defenses print in page one's left rail, not here —
-              they're both wanted mid-combat, on the sheet you're holding. */}
-          {showHeader && equipped.length > 0 && (
-            <div className="dnd-cs-box" style={{ flex: '0 0 auto' }}>
-              <div className="dnd-cs-cap">Equipped</div>
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(3, 1fr)',
-                  columnGap: 16,
-                }}
-              >
-                {equipped.map(({ slot, item }) => (
-                  <div key={slot} className="dnd-cs-row" style={{ height: 22 }}>
-                    <span className="dnd-cs-row-abil" style={{ width: 62 }}>
-                      {EQUIP_SLOT_NAMES[slot]}
-                    </span>
-                    <span className="dnd-cs-row-name">
-                      {inventoryItemName(item.text)}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+          {/* Equipped, Treasure and Defenses all print on page one now — they're
+              wanted mid-combat, on the sheet you're actually holding. */}
 
           {/* Capped, and paid for out of GEAR_ROWS_FIRST below — the body clips
               silently, so an unbounded box here would eat Equipment rows. */}
-          {showHeader && hasOtherProficiencies(c) && (
+          {showHeader && hasPrintedProficiencies(c) && (
             <div
               className="dnd-cs-box"
               style={{ flex: '0 0 auto', maxHeight: PROF_BOX_HEIGHT }}
             >
-              <div className="dnd-cs-cap">
-                Other Proficiencies &amp; Languages
-              </div>
+              {/* Languages print in page one's left rail now, not here. */}
+              <div className="dnd-cs-cap">Other Proficiencies</div>
               <div style={{ display: 'grid', gap: 3 }}>
                 <ProfLine label="Armor" values={c.armor} />
                 <ProfLine label="Weapons" values={c.weapons} />
                 <ProfLine label="Tools" values={c.tools} />
-                <ProfLine label="Languages" values={c.languages} />
               </div>
             </div>
           )}
@@ -1260,7 +1300,7 @@ export function SheetPreview({
         // carries fewer rows when it's shown. Treasure and Defenses used to be
         // charged here too; both now print in page one's left rail instead.
         GEAR_ROWS_FIRST -
-          (hasOtherProficiencies(c) ? gearBoxCost(PROF_BOX_HEIGHT) : 0),
+          (hasPrintedProficiencies(c) ? gearBoxCost(PROF_BOX_HEIGHT) : 0),
         GEAR_ROWS_REST,
       ),
     [c],
@@ -1280,7 +1320,7 @@ export function SheetPreview({
   // page one now, so a character with 3gp and nothing else would otherwise get a
   // sheet holding one empty Equipment box.
   const showGear =
-    gearPages.length > 0 || c.notes.length > 0 || hasOtherProficiencies(c)
+    gearPages.length > 0 || c.notes.length > 0 || hasPrintedProficiencies(c)
   const prose = body?.trim()
   // Most backstories already open with their own "# Name" heading — only add
   // one when the prose doesn't start with a heading of its own.
