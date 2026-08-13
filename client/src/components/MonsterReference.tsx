@@ -7,12 +7,13 @@ import {
   Plus,
   Search,
   SquarePen,
+  TriangleAlert,
   X,
 } from 'lucide-react'
 import { api } from '#/lib/api'
 import { splitFrontmatter } from '#/lib/formatMarkdown'
 import { parseStatBlock } from '#/lib/statblock'
-import { articleTemplates } from '#/lib/templates'
+import { articleTemplates, newArticleContent } from '#/lib/templates'
 import { Button } from '#/components/ui/button'
 import { Input } from '#/components/ui/input'
 import { ScrollArea } from '#/components/ui/scroll-area'
@@ -98,7 +99,10 @@ export function MonsterReference({ worldId }: { worldId: string }) {
         worldId,
         folderId: MONSTERS_FOLDER,
         title,
-        content: template?.body ?? '',
+        // newArticleContent, not template.body — the monster template carries
+        // no frontmatter of its own, and without the `type: monster` header
+        // this article would be invisible to the encounter builder.
+        content: template ? newArticleContent(template) : '',
       })
     },
     onSuccess: (created) => {
@@ -118,18 +122,30 @@ export function MonsterReference({ worldId }: { worldId: string }) {
     createMonster.mutate(title)
   }
 
-  // Folder members plus `type: monster` articles, deduped by id.
+  // Folder members plus `type: monster` articles, deduped by id. `queryable`
+  // tracks which ones carry the frontmatter: the encounter builder matches on
+  // `type: monster` alone, so a folder-only entry is invisible there and the
+  // row flags it rather than letting the two lists disagree in silence.
   const monsters = useMemo(() => {
-    const byId = new Map<string, { id: string; title: string }>()
+    const queryable = new Set((typed.data ?? []).map((a) => a.id))
+    const byId = new Map<
+      string,
+      { id: string; title: string; queryable: boolean }
+    >()
     for (const a of tree.data?.articles ?? []) {
       if (
         a.folderId === MONSTERS_FOLDER ||
         a.folderId?.startsWith(`${MONSTERS_FOLDER}/`)
       ) {
-        byId.set(a.id, { id: a.id, title: a.title })
+        byId.set(a.id, {
+          id: a.id,
+          title: a.title,
+          queryable: queryable.has(a.id),
+        })
       }
     }
-    for (const a of typed.data ?? []) byId.set(a.id, { id: a.id, title: a.title })
+    for (const a of typed.data ?? [])
+      byId.set(a.id, { id: a.id, title: a.title, queryable: true })
     return [...byId.values()].sort((a, b) =>
       a.title.localeCompare(b.title, undefined, { sensitivity: 'base' }),
     )
@@ -220,6 +236,14 @@ export function MonsterReference({ worldId }: { worldId: string }) {
                       <span className="min-w-0 flex-1 truncate">
                         {monster.title}
                       </span>
+                      {!monster.queryable && (
+                        <span
+                          className="shrink-0 text-amber-600"
+                          title="No `type: monster` frontmatter — the encounter builder can't see this one. Open the article and add it."
+                        >
+                          <TriangleAlert className="size-3.5" />
+                        </span>
+                      )}
                       {stats?.cr != null && (
                         <span className="text-muted-foreground shrink-0 text-xs">
                           CR {stats.cr}
