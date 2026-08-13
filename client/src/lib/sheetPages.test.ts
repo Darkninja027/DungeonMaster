@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import type { ClassFeature, Spell } from './character'
+import type { CharacterNote, ClassFeature, Spell } from './character'
 import {
   featureCost,
   featureRows,
+  noteCost,
   paginate,
   paginateFeatureRows,
+  paginateNotes,
   paginateSpellRows,
   spellRows,
 } from './sheetPages'
@@ -374,5 +376,78 @@ describe('paginateSpellRows', () => {
     const rows = spellRows([spell('Bless', 1)])
     expect(paginateSpellRows(rows, 0, 10)).toEqual([rows])
     expect(paginateSpellRows(rows, 10, 0)).toEqual([rows])
+  })
+})
+
+describe('session note pagination', () => {
+  const note = (at: string, text: string, title?: string): CharacterNote => ({
+    at,
+    text,
+    tags: ['session'],
+    ...(title ? { title } : {}),
+  })
+
+  // A real recap from play — 17 bulleted beats, dense with [[wiki links]].
+  const bryertown = note(
+    '2026-08-13',
+    [
+      '- session started in [[Bryertown]] which is run by [[Baron Clayn Greenbane]]',
+      '- he established the [[Thornwatch]]',
+      '- the festival of thorns is to comemerate the defeat of the thorn queen 30 years ago',
+      '- [[Elder Rothar Moss]] is the town elder',
+      '- Berry sisters, [[Berryl]], [[Sherryl]], and [[Merryl]] - (out of character i feel like these 3 are hags)',
+      '- Blacksmith of [[Bryertown]]: [[Edvard Trowl]]',
+      '- Met 3 children: [[Iris]], [[Ellise]] and [[Lily]] and their mother [[Juniper]]',
+      '- Helped [[Mischeif]] (Sparrows Character) out of a folk dance group',
+      '- Helped [[Berryl]] move a table',
+      '- Rolled 4x 18s in a row which is HUGE',
+      '- i explain what Goodberry is to [[Melody]] (Aleighshas Character) she did not seem to comprehend it',
+      '- I confiscate a training sword from a 4 year old child, [[Melody]] gave it back',
+      '- I gave 2 gold pieces to [[Ivy]] (Elles Character) for the bale toss game',
+      '- I notice bandits robbing the blacksmiths stall during the game',
+      '- Combat ensued i killed 2 [[Boot Bandits]] and took one in for questioning',
+      "- [[Clayn]] cut his hand off and sent him away then gave us a mission to hunt them down",
+      '- Ate a goodberry pie which gives me + 10 HP for 1 week',
+    ].join('\n'),
+    'Festival of Thorns',
+  )
+
+  it('fits a full session recap on one page', () => {
+    // 17 beats plus card chrome. If this ever spills to two pages the budget
+    // has drifted — a recap this size is the common case, not the extreme.
+    expect(paginateNotes([bryertown], 54)).toHaveLength(1)
+  })
+
+  it('does not count wiki-link brackets, which never print', () => {
+    const linked = note('2026-08-13', '- Met [[Baron Clayn Greenbane|the Baron]]')
+    const plain = note('2026-08-13', '- Met the Baron')
+    expect(noteCost(linked)).toBe(noteCost(plain))
+  })
+
+  it('costs a blank line less than a line of text', () => {
+    const spaced = note('2026-08-13', 'one\n\ntwo')
+    const tight = note('2026-08-13', 'one\ntwo')
+    expect(noteCost(spaced)).toBeGreaterThan(noteCost(tight))
+    expect(noteCost(spaced) - noteCost(tight)).toBeLessThan(1)
+  })
+
+  it('splits a long run of notes across pages, losing none', () => {
+    const many = nums(8).map((i) => note(`2026-08-0${i % 9}`, `beat ${i}`))
+    const pages = paginateNotes(many, 12)
+    expect(pages.length).toBeGreaterThan(1)
+    expect(pages.flat()).toEqual(many)
+  })
+
+  it('gives an oversized note its own page rather than looping', () => {
+    const huge = note('2026-08-13', nums(200).map((i) => `- beat ${i}`).join('\n'))
+    const pages = paginateNotes([huge, note('2026-08-12', 'short')], 54)
+    expect(pages[0]).toEqual([huge])
+    expect(pages.flat()).toHaveLength(2)
+  })
+
+  it('yields no pages for an empty list, one for a non-positive budget', () => {
+    expect(paginateNotes([], 54)).toEqual([])
+    const one = [note('2026-08-13', 'x')]
+    expect(paginateNotes(one, 0)).toEqual([one])
   })
 })

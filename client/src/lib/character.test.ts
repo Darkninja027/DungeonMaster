@@ -39,6 +39,7 @@ import {
   normalizeTags,
   notePreview,
   parseCharacter,
+  preserveLineBreaks,
   passivePerception,
   preparationState,
   preparedCount,
@@ -52,6 +53,7 @@ import {
   spellLevelFromContent,
   saveBonus,
   serializeCharacter,
+  sessionNotes,
   setLevel,
   skillBonus,
   slotFor,
@@ -1422,6 +1424,55 @@ describe('session notes', () => {
     expect(filterNotes(notes(), '', ['npc'])).toHaveLength(1)
     expect(filterNotes(notes(), '', ['npc', 'lore'])).toHaveLength(1)
     expect(filterNotes(notes(), '', ['npc', 'session'])).toHaveLength(0)
+  })
+
+  it('keeps only #session notes off the printed sheet, newest first', () => {
+    // The sheet's box is captioned "Session Notes" — lore, NPC jottings and
+    // untagged scratch notes belong in the Notes tab, not under that caption.
+    const extra = [
+      ...notes(),
+      { at: '2026-08-20', text: 'Loot split.', tags: ['session', 'loot'] },
+    ]
+    expect(sessionNotes(extra).map((n) => n.at)).toEqual([
+      '2026-08-20',
+      '2026-08-13',
+    ])
+  })
+
+  it('shows no session notes when nothing is tagged for one', () => {
+    expect(sessionNotes([{ at: '2026-08-13', text: 'Untagged.' }])).toEqual([])
+    expect(sessionNotes([])).toEqual([])
+  })
+
+  it('keeps authored line breaks so a note reads the same everywhere', () => {
+    // A hand-typed breakdown: markdown would fold these single newlines into
+    // one paragraph, running "Level 2: 11 (25)" onto the Base line and — worse
+    // — swallowing a following label onto the end of a bullet.
+    const text = [
+      '**Health Breakdown**',
+      'Base: 14',
+      'Level 2: 11 (25)',
+      '',
+      '**Skill Allocation**',
+      'Strength:',
+      '- +2 - Goliath',
+      'Constitution:',
+    ].join('\n')
+    const out = preserveLineBreaks(text).split('\n')
+    // Every non-empty line ends in markdown's hard-break marker...
+    expect(out[0]).toBe('**Health Breakdown**  ')
+    expect(out[1]).toBe('Base: 14  ')
+    expect(out[7]).toBe('Constitution:  ')
+    // ...and the blank paragraph break is left alone.
+    expect(out[3]).toBe('')
+  })
+
+  it('normalizes trailing space to exactly one hard break', () => {
+    // Idempotent: re-running over already-marked text must not grow it.
+    const once = preserveLineBreaks('done  \nnext')
+    expect(once).toBe('done  \nnext  ')
+    expect(preserveLineBreaks(once)).toBe(once)
+    expect(preserveLineBreaks('trailing   ')).toBe('trailing  ')
   })
 
   it('previews the first real line without its markdown punctuation', () => {

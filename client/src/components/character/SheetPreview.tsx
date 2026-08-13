@@ -5,6 +5,7 @@ import {
   ENCUMBRANCE_LABELS,
   EQUIP_SLOTS,
   EQUIP_SLOT_NAMES,
+  SESSION_TAG,
   SKILLS,
   abilityMod,
   attunedCount,
@@ -19,7 +20,9 @@ import {
   initiativeBonus,
   inventoryItemName,
   alwaysPreparedCount,
+  notePreview,
   passivePerception,
+  preserveLineBreaks,
   preparationState,
   preparedCount,
   preparedSpellLimit,
@@ -28,8 +31,8 @@ import {
   resolveSpellDamage,
   saveBonus,
   signed,
+  sessionNotes,
   skillBonus,
-  sortedNotes,
   spellAttackBonus,
   spellSaveDc,
   tracksPreparation,
@@ -38,6 +41,7 @@ import {
 import type {
   Ability,
   Character,
+  CharacterNote,
   InventoryItem,
   PreparationState,
   SpellSlots,
@@ -46,6 +50,7 @@ import {
   featureRows,
   paginate,
   paginateFeatureRows,
+  paginateNotes,
   paginateSpellRows,
   spellRows,
 } from '#/lib/sheetPages'
@@ -146,6 +151,13 @@ const SKILLS_HEIGHT = 412
  * half-empty page.
  */
 const FEATURE_LINES = 112
+/**
+ * Session notes run one column, not two, so a page seats about half what the
+ * features page does. Measured from the rendered sheet: 899px of body at
+ * 14.85px a line is 60 lines. Held a little under that — notes are the one
+ * thing here you can't reconstruct if it clips.
+ */
+const NOTE_LINES = 58
 
 const SLOT_LEVELS = [1, 2, 3, 4, 5, 6, 7, 8, 9]
 
@@ -161,20 +173,15 @@ function slotFor(c: Character, level: number): SpellSlots {
 }
 
 /**
- * Markdown treats a single newline as a space, so a hand-typed list like
- *
- *   3rd Level: Bane, Hunter's Mark
- *   5th Level: Hold Person, Misty Step
- *
- * would run together into one paragraph. Append markdown's own hard-break
- * marker (two trailing spaces) to each line so the layout survives, without
- * touching blank lines (paragraph breaks) or lines that already end in one.
+ * A note's stored `at` is ISO (`2026-08-13`) so it sorts as a plain string;
+ * the sheet shows it day-first. Parsed by hand rather than through `Date` —
+ * `new Date('2026-08-13')` is parsed as UTC and prints the day before in any
+ * timezone behind it. Anything not ISO is passed through untouched, since
+ * hand-written notes from Obsidian can carry whatever the author typed.
  */
-function preserveLineBreaks(text: string): string {
-  return text
-    .split('\n')
-    .map((line) => (line.trim() === '' ? line : line.replace(/ *$/, '  ')))
-    .join('\n')
+function displayDate(at: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(at)
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : at
 }
 
 function anySlots(c: Character): boolean {
@@ -1162,8 +1169,6 @@ function GearPage({
   items,
   showHeader,
   pageLabel,
-  notes,
-  source,
 }: {
   c: Character
   title: string
@@ -1172,8 +1177,6 @@ function GearPage({
   items: Array<InventoryItem>
   showHeader: boolean
   pageLabel: string
-  notes: boolean
-  source?: RollSource
 }) {
   const tier = encumbranceTier(c)
 
@@ -1257,45 +1260,82 @@ function GearPage({
             )}
           </div>
 
-          {notes && c.notes.length > 0 && (
-            <div className="dnd-cs-box" style={{ flex: '0 0 200px' }}>
-              <div className="dnd-cs-cap">Session Notes</div>
-              <div className="dnd-cs-scroll" style={{ fontSize: 11 }}>
-                {sortedNotes(c.notes).map((note, i) => (
-                  <div key={`${note.at}-${i}`} style={{ marginBottom: 6 }}>
-                    {/* Date, title and tags form one header line; the markdown
-                        body is a block, so it sits underneath rather than
-                        trying to flow inline after them. */}
-                    <div>
-                      <span className="dnd-cs-row-abil">
-                        {note.at.slice(0, 10)}
-                      </span>{' '}
-                      {note.title && <strong>{note.title}</strong>}
-                      {note.tags && note.tags.length > 0 && (
-                        <span className="dnd-cs-row-abil">
-                          {' '}
-                          {note.tags.map((t) => `#${t}`).join(' ')}
-                        </span>
-                      )}
-                    </div>
-                    {/* Bodies are authored as markdown in the Notes tab, so
-                        they render as markdown here too — printing the raw
-                        "## Recap" and "- bullet" source would be unreadable. */}
-                    {note.text.trim() && (
-                      <InlineMarkdown
-                        className="dnd-cs-note-text"
-                        worldId={worldId}
-                        articles={articles}
-                        source={source}
-                      >
-                        {preserveLineBreaks(note.text)}
-                      </InlineMarkdown>
-                    )}
-                  </div>
-                ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Session notes get sheets of their own. They used to share the foot of the
+ * gear page in a fixed-height box, which clipped a real recap mid-sentence —
+ * and unlike a truncated equipment list, a recap is the only copy of what
+ * happened that evening. Paginated by cost in lib/sheetPages.ts, like features.
+ */
+function NotesPage({
+  c,
+  title,
+  worldId,
+  articles,
+  notes,
+  pageLabel,
+  source,
+}: {
+  c: Character
+  title: string
+  worldId: string
+  articles?: Array<ArticleRef>
+  notes: Array<CharacterNote>
+  pageLabel: string
+  source?: RollSource
+}) {
+  return (
+    <div className="dnd-page">
+      <div className="dnd-cs">
+        <Banner title={`${title} — ${pageLabel}`} small>
+          {[c.race, c.class, `Level ${c.level}`].filter(Boolean).join(' ')}
+        </Banner>
+        {/* No outer box or caption: the page banner already says "Session
+            Notes", so a titled box around titled cards is a frame inside a
+            frame. The cards sit straight on the parchment. */}
+        <div className="dnd-cs-body">
+          <div className="dnd-cs-scroll" style={{ fontSize: 11 }}>
+            {notes.map((note, i) => {
+              const badges = (note.tags ?? []).filter((t) => t !== SESSION_TAG)
+              return (
+              <div className="dnd-cs-note" key={`${note.at}-${i}`}>
+                {/* The title is its own banner line rather than text trailing
+                    the date — a run of recaps needs a heading you can find at
+                    a glance. Untitled notes fall back to their first line,
+                    since an empty row would just leave a gap. */}
+                <div className="dnd-cs-note-title">
+                  {note.title?.trim() || notePreview(note.text) || 'Session'}
+                </div>
+                {/* #session is what earned the note this page, so printing it
+                    on every card is noise. Any other tag still shows. */}
+                <div className="dnd-cs-note-meta">
+                  {displayDate(note.at)}
+                  {badges.length > 0 && (
+                    <> · {badges.map((t) => `#${t}`).join(' ')}</>
+                  )}
+                </div>
+                {/* Bodies are authored as markdown in the Notes tab, so they
+                    render as markdown here too — printing the raw "## Recap"
+                    and "- bullet" source would be unreadable. */}
+                {note.text.trim() && (
+                  <InlineMarkdown
+                    className="dnd-cs-note-text"
+                    worldId={worldId}
+                    articles={articles}
+                    source={source}
+                  >
+                    {preserveLineBreaks(note.text)}
+                  </InlineMarkdown>
+                )}
               </div>
-            </div>
-          )}
+              )
+            })}
+          </div>
         </div>
       </div>
     </div>
@@ -1342,8 +1382,13 @@ export function SheetPreview({
   // Coins and defenses no longer count towards earning this page — both print on
   // page one now, so a character with 3gp and nothing else would otherwise get a
   // sheet holding one empty Equipment box.
-  const showGear =
-    gearPages.length > 0 || c.notes.length > 0 || hasPrintedProficiencies(c)
+  // Only #session notes print, and they now carry their own sheets rather than
+  // riding the foot of the gear page — so they no longer earn a gear page.
+  const notePages = useMemo(
+    () => paginateNotes(sessionNotes(c.notes), NOTE_LINES),
+    [c.notes],
+  )
+  const showGear = gearPages.length > 0 || hasPrintedProficiencies(c)
   const prose = body?.trim()
   // Most backstories already open with their own "# Name" heading — only add
   // one when the prose doesn't start with a heading of its own.
@@ -1395,10 +1440,21 @@ export function SheetPreview({
             items={items}
             showHeader={i === 0}
             pageLabel={i === 0 ? 'Equipment & Treasure' : 'Equipment (cont.)'}
-            notes={i === (gearPages.length || 1) - 1}
-            source={source}
           />
         ))}
+
+      {notePages.map((notes, i) => (
+        <NotesPage
+          key={`notes-${i}`}
+          c={c}
+          title={title}
+          worldId={worldId}
+          articles={articles}
+          notes={notes}
+          pageLabel={i === 0 ? 'Session Notes' : 'Session Notes (cont.)'}
+          source={source}
+        />
+      ))}
 
       {prose && (
         <Markdown

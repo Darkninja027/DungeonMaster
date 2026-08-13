@@ -7,6 +7,7 @@ import {
   normalizeTag,
   normalizeTags,
   notePreview,
+  preserveLineBreaks,
   sortedNotes,
 } from '#/lib/character'
 import type { Character, CharacterNote } from '#/lib/character'
@@ -377,7 +378,10 @@ function NoteRow({
               articles={articles}
               onCreateMissing={onCreateMissing}
             >
-              {note.text}
+              {/* Same hard-break handling the sheet uses, or a note written one
+                  line per beat collapses into a paragraph here and reads
+                  correctly when printed. */}
+              {preserveLineBreaks(note.text)}
             </InlineMarkdown>
           ) : (
             <p className="text-muted-foreground text-sm italic">Empty note.</p>
@@ -403,33 +407,32 @@ export function NotesTab({
 }) {
   const [query, setQuery] = useState('')
   const [activeTags, setActiveTags] = useState<Array<string>>([])
-  const [expanded, setExpanded] = useState<Set<CharacterNote>>(new Set())
-  const [editing, setEditing] = useState<CharacterNote | null>(null)
+  // Keyed by stored-array index, not note object. Object identity would be
+  // correct until something upstream reparses the character (an autosave
+  // round-trip does exactly that), at which point every note is a fresh object
+  // and the row you were typing in silently collapses. Notes carry no id of
+  // their own — adding one would leak into the YAML and out of Obsidian — so
+  // the position in `character.notes` is the stable handle.
+  const [expanded, setExpanded] = useState<Set<number>>(new Set())
+  const [editing, setEditing] = useState<number | null>(null)
 
   const known = useMemo(() => allNoteTags(character.notes), [character.notes])
-  const shown = useMemo(
-    () => sortedNotes(filterNotes(character.notes, query, activeTags)),
-    [character.notes, query, activeTags],
-  )
+  // Carry each note's stored index through the sort/filter so the view can map
+  // a row back to its slot in `character.notes`.
+  const shown = useMemo(() => {
+    const indexOf = new Map(character.notes.map((n, i) => [n, i]))
+    return sortedNotes(filterNotes(character.notes, query, activeTags)).map(
+      (note) => ({ note, index: indexOf.get(note) as number }),
+    )
+  }, [character.notes, query, activeTags])
 
-  // Notes are edited by identity, not index: the list renders sorted and
-  // filtered, so an index into the view would not match the stored array.
-  const patch = (target: CharacterNote, changes: Partial<CharacterNote>) => {
-    const next = { ...target, ...changes }
+  const patch = (index: number, changes: Partial<CharacterNote>) => {
     onChange({
       ...character,
-      notes: character.notes.map((n) => (n === target ? next : n)),
+      notes: character.notes.map((n, i) =>
+        i === index ? { ...n, ...changes } : n,
+      ),
     })
-    // The row is a new object now — carry the expanded/editing state across so
-    // typing doesn't collapse the note under the cursor.
-    setExpanded((prev) => {
-      if (!prev.has(target)) return prev
-      const set = new Set(prev)
-      set.delete(target)
-      set.add(next)
-      return set
-    })
-    setEditing((prev) => (prev === target ? next : prev))
   }
 
   const toggleTag = (tag: string) =>
@@ -469,9 +472,13 @@ export function NotesTab({
 
       <AddNote
         known={known}
-        onAdd={(note) =>
+        onAdd={(note) => {
+          // Prepending shifts every stored index by one; slide the open rows
+          // along with them so nothing collapses when a note is added.
           onChange({ ...character, notes: [note, ...character.notes] })
-        }
+          setExpanded((prev) => new Set([...prev].map((i) => i + 1)))
+          setEditing((prev) => (prev === null ? null : prev + 1))
+        }}
       />
 
       {shown.length === 0 ? (
@@ -482,12 +489,12 @@ export function NotesTab({
         </p>
       ) : (
         <ul className="space-y-1.5">
-          {shown.map((note, i) => (
+          {shown.map(({ note, index }) => (
             <NoteRow
-              key={`${note.at}-${i}`}
+              key={index}
               note={note}
-              expanded={expanded.has(note)}
-              editing={editing === note}
+              expanded={expanded.has(index)}
+              editing={editing === index}
               known={known}
               worldId={worldId}
               articles={articles}
@@ -495,22 +502,31 @@ export function NotesTab({
               onToggle={() =>
                 setExpanded((prev) => {
                   const next = new Set(prev)
-                  if (next.has(note)) next.delete(note)
-                  else next.add(note)
+                  if (next.has(index)) next.delete(index)
+                  else next.add(index)
                   return next
                 })
               }
               onEdit={() => {
-                setExpanded((prev) => new Set(prev).add(note))
-                setEditing(editing === note ? null : note)
+                setExpanded((prev) => new Set(prev).add(index))
+                setEditing(editing === index ? null : index)
               }}
-              onChange={(changes) => patch(note, changes)}
+              onChange={(changes) => patch(index, changes)}
               onRemove={() => {
-                if (editing === note) setEditing(null)
                 onChange({
                   ...character,
-                  notes: character.notes.filter((n) => n !== note),
+                  notes: character.notes.filter((_, i) => i !== index),
                 })
+                // Everything after the removed slot shifts down one.
+                const shift = (i: number) => (i > index ? i - 1 : i)
+                setExpanded((prev) => {
+                  const next = new Set<number>()
+                  for (const i of prev) if (i !== index) next.add(shift(i))
+                  return next
+                })
+                setEditing((prev) =>
+                  prev === null || prev === index ? null : shift(prev),
+                )
               }}
               onTagClick={toggleTag}
               activeTags={activeTags}

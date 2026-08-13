@@ -1,4 +1,11 @@
-import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import { Link, createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
@@ -16,6 +23,7 @@ import {
 import { api } from '#/lib/api'
 import { isCharacterContent, parseCharacter } from '#/lib/character'
 import { useShortcut } from '#/lib/useShortcut'
+import { useArticleEditorSave } from '#/lib/useArticleEditorSave'
 import type { RollSource } from '#/lib/rollLog'
 import { exportPdf } from '#/lib/exportPdf'
 import { formatMarkdown, snippets } from '#/lib/formatMarkdown'
@@ -141,7 +149,18 @@ function ArticlePage() {
 
   const [title, setTitle] = useState('')
   const [content, setContent] = useState('')
-  const [dirty, setDirty] = useState(false)
+  // `editSeq` bumps on every edit so the autosave debounce restarts on each
+  // keystroke; `dirty` alone stays true and would fire 2s after the first one.
+  const [{ dirty, editSeq }, setDirtyState] = useState({
+    dirty: false,
+    editSeq: 0,
+  })
+  const setDirty = useCallback((next: boolean) => {
+    setDirtyState((prev) => ({
+      dirty: next,
+      editSeq: next ? prev.editSeq + 1 : prev.editSeq,
+    }))
+  }, [])
   const [externalChange, setExternalChange] = useState(false)
   const [tab, setTab] = useState('write')
   const [livePreview, setLivePreview] = useState(false)
@@ -195,9 +214,16 @@ function ArticlePage() {
   // Guarded so a background refetch can never clobber unsaved edits: only
   // reset when a different article loads, or when there is nothing unsaved.
   const loadedIdRef = useRef<string | null>(null)
+  // A half-typed title isn't tracked by `dirty` (it isn't content), so it needs
+  // its own guard or a background refetch would clobber it mid-word.
+  const titleDirtyRef = useRef(false)
   useEffect(() => {
     if (!article.data) return
-    if (loadedIdRef.current === article.data.id && dirty) return
+    if (
+      loadedIdRef.current === article.data.id &&
+      (dirty || titleDirtyRef.current)
+    )
+      return
     loadedIdRef.current = article.data.id
     setTitle(article.data.title)
     setContent(article.data.content)
@@ -218,40 +244,28 @@ function ArticlePage() {
     })
   }, [worldId, articleId])
 
-  const save = useMutation({
-    // Key the save off the query cache's id, not the route param: after a
-    // rename the article's id (its file path) changes, and a stale route
-    // param must never write to the old path.
-    mutationFn: () => {
-      const currentId = article.data?.id ?? articleId
-      return api.articles.update(worldId, currentId, { title, content })
-    },
-    onSuccess: (updated) => {
-      queryClient.setQueryData(['articles', updated.id], updated)
-      queryClient.invalidateQueries({ queryKey: ['worlds', worldId, 'tree'] })
-      setDirty(false)
-      if (updated.id !== articleId) {
-        // Rename: the file moved, so re-key the URL without adding history.
-        navigate({
-          to: '/worlds/$worldId/articles/$articleId',
-          params: { worldId, articleId: updated.id },
-          replace: true,
-        })
-      }
+  const { commitTitle, saveNow, isPending, error } = useArticleEditorSave({
+    worldId,
+    routeArticleId: articleId,
+    article: article.data,
+    title,
+    getContent: () => content,
+    dirty,
+    setDirty,
+    editSeq,
+    onRenamed: (newId) => {
+      // Rename: the file moved, so re-key the URL without adding history.
+      navigate({
+        to: '/worlds/$worldId/articles/$articleId',
+        params: { worldId, articleId: newId },
+        replace: true,
+      })
     },
   })
 
-  // Autosave: 2s after the last keystroke, while there are unsaved changes.
-  const saveMutate = save.mutate
-  const savePending = save.isPending
-  useEffect(() => {
-    if (!dirty || !title.trim() || savePending) return
-    const timer = setTimeout(() => saveMutate(), 2000)
-    return () => clearTimeout(timer)
-  }, [dirty, title, content, savePending, saveMutate])
-
   useShortcut('s', () => {
-    if (dirty && title.trim() && !save.isPending) save.mutate()
+    commitTitle()
+    if (dirty) saveNow()
   })
   useShortcut('p', () => setTab((t) => (t === 'write' ? 'preview' : 'write')))
 
@@ -313,12 +327,28 @@ function ArticlePage() {
   return (
     <div className="flex h-full flex-col">
       <div className="flex items-center gap-2 border-b px-4 py-2">
+        {/* The title is the filename, so committing it renames the file and
+            rewrites [[links]] world-wide. Far too expensive (and racy) to do on
+            a keystroke — hence blur/Enter, not `dirty`. */}
         <Input
           value={title}
           className="max-w-md border-none text-lg font-semibold shadow-none focus-visible:ring-1"
           onChange={(e) => {
             setTitle(e.target.value)
-            setDirty(true)
+            titleDirtyRef.current = true
+          }}
+          onBlur={() => {
+            titleDirtyRef.current = false
+            commitTitle()
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault()
+              e.currentTarget.blur()
+            } else if (e.key === 'Escape') {
+              setTitle(article.data?.title ?? title)
+              titleDirtyRef.current = false
+            }
           }}
         />
         <div className="ml-auto flex items-center gap-2">
@@ -418,10 +448,10 @@ function ArticlePage() {
           <HowToDialog />
           <Button
             size="sm"
-            disabled={!dirty || !title.trim() || save.isPending}
-            onClick={() => save.mutate()}
+            disabled={!dirty || isPending}
+            onClick={saveNow}
           >
-            <Save /> {save.isPending ? 'Saving…' : dirty ? 'Save' : 'Saved'}
+            <Save /> {isPending ? 'Saving…' : dirty ? 'Save' : 'Saved'}
           </Button>
           <Button
             variant="ghost"
@@ -435,9 +465,9 @@ function ArticlePage() {
           </Button>
         </div>
       </div>
-      {save.isError && (
+      {error && (
         <p className="text-destructive border-b px-4 py-1 text-sm">
-          {save.error.message}
+          {error.message}
         </p>
       )}
       {isCharacter && (

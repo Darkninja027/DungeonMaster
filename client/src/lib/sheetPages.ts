@@ -1,5 +1,6 @@
 import { sortedFeatures, sortedSpells } from './character'
 import type {
+  CharacterNote,
   ClassFeature,
   Feat,
   NamedEntry,
@@ -184,6 +185,92 @@ export function paginateFeatureRows(
       continue
     }
     page.push(row)
+    used += cost
+  }
+  if (page.length > 0) pages.push(page)
+  return pages
+}
+
+/**
+ * A session note costs its body's lines plus the card around it: the Cinzel
+ * title, the date/tags line, the border and padding, and the gap to the next
+ * card. Same units as featureCost — one line of 11px body text.
+ *
+ * Notes are the most variable-height thing on the sheet (a one-liner or a
+ * twenty-point recap of a whole evening), so they need the costed packing that
+ * features get rather than a fixed-height box, which clips mid-sentence.
+ */
+const NOTE_TITLE_COST = 1.1
+const NOTE_META_COST = 1
+/** Border, padding and the margin to the next card, in line-units. */
+const NOTE_CARD_COST = 1.9
+/**
+ * Notes run one full-width column, not the features page's two, so a line holds
+ * far more than CHARS_PER_LINE's 64. Measured from the rendered card: 688px of
+ * text at 11px Alegreya runs ~134 characters; 126 leaves a margin for the
+ * estimate's error without stranding half a page.
+ */
+const NOTE_CHARS_PER_LINE = 126
+
+/**
+ * What a line of note source actually occupies once rendered. Recaps are dense
+ * with `[[wiki links]]`, and the brackets (plus any `|alias` half) don't print —
+ * costing the raw source over-counts every line and strands white space. Bullet
+ * markers don't print as characters either, but the marker column and hanging
+ * indent do cost width, so they're left in.
+ */
+function renderedLength(line: string): number {
+  return line.replace(/\[\[([^\][\n|]+)(?:\|([^\][\n]+))?\]\]/g, (_, t, a) =>
+    String(a ?? t),
+  ).length
+}
+
+export function noteCost(note: CharacterNote): number {
+  const text = note.text ?? ''
+  // Authored newlines render as hard breaks, so cost each line separately
+  // rather than dividing the total length — the same reasoning as featureCost,
+  // and it matters more here because recaps are usually one line per beat.
+  const textLines = text
+    ? text
+        .split('\n')
+        .reduce(
+          (sum, line) =>
+            sum +
+            (line.trim() === ''
+              ? 0.3
+              : Math.max(1, Math.ceil(renderedLength(line) / NOTE_CHARS_PER_LINE))),
+          0,
+        )
+    : 0
+  return NOTE_TITLE_COST + NOTE_META_COST + textLines + NOTE_CARD_COST
+}
+
+/**
+ * Pack notes into pages of at most `budget` line-units. A single note longer
+ * than a whole page still gets its own page — it will clip, but splitting a
+ * recap mid-sentence across sheets would be worse, and it clips visibly at a
+ * page edge rather than inside a box that looks complete.
+ */
+export function paginateNotes(
+  notes: Array<CharacterNote>,
+  budget: number,
+): Array<Array<CharacterNote>> {
+  if (notes.length === 0) return []
+  if (budget <= 0) return [notes]
+
+  const pages: Array<Array<CharacterNote>> = []
+  let page: Array<CharacterNote> = []
+  let used = 0
+
+  for (const note of notes) {
+    const cost = noteCost(note)
+    if (page.length > 0 && used + cost > budget) {
+      pages.push(page)
+      page = [note]
+      used = cost
+      continue
+    }
+    page.push(note)
     used += cost
   }
   if (page.length > 0) pages.push(page)

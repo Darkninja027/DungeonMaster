@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Eye, FileDown, FileText, Loader2, Save, Trash2 } from 'lucide-react'
@@ -9,6 +9,7 @@ import { findClass, subclassLabelFor, subclassesFor } from '#/lib/classes'
 import { useClasses } from '#/lib/useWorldSettings'
 import { exportPdf } from '#/lib/exportPdf'
 import { useShortcut } from '#/lib/useShortcut'
+import { useArticleEditorSave } from '#/lib/useArticleEditorSave'
 import type { RollSource } from '#/lib/rollLog'
 import { Button } from '#/components/ui/button'
 import { Input } from '#/components/ui/input'
@@ -47,7 +48,18 @@ function CharacterPage() {
   const [title, setTitle] = useState('')
   const [character, setCharacter] = useState<Character | null>(null)
   const [body, setBody] = useState('')
-  const [dirty, setDirty] = useState(false)
+  // `editSeq` bumps on every edit so the autosave debounce restarts on each
+  // keystroke; `dirty` alone stays true and would fire 2s after the first one.
+  const [{ dirty, editSeq }, setDirtyState] = useState({
+    dirty: false,
+    editSeq: 0,
+  })
+  const setDirty = useCallback((next: boolean) => {
+    setDirtyState((prev) => ({
+      dirty: next,
+      editSeq: next ? prev.editSeq + 1 : prev.editSeq,
+    }))
+  }, [])
   // Broken [[link]] clicked in inventory/notes -> offer to create the article.
   const [missingTitle, setMissingTitle] = useState<string | null>(null)
   // Controlled so Export PDF can switch to the preview before capturing it.
@@ -57,9 +69,21 @@ function CharacterPage() {
   // Same guarded reset as the article editor: only load fresh state when a
   // different character arrives or nothing is unsaved.
   const loadedIdRef = useRef<string | null>(null)
+  // Content of the last successful save. A save writes the result back into the
+  // query cache, which hands this effect a new `article.data` object with
+  // `dirty` freshly false — so without this guard every autosave reparses the
+  // character into all-new objects mid-edit, collapsing the open note (and
+  // churning every other tab's fields underneath the cursor).
+  const savedContentRef = useRef<string | null>(null)
+  // A half-typed title isn't tracked by `dirty` (it isn't content), so it needs
+  // its own guard or a background refetch would clobber it mid-word.
+  const titleDirtyRef = useRef(false)
   useEffect(() => {
     if (!article.data) return
-    if (loadedIdRef.current === article.data.id && dirty) return
+    if (loadedIdRef.current === article.data.id) {
+      if (dirty || titleDirtyRef.current) return
+      if (article.data.content === savedContentRef.current) return
+    }
     loadedIdRef.current = article.data.id
     const parsed = parseCharacter(article.data.content)
     setTitle(article.data.title)
@@ -68,39 +92,33 @@ function CharacterPage() {
     setDirty(false)
   }, [article.data, dirty])
 
-  const save = useMutation({
-    mutationFn: () => {
-      const currentId = article.data?.id ?? articleId
+  const { commitTitle, saveNow, isPending, error } = useArticleEditorSave({
+    worldId,
+    routeArticleId: articleId,
+    article: article.data,
+    title,
+    getContent: () => {
       if (!character) throw new Error('Nothing to save.')
-      return api.articles.update(worldId, currentId, {
-        title,
-        content: serializeCharacter(character, body),
-      })
+      return serializeCharacter(character, body)
     },
-    onSuccess: (updated) => {
-      queryClient.setQueryData(['articles', updated.id], updated)
-      queryClient.invalidateQueries({ queryKey: ['worlds', worldId] })
-      setDirty(false)
-      if (updated.id !== articleId) {
-        navigate({
-          to: '/worlds/$worldId/characters/$articleId',
-          params: { worldId, articleId: updated.id },
-          replace: true,
-        })
-      }
+    dirty,
+    setDirty,
+    editSeq,
+    onSaved: (updated) => {
+      savedContentRef.current = updated.content
+    },
+    onRenamed: (newId) => {
+      navigate({
+        to: '/worlds/$worldId/characters/$articleId',
+        params: { worldId, articleId: newId },
+        replace: true,
+      })
     },
   })
 
-  const saveMutate = save.mutate
-  const savePending = save.isPending
-  useEffect(() => {
-    if (!dirty || !title.trim() || savePending) return
-    const timer = setTimeout(() => saveMutate(), 2000)
-    return () => clearTimeout(timer)
-  }, [dirty, title, character, body, savePending, saveMutate])
-
   useShortcut('s', () => {
-    if (dirty && title.trim() && !save.isPending) save.mutate()
+    commitTitle()
+    if (dirty) saveNow()
   })
 
   const remove = useMutation({
@@ -137,12 +155,28 @@ function CharacterPage() {
   return (
     <div className="flex h-full flex-col">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b px-4 py-2">
+        {/* The title is the filename, so committing it renames the file and
+            rewrites [[links]] world-wide. Far too expensive (and racy) to do on
+            a keystroke — hence blur/Enter, not `dirty`. */}
         <Input
           value={title}
           className="max-w-56 border-none text-lg font-semibold shadow-none focus-visible:ring-1"
           onChange={(e) => {
             setTitle(e.target.value)
-            setDirty(true)
+            titleDirtyRef.current = true
+          }}
+          onBlur={() => {
+            titleDirtyRef.current = false
+            commitTitle()
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault()
+              e.currentTarget.blur()
+            } else if (e.key === 'Escape') {
+              setTitle(article.data?.title ?? title)
+              titleDirtyRef.current = false
+            }
           }}
         />
         <Input
@@ -257,13 +291,9 @@ function CharacterPage() {
           >
             {exporting ? <Loader2 className="animate-spin" /> : <FileDown />}
           </Button>
-          <Button
-            size="sm"
-            disabled={!dirty || !title.trim() || save.isPending}
-            onClick={() => save.mutate()}
-          >
+          <Button size="sm" disabled={!dirty || isPending} onClick={saveNow}>
             <Save />
-            {save.isPending ? 'Saving…' : dirty ? 'Save' : 'Saved'}
+            {isPending ? 'Saving…' : dirty ? 'Save' : 'Saved'}
           </Button>
           <Button
             variant="ghost"
@@ -279,9 +309,9 @@ function CharacterPage() {
           </Button>
         </div>
       </div>
-      {save.isError && (
+      {error && (
         <p className="text-destructive border-b px-4 py-1 text-sm">
-          {save.error.message}
+          {error.message}
         </p>
       )}
 

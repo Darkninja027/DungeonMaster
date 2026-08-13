@@ -1280,9 +1280,37 @@ a {
   color: var(--dnd-red);
   line-height: 1.3;
 }
-/* Session notes are authored as markdown too, so they share this block. */
-.dnd-page .dnd-cs-feature-text,
-.dnd-page .dnd-cs-note-text {
+/* Each session recap is its own card, so one night's events don't bleed into
+   the next — the same gold hairline and tinted fill the sheet's other boxes
+   are drawn with. The border carries the edge on its own, so the card still
+   reads as a card on a black-ink printer that drops the fill. */
+.dnd-page .dnd-cs-note {
+  border: 1px solid var(--dnd-gold);
+  border-radius: 4px;
+  background: color-mix(in oklab, var(--dnd-green) 30%, white);
+  padding: 6px 10px 7px;
+  margin-bottom: 6px;
+  break-inside: avoid;
+}
+.dnd-page .dnd-cs-note:last-child {
+  margin-bottom: 0;
+}
+/* The title reads as a heading in its own right, not as text following a date */
+.dnd-page .dnd-cs-note-title {
+  font-family: 'Cinzel', serif;
+  font-size: 11px;
+  color: var(--dnd-red);
+  line-height: 1.3;
+}
+.dnd-page .dnd-cs-note-meta {
+  font-size: 8.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.6;
+  margin-bottom: 2px;
+}
+
+.dnd-page .dnd-cs-feature-text {
   font-size: 11px;
   line-height: 1.35;
   text-align: justify;
@@ -1290,6 +1318,14 @@ a {
      the whole column, which looks broken in a hand-typed list. */
   text-align-last: start;
   hyphens: auto;
+}
+/* Notes share the features' type, but not their justification: a recap is a log
+   of short beats, and justifying those opens rivers of white space between the
+   words of a half-full line. Ragged right reads as notes, which is what it is. */
+.dnd-page .dnd-cs-note-text {
+  font-size: 11px;
+  line-height: 1.35;
+  text-align: start;
 }
 /* Paragraphs inside a description sit tight and don't re-indent */
 .dnd-page .dnd-cs-feature-text p,
@@ -1301,13 +1337,26 @@ a {
 .dnd-page .dnd-cs-note-text p:last-child {
   margin-bottom: 0;
 }
-/* A bulleted description keeps its markers inside the column */
+/* A bulleted description keeps its markers inside the column. The list-style is
+   not decoration: Tailwind's preflight sets `list-style: none` on every ul/ol,
+   so without putting it back the padding indents a list of invisible bullets. */
 .dnd-page .dnd-cs-feature-text ul,
-.dnd-page .dnd-cs-feature-text ol,
-.dnd-page .dnd-cs-note-text ul,
-.dnd-page .dnd-cs-note-text ol {
+.dnd-page .dnd-cs-note-text ul {
+  list-style: disc outside;
   margin: 0.15em 0;
   padding-left: 1.1em;
+}
+.dnd-page .dnd-cs-feature-text ol,
+.dnd-page .dnd-cs-note-text ol {
+  list-style: decimal outside;
+  margin: 0.15em 0;
+  padding-left: 1.1em;
+}
+/* Justification is for prose; a short bullet stretched across the column reads
+   as broken, so items align start like the headings do. (Note bodies are
+   already start-aligned throughout — this is only for features.) */
+.dnd-page .dnd-cs-feature-text li {
+  text-align: start;
 }
 /* A note's markdown headings are body-sized on the sheet — a real <h2> would
    tower over the 11px note it introduces. */

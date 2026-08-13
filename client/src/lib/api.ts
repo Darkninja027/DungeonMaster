@@ -132,8 +132,18 @@ export interface ImageInfo {
   url: string
 }
 
+/**
+ * Electron wraps every main-process throw as
+ * `Error invoking remote method 'x:y': Error: <real message>`. Strip that here
+ * so the message we wrote in the main process is what the user actually reads.
+ */
 function invoke<T>(channel: string, args?: unknown): Promise<T> {
-  return window.dmApi.invoke<T>(channel, args)
+  return window.dmApi.invoke<T>(channel, args).catch((cause: unknown) => {
+    const raw = cause instanceof Error ? cause.message : String(cause)
+    throw new Error(
+      raw.replace(/^Error invoking remote method '[^']*':\s*(Error:\s*)?/, ''),
+    )
+  })
 }
 
 export const api = {

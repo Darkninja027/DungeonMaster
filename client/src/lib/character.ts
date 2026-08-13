@@ -162,9 +162,16 @@ export interface CharacterNote {
   tags?: Array<string>
 }
 
+/**
+ * The tag that marks a note as a session recap. Only notes carrying it print in
+ * the character sheet's Session Notes box — lore, loot and untagged scratch
+ * notes stay in the Notes tab where everything is listed.
+ */
+export const SESSION_TAG = 'session'
+
 /** The tags offered as one-click suggestions when a note has none of its own. */
 export const SUGGESTED_NOTE_TAGS = [
-  'session',
+  SESSION_TAG,
   'lore',
   'npc',
   'quest',
@@ -217,6 +224,18 @@ export function sortedNotes(notes: Array<CharacterNote>): Array<CharacterNote> {
 }
 
 /**
+ * Session recaps only, newest first. A note earns its place on the printed
+ * sheet by being tagged #session; everything else a player jots down belongs in
+ * the Notes tab, not under a caption promising sessions. Tags are normalized to
+ * lowercase on the way in, so a plain `includes` is enough.
+ */
+export function sessionNotes(
+  notes: Array<CharacterNote>,
+): Array<CharacterNote> {
+  return sortedNotes(notes.filter((n) => n.tags?.includes(SESSION_TAG)))
+}
+
+/**
  * Filter notes by a free-text query and a set of required tags. The query
  * matches title, body or tag, so typing "strahd" finds the note whether the
  * name is in the headline or buried in the recap. Tags are AND-ed — picking
@@ -238,6 +257,26 @@ export function filterNotes(
       (note.tags ?? []).some((t) => t.includes(q))
     )
   })
+}
+
+/**
+ * Markdown treats a single newline as a space, so a hand-typed list like
+ *
+ *   3rd Level: Bane, Hunter's Mark
+ *   5th Level: Hold Person, Misty Step
+ *
+ * would run together into one paragraph. Append markdown's own hard-break
+ * marker (two trailing spaces) to each line so the layout survives, without
+ * touching blank lines (paragraph breaks) or lines that already end in one.
+ *
+ * Every view that renders authored note or feature text needs this — the sheet
+ * and the Notes tab both — or the same note reads differently in each.
+ */
+export function preserveLineBreaks(text: string): string {
+  return text
+    .split('\n')
+    .map((line) => (line.trim() === '' ? line : line.replace(/ *$/, '  ')))
+    .join('\n')
 }
 
 /**

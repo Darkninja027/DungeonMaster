@@ -7,6 +7,7 @@ import {
   featureEntries,
   filterFeatures,
   isUnearned,
+  preserveLineBreaks,
   removeFeatureEntry,
   updateFeatureEntry,
 } from '#/lib/character'
@@ -286,7 +287,7 @@ function FeatureRow({
                   articles={articles}
                   onCreateMissing={onCreateMissing}
                 >
-                  {entry.text}
+                  {preserveLineBreaks(entry.text)}
                 </InlineMarkdown>
               ) : (
                 <p className="text-muted-foreground text-sm italic">

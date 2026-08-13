@@ -220,8 +220,11 @@ export function registerIpcHandlers() {
         name,
       }: { worldId: string; folderId: string; name: string },
     ) => {
-      renameFolder(worldId, folderId, name)
-      return refreshIndex(worldId) // article ids under the folder changed
+      // Await: the rename queues behind any in-flight world mutation, and the
+      // index must be rebuilt from the post-rename tree.
+      return renameFolder(worldId, folderId, name).then(
+        () => refreshIndex(worldId), // article ids under the folder changed
+      )
     },
   )
 
@@ -235,8 +238,9 @@ export function registerIpcHandlers() {
         parentFolderId,
       }: { worldId: string; folderId: string; parentFolderId: string | null },
     ) => {
-      moveFolder(worldId, folderId, parentFolderId)
-      return refreshIndex(worldId)
+      return moveFolder(worldId, folderId, parentFolderId).then(() =>
+        refreshIndex(worldId),
+      )
     },
   )
 
@@ -325,7 +329,7 @@ export function registerIpcHandlers() {
 
   ipcMain.handle(
     'articles:move',
-    (
+    async (
       _e,
       {
         worldId,
@@ -333,7 +337,7 @@ export function registerIpcHandlers() {
         folderId,
       }: { worldId: string; articleId: string; folderId: string | null },
     ) => {
-      moveArticle(worldId, articleId, folderId)
+      await moveArticle(worldId, articleId, folderId)
       return refreshIndex(worldId) // the article's id (its path) changed
     },
   )
