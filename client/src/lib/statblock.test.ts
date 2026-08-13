@@ -161,7 +161,9 @@ describe('parseStatBlockCard', () => {
   })
 
   it('starts prose at the first non-field line without needing ---', () => {
-    const c = parseStatBlockCard('name: Rat\nac: 10\n\n**Keen Smell.** Advantage.')
+    const c = parseStatBlockCard(
+      'name: Rat\nac: 10\n\n**Keen Smell.** Advantage.',
+    )
     expect(c.name).toBe('Rat')
     expect(c.ac).toBe('10')
     expect(c.prose).toContain('**Keen Smell.**')
@@ -170,7 +172,8 @@ describe('parseStatBlockCard', () => {
 
 describe('extractStatBlockFence + parseStatBlock on a fence', () => {
   it('extracts the fence contents', () => {
-    const article = 'Intro.\n\n```statblock\nname: Goblin\nac: 15\n```\n\nOutro.'
+    const article =
+      'Intro.\n\n```statblock\nname: Goblin\nac: 15\n```\n\nOutro.'
     expect(extractStatBlockFence(article)).toContain('name: Goblin')
   })
 
@@ -197,6 +200,15 @@ describe('extractImagePath', () => {
   it('url-decodes an encoded filename', () => {
     expect(extractImagePath('![x](_images/elf%20guy.png)')).toBe(
       '_images/elf guy.png',
+    )
+  })
+  it('handles paths in nested image folders', () => {
+    expect(extractImagePath('_images/Maps/City/tavern.png')).toBe(
+      '_images/Maps/City/tavern.png',
+    )
+    // Per-segment encoding: the separators must survive decoding as separators.
+    expect(extractImagePath('![x](_images/Maps%20North/elf%20guy.png)')).toBe(
+      '_images/Maps North/elf guy.png',
     )
   })
 })

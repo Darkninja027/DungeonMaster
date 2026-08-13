@@ -66,6 +66,17 @@ describe('watcher against a real temp folder', () => {
     expect(batches[0].articleIds).toEqual([])
   })
 
+  it('classifies changes inside nested image folders as image changes', async () => {
+    fs.mkdirSync(path.join(root, '_images', 'Maps', 'City'), {
+      recursive: true,
+    })
+    fs.writeFileSync(path.join(root, '_images', 'Maps', 'City', 'x.png'), 'x')
+    await sleep(SETTLE_MS)
+    expect(batches.length).toBeGreaterThanOrEqual(1)
+    expect(batches[0].imagesChanged).toBe(true)
+    expect(batches[0].articleIds).toEqual([])
+  })
+
   // A hand-edited worldSettings.json must reach the renderer (so the class
   // dropdowns refresh) without claiming the article tree changed — the index
   // holds no settings, so flagging the tree would rebuild it for nothing.

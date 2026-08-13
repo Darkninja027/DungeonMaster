@@ -80,8 +80,8 @@ export function HowToDialog() {
               desc="Tables render PHB-style with green striped rows. Use the Insert menu for a starter table or a full stat block."
             />
             <Row
-              code="![alt](url)"
-              desc="An image with a plate-style frame. Use the Images button to upload and insert."
+              code="![alt](_images/Maps/city.png)"
+              desc="An image with a plate-style frame. Use the Images button to upload, organise into folders, and insert — or just paste a screenshot or drag an image file straight into the editor. Typing an _images/ path suggests matches."
             />
           </Section>
 

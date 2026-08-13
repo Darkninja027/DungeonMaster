@@ -18,6 +18,7 @@ import {
   moveFolder,
   readTree,
   renameArticle,
+  revealPath,
   updateArticle,
 } from './worldStore'
 import { findMentions, searchWorld } from './search'
@@ -286,5 +287,17 @@ describe('worldStore against a real temp folder', () => {
     fs.mkdirSync(path.join(root, '_images'))
     fs.writeFileSync(path.join(root, '_images', 'map.png'), 'x')
     expect(readTree(root).folders).toHaveLength(0)
+  })
+
+  it('ignores nested image folders in the tree', () => {
+    // Image organisation lives under _images/; none of it may leak into the
+    // article tree, however deep it goes.
+    fs.mkdirSync(path.join(root, '_images', 'Maps', 'City'), {
+      recursive: true,
+    })
+    fs.writeFileSync(path.join(root, '_images', 'Maps', 'City', 'x.png'), 'x')
+    const tree = readTree(root)
+    expect(tree.folders).toHaveLength(0)
+    expect(tree.articles).toHaveLength(0)
   })
 })

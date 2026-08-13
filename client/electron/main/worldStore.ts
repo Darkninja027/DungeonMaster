@@ -218,7 +218,7 @@ export function countArticles(root: string): number {
 }
 
 /** Case-insensitive existence check — Windows filesystems are case-insensitive. */
-function entryExists(absDir: string, name: string): boolean {
+export function entryExists(absDir: string, name: string): boolean {
   if (!fs.existsSync(absDir)) return false
   const lower = name.toLowerCase()
   return fs.readdirSync(absDir).some((e) => e.toLowerCase() === lower)

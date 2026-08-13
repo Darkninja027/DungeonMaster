@@ -26,6 +26,7 @@ import { REVEAL_LABEL, revealer } from '#/lib/reveal'
 import { isCharacterContent, parseCharacter } from '#/lib/character'
 import { useShortcut } from '#/lib/useShortcut'
 import { useArticleEditorSave } from '#/lib/useArticleEditorSave'
+import type { ImageInfo } from '#/lib/api'
 import type { RollSource } from '#/lib/rollLog'
 import { exportPdf } from '#/lib/exportPdf'
 import { formatMarkdown, snippets } from '#/lib/formatMarkdown'
@@ -174,8 +175,16 @@ function ArticlePage() {
   // [[ autocomplete: the partial title being typed after an unclosed [[
   const [linkQuery, setLinkQuery] = useState<string | null>(null)
   const [linkIndex, setLinkIndex] = useState(0)
+  // _images/ autocomplete: the partial path being typed after an _images/ prefix
+  const [imageQuery, setImageQuery] = useState<string | null>(null)
+  const [imageIndex, setImageIndex] = useState(0)
   // Create-from-broken-link dialog
   const [missingTitle, setMissingTitle] = useState<string | null>(null)
+
+  const images = useQuery({
+    queryKey: ['worlds', worldId, 'images'],
+    queryFn: () => api.images.tree(worldId),
+  })
 
   const linkMatches =
     linkQuery !== null
@@ -188,13 +197,34 @@ function ArticlePage() {
           .slice(0, 6)
       : []
 
-  const updateLinkQuery = () => {
+  const imageMatches =
+    imageQuery !== null
+      ? (images.data?.images ?? [])
+          .filter((i) => i.id.toLowerCase().includes(imageQuery.toLowerCase()))
+          .slice(0, 6)
+      : []
+
+  // A path is being typed once an _images/ prefix is open: inside a markdown
+  // link — ](_images/… — or on a statblock `image:` line, in either the bare or
+  // the picker's markdown form.
+  const IMAGE_PATH_TYPING =
+    /(?:\]\(|^[ \t]*image:[ \t]*(?:!\[[^\]]*\]\()?)_images\/([^)\n]*)$/m
+
+  const updateQueries = () => {
     const textarea = textareaRef.current
-    if (!textarea) return setLinkQuery(null)
+    if (!textarea) {
+      setLinkQuery(null)
+      setImageQuery(null)
+      return
+    }
     const before = textarea.value.slice(0, textarea.selectionStart)
-    const m = before.match(/\[\[([^\][\n]*)$/)
-    setLinkQuery(m ? m[1] : null)
+    const link = before.match(/\[\[([^\][\n]*)$/)
+    setLinkQuery(link ? link[1] : null)
     setLinkIndex(0)
+    // Only one strip shows at a time; an open [[ wins.
+    const image = link ? null : before.match(IMAGE_PATH_TYPING)
+    setImageQuery(image ? image[1] : null)
+    setImageIndex(0)
   }
 
   const completeLink = (linkTitle: string) => {
@@ -208,6 +238,25 @@ function ArticlePage() {
     setDirty(true)
     setLinkQuery(null)
     const cursor = start + inserted.length
+    setTimeout(() => {
+      textarea.focus()
+      textarea.setSelectionRange(cursor, cursor)
+    }, 0)
+  }
+
+  /** Replace the partial _images/… path being typed with a real image path. */
+  const completeImagePath = (image: ImageInfo) => {
+    const textarea = textareaRef.current
+    if (!textarea) return
+    const pos = textarea.selectionStart
+    const start = content.lastIndexOf('_images/', pos)
+    if (start < 0) return
+    setContent(
+      content.slice(0, start) + image.encodedRelPath + content.slice(pos),
+    )
+    setDirty(true)
+    setImageQuery(null)
+    const cursor = start + image.encodedRelPath.length
     setTimeout(() => {
       textarea.focus()
       textarea.setSelectionRange(cursor, cursor)
@@ -328,6 +377,26 @@ function ArticlePage() {
   const insertAtCursor = editor.insertText
   const insertBlock = editor.insertBlock
 
+  /**
+   * Upload dropped/pasted image files into the world and insert them at the
+   * cursor. Clipboard screenshots all arrive named "image.png", which the
+   * upload dedupe turns into "image (2).png" and so on.
+   */
+  const uploadAndInsert = async (files: Array<File>) => {
+    const pictures = files.filter((f) => f.type.startsWith('image/'))
+    if (pictures.length === 0) return
+    try {
+      for (const file of pictures) {
+        const image = await api.images.upload(worldId, file)
+        const alt = image.fileName.replace(/\.[^.]+$/, '')
+        insertAtCursor(`![${alt}](${image.encodedRelPath})`)
+      }
+      queryClient.invalidateQueries({ queryKey: ['worlds', worldId, 'images'] })
+    } catch (error) {
+      alert((error as Error).message)
+    }
+  }
+
   const tidy = async () => {
     const formatted = await formatMarkdown(content)
     if (formatted !== content) {
@@ -443,7 +512,17 @@ function ArticlePage() {
           >
             <Wand2 /> Tidy
           </Button>
-          <ImagePickerDialog worldId={worldId} onInsert={insertAtCursor} />
+          <ImagePickerDialog
+            worldId={worldId}
+            onInsert={insertAtCursor}
+            // A rename/move rewrote _images/ paths in article bodies. A clean
+            // editor reloads from the invalidated cache; a dirty one would
+            // autosave the stale path back, so surface the same banner the file
+            // watcher uses and let the author choose.
+            onRefsRewritten={() => {
+              if (dirty) setExternalChange(true)
+            }}
+          />
           <Button
             variant="outline"
             size="icon"
@@ -591,6 +670,34 @@ function ArticlePage() {
               </span>
             </div>
           )}
+          {imageQuery !== null && imageMatches.length > 0 && (
+            <div className="bg-muted/60 flex items-center gap-1.5 overflow-x-auto border-b px-3 py-1.5 text-sm">
+              <span className="text-muted-foreground shrink-0 text-xs">
+                Image:
+              </span>
+              {imageMatches.map((match, i) => (
+                <button
+                  key={match.id}
+                  type="button"
+                  className={cn(
+                    'shrink-0 rounded border px-2 py-0.5 text-xs',
+                    i === imageIndex
+                      ? 'bg-accent border-primary'
+                      : 'hover:bg-accent',
+                  )}
+                  onMouseDown={(e) => {
+                    e.preventDefault()
+                    completeImagePath(match)
+                  }}
+                >
+                  {match.id}
+                </button>
+              ))}
+              <span className="text-muted-foreground shrink-0 text-xs">
+                ↹ Tab · ⏎ Enter
+              </span>
+            </div>
+          )}
           <div className="flex min-h-0 flex-1">
             <Textarea
               ref={textareaRef}
@@ -600,19 +707,57 @@ function ArticlePage() {
               onChange={(e) => {
                 setContent(e.target.value)
                 setDirty(true)
-                requestAnimationFrame(updateLinkQuery)
+                requestAnimationFrame(updateQueries)
               }}
-              onClick={updateLinkQuery}
+              onClick={updateQueries}
+              onPaste={(e) => {
+                const files = Array.from(e.clipboardData.files)
+                if (files.some((f) => f.type.startsWith('image/'))) {
+                  e.preventDefault()
+                  uploadAndInsert(files)
+                }
+              }}
+              onDragOver={(e) => {
+                // Only claim the drop for files — the textarea's own text-drag
+                // behaviour must keep working.
+                if (e.dataTransfer.types.indexOf('Files') >= 0)
+                  e.preventDefault()
+              }}
+              onDrop={(e) => {
+                const files = Array.from(e.dataTransfer.files)
+                if (files.some((f) => f.type.startsWith('image/'))) {
+                  e.preventDefault()
+                  uploadAndInsert(files)
+                }
+              }}
               onKeyUp={(e) => {
                 if (
                   !['ArrowDown', 'ArrowUp', 'Enter', 'Tab', 'Escape'].includes(
                     e.key,
                   )
                 )
-                  updateLinkQuery()
+                  updateQueries()
               }}
               onBeforeInput={editor.onBeforeInput}
               onKeyDown={(e) => {
+                if (imageQuery !== null && imageMatches.length > 0) {
+                  if (e.key === 'ArrowDown') {
+                    e.preventDefault()
+                    setImageIndex((i) => (i + 1) % imageMatches.length)
+                  } else if (e.key === 'ArrowUp') {
+                    e.preventDefault()
+                    setImageIndex(
+                      (i) =>
+                        (i - 1 + imageMatches.length) % imageMatches.length,
+                    )
+                  } else if (e.key === 'Enter' || e.key === 'Tab') {
+                    e.preventDefault()
+                    completeImagePath(imageMatches[imageIndex])
+                  } else if (e.key === 'Escape') {
+                    setImageQuery(null)
+                  }
+                  return
+                }
                 if (linkQuery === null || linkMatches.length === 0)
                   return editor.onKeyDown(e)
                 if (e.key === 'ArrowDown') {

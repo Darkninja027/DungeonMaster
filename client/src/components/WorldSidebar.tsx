@@ -597,6 +597,15 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
           >
             <FolderPlus className="size-4" />
           </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-7"
+            title="Open the world folder"
+            onClick={() => reveal()}
+          >
+            <FolderOpen className="size-4" />
+          </Button>
         </div>
       </div>
       <div className="border-b px-2 py-1.5">
