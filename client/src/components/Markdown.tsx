@@ -1,5 +1,6 @@
 import {
   isValidElement,
+  memo,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -39,10 +40,34 @@ import type { Components } from 'react-markdown'
 export const PAGE_W = 816
 export const PAGE_H = 1056
 const PAD_X = 52
-const PAD_Y = 48
 const COL_GAP = 40
 const CONTENT_W = PAGE_W - 2 * PAD_X // 712
-const CONTENT_H = PAGE_H - 2 * PAD_Y // 960
+
+/**
+ * Hoisted so they are referentially stable: passing fresh literals would make
+ * every ReactMarkdown re-render even behind React.memo.
+ */
+const REMARK_PLUGINS = [remarkGfm]
+const identityUrl = (url: string) => url
+
+/**
+ * How many sheets a flow needs, given the total width its columns occupy.
+ *
+ * `scrollWidth` spans every column the content generated, including the gaps
+ * between them — so the column count is (width + one gap) / (column + gap),
+ * and sheets hold `columns` of them.
+ *
+ * Exported for tests: this is measured from the live DOM, so the arithmetic is
+ * the only part that can be checked without a browser.
+ */
+export function sheetsForWidth(scrollWidth: number, columns: 1 | 2): number {
+  const colW = columns === 2 ? (CONTENT_W - COL_GAP) / 2 : CONTENT_W
+  const cols = Math.max(
+    1,
+    Math.round((scrollWidth + COL_GAP) / (colW + COL_GAP)),
+  )
+  return Math.ceil(cols / columns)
+}
 
 function DiceChip({
   notation,
@@ -155,14 +180,16 @@ const ABILITY_LABEL: Record<(typeof ABILITY_ORDER)[number], string> = {
  * and the prose section is rendered as inline markdown so damage rolls and wiki
  * links stay live inside traits and actions.
  */
-function StatBlockCard({
+const StatBlockCard = memo(function StatBlockCard({
   fence,
   worldId,
   articles,
   onCreateMissing,
   source,
 }: { fence: string } & RenderContext) {
-  const card = parseStatBlockCard(fence)
+  // Each card also renders an InlineMarkdown per attribute plus one for its
+  // prose, so re-parsing the fence on every render multiplied up quickly.
+  const card = useMemo(() => parseStatBlockCard(fence), [fence])
   const hasAbilities = ABILITY_ORDER.some((a) => card.abilities[a] != null)
   const attributes: Array<{ label: string; value: string }> = [
     ...(card.ac != null ? [{ label: 'Armor Class', value: card.ac }] : []),
@@ -281,7 +308,7 @@ function StatBlockCard({
       )}
     </div>
   )
-}
+})
 
 /**
  * Image options ride in the URL hash: ![map](url#right&w=45%&h=200)
@@ -502,7 +529,7 @@ interface RenderContext {
  * Same wiki links, dice chips, and rollable tables as the book renderer,
  * so damage notation in spell descriptions stays clickable everywhere.
  */
-export function InlineMarkdown({
+export const InlineMarkdown = memo(function InlineMarkdown({
   children,
   articles,
   worldId,
@@ -522,29 +549,58 @@ export function InlineMarkdown({
       ),
     [router, onCreateMissing, worldId, source, articles],
   )
-  const body = linkifyDice(
-    articles && worldId != null
-      ? resolveWikiLinks(children, articles, worldId)
-      : children,
+  // A stat block renders one of these per attribute plus one for its prose,
+  // so this pipeline runs many times over per card — worth memoising even
+  // though each individual body is short.
+  const body = useMemo(
+    () =>
+      linkifyDice(
+        articles && worldId != null
+          ? resolveWikiLinks(children, articles, worldId)
+          : children,
+      ),
+    [children, articles, worldId],
   )
   return (
     <div className={className}>
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        components={components}
-        urlTransform={(url) => url}
-      >
-        {body}
-      </ReactMarkdown>
+      <MarkdownBody body={body} components={components} />
     </div>
   )
-}
+})
+
+/**
+ * The parsed markdown body, isolated behind React.memo.
+ *
+ * react-markdown does no memoising of its own — every render re-runs the full
+ * remark pipeline (parse → mdast → hast → elements). Each sheet mounts its own
+ * instance (they are separate elements in the tree, so this cannot dedupe the
+ * parse ACROSS sheets), but it does stop all of them re-parsing when something
+ * unrelated re-renders — which is the typing case, where `body` is unchanged
+ * and only the editor's own state moved.
+ */
+const MarkdownBody = memo(function MarkdownBody({
+  body,
+  components,
+}: {
+  body: string
+  components: Components
+}) {
+  return (
+    <ReactMarkdown
+      remarkPlugins={REMARK_PLUGINS}
+      components={components}
+      urlTransform={identityUrl}
+    >
+      {body}
+    </ReactMarkdown>
+  )
+})
 
 /**
  * One `\page` chunk, rendered as however many fixed-size sheets its content
  * needs (see .dnd-page / .dnd-flow in styles.css).
  */
-export function Markdown({
+export const Markdown = memo(function Markdown({
   children,
   columns = 2,
   articles,
@@ -564,78 +620,78 @@ export function Markdown({
       ),
     [router, onCreateMissing, worldId, source, articles],
   )
-  const body = linkifyDice(
-    articles && worldId != null
-      ? resolveWikiLinks(children, articles, worldId)
-      : children,
+  // Two whole-document regex passes; resolveWikiLinks also rebuilds a title
+  // map of the world. Memoised so they don't re-run per sheet.
+  const body = useMemo(
+    () =>
+      linkifyDice(
+        articles && worldId != null
+          ? resolveWikiLinks(children, articles, worldId)
+          : children,
+      ),
+    [children, articles, worldId],
   )
 
+  // Sheet count comes from the FIRST sheet's own flow. It holds the same
+  // content under the same width/height constraints as every other sheet, so
+  // its scrollWidth already reports the full column extent — a separate hidden
+  // measurer copy was rendering (and re-parsing) the whole document a second
+  // time to learn something the visible sheet could answer.
   const measureRef = useRef<HTMLDivElement>(null)
   const [sheetCount, setSheetCount] = useState(1)
 
   useLayoutEffect(() => {
     const el = measureRef.current
     if (!el) return
-    const colW = columns === 2 ? (CONTENT_W - COL_GAP) / 2 : CONTENT_W
+    let cancelled = false
     const measure = () => {
-      const cols = Math.max(
-        1,
-        Math.round((el.scrollWidth + COL_GAP) / (colW + COL_GAP)),
-      )
-      setSheetCount(Math.ceil(cols / columns))
+      if (cancelled) return
+      // Only re-render when the count actually changes: setState with an equal
+      // value still costs a render pass, and this runs on every edit.
+      setSheetCount((prev) => {
+        const next = sheetsForWidth(el.scrollWidth, columns)
+        return next === prev ? prev : next
+      })
     }
     measure()
     // images finishing to load change the flow — re-measure (capture phase:
     // load events don't bubble)
     el.addEventListener('load', measure, true)
+    // `cancelled` guards this: the promise resolves once per content change
+    // and would otherwise measure against a stale element.
     document.fonts.ready.then(measure)
-    return () => el.removeEventListener('load', measure, true)
+    return () => {
+      cancelled = true
+      el.removeEventListener('load', measure, true)
+    }
   }, [body, columns])
 
   const flowClass = cn('dnd-flow', columns === 2 ? 'dnd-flow-2' : 'dnd-flow-1')
-  const markdown = (
-    <ReactMarkdown
-      remarkPlugins={[remarkGfm]}
-      components={components}
-      urlTransform={(url) => url}
-    >
-      {body}
-    </ReactMarkdown>
-  )
 
   return (
     <>
-      {/* hidden measurer: same flow, offscreen, used only to count columns */}
-      <div className="dnd-page dnd-measure" aria-hidden>
-        <div
-          ref={measureRef}
-          className={flowClass}
-          style={{ width: CONTENT_W, height: CONTENT_H, overflow: 'hidden' }}
-        >
-          {markdown}
-        </div>
-      </div>
       {Array.from({ length: sheetCount }, (_, i) => (
         <div key={i} className="dnd-page">
           <div className="dnd-frame">
             <div
+              ref={i === 0 ? measureRef : undefined}
               className={flowClass}
               style={{
                 width: CONTENT_W,
                 marginLeft: i ? -i * (CONTENT_W + COL_GAP) : 0,
               }}
             >
-              {markdown}
+              <MarkdownBody body={body} components={components} />
             </div>
           </div>
         </div>
       ))}
     </>
   )
-}
+})
 
 /** Full article view: splits on \page markers and honours \columns per page. */
-export function BookView({
+export const BookView = memo(function BookView({
   children,
   articles,
   worldId,
@@ -643,7 +699,12 @@ export function BookView({
   source,
 }: { children: string } & RenderContext) {
   // Frontmatter (character stats etc.) is data, not prose — never render it.
-  const pages = parsePages(splitFrontmatter(children).body)
+  // Memoised: this re-splits the whole document, and every page's body string
+  // feeds a memo boundary below, so a new array would defeat all of them.
+  const pages = useMemo(
+    () => parsePages(splitFrontmatter(children).body),
+    [children],
+  )
   return (
     <div className="dnd-book flex flex-col items-center gap-8">
       {pages.map((page, i) => (
@@ -660,4 +721,4 @@ export function BookView({
       ))}
     </div>
   )
-}
+})

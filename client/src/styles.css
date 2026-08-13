@@ -413,6 +413,13 @@ a {
   padding: 48px 52px;
   margin: 0 auto;
   overflow: hidden;
+  /* The sheet is a fixed box that already clips its content, so layout inside
+     one sheet can never change another's geometry. Telling the browser that
+     keeps a re-layout (every keystroke in live preview) scoped to a single
+     sheet instead of the whole multi-sheet document. Deliberately not
+     `content-visibility: auto`: sheets past the fold would then skip layout
+     entirely and report a stale scrollWidth to the sheet-count measurer. */
+  contain: layout paint style;
 }
 
 /* Clips the column flow at the content edge so overflow columns from the
@@ -437,18 +444,10 @@ a {
   column-count: 1;
 }
 
-/* Offscreen copy used to count how many columns the content needs */
-.dnd-page.dnd-measure {
-  position: absolute;
-  left: -99999px;
-  top: 0;
-  width: auto;
-  height: auto;
-  padding: 0;
-  visibility: hidden;
-  box-shadow: none;
-  overflow: visible;
-}
+/* The sheet count now comes from the first sheet's own flow, so there is no
+   offscreen measurer copy any more (see Markdown.tsx). The `.dnd-measure`
+   guards in the print block and in exportPdf are left in place as harmless
+   belt-and-braces. */
 
 .dnd-page h1,
 .dnd-page h2,

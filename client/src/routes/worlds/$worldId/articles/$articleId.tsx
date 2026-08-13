@@ -282,10 +282,25 @@ function ArticlePage() {
     },
   })
 
-  // Attribute rolls to the saved article (stable while typing).
-  const rollSource: RollSource | undefined = article.data
-    ? { worldId, articleId: article.data.id, title: article.data.title }
-    : undefined
+  // Attribute rolls to the saved article. Memoised on the values rather than
+  // rebuilt each render: this object is a dependency of the renderer's
+  // component map, so a fresh reference per keystroke would rebuild every
+  // markdown subtree while typing.
+  const savedId = article.data?.id
+  const savedTitle = article.data?.title
+  const rollSource: RollSource | undefined = useMemo(
+    () =>
+      savedId != null && savedTitle != null
+        ? { worldId, articleId: savedId, title: savedTitle }
+        : undefined,
+    [worldId, savedId, savedTitle],
+  )
+  // The sheet preview always needs a source; fall back to the route's ids
+  // before the article query resolves. Memoised for the same reason.
+  const sheetSource: RollSource = useMemo(
+    () => rollSource ?? { worldId, articleId, title },
+    [rollSource, worldId, articleId, title],
+  )
 
   // Characters preview as a parchment sheet rather than as prose, since all
   // their data lives in the frontmatter that BookView deliberately strips.
@@ -454,11 +469,7 @@ function ArticlePage() {
             {exporting ? <Loader2 className="animate-spin" /> : <FileDown />}
           </Button>
           <HowToDialog />
-          <Button
-            size="sm"
-            disabled={!dirty || isPending}
-            onClick={saveNow}
-          >
+          <Button size="sm" disabled={!dirty || isPending} onClick={saveNow}>
             <Save /> {isPending ? 'Saving…' : dirty ? 'Save' : 'Saved'}
           </Button>
           <Button
@@ -647,7 +658,7 @@ function ArticlePage() {
                 character={parsedCharacter.character}
                 body={parsedCharacter.body}
                 title={title}
-                source={rollSource ?? { worldId, articleId, title }}
+                source={sheetSource}
                 worldId={worldId}
                 articles={tree.data?.articles}
               />
