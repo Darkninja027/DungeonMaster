@@ -50,6 +50,7 @@ import { BookView } from '#/components/Markdown'
 import { SheetPreview } from '#/components/character/SheetPreview'
 import { ImagePickerDialog } from '#/components/ImagePickerDialog'
 import { HowToDialog } from '#/components/HowToDialog'
+import { useMarkdownEditor } from '#/lib/useMarkdownEditor'
 import { CreateMissingArticleDialog } from '#/components/CreateMissingArticleDialog'
 
 export const Route = createFileRoute('/worlds/$worldId/articles/$articleId')({
@@ -294,19 +295,23 @@ function ArticlePage() {
     [isCharacter, content],
   )
 
-  const insertAtCursor = (snippet: string) => {
-    const textarea = textareaRef.current
-    setContent((prev) => {
-      if (!textarea) return `${prev}\n\n${snippet}\n`
-      const start = textarea.selectionStart
-      const end = textarea.selectionEnd
-      return `${prev.slice(0, start)}${snippet}${prev.slice(end)}`
-    })
-    setDirty(true)
-  }
-
-  // Block snippets (tables, boxes) need blank lines around them to parse as markdown.
-  const insertBlock = (snippet: string) => insertAtCursor(`\n\n${snippet}\n\n`)
+  // Formatting shortcuts (Ctrl+B/I/E, Ctrl+T tables, bracket-wrapping…). Edits
+  // go through execCommand so the native undo stack survives, which also means
+  // the textarea's own onChange fires and drives autosave as usual.
+  const editor = useMarkdownEditor({
+    ref: textareaRef,
+    onFallbackChange: (value) => {
+      setContent(value)
+      setDirty(true)
+    },
+    // While the [[ ]] suggestion strip is up it owns Tab and Enter.
+    isSuppressed: (e) =>
+      linkQuery !== null &&
+      linkMatches.length > 0 &&
+      ['Tab', 'Enter', 'ArrowUp', 'ArrowDown', 'Escape'].includes(e.key),
+  })
+  const insertAtCursor = editor.insertText
+  const insertBlock = editor.insertBlock
 
   const tidy = async () => {
     const formatted = await formatMarkdown(content)
@@ -595,8 +600,10 @@ function ArticlePage() {
                 )
                   updateLinkQuery()
               }}
+              onBeforeInput={editor.onBeforeInput}
               onKeyDown={(e) => {
-                if (linkQuery === null || linkMatches.length === 0) return
+                if (linkQuery === null || linkMatches.length === 0)
+                  return editor.onKeyDown(e)
                 if (e.key === 'ArrowDown') {
                   e.preventDefault()
                   setLinkIndex((i) => (i + 1) % linkMatches.length)
@@ -610,6 +617,10 @@ function ArticlePage() {
                   completeLink(linkMatches[linkIndex].title)
                 } else if (e.key === 'Escape') {
                   setLinkQuery(null)
+                } else {
+                  // Anything the suggestion strip doesn't claim (Ctrl+B and
+                  // friends) still belongs to the formatting shortcuts.
+                  editor.onKeyDown(e)
                 }
               }}
             />

@@ -67,6 +67,25 @@ export interface SearchResult {
   snippet: string
 }
 
+/** A scored search hit for the command palette. */
+export interface RankedResult {
+  id: string
+  folderId: string | null
+  title: string
+  snippet: string
+  /** Frontmatter `type`, lowercased. Characters route to their sheet, not the editor. */
+  type: string | null
+  score: number
+  /** [start, end) offsets into `title` for the characters that matched. */
+  matchRanges: Array<[number, number]>
+}
+
+/** A tag and how many articles carry it. */
+export interface TagCount {
+  tag: string
+  count: number
+}
+
 export interface MentionResult {
   id: string
   title: string
@@ -155,6 +174,15 @@ export const api = {
     tree: (worldId: string) => invoke<WorldTree>('worlds:tree', { worldId }),
     search: (worldId: string, query: string) =>
       invoke<Array<SearchResult>>('worlds:search', { worldId, query }),
+    /** Scored search for the command palette — sorted, then capped at `limit`. */
+    searchRanked: (worldId: string, query: string, limit?: number) =>
+      invoke<Array<RankedResult>>('worlds:searchRanked', {
+        worldId,
+        query,
+        limit,
+      }),
+    /** Every tag used in the world, with counts, most-used first. */
+    tags: (worldId: string) => invoke<Array<TagCount>>('worlds:tags', { worldId }),
     /** Articles whose frontmatter matches the query, sorted by title. */
     query: (worldId: string, query: ArticleQuery) =>
       invoke<Array<ArticleRef>>('worlds:query', { worldId, query }),

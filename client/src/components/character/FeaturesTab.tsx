@@ -13,6 +13,7 @@ import {
 } from '#/lib/character'
 import type { Character, FeatureEntry, FeatureSource } from '#/lib/character'
 import { cn } from '#/lib/utils'
+import { useMarkdownEditor } from '#/lib/useMarkdownEditor'
 import { Button } from '#/components/ui/button'
 import { Input } from '#/components/ui/input'
 import { Textarea } from '#/components/ui/textarea'
@@ -79,6 +80,10 @@ function AddForm({
   const [text, setText] = useState('')
   const [level, setLevel] = useState(character.level)
   const textRef = useRef<HTMLTextAreaElement>(null)
+  const editor = useMarkdownEditor({
+    ref: textRef,
+    onFallbackChange: setText,
+  })
 
   const submit = () => {
     if (!name.trim()) return
@@ -156,8 +161,11 @@ function AddForm({
         placeholder="Description — what it does. [[Wiki links]] and dice like 2d6 stay live."
         className="min-h-16 text-sm"
         onChange={(e) => setText(e.target.value)}
+        onBeforeInput={editor.onBeforeInput}
         onKeyDown={(e) => {
+          // Ctrl+Enter submits; everything else is a formatting shortcut.
           if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) submit()
+          else editor.onKeyDown(e)
         }}
       />
       <div className="flex gap-2">
@@ -206,6 +214,9 @@ function FeatureRow({
   onChange: (patch: { name?: string; text?: string; level?: number }) => void
   onRemove: () => void
 }) {
+  const editor = useMarkdownEditor({
+    onFallbackChange: (value) => onChange({ text: value }),
+  })
   return (
     <li className={cn('group rounded-md border', muted && 'opacity-60')}>
       <div className="flex items-center gap-2 p-2">
@@ -267,10 +278,13 @@ function FeatureRow({
               </div>
               <Textarea
                 autoFocus
+                ref={editor.ref}
                 value={entry.text ?? ''}
                 placeholder="Description — what it does."
                 className="min-h-24 text-sm"
                 onChange={(e) => onChange({ text: e.target.value })}
+                onKeyDown={editor.onKeyDown}
+                onBeforeInput={editor.onBeforeInput}
               />
               <Button size="sm" variant="ghost" onClick={onEdit}>
                 Done

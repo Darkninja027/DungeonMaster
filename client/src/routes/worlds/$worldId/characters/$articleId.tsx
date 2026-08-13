@@ -19,6 +19,7 @@ import { useClasses } from '#/lib/useWorldSettings'
 import { exportPdf } from '#/lib/exportPdf'
 import { useShortcut } from '#/lib/useShortcut'
 import { useArticleEditorSave } from '#/lib/useArticleEditorSave'
+import { useMarkdownEditor } from '#/lib/useMarkdownEditor'
 import type { RollSource } from '#/lib/rollLog'
 import { Button } from '#/components/ui/button'
 import { Input } from '#/components/ui/input'
@@ -70,6 +71,13 @@ function CharacterPage() {
       editSeq: next ? prev.editSeq + 1 : prev.editSeq,
     }))
   }, [])
+  // Formatting shortcuts for the Backstory tab's markdown textarea.
+  const backstoryEditor = useMarkdownEditor({
+    onFallbackChange: (value) => {
+      setBody(value)
+      setDirty(true)
+    },
+  })
   // Broken [[link]] clicked in inventory/notes -> offer to create the article.
   const [missingTitle, setMissingTitle] = useState<string | null>(null)
   // Controlled so Export PDF can switch to the preview before capturing it.
@@ -413,6 +421,7 @@ function CharacterPage() {
         </TabsContent>
         <TabsContent value="backstory" className="flex min-h-0 flex-1 flex-col">
           <Textarea
+            ref={backstoryEditor.ref}
             value={body}
             placeholder="Backstory, bonds, ideals, flaws — markdown with [[wiki links]]."
             className="h-full min-h-0 flex-1 resize-none rounded-none border-none font-mono text-sm shadow-none focus-visible:ring-0"
@@ -420,6 +429,8 @@ function CharacterPage() {
               setBody(e.target.value)
               setDirty(true)
             }}
+            onKeyDown={backstoryEditor.onKeyDown}
+            onBeforeInput={backstoryEditor.onBeforeInput}
           />
         </TabsContent>
         <TabsContent

@@ -9,6 +9,8 @@ const CHANNELS = new Set([
   'worlds:remove',
   'worlds:tree',
   'worlds:search',
+  'worlds:searchRanked',
+  'worlds:tags',
   'worlds:query',
   'worlds:watch',
   'worlds:unwatch',

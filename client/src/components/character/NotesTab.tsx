@@ -12,6 +12,7 @@ import {
 } from '#/lib/character'
 import type { Character, CharacterNote } from '#/lib/character'
 import { cn } from '#/lib/utils'
+import { useMarkdownEditor } from '#/lib/useMarkdownEditor'
 import { Button } from '#/components/ui/button'
 import { Input } from '#/components/ui/input'
 import { Textarea } from '#/components/ui/textarea'
@@ -166,6 +167,7 @@ function AddNote({
   const [text, setText] = useState('')
   const [at, setAt] = useState(today())
   const [tags, setTags] = useState<Array<string>>([])
+  const editor = useMarkdownEditor({ onFallbackChange: setText })
 
   const submit = () => {
     if (!text.trim() && !title.trim()) return
@@ -204,12 +206,16 @@ function AddNote({
         />
       </div>
       <Textarea
+        ref={editor.ref}
         value={text}
         placeholder="What happened? Markdown works — ## headings, - bullets, **bold**, [[Wiki links]] and dice like 2d6."
         className="min-h-28 text-sm"
         onChange={(e) => setText(e.target.value)}
+        onBeforeInput={editor.onBeforeInput}
         onKeyDown={(e) => {
+          // Ctrl+Enter submits; everything else is a formatting shortcut.
           if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) submit()
+          else editor.onKeyDown(e)
         }}
       />
       <TagEditor tags={tags} known={known} onChange={setTags} />
@@ -270,6 +276,9 @@ function NoteRow({
 }) {
   const heading =
     note.title?.trim() || notePreview(note.text) || 'Untitled note'
+  const editor = useMarkdownEditor({
+    onFallbackChange: (value) => onChange({ text: value }),
+  })
 
   return (
     <li className="group rounded-md border">
@@ -355,10 +364,13 @@ function NoteRow({
               </div>
               <Textarea
                 autoFocus
+                ref={editor.ref}
                 value={note.text}
                 className="min-h-32 text-sm"
                 placeholder="Markdown works here."
                 onChange={(e) => onChange({ text: e.target.value })}
+                onKeyDown={editor.onKeyDown}
+                onBeforeInput={editor.onBeforeInput}
               />
               <TagEditor
                 tags={note.tags ?? []}

@@ -19,6 +19,7 @@ import {
   X,
 } from 'lucide-react'
 import { api } from '#/lib/api'
+import { onPaletteAction } from '#/lib/paletteActions'
 import { useShortcut } from '#/lib/useShortcut'
 import type { ArticleSummary, FolderNode, WorldTree } from '#/lib/api'
 import { isLibraryFolder } from '#/lib/libraryFolders'
@@ -88,16 +89,26 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
   const [searchTerm, setSearchTerm] = useState('')
   const searchInputRef = useRef<HTMLInputElement>(null)
 
-  useShortcut('k', () => {
-    searchInputRef.current?.focus()
-    searchInputRef.current?.select()
-  })
+  // Ctrl+K belongs to the command palette; this box is still click-to-search.
   useShortcut(
     'n',
     () => openDialog({ mode: 'new-article', parentFolderId: null }),
     {
       enabled: dialog === null,
     },
+  )
+
+  // Creation commands run from the palette open the dialogs owned here. The
+  // action kinds are named to match the dialog modes, so this is a pass-through.
+  // Subscribed once: openDialog is re-created each render but only touches
+  // setState, so a stale closure would still open the right dialog.
+  const openDialogRef = useRef<(state: NameDialogState) => void>(undefined)
+  useEffect(
+    () =>
+      onPaletteAction((action) =>
+        openDialogRef.current?.({ mode: action.kind, parentFolderId: null }),
+      ),
+    [],
   )
 
   useEffect(() => {
@@ -271,6 +282,7 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
     // menu open/close resets it.
     requestAnimationFrame(() => setDialog(state))
   }
+  openDialogRef.current = openDialog
 
   const handleDrop = (targetFolderId: string | null) => {
     if (!dragItem) return

@@ -25,7 +25,9 @@ import type { WorldSummary } from './worldStore'
 import {
   findMentions,
   listCharacters,
+  listTags,
   queryArticles,
+  searchRanked,
   searchWorld,
 } from './search'
 import type { ArticleQuery } from './search'
@@ -191,6 +193,23 @@ export function registerIpcHandlers() {
     'worlds:query',
     (_e, { worldId, query }: { worldId: string; query?: ArticleQuery }) =>
       queryArticles(worldId, query ?? {}),
+  )
+
+  // Ranked search for the command palette — scored and sorted before capping.
+  ipcMain.handle(
+    'worlds:searchRanked',
+    (
+      _e,
+      {
+        worldId,
+        query,
+        limit,
+      }: { worldId: string; query: string; limit?: number },
+    ) => searchRanked(worldId, query, limit),
+  )
+
+  ipcMain.handle('worlds:tags', (_e, { worldId }: { worldId: string }) =>
+    listTags(worldId),
   )
 
   // Watch the open world for EXTERNAL edits (Obsidian, git, Dropbox…) and

@@ -5,6 +5,7 @@ import { Pencil, Settings2 } from 'lucide-react'
 import { api } from '#/lib/api'
 import { WorldSidebar } from '#/components/WorldSidebar'
 import { SessionPanel } from '#/components/SessionPanel'
+import { CommandPalette } from '#/components/CommandPalette'
 import { Button } from '#/components/ui/button'
 import {
   Dialog,
@@ -110,6 +111,7 @@ function WorldLayout() {
         <Outlet />
       </div>
       <SessionPanel worldId={worldId} />
+      <CommandPalette worldId={worldId} />
 
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
         <DialogContent>

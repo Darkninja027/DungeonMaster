@@ -32,6 +32,22 @@ function* articleEntries(worldId: string): Generator<IndexEntry> {
   }
 }
 
+/**
+ * A ±40-char window around the first body hit, whitespace-collapsed and
+ * ellipsed. Empty string when the query only matched the title.
+ */
+function bodySnippet(content: string, q: string): string {
+  const index = content.toLowerCase().indexOf(q)
+  if (index < 0) return ''
+  const start = Math.max(0, index - 40)
+  const end = Math.min(content.length, index + q.length + 40)
+  return (
+    (start > 0 ? '…' : '') +
+    content.slice(start, end).replace(/\s+/g, ' ').trim() +
+    (end < content.length ? '…' : '')
+  )
+}
+
 /** Case-insensitive substring search over titles and bodies, with ±40-char snippets. */
 export function searchWorld(
   worldId: string,
@@ -42,21 +58,150 @@ export function searchWorld(
   const results: Array<SearchResult> = []
   for (const { id, folderId, title, content } of articleEntries(worldId)) {
     const titleHit = title.toLowerCase().includes(q)
-    const index = content.toLowerCase().indexOf(q)
-    if (!titleHit && index < 0) continue
-    let snippet = ''
-    if (index >= 0) {
-      const start = Math.max(0, index - 40)
-      const end = Math.min(content.length, index + q.length + 40)
-      snippet =
-        (start > 0 ? '…' : '') +
-        content.slice(start, end).replace(/\s+/g, ' ').trim() +
-        (end < content.length ? '…' : '')
-    }
+    const snippet = bodySnippet(content, q)
+    if (!titleHit && !snippet) continue
     results.push({ id, folderId, title, snippet })
     if (results.length >= 50) break
   }
   return results
+}
+
+export interface RankedResult {
+  id: string
+  folderId: string | null
+  title: string
+  snippet: string
+  /** Frontmatter `type`, lowercased — the renderer routes characters differently. */
+  type: string | null
+  score: number
+  /** [start, end) offsets into `title` for the characters that matched. */
+  matchRanges: Array<[number, number]>
+}
+
+export interface TitleScore {
+  score: number
+  ranges: Array<[number, number]>
+}
+
+/**
+ * Scores a title against an already-lowercased query. Exported pure so the
+ * ranking order can be tested without touching a world folder.
+ *
+ * Tiers are far enough apart that a weaker tier can never overtake a stronger
+ * one via bonuses — an exact hit always beats a prefix hit, and so on.
+ */
+export function scoreTitle(title: string, q: string): TitleScore | null {
+  if (!q) return null
+  const lower = title.toLowerCase()
+
+  if (lower === q) return { score: 1000, ranges: [[0, title.length]] }
+  if (lower.startsWith(q)) return { score: 500, ranges: [[0, q.length]] }
+  const at = lower.indexOf(q)
+  if (at >= 0) return { score: 250, ranges: [[at, at + q.length]] }
+
+  // Subsequence: "sthd" matches "Strahd". Denser matches (fewer gaps between
+  // the matched characters) score higher, so "sthd" prefers "Strahd" over a
+  // title where those letters are scattered across many words.
+  const ranges: Array<[number, number]> = []
+  let cursor = 0
+  for (const ch of q) {
+    const found = lower.indexOf(ch, cursor)
+    if (found < 0) return null
+    // Extend the previous run when this character is adjacent to it.
+    if (ranges.length > 0 && ranges[ranges.length - 1][1] === found) {
+      ranges[ranges.length - 1][1] = found + 1
+    } else {
+      ranges.push([found, found + 1])
+    }
+    cursor = found + 1
+  }
+  const span = cursor - ranges[0][0]
+  const density = q.length / Math.max(span, 1)
+  return { score: 100 + Math.round(density * 50), ranges }
+}
+
+/**
+ * Ranked search for the command palette. Unlike searchWorld, the cap is applied
+ * AFTER sorting — capping first would discard the best matches whenever more
+ * than `limit` articles happen to match earlier in tree order.
+ */
+export function searchRanked(
+  worldId: string,
+  query: string,
+  limit = 30,
+): Array<RankedResult> {
+  const q = query.trim().toLowerCase()
+  if (!q) return []
+  const scored: Array<RankedResult> = []
+
+  for (const {
+    id,
+    folderId,
+    title,
+    content,
+    frontmatter,
+  } of articleEntries(worldId)) {
+    const titleMatch = scoreTitle(title, q)
+    const snippet = bodySnippet(content, q)
+    if (!titleMatch && !snippet) continue
+
+    const rawType = frontmatter?.type
+    const type =
+      rawType == null || typeof rawType === 'object'
+        ? null
+        : String(rawType).trim().toLowerCase()
+
+    let score = titleMatch ? titleMatch.score : 0
+    if (snippet) score += 25
+    // Characters are the most frequently revisited articles in play.
+    if (type === 'character') score += 10
+
+    scored.push({
+      id,
+      folderId,
+      title,
+      snippet,
+      type,
+      score,
+      matchRanges: titleMatch ? titleMatch.ranges : [],
+    })
+  }
+
+  scored.sort(
+    (a, b) =>
+      b.score - a.score ||
+      a.title.length - b.title.length ||
+      a.title.localeCompare(b.title, undefined, { sensitivity: 'base' }),
+  )
+  return scored.slice(0, limit)
+}
+
+export interface TagCount {
+  tag: string
+  count: number
+}
+
+/**
+ * Every tag used anywhere in the world, with usage counts — the palette's `#`
+ * mode. Without this there is no way to discover which tags exist; Smart Views
+ * can only query tags you already know the name of.
+ */
+export function listTags(worldId: string): Array<TagCount> {
+  const counts = new Map<string, number>()
+  for (const { frontmatter } of articleEntries(worldId)) {
+    if (!frontmatter) continue
+    for (const tag of tagSet(frontmatter)) {
+      if (!tag) continue
+      counts.set(tag, (counts.get(tag) ?? 0) + 1)
+    }
+  }
+  return [...counts.entries()]
+    .map(([tag, count]) => ({ tag, count }))
+    .sort(
+      (a, b) =>
+        b.count - a.count ||
+        a.tag.localeCompare(b.tag, undefined, { sensitivity: 'base' }),
+    )
 }
 
 export interface ArticleQuery {
