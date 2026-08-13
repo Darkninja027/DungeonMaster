@@ -3,6 +3,7 @@ import path from 'node:path'
 import { BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import { addRecentWorld, readConfig, removeRecentWorld } from './recents'
 import {
+  atomicWrite,
   countArticles,
   createArticle,
   createFolder,
@@ -21,6 +22,7 @@ import {
   worldRoot,
   writeWorldMeta,
 } from './worldStore'
+import { GUIDE_CONTENT, GUIDE_FILENAME } from './guideArticle'
 import type { WorldSummary } from './worldStore'
 import {
   findMentions,
@@ -90,6 +92,28 @@ function scaffoldSettings(root: string): void {
 }
 
 /**
+ * Drop the user guide into a brand-new world, so the first thing in an empty
+ * world is something worth reading.
+ *
+ * Only for worlds this app creates: adopting an existing folder (an Obsidian
+ * vault, say) must not scatter files into it, and a world that has been opened
+ * before is the user's to curate — deleting the guide has to stick.
+ *
+ * Never fatal, like scaffoldSettings: a world that can't take the file is still
+ * a perfectly good world. Skipped if a Guide.md is already there rather than
+ * clobbering whatever the user has under that name.
+ */
+function scaffoldGuide(root: string): void {
+  try {
+    const abs = path.join(root, GUIDE_FILENAME)
+    if (fs.existsSync(abs)) return
+    atomicWrite(abs, GUIDE_CONTENT)
+  } catch {
+    // read-only folder or a race with another window — not worth failing over.
+  }
+}
+
+/**
  * Fold a legacy world.json into worldSettings.json on open, sending the leftover
  * to the Recycle Bin like every other delete in this app. Cheap (an existsSync)
  * once a world has been migrated, so it's safe on every open — but deliberately
@@ -153,6 +177,7 @@ export function registerIpcHandlers() {
       }
       initWorld(dir, input.name.trim(), input.description ?? '')
       scaffoldSettings(dir)
+      scaffoldGuide(dir)
       addRecentWorld(dir)
       return worldSummary(dir)
     },

@@ -536,15 +536,32 @@ a {
   color: var(--dnd-red);
 }
 
+/* Tailwind's preflight sets `list-style: none` on every ul/ol, so the markers
+   have to be put back explicitly — otherwise the padding below indents a list
+   of invisible bullets and ::marker has nothing to colour. Same reason the
+   character-sheet lists restore it further down. */
 .dnd-page ul,
 .dnd-page ol {
   margin: 0 0 0.9em;
   padding-left: 1.4em;
 }
+.dnd-page ul {
+  list-style: disc outside;
+}
+.dnd-page ol {
+  list-style: decimal outside;
+}
+/* Nested levels get their own markers rather than repeating the parent's. */
+.dnd-page ul ul {
+  list-style: circle outside;
+}
+.dnd-page ul ul ul {
+  list-style: square outside;
+}
 .dnd-page li {
   margin-bottom: 0.25em;
 }
-.dnd-page ul li::marker {
+.dnd-page li::marker {
   color: var(--dnd-red);
 }
 
