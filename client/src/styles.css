@@ -485,6 +485,23 @@ a {
   font-family: 'Alegreya', serif;
   font-weight: 700;
 }
+/* h4 already dips below body size, so h5/h6 can't keep shrinking and stay
+   legible. They separate by letterform instead: small caps, then tracked-out
+   small caps, both tighter to the text they introduce than the levels above. */
+.dnd-page h5 {
+  font-size: 1em;
+  font-variant-caps: small-caps;
+  letter-spacing: 0.04em;
+  margin: 1.1em 0 0.3em;
+}
+.dnd-page h6 {
+  font-size: 0.95em;
+  font-variant-caps: small-caps;
+  letter-spacing: 0.1em;
+  font-weight: 500;
+  color: var(--dnd-ink);
+  margin: 1em 0 0.25em;
+}
 
 .dnd-page p {
   margin: 0 0 0.75em;
