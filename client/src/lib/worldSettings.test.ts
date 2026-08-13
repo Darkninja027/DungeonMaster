@@ -3,6 +3,7 @@ import { PHB_CLASSES } from './classes'
 import {
   DEFAULT_SETTINGS,
   SETTINGS_COMMENT,
+  SETTINGS_VERSION,
   classId,
   parseWorldSettings,
   serializeWorldSettings,
@@ -46,10 +47,38 @@ describe('parseWorldSettings — tolerance', () => {
   })
 
   it('defaults a missing version rather than rejecting the file', () => {
-    expect(parseWorldSettings({ classes: [{ name: 'Bard' }] }).version).toBe(1)
+    expect(parseWorldSettings({ classes: [{ name: 'Bard' }] }).version).toBe(2)
     expect(
       parseWorldSettings({ version: 7, classes: [{ name: 'Bard' }] }).version,
     ).toBe(7)
+  })
+
+  // The world's name/description/createdAt share the file. The editor never
+  // shows them, so they only survive a save by being carried straight through.
+  it('carries world metadata through a parse/serialize round trip', () => {
+    const parsed = parseWorldSettings({
+      version: 2,
+      name: 'Barovia',
+      description: 'Gothic horror',
+      createdAt: '2020-01-01T00:00:00.000Z',
+      classes: [{ name: 'Bard' }],
+    })
+    expect(parsed.name).toBe('Barovia')
+    expect(serializeWorldSettings(parsed)).toMatchObject({
+      name: 'Barovia',
+      description: 'Gothic horror',
+      createdAt: '2020-01-01T00:00:00.000Z',
+    })
+  })
+
+  it('omits world metadata keys entirely when the file has none', () => {
+    const out = serializeWorldSettings(
+      parseWorldSettings({ classes: [{ name: 'Bard' }] }),
+    ) as Record<string, unknown>
+    // Absent, not undefined: the main process reads an absent key as "keep
+    // whatever is on disk".
+    expect('name' in out).toBe(false)
+    expect('createdAt' in out).toBe(false)
   })
 })
 
@@ -123,7 +152,7 @@ describe('serializeWorldSettings', () => {
       unknown
     >
     expect(json._comment).toBe(SETTINGS_COMMENT)
-    expect(json.version).toBe(1)
+    expect(json.version).toBe(SETTINGS_VERSION)
     expect(JSON.stringify(json)).not.toContain('"id"')
   })
 

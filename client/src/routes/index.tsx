@@ -1,9 +1,10 @@
 import { useState } from 'react'
 import { Link, createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { FolderOpen, Globe2, Plus, X } from 'lucide-react'
+import { FolderOpen, FolderSearch, Globe2, Plus, X } from 'lucide-react'
 import { api } from '#/lib/api'
 import type { WorldSummary } from '#/lib/api'
+import { REVEAL_LABEL, revealer } from '#/lib/reveal'
 import { Button } from '#/components/ui/button'
 import {
   Card,
@@ -175,15 +176,26 @@ function WorldsPage() {
                 {world.articleCount} article
                 {world.articleCount === 1 ? '' : 's'}
               </span>
-              <Button
-                variant="ghost"
-                size="icon"
-                title="Remove from this list (the folder stays on disk)"
-                className="relative opacity-0 transition-opacity group-hover:opacity-100"
-                onClick={() => removeWorld.mutate(world.id)}
-              >
-                <X />
-              </Button>
+              <div className="flex items-center">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  title={REVEAL_LABEL}
+                  className="relative opacity-0 transition-opacity group-hover:opacity-100"
+                  onClick={() => revealer(world.id)()}
+                >
+                  <FolderSearch />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  title="Remove from this list (the folder stays on disk)"
+                  className="relative opacity-0 transition-opacity group-hover:opacity-100"
+                  onClick={() => removeWorld.mutate(world.id)}
+                >
+                  <X />
+                </Button>
+              </div>
             </CardContent>
           </Card>
         ))}

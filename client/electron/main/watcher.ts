@@ -69,11 +69,18 @@ function classify(watch: ActiveWatch, relPath: string): void {
     treeChanged: false,
     imagesChanged: false,
   })
-  if (rel.toLowerCase() === 'worldsettings.json') {
-    // App state at the world root, not content: invisible to readTree and to
-    // the search index, so it must not claim the tree changed. The batch is
-    // still emitted with no flags set — the renderer refetches everything under
-    // ['worlds', worldId], which covers the settings query by prefix.
+  // Spelled out rather than imported from worldStore: that module imports this
+  // one for noteSelfWrite, and the reverse would close the cycle.
+  if (
+    rel.toLowerCase() === 'worldsettings.json' ||
+    rel.toLowerCase() === 'world.json'
+  ) {
+    // The world's own metadata and settings, not content: invisible to readTree
+    // and to the search index, so it must not claim the tree changed. The batch
+    // is still emitted with no flags set — the renderer refetches everything
+    // under ['worlds', worldId], which covers both the world query and the
+    // settings query by prefix. (world.json is the legacy file, deleted on
+    // migration; ignored here so that delete doesn't fake a tree change.)
   } else if (rel === '_images' || rel.startsWith('_images/')) {
     batch.imagesChanged = true
   } else if (rel.toLowerCase().endsWith('.md')) {

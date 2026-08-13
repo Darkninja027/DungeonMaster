@@ -13,6 +13,7 @@ import {
   Columns2,
   Eye,
   FileDown,
+  FolderOpen,
   Link2,
   Loader2,
   Pencil,
@@ -21,6 +22,7 @@ import {
   Wand2,
 } from 'lucide-react'
 import { api } from '#/lib/api'
+import { REVEAL_LABEL, revealer } from '#/lib/reveal'
 import { isCharacterContent, parseCharacter } from '#/lib/character'
 import { useShortcut } from '#/lib/useShortcut'
 import { useArticleEditorSave } from '#/lib/useArticleEditorSave'
@@ -133,6 +135,7 @@ function ArticlePage() {
   const { worldId, articleId } = Route.useParams()
   const queryClient = useQueryClient()
   const navigate = useNavigate()
+  const reveal = revealer(worldId)
 
   const article = useQuery({
     queryKey: ['articles', articleId],
@@ -452,6 +455,14 @@ function ArticlePage() {
             onClick={saveNow}
           >
             <Save /> {isPending ? 'Saving…' : dirty ? 'Save' : 'Saved'}
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            title={REVEAL_LABEL}
+            onClick={() => reveal(`${article.data?.id ?? articleId}.md`)}
+          >
+            <FolderOpen />
           </Button>
           <Button
             variant="ghost"

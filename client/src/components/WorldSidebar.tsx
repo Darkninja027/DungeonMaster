@@ -8,6 +8,7 @@ import {
   FilePlus2,
   FileText,
   Folder as FolderIcon,
+  FolderOpen,
   FolderPlus,
   MoreHorizontal,
   Pencil,
@@ -21,6 +22,7 @@ import { api } from '#/lib/api'
 import { useShortcut } from '#/lib/useShortcut'
 import type { ArticleSummary, FolderNode, WorldTree } from '#/lib/api'
 import { isLibraryFolder } from '#/lib/libraryFolders'
+import { REVEAL_LABEL, revealer } from '#/lib/reveal'
 import { articleTemplates, newArticleContent } from '#/lib/templates'
 import { cn } from '#/lib/utils'
 import { SmartViews } from '#/components/SmartViews'
@@ -59,6 +61,7 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
   const navigate = useNavigate()
   const params = useParams({ strict: false })
   const activeArticleId = params.articleId ?? null
+  const reveal = revealer(worldId)
 
   const tree = useQuery({
     queryKey: ['worlds', worldId, 'tree'],
@@ -354,6 +357,9 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
           <DropdownMenuItem onClick={() => duplicateArticle.mutate(article.id)}>
             <Copy /> Duplicate
           </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => reveal(`${article.id}.md`)}>
+            <FolderOpen /> {REVEAL_LABEL}
+          </DropdownMenuItem>
           <DropdownMenuItem
             variant="destructive"
             onClick={() => {
@@ -451,6 +457,9 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
               >
                 <Pencil /> Rename
               </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => reveal(folder.id)}>
+                <FolderOpen /> {REVEAL_LABEL}
+              </DropdownMenuItem>
               <DropdownMenuItem
                 variant="destructive"
                 onClick={() => {
@@ -513,18 +522,38 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
             </p>
           )}
           {characters.data?.map((ch) => (
-            <Link
+            <div
               key={ch.id}
-              to="/worlds/$worldId/characters/$articleId"
-              params={{ worldId, articleId: ch.id }}
               className={cn(
-                'hover:bg-accent flex items-center gap-1.5 rounded px-2 py-1 text-sm',
+                'group hover:bg-accent flex items-center rounded pr-1 text-sm',
                 activeArticleId === ch.id && 'bg-accent font-medium',
               )}
             >
-              <Users className="text-muted-foreground size-3.5 shrink-0" />
-              <span className="truncate">{ch.title}</span>
-            </Link>
+              <Link
+                to="/worlds/$worldId/characters/$articleId"
+                params={{ worldId, articleId: ch.id }}
+                className="flex min-w-0 flex-1 items-center gap-1.5 px-2 py-1"
+              >
+                <Users className="text-muted-foreground size-3.5 shrink-0" />
+                <span className="truncate">{ch.title}</span>
+              </Link>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="size-6 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100"
+                  >
+                    <MoreHorizontal className="size-3.5" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start">
+                  <DropdownMenuItem onClick={() => reveal(`${ch.id}.md`)}>
+                    <FolderOpen /> {REVEAL_LABEL}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
           ))}
         </div>
       </div>

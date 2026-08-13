@@ -34,6 +34,7 @@ const CHANNELS = new Set([
   'views:set',
   'worldSettings:get',
   'worldSettings:set',
+  'shell:reveal',
   'updates:quitAndInstall',
 ])
 

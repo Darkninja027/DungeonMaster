@@ -2,7 +2,8 @@ import { PHB_CLASSES } from './classes'
 import type { ClassInfo } from './classes'
 
 /**
- * Per-world settings, stored as `worldSettings.json` at the world root.
+ * Per-world settings, stored as `worldSettings.json` at the world root — the
+ * same file that holds the world's own name/description/createdAt.
  *
  * At the root rather than under `.dm/` on purpose: the point is that you can
  * hand-edit it (the file watcher ignores dot-prefixed paths, so `.dm/` edits are
@@ -20,10 +21,19 @@ export const SETTINGS_COMMENT =
   'text — this list only supplies dropdown suggestions and hit dice, so a ' +
   'class missing from here still works on a sheet.'
 
-export const SETTINGS_VERSION = 1
+export const SETTINGS_VERSION = 2
 
 export interface WorldSettings {
   version: number
+  /**
+   * The world's own metadata, which shares this file. The renderer reads it
+   * from WorldSummary (worlds:get) rather than here — these are carried through
+   * parse/serialize purely so a settings save can't drop them. The main process
+   * merges them back in regardless; this is the second line of defence.
+   */
+  name?: string
+  description?: string
+  createdAt?: string
   classes: Array<ClassInfo>
 }
 
@@ -110,11 +120,17 @@ export function parseWorldSettings(raw: unknown): WorldSettings {
     return [parsed]
   })
 
+  const meta: Pick<WorldSettings, 'name' | 'description' | 'createdAt'> = {}
+  for (const key of ['name', 'description', 'createdAt'] as const) {
+    if (typeof r[key] === 'string') meta[key] = r[key]
+  }
+
   return {
     version:
       typeof r.version === 'number' && Number.isFinite(r.version)
         ? r.version
         : SETTINGS_VERSION,
+    ...meta,
     classes,
   }
 }
@@ -123,11 +139,21 @@ export function parseWorldSettings(raw: unknown): WorldSettings {
  * Back to the on-disk shape: `id` is dropped (derived from the name on the way
  * in) and the explanatory comment is re-emitted, since we rewrite the whole file
  * on every save.
+ *
+ * World metadata is passed straight back through when it was loaded, so saving
+ * a class list can't erase the world's name. Keys stay absent when unset rather
+ * than being written as undefined — the main process treats an absent key as
+ * "keep what's on disk".
  */
 export function serializeWorldSettings(settings: WorldSettings): unknown {
   return {
     version: settings.version,
     _comment: SETTINGS_COMMENT,
+    ...(settings.name !== undefined && { name: settings.name }),
+    ...(settings.description !== undefined && {
+      description: settings.description,
+    }),
+    ...(settings.createdAt !== undefined && { createdAt: settings.createdAt }),
     classes: settings.classes.map((cl) => ({
       name: cl.name,
       hitDie: cl.hitDie,

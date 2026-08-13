@@ -1,8 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Eye, FileDown, FileText, Loader2, Save, Trash2 } from 'lucide-react'
+import {
+  Eye,
+  FileDown,
+  FileText,
+  FolderOpen,
+  Loader2,
+  Save,
+  Trash2,
+} from 'lucide-react'
 import { api } from '#/lib/api'
+import { REVEAL_LABEL, revealer } from '#/lib/reveal'
 import { parseCharacter, serializeCharacter, setLevel } from '#/lib/character'
 import type { Character } from '#/lib/character'
 import { findClass, subclassLabelFor, subclassesFor } from '#/lib/classes'
@@ -32,6 +41,7 @@ function CharacterPage() {
   const { worldId, articleId } = Route.useParams()
   const queryClient = useQueryClient()
   const navigate = useNavigate()
+  const reveal = revealer(worldId)
 
   const article = useQuery({
     queryKey: ['articles', articleId],
@@ -294,6 +304,14 @@ function CharacterPage() {
           <Button size="sm" disabled={!dirty || isPending} onClick={saveNow}>
             <Save />
             {isPending ? 'Saving…' : dirty ? 'Save' : 'Saved'}
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            title={REVEAL_LABEL}
+            onClick={() => reveal(`${article.data?.id ?? articleId}.md`)}
+          >
+            <FolderOpen />
           </Button>
           <Button
             variant="ghost"

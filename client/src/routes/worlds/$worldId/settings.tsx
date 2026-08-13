@@ -4,7 +4,7 @@ import { Plus, RotateCcw, Save, Trash2, X } from 'lucide-react'
 import { HIT_DIE_SIZES } from '#/lib/character'
 import type { ClassInfo } from '#/lib/classes'
 import { PHB_CLASSES } from '#/lib/classes'
-import { classId } from '#/lib/worldSettings'
+import { SETTINGS_VERSION, classId } from '#/lib/worldSettings'
 import type { WorldSettings } from '#/lib/worldSettings'
 import {
   useSaveWorldSettings,
@@ -103,7 +103,8 @@ function WorldSettingsPage() {
 
   const save = () => {
     const next: WorldSettings = {
-      version: loaded?.version ?? 1,
+      ...loaded,
+      version: loaded?.version ?? SETTINGS_VERSION,
       // Nameless rows can't be picked or looked up, so they're dropped on the
       // way out rather than written to a file the user may hand-edit later.
       classes: classes.filter((cl) => cl.name.trim() !== ''),

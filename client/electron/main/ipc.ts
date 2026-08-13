@@ -10,6 +10,7 @@ import {
   encodeWorldId,
   getArticle,
   initWorld,
+  isWorldFolder,
   moveArticle,
   moveFolder,
   readTree,
@@ -32,6 +33,7 @@ import { deleteImage, listImages, uploadImage } from './images'
 import { readSession, readViews, writeSession, writeViews } from './session'
 import {
   WORLD_SETTINGS_FILE,
+  migrateWorldFolder,
   readWorldSettings,
   seedWorldSettings,
   writeWorldSettings,
@@ -73,6 +75,19 @@ function scaffoldSettings(root: string): void {
   }
 }
 
+/**
+ * Fold a legacy world.json into worldSettings.json on open, sending the leftover
+ * to the Recycle Bin like every other delete in this app. Cheap (an existsSync)
+ * once a world has been migrated, so it's safe on every open — but deliberately
+ * not called from worlds:list, which runs on every home-screen render and must
+ * not write.
+ */
+function migrateWorld(root: string): void {
+  migrateWorldFolder(root, (abs) => {
+    void trash(abs)
+  })
+}
+
 async function pickDirectory(title: string): Promise<string | null> {
   const win =
     BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
@@ -93,18 +108,17 @@ async function trash(abs: string) {
 export function registerIpcHandlers() {
   // Worlds ------------------------------------------------------------------
   ipcMain.handle('worlds:list', () =>
-    readConfig()
-      .recentWorlds.filter((p) => fs.existsSync(path.join(p, 'world.json')))
-      .map(worldSummary),
+    readConfig().recentWorlds.filter(isWorldFolder).map(worldSummary),
   )
 
   ipcMain.handle('worlds:pickAndOpen', async () => {
     const dir = await pickDirectory('Open a world folder')
     if (!dir) return null
-    // A plain folder becomes a world by dropping a world.json into it.
-    if (!fs.existsSync(path.join(dir, 'world.json'))) {
+    // A plain folder becomes a world by dropping a worldSettings.json into it.
+    if (!isWorldFolder(dir)) {
       initWorld(dir, path.basename(dir), '')
     }
+    migrateWorld(dir)
     scaffoldSettings(dir)
     addRecentWorld(dir)
     return worldSummary(dir)
@@ -130,9 +144,13 @@ export function registerIpcHandlers() {
     },
   )
 
-  ipcMain.handle('worlds:get', (_e, { worldId }: { worldId: string }) =>
-    worldSummary(worldRoot(worldId)),
-  )
+  // Also a migration point: a world opened from recents never passes through
+  // worlds:pickAndOpen.
+  ipcMain.handle('worlds:get', (_e, { worldId }: { worldId: string }) => {
+    const root = worldRoot(worldId)
+    migrateWorld(root)
+    return worldSummary(root)
+  })
 
   ipcMain.handle(
     'worlds:update',
@@ -386,6 +404,29 @@ export function registerIpcHandlers() {
   // Characters ----------------------------------------------------------------
   ipcMain.handle('characters:list', (_e, { worldId }: { worldId: string }) =>
     listCharacters(worldId),
+  )
+
+  // Reveal ------------------------------------------------------------------
+  // One channel for every file-backed entity, because they all are files:
+  // articles (and the characters/spells/monsters that are just articles) pass
+  // `<articleId>.md`, folders pass the folder id, and a world passes nothing.
+  ipcMain.handle(
+    'shell:reveal',
+    (_e, { worldId, relPath }: { worldId: string; relPath?: string }) => {
+      const root = worldRoot(worldId)
+      const abs = resolveInWorld(root, relPath ?? '')
+      // Without this the file manager opens on nothing when the file was
+      // renamed or deleted outside the app and the renderer is still stale.
+      if (!fs.existsSync(abs)) {
+        throw new Error(
+          'That file is no longer on disk — it may have been moved or renamed.',
+        )
+      }
+      // showItemInFolder selects the item inside its parent; the world root has
+      // no parent worth showing, so open that folder itself instead.
+      if (abs === root) void shell.openPath(abs)
+      else shell.showItemInFolder(abs)
+    },
   )
 
   // Session (initiative tracker) ---------------------------------------------

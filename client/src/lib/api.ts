@@ -259,6 +259,15 @@ export const api = {
     set: (worldId: string, state: unknown) =>
       invoke<void>('worldSettings:set', { worldId, state }),
   },
+  shell: {
+    /**
+     * Open the OS file manager with this file selected. `relPath` is
+     * world-relative: `<articleId>.md` for an article, a folder id for a
+     * folder, omitted for the world folder itself.
+     */
+    reveal: (worldId: string, relPath?: string) =>
+      invoke<void>('shell:reveal', { worldId, relPath }),
+  },
   updates: {
     /** Subscribe to auto-update status; returns an unsubscribe fn. */
     onStatus: (cb: (status: UpdateStatus) => void) =>

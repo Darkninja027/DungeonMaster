@@ -1,11 +1,18 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { resolveInWorld } from './sanitize'
-import { atomicWrite, worldRoot } from './worldStore'
+import {
+  LEGACY_WORLD_FILE,
+  WORLD_FILE,
+  WORLD_FILE_VERSION,
+  atomicWrite,
+  readWorldFile,
+  worldRoot,
+} from './worldStore'
 
 /**
- * Per-world settings — currently the class/subclass list the character sheet's
- * dropdowns read from.
+ * Per-world settings — the class/subclass list the character sheet's dropdowns
+ * read from, sharing one file with the world's own name/description/createdAt.
  *
  * Lives at the world *root*, unlike the state under `.dm/`, because it is meant
  * to be found and hand-edited: the file watcher deliberately ignores dot-prefixed
@@ -17,12 +24,14 @@ import { atomicWrite, worldRoot } from './worldStore'
  * you break them (eslint's import/no-cycle is off in this repo):
  *  - this module must NOT import ./session, which would duplicate what's here
  *    anyway — hence the small write helper below rather than writeWorldJson.
- *  - worldStore.ts must NOT import this module. It's the other way round (for
- *    atomicWrite), so scaffolding on world creation is called from ipc.ts, which
- *    already imports both, rather than from inside initWorld.
+ *  - worldStore.ts must NOT import this module. It's the other way round (it
+ *    owns the raw file I/O, since worldRoot() has to read the same file), so
+ *    scaffolding on world creation is called from ipc.ts, which already imports
+ *    both, rather than from inside initWorld.
  */
 
-export const WORLD_SETTINGS_FILE = 'worldSettings.json'
+/** Re-exported under its settings-facing name; the file is shared now. */
+export const WORLD_SETTINGS_FILE = WORLD_FILE
 
 /**
  * The class list a new world starts with.
@@ -139,24 +148,42 @@ const SEED_COMMENT =
   'class missing from here still works on a sheet.'
 
 export const SEED_SETTINGS = {
-  version: 1,
+  version: WORLD_FILE_VERSION,
   _comment: SEED_COMMENT,
   classes: SEED_CLASSES,
 }
+
+/** World metadata shares the file; a settings write must never drop it. */
+const WORLD_META_KEYS = ['name', 'description', 'createdAt'] as const
 
 /** Renderer payloads are small; anything bigger is a bug, not settings. */
 export const MAX_SETTINGS_BYTES = 256 * 1024
 
 /**
  * Write settings given a world *root*, not an id. initWorld needs this: it runs
- * while world.json is still being created, and anything routing through
+ * while the marker file is still being created, and anything routing through
  * worldRoot() would throw on the missing marker.
+ *
+ * The world's name/description/createdAt live in this same file but are not the
+ * renderer's to send, so any the payload omits are carried over from disk. Skip
+ * that and saving the class list would erase the world's name.
  */
 export function writeWorldSettingsAtRoot(
   root: string,
   settings: unknown,
 ): void {
-  const json = JSON.stringify(settings, null, 2)
+  let payload = settings
+  if (typeof payload === 'object' && payload !== null) {
+    const existing = readWorldFile(root)
+    const carried: Record<string, unknown> = {}
+    for (const key of WORLD_META_KEYS) {
+      if (!(key in payload) && existing && key in existing) {
+        carried[key] = existing[key]
+      }
+    }
+    payload = { ...carried, ...payload }
+  }
+  const json = JSON.stringify(payload, null, 2)
   if (Buffer.byteLength(json) > MAX_SETTINGS_BYTES) {
     throw new Error(
       'Settings payload is unreasonably large — refusing to save.',
@@ -166,19 +193,26 @@ export function writeWorldSettingsAtRoot(
   atomicWrite(path.join(root, WORLD_SETTINGS_FILE), json)
 }
 
-/** Seed a world that has no settings file yet. */
+/**
+ * Give a world the default class list. Merges rather than replaces: by the time
+ * this runs on a new world, initWorld has already written the name into the
+ * same file.
+ */
 export function seedWorldSettings(root: string): void {
   writeWorldSettingsAtRoot(root, SEED_SETTINGS)
 }
 
 /**
- * The world's settings, scaffolding the file if it doesn't exist yet — that's
- * what covers worlds created before this feature existed.
+ * The world's settings, scaffolding the class list if it isn't there yet —
+ * that's what covers worlds created before this feature existed, and worlds
+ * whose file so far holds only the metadata migrated out of world.json.
  *
  * Two rules hold here:
- *  - the missing check is `existsSync`, never "did the parse come back empty".
- *    A file that fails to parse is a hand edit with a typo in it, and rewriting
- *    over the top of it would destroy the user's work.
+ *  - "needs seeding" is decided on the file being absent or having no `classes`
+ *    key at all, never on "did the parse come back empty". A file that fails to
+ *    parse is a hand edit with a typo in it, and rewriting over the top of it
+ *    would destroy the user's work; and `"classes": []` is a list the user
+ *    emptied on purpose, which must stay empty.
  *  - a failed write must never fail the read. Read-only mounts, network shares
  *    and folders opened just to browse still get working defaults, served from
  *    memory.
@@ -186,7 +220,10 @@ export function seedWorldSettings(root: string): void {
 export function readWorldSettings(worldId: string): unknown {
   const root = worldRoot(worldId)
   const abs = resolveInWorld(root, WORLD_SETTINGS_FILE)
-  if (!fs.existsSync(abs)) {
+  const existing = fs.existsSync(abs) ? readWorldFile(root) : null
+  const needsSeed =
+    !fs.existsSync(abs) || (existing !== null && !('classes' in existing))
+  if (needsSeed) {
     try {
       seedWorldSettings(root)
     } catch {
@@ -202,4 +239,66 @@ export function readWorldSettings(worldId: string): unknown {
 
 export function writeWorldSettings(worldId: string, settings: unknown): void {
   writeWorldSettingsAtRoot(worldRoot(worldId), settings)
+}
+
+/**
+ * Fold a legacy world.json into worldSettings.json and delete it, so a folder
+ * ends up with one file describing the world instead of two.
+ *
+ * Runs on open, and is best-effort throughout: a read-only mount, a network
+ * share or a corrupt file must still leave the world openable. Anything it
+ * can't finish is retried the next time the world is opened.
+ *
+ * `remove` is injected so the caller can route the delete to the Recycle Bin —
+ * shell.trashItem is async and would drag Electron into this module, which the
+ * data-layer tests import without it.
+ */
+export function migrateWorldFolder(
+  root: string,
+  remove: (abs: string) => void = (abs) => fs.rmSync(abs, { force: true }),
+): void {
+  const legacyAbs = path.join(root, LEGACY_WORLD_FILE)
+  if (!fs.existsSync(legacyAbs)) return
+
+  try {
+    const legacy = readWorldFile(root, LEGACY_WORLD_FILE)
+    const mergedAbs = path.join(root, WORLD_SETTINGS_FILE)
+    const hadMerged = fs.existsSync(mergedAbs)
+    const merged = readWorldFile(root)
+
+    // A merged file that exists but won't parse is a hand edit with a typo in
+    // it. Leave both files alone rather than overwriting the user's work — the
+    // same contract readWorldSettings holds.
+    if (hadMerged && merged === null) return
+
+    // The merged file wins on every field it already has, so re-running this on
+    // a half-migrated folder can't roll newer data back to the legacy copy.
+    const carried: Record<string, unknown> = {}
+    if (legacy) {
+      for (const key of WORLD_META_KEYS) {
+        if (typeof legacy[key] === 'string' && !(merged && key in merged)) {
+          carried[key] = legacy[key]
+        }
+      }
+    }
+
+    // version last of the three: migrating is exactly what makes a v1 file a v2
+    // one, so the number on disk must not survive the merge.
+    atomicWrite(
+      mergedAbs,
+      JSON.stringify(
+        { ...(merged ?? {}), ...carried, version: WORLD_FILE_VERSION },
+        null,
+        2,
+      ),
+    )
+
+    // Only drop the legacy file once its replacement is provably on disk and
+    // readable — a failed write here must never cost the world its name.
+    if (readWorldFile(root) === null) return
+    remove(legacyAbs)
+  } catch {
+    // Leave world.json in place; it still counts as a marker, so the world
+    // opens and the next attempt retries.
+  }
 }

@@ -4,6 +4,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ChevronDown,
   ChevronRight,
+  FolderOpen,
+  MoreHorizontal,
   Plus,
   Search,
   SquarePen,
@@ -11,12 +13,19 @@ import {
 } from 'lucide-react'
 import { api } from '#/lib/api'
 import { splitFrontmatter } from '#/lib/formatMarkdown'
+import { REVEAL_LABEL, revealer } from '#/lib/reveal'
 import {
   consumeSpellPanelRequest,
   useSpellPanelRequest,
 } from '#/lib/spellPanel'
 import { articleTemplates } from '#/lib/templates'
 import { Button } from '#/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '#/components/ui/dropdown-menu'
 import { Input } from '#/components/ui/input'
 import { ScrollArea } from '#/components/ui/scroll-area'
 import { InlineMarkdown, PANEL_PROSE } from '#/components/Markdown'
@@ -67,6 +76,7 @@ function SpellArticle({
 export function SpellReference({ worldId }: { worldId: string }) {
   const queryClient = useQueryClient()
   const navigate = useNavigate()
+  const reveal = revealer(worldId)
   const tree = useQuery({
     queryKey: ['worlds', worldId, 'tree'],
     queryFn: () => api.worlds.tree(worldId),
@@ -207,6 +217,24 @@ export function SpellReference({ worldId }: { worldId: string }) {
                     >
                       <SquarePen className="size-3.5" />
                     </Link>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-6 shrink-0 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100"
+                        >
+                          <MoreHorizontal className="size-3.5" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem
+                          onClick={() => reveal(`${spell.id}.md`)}
+                        >
+                          <FolderOpen /> {REVEAL_LABEL}
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </div>
                   {open && (
                     <div className="bg-muted/40 ml-5 mt-1.5 rounded p-2">
