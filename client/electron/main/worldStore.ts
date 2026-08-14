@@ -10,7 +10,24 @@ import {
 import { noteSelfWrite } from './watcher'
 
 export const IMAGES_DIR = '_images'
-const WORLD_FILE = 'world.json'
+
+/**
+ * The one file at a world root that describes the world: name/description/
+ * createdAt alongside the hand-editable settings (the class list). Its presence
+ * is also what marks a folder as a world.
+ */
+export const WORLD_FILE = 'worldSettings.json'
+
+/**
+ * Worlds used to keep metadata in a second file next to the settings. Folders
+ * created by older builds still have it, so it counts as a marker and is read as
+ * a fallback; migrateWorldFolder (worldSettings.ts) folds it in and deletes it
+ * the first time such a world is opened.
+ */
+export const LEGACY_WORLD_FILE = 'world.json'
+
+/** The on-disk shape's version. Bumped when world metadata moved into it. */
+export const WORLD_FILE_VERSION = 2
 
 export interface WorldMeta {
   name: string
@@ -55,33 +72,89 @@ export interface MentionResult {
   title: string
 }
 
+/**
+ * Either file marks a world: a folder written by an older build has only the
+ * legacy one, and it must still open — the migration that removes it can't run
+ * until we've agreed the folder is a world in the first place.
+ */
+export function isWorldFolder(root: string): boolean {
+  return (
+    fs.existsSync(path.join(root, WORLD_FILE)) ||
+    fs.existsSync(path.join(root, LEGACY_WORLD_FILE))
+  )
+}
+
 export function worldRoot(worldId: string): string {
   const root = decodeWorldId(worldId)
-  if (!fs.existsSync(path.join(root, WORLD_FILE))) {
+  if (!isWorldFolder(root)) {
     throw new Error(`Not a world folder (missing ${WORLD_FILE}): ${root}`)
   }
   return root
 }
 
-export function readWorldMeta(root: string): WorldMeta {
-  const raw = JSON.parse(
-    fs.readFileSync(path.join(root, WORLD_FILE), 'utf8'),
-  ) as Partial<WorldMeta>
-  return {
-    name:
-      typeof raw.name === 'string' && raw.name ? raw.name : path.basename(root),
-    description: typeof raw.description === 'string' ? raw.description : '',
-    createdAt:
-      typeof raw.createdAt === 'string'
-        ? raw.createdAt
-        : new Date(0).toISOString(),
+/**
+ * Parse a JSON file at the world root, or null if it's missing *or* corrupt.
+ *
+ * Callers must not treat null as "absent and therefore safe to overwrite": a
+ * file that won't parse is a hand edit with a typo in it. Check existsSync for
+ * that question — the same contract readWorldSettings holds.
+ */
+export function readWorldFile(
+  root: string,
+  file: string = WORLD_FILE,
+): Record<string, unknown> | null {
+  try {
+    const raw: unknown = JSON.parse(
+      fs.readFileSync(path.join(root, file), 'utf8'),
+    )
+    return typeof raw === 'object' && raw !== null
+      ? (raw as Record<string, unknown>)
+      : null
+  } catch {
+    return null
   }
 }
 
+const text = (v: unknown): string | null =>
+  typeof v === 'string' && v !== '' ? v : null
+
+/**
+ * World metadata, read tolerantly from the merged file and falling back to the
+ * legacy one field by field.
+ *
+ * Never throws: with either file counting as a marker, and either being open to
+ * hand edits, every combination of missing/corrupt has to yield a usable world
+ * rather than making the folder unopenable.
+ */
+export function readWorldMeta(root: string): WorldMeta {
+  const merged = readWorldFile(root) ?? {}
+  const legacy = readWorldFile(root, LEGACY_WORLD_FILE) ?? {}
+  const pick = (key: keyof WorldMeta): string | null =>
+    text(merged[key]) ?? text(legacy[key])
+  return {
+    name: pick('name') ?? path.basename(root),
+    // Description is the one field where '' is a real value, not a gap — but a
+    // blank in the merged file still defers to the legacy one during migration.
+    description:
+      pick('description') ??
+      (typeof merged.description === 'string' ? merged.description : ''),
+    createdAt: pick('createdAt') ?? new Date(0).toISOString(),
+  }
+}
+
+/**
+ * Splice world metadata into the merged file, preserving everything else in it
+ * — `classes`, `_comment`, and any keys a hand-editor added that we don't know
+ * about. Atomic, because this file is the world marker: a truncated write here
+ * would leave the folder unopenable.
+ */
 export function writeWorldMeta(root: string, meta: WorldMeta) {
-  const abs = path.join(root, WORLD_FILE)
-  noteSelfWrite(abs)
-  fs.writeFileSync(abs, JSON.stringify(meta, null, 2))
+  const next = {
+    ...(readWorldFile(root) ?? {}),
+    version: WORLD_FILE_VERSION,
+    ...meta,
+  }
+  atomicWrite(path.join(root, WORLD_FILE), JSON.stringify(next, null, 2))
 }
 
 export function initWorld(root: string, name: string, description: string) {
@@ -145,7 +218,7 @@ export function countArticles(root: string): number {
 }
 
 /** Case-insensitive existence check — Windows filesystems are case-insensitive. */
-function entryExists(absDir: string, name: string): boolean {
+export function entryExists(absDir: string, name: string): boolean {
   if (!fs.existsSync(absDir)) return false
   const lower = name.toLowerCase()
   return fs.readdirSync(absDir).some((e) => e.toLowerCase() === lower)
@@ -202,15 +275,62 @@ export function atomicWrite(abs: string, content: string) {
   fs.renameSync(tmp, abs)
 }
 
-export async function updateArticle(
+/**
+ * One mutation at a time per world. A rename rewrites [[links]] across every
+ * article, and that loop awaits per file — so without this a second mutation
+ * runs *inside* the first one's window and targets a path already renamed away,
+ * failing with "Article not found".
+ *
+ * A plain promise chain: each caller queues behind the previous one. The stored
+ * tail never rejects, so one failure can't poison the queue for the next caller.
+ */
+const worldLocks = new Map<string, Promise<unknown>>()
+
+export function withWorldLock<T>(
+  worldId: string,
+  fn: () => T | Promise<T>,
+): Promise<T> {
+  const prev = worldLocks.get(worldId) ?? Promise.resolve()
+  // Run regardless of how the predecessor settled.
+  const run = prev.then(fn, fn)
+  const tail = run.then(
+    () => undefined,
+    () => undefined,
+  )
+  worldLocks.set(worldId, tail)
+  void tail.then(() => {
+    // Drop the entry once this is the last queued op, so the map can't grow
+    // unboundedly across a long session.
+    if (worldLocks.get(worldId) === tail) worldLocks.delete(worldId)
+  })
+  return run
+}
+
+export function updateArticle(
+  worldId: string,
+  articleId: string,
+  input: { title: string; content: string },
+): Promise<Article> {
+  return withWorldLock(worldId, () =>
+    updateArticleUnlocked(worldId, articleId, input),
+  )
+}
+
+async function updateArticleUnlocked(
   worldId: string,
   articleId: string,
   input: { title: string; content: string },
 ): Promise<Article> {
   const root = worldRoot(worldId)
-  const abs = articleAbsPath(root, articleId)
-  atomicWrite(abs, input.content)
+  // Fail fast on a stale id. renameArticleFile early-returns when the title is
+  // unchanged *without* checking existence, so without this an update against a
+  // deleted article would silently recreate it.
+  articleAbsPath(root, articleId)
+  // Rename first: the title is the filename, so writing content to the old path
+  // only to move it a moment later strands that content there if the rename is
+  // then rejected (collision, invalid name).
   const id = await renameArticleFile(root, articleId, input.title.trim())
+  atomicWrite(resolveInWorld(root, id + '.md'), input.content)
   return getArticle(worldId, id)
 }
 
@@ -245,18 +365,25 @@ async function renameArticleFile(
   noteSelfWrite(newAbs)
   fs.renameSync(abs, newAbs)
   await rewriteWikiLinks(root, oldTitle, newTitle)
+  // The rewrite can outrun the watcher's self-write TTL on a large world. Without
+  // a re-stamp the watcher reclassifies our own rename as an external edit and
+  // the renderer invalidates (and refetches) the now-dead old id.
+  noteSelfWrite(abs)
+  noteSelfWrite(newAbs)
   return folderId ? `${folderId}/${newTitle}` : newTitle
 }
 
 /** Rename without touching content — for the sidebar context menu. */
-export async function renameArticle(
+export function renameArticle(
   worldId: string,
   articleId: string,
   title: string,
 ): Promise<Article> {
-  const root = worldRoot(worldId)
-  const id = await renameArticleFile(root, articleId, title.trim())
-  return getArticle(worldId, id)
+  return withWorldLock(worldId, async () => {
+    const root = worldRoot(worldId)
+    const id = await renameArticleFile(root, articleId, title.trim())
+    return getArticle(worldId, id)
+  })
 }
 
 /** Copy an article as "Title (copy)" / "Title (copy N)" in the same folder. */
@@ -291,17 +418,34 @@ async function rewriteWikiLinks(
     'gi',
   )
   for (const article of readTree(root).articles) {
-    const abs = resolveInWorld(root, article.id + '.md')
-    const content = await fs.promises.readFile(abs, 'utf8')
-    const updated = content.replace(
-      pattern,
-      (_, tail: string) => `[[${newTitle}${tail}`,
-    )
-    if (updated !== content) atomicWrite(abs, updated)
+    try {
+      const abs = resolveInWorld(root, article.id + '.md')
+      const content = await fs.promises.readFile(abs, 'utf8')
+      const updated = content.replace(
+        pattern,
+        (_, tail: string) => `[[${newTitle}${tail}`,
+      )
+      if (updated !== content) atomicWrite(abs, updated)
+    } catch {
+      // The tree was snapshotted before this loop and every iteration awaits, so
+      // an article can vanish or be locked mid-walk (Obsidian, Dropbox, git).
+      // The rename itself is already committed: one stale link is cosmetic, but
+      // rejecting the whole save here would lose the user's edit.
+    }
   }
 }
 
 export function moveArticle(
+  worldId: string,
+  articleId: string,
+  folderId: string | null,
+): Promise<void> {
+  return withWorldLock(worldId, () => {
+    moveArticleUnlocked(worldId, articleId, folderId)
+  })
+}
+
+function moveArticleUnlocked(
   worldId: string,
   articleId: string,
   folderId: string | null,
@@ -353,6 +497,16 @@ export function renameFolder(
   worldId: string,
   folderId: string,
   name: string,
+): Promise<void> {
+  return withWorldLock(worldId, () => {
+    renameFolderUnlocked(worldId, folderId, name)
+  })
+}
+
+function renameFolderUnlocked(
+  worldId: string,
+  folderId: string,
+  name: string,
 ): void {
   const root = worldRoot(worldId)
   const error = nameError(name)
@@ -375,6 +529,16 @@ export function renameFolder(
 }
 
 export function moveFolder(
+  worldId: string,
+  folderId: string,
+  parentFolderId: string | null,
+): Promise<void> {
+  return withWorldLock(worldId, () => {
+    moveFolderUnlocked(worldId, folderId, parentFolderId)
+  })
+}
+
+function moveFolderUnlocked(
   worldId: string,
   folderId: string,
   parentFolderId: string | null,

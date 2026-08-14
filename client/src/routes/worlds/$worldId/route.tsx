@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
-import { Outlet, createFileRoute } from '@tanstack/react-router'
+import { Link, Outlet, createFileRoute } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Pencil } from 'lucide-react'
+import { Pencil, Settings2 } from 'lucide-react'
 import { api } from '#/lib/api'
 import { WorldSidebar } from '#/components/WorldSidebar'
 import { SessionPanel } from '#/components/SessionPanel'
+import { CommandPalette } from '#/components/CommandPalette'
 import { Button } from '#/components/ui/button'
 import {
   Dialog,
@@ -90,6 +91,17 @@ function WorldLayout() {
           >
             <Pencil className="size-3.5" />
           </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-6 shrink-0 opacity-0 group-hover:opacity-100"
+            title="World settings — classes and subclasses"
+            asChild
+          >
+            <Link to="/worlds/$worldId/settings" params={{ worldId }}>
+              <Settings2 className="size-3.5" />
+            </Link>
+          </Button>
         </div>
         <div className="min-h-0 flex-1">
           <WorldSidebar worldId={worldId} />
@@ -99,6 +111,7 @@ function WorldLayout() {
         <Outlet />
       </div>
       <SessionPanel worldId={worldId} />
+      <CommandPalette worldId={worldId} />
 
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
         <DialogContent>

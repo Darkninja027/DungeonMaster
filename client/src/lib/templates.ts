@@ -64,6 +64,7 @@ What the spell does. Damage like 3d6 becomes a clickable roll.
     body: `---
 type: character
 class: Fighter
+subclass: Champion
 level: 1
 race: Human
 background: Soldier
@@ -73,14 +74,27 @@ abilities: { str: 15, dex: 13, con: 14, int: 10, wis: 12, cha: 8 }
 saves: [str, con]
 skills: [athletics, intimidation]
 expertise: []
+armor: [light, medium, heavy, shields]
+weapons: [simple, martial]
+tools: [Dice set]
+languages: [Common]
+resistances: []
+immunities: []
+vulnerabilities: []
+conditionImmunities: []
 ac: 16
 initiativeBonus: 0
 speed: 30
 hp: { current: 12, max: 12, temp: 0 }
-hitDice: { size: 10, total: 1, used: 0 }
+hitDice: { size: 10, used: 0 }
 deathSaves: { success: 0, fail: 0 }
 attacks:
   - { name: Longsword, bonus: 5, damage: 1d8+3 }
+traits:
+  - { name: Darkvision, text: 'See in dim light within 60 feet as if it were bright light.' }
+features:
+  - { level: 1, name: Second Wind, text: 'Bonus action: regain 1d10+1 HP, once per short rest.' }
+  - { level: 2, name: Action Surge, text: 'One extra action on your turn, once per short rest.' }
 spellAbility: null
 spellSlots: {}
 spells: []

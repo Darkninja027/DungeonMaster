@@ -1,17 +1,43 @@
 import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { ChevronDown, Dices, Plus, Sparkles, X } from 'lucide-react'
+import {
+  BookOpen,
+  BookOpenCheck,
+  ChevronDown,
+  Dices,
+  Plus,
+  Sparkles,
+  X,
+} from 'lucide-react'
 import { api } from '#/lib/api'
 import { articleTemplates } from '#/lib/templates'
 import {
   ABILITIES,
   ABILITY_NAMES,
+  ARMOR_PROFICIENCIES,
+  CONDITIONS,
+  DAMAGE_TYPES,
+  ENCUMBRANCE_LABELS,
+  HIT_DIE_SIZES,
   SKILLS,
+  WEAPON_CATEGORIES,
   abilityMod,
+  alwaysPreparedCount,
+  canPrepare,
+  cycleDamage,
+  cyclePreparation,
   d20,
+  damageStance,
+  effectiveSpeed,
+  encumbranceTier,
+  hitDiceArePinned,
   initiativeBonus,
   passivePerception,
+  preparationState,
+  preparedCount,
+  preparedSpellLimit,
   proficiencyBonus,
+  proficiencyLabel,
   resolveSpellDamage,
   saveBonus,
   scaleSpellDamage,
@@ -21,11 +47,17 @@ import {
   spellAttackBonus,
   spellInfoFromContent,
   spellSaveDc,
+  tracksPreparation,
   wikiLinkTitle,
 } from '#/lib/character'
-import type { Ability, Character, Spell, SpellSlots } from '#/lib/character'
-import { rollDice } from '#/lib/formatMarkdown'
-import { logRoll } from '#/lib/rollLog'
+import type {
+  Ability,
+  Character,
+  DamageStance,
+  Spell,
+  SpellSlots,
+} from '#/lib/character'
+import { roll } from '#/lib/rollAction'
 import type { RollSource } from '#/lib/rollLog'
 import { openSpellInPanel } from '#/lib/spellPanel'
 import { cn } from '#/lib/utils'
@@ -48,19 +80,6 @@ interface SheetProps {
   source: RollSource
   articles?: Array<{ id: string; title: string; folderId?: string | null }>
   onCreateMissing?: (title: string) => void
-}
-
-function roll(label: string, notation: string, source: RollSource) {
-  const result = rollDice(notation)
-  if (result) {
-    logRoll({
-      notation,
-      label,
-      total: result.total,
-      detail: result.detail,
-      source,
-    })
-  }
 }
 
 /** A small "roll this" chip: shows the bonus, clicking rolls + logs it. */
@@ -135,6 +154,211 @@ function Section({
       </h3>
       {children}
     </section>
+  )
+}
+
+/** Free-text list: type and press Enter to add, click the x to remove. */
+function ChipList({
+  values,
+  placeholder,
+  empty,
+  onChange,
+}: {
+  values: Array<string>
+  placeholder: string
+  /** Hint shown when the list is empty; omitted where the context is obvious. */
+  empty?: string
+  onChange: (next: Array<string>) => void
+}) {
+  const [draft, setDraft] = useState('')
+
+  const add = () => {
+    const value = draft.trim()
+    if (!value) return
+    // Case-insensitive: "Dwarvish" twice is always a mistake, not two languages.
+    const dupe = values.some((v) => v.toLowerCase() === value.toLowerCase())
+    if (!dupe) onChange([...values, value])
+    setDraft('')
+  }
+
+  return (
+    <div className="space-y-1.5">
+      {/* Skipped entirely when there is nothing to show and no hint, so the row
+          doesn't leave an empty gap above the input. */}
+      {(values.length > 0 || empty) && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          {values.length === 0 ? (
+            <span className="text-muted-foreground text-xs">{empty}</span>
+          ) : (
+            values.map((value, i) => (
+              <span
+                key={`${value}-${i}`}
+                className="bg-muted inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs"
+              >
+                {proficiencyLabel(value)}
+                <button
+                  type="button"
+                  className="text-muted-foreground hover:text-destructive"
+                  title={`Remove ${proficiencyLabel(value)}`}
+                  onClick={() => onChange(values.filter((_, j) => j !== i))}
+                >
+                  <X className="size-3" />
+                </button>
+              </span>
+            ))
+          )}
+        </div>
+      )}
+      <div className="flex items-center gap-1.5">
+        <Input
+          value={draft}
+          placeholder={placeholder}
+          className="h-7 max-w-64 text-sm"
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault()
+              add()
+            }
+          }}
+        />
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-7 gap-1 px-2"
+          disabled={!draft.trim()}
+          onClick={add}
+        >
+          <Plus className="size-3" /> Add
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+/** Checkbox row over a closed set, matching the saving-throw idiom above. */
+function TokenChecks({
+  options,
+  values,
+  onChange,
+}: {
+  options: Array<{ id: string; name: string }>
+  values: Array<string>
+  onChange: (next: Array<string>) => void
+}) {
+  const has = (id: string) => values.some((v) => v.toLowerCase() === id)
+  const toggle = (id: string) =>
+    onChange(
+      has(id) ? values.filter((v) => v.toLowerCase() !== id) : [...values, id],
+    )
+
+  return (
+    <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
+      {options.map((option) => (
+        <label key={option.id} className="flex items-center gap-1.5">
+          <input
+            type="checkbox"
+            checked={has(option.id)}
+            onChange={() => toggle(option.id)}
+          />
+          {option.name}
+        </label>
+      ))}
+    </div>
+  )
+}
+
+/**
+ * A closed-set proficiency: checkboxes for the known categories plus a chip list
+ * for anything else. Both halves live in one array, so it is split on the way in
+ * and always re-joined as [...tokens, ...extras] — a stable order keeps toggling
+ * from churning the on-disk field and dirtying the user's git history.
+ */
+function TokenSection({
+  options,
+  values,
+  placeholder,
+  onChange,
+}: {
+  options: Array<{ id: string; name: string }>
+  values: Array<string>
+  placeholder: string
+  onChange: (next: Array<string>) => void
+}) {
+  const isToken = (v: string) =>
+    options.some((o) => o.id === v.trim().toLowerCase())
+  const tokens = values.filter(isToken)
+  const extras = values.filter((v) => !isToken(v))
+
+  return (
+    <div className="space-y-1.5">
+      <TokenChecks
+        options={options}
+        values={tokens}
+        onChange={(next) => onChange([...next, ...extras])}
+      />
+      {/* No empty-state line: the checkboxes above and the input's own
+          placeholder already say what this row is for. */}
+      <ChipList
+        values={extras}
+        placeholder={placeholder}
+        onChange={(next) => onChange([...tokens, ...next])}
+      />
+    </div>
+  )
+}
+
+const STANCE_STYLES: Record<DamageStance, string> = {
+  none: 'bg-transparent',
+  resistant: 'bg-primary',
+  immune: 'bg-primary ring-primary/40 ring-2',
+  vulnerable: 'bg-destructive',
+}
+
+const STANCE_LABELS: Record<DamageStance, string> = {
+  none: '—',
+  resistant: 'Resistant',
+  immune: 'Immune',
+  vulnerable: 'Vulnerable',
+}
+
+/** The 13 damage types, each cycling through the four stances on click. */
+function DamageGrid({
+  character: c,
+  onChange,
+}: {
+  character: Character
+  onChange: (next: Character) => void
+}) {
+  return (
+    <div className="grid gap-y-1 sm:grid-cols-2">
+      {DAMAGE_TYPES.map((type) => {
+        const stance = damageStance(c, type.id)
+        return (
+          <div key={type.id} className="flex items-center gap-2 pr-4 text-sm">
+            <button
+              type="button"
+              title={STANCE_LABELS[stance]}
+              className={cn(
+                'size-3.5 shrink-0 rounded-full border',
+                STANCE_STYLES[stance],
+              )}
+              onClick={() => onChange({ ...c, ...cycleDamage(c, type.id) })}
+            />
+            <span className="min-w-0 flex-1 truncate">{type.name}</span>
+            {stance !== 'none' && (
+              <span className="text-muted-foreground text-xs uppercase">
+                {stance === 'resistant'
+                  ? 'res'
+                  : stance === 'immune'
+                    ? 'imm'
+                    : 'vuln'}
+              </span>
+            )}
+          </div>
+        )
+      })}
+    </div>
   )
 }
 
@@ -291,6 +515,11 @@ export function SheetTab({
     const slot = slotFor(level)
     return slot ? slot.total - slot.used : 0
   }
+
+  const prepared = preparedCount(c)
+  const alwaysPrepared = alwaysPreparedCount(c)
+  const prepareLimit = preparedSpellLimit(c)
+  const showPrepare = tracksPreparation(c)
 
   // Sheets saved before damagePerLevel existed only carry base damage: pick
   // the increment up from each spell's library article once so cast-time
@@ -515,6 +744,16 @@ export function SheetTab({
                 className="w-12"
                 onCommit={(v) => set({ speed: v })}
               />
+              {/* The field edits base speed; encumbrance shows alongside it. */}
+              {encumbranceTier(c) !== 'none' && (
+                <span
+                  className="text-muted-foreground text-xs"
+                  title={ENCUMBRANCE_LABELS[encumbranceTier(c)]}
+                >
+                  → <strong>{effectiveSpeed(c)}</strong> ft{' '}
+                  {ENCUMBRANCE_LABELS[encumbranceTier(c)].toLowerCase()}
+                </span>
+              )}
             </label>
             <span>
               Proficiency <strong>{signed(prof)}</strong>
@@ -553,7 +792,29 @@ export function SheetTab({
               />
             </label>
             <span className="flex items-center gap-1.5">
-              Hit dice d{c.hitDice.size}
+              Hit dice
+              {/* Die size is a genuinely closed set, so a native select is
+                  right here — unlike class, which must stay free text. */}
+              <select
+                className="bg-background text-foreground h-7 rounded border px-1 text-sm"
+                value={c.hitDice.size}
+                title="Hit die size — set automatically when you pick a class"
+                onChange={(e) =>
+                  set({
+                    hitDice: { ...c.hitDice, size: Number(e.target.value) },
+                  })
+                }
+              >
+                {HIT_DIE_SIZES.map((size) => (
+                  <option
+                    key={size}
+                    value={size}
+                    className="bg-background text-foreground"
+                  >
+                    d{size}
+                  </option>
+                ))}
+              </select>
               <NumField
                 value={c.hitDice.total - c.hitDice.used}
                 min={0}
@@ -566,7 +827,48 @@ export function SheetTab({
                   })
                 }
               />
-              / {c.hitDice.total}
+              /
+              {/* An unpinned total is derived, so it reads as text; a pinned one
+                  is editable, with a way back to tracking the level. */}
+              {hitDiceArePinned(c) ? (
+                <>
+                  <NumField
+                    value={c.hitDice.total}
+                    min={0}
+                    className="w-10"
+                    title={`Pinned to ${c.hitDice.total} instead of your level (${c.level})`}
+                    onCommit={(v) =>
+                      set({
+                        hitDice: {
+                          ...c.hitDice,
+                          total: v,
+                          used: Math.min(c.hitDice.used, v),
+                        },
+                      })
+                    }
+                  />
+                  <button
+                    type="button"
+                    className="text-muted-foreground hover:text-foreground text-xs underline"
+                    title={`Track your level (${c.level}) again`}
+                    onClick={() =>
+                      set({
+                        hitDice: {
+                          ...c.hitDice,
+                          total: c.level,
+                          used: Math.min(c.hitDice.used, c.level),
+                        },
+                      })
+                    }
+                  >
+                    reset
+                  </button>
+                </>
+              ) : (
+                <strong title="One die per level — edit the frontmatter to pin a different total">
+                  {c.hitDice.total}
+                </strong>
+              )}
               <RollChip
                 label="Hit die"
                 notation={`d${c.hitDice.size}${
@@ -601,6 +903,74 @@ export function SheetTab({
               />
             </span>
           </div>
+        </Section>
+
+        <Section title="Proficiencies">
+          <div className="space-y-2 text-sm">
+            <div>
+              <p className="text-muted-foreground mb-1 text-xs">Armor</p>
+              <TokenSection
+                options={ARMOR_PROFICIENCIES}
+                values={c.armor}
+                placeholder="Anything else, e.g. Mithral plate"
+                onChange={(armor) => set({ armor })}
+              />
+            </div>
+
+            <Separator className="my-2" />
+
+            <div>
+              <p className="text-muted-foreground mb-1 text-xs">Weapons</p>
+              <TokenSection
+                options={WEAPON_CATEGORIES}
+                values={c.weapons}
+                placeholder="Individual weapon, e.g. Longsword"
+                onChange={(weapons) => set({ weapons })}
+              />
+            </div>
+
+            <Separator className="my-2" />
+
+            <div>
+              <p className="text-muted-foreground mb-1 text-xs">Tools</p>
+              <ChipList
+                values={c.tools}
+                placeholder="e.g. Smith's tools"
+                empty="No tool proficiencies — a background usually grants one or two."
+                onChange={(tools) => set({ tools })}
+              />
+            </div>
+
+            <Separator className="my-2" />
+
+            <div>
+              <p className="text-muted-foreground mb-1 text-xs">Languages</p>
+              <ChipList
+                values={c.languages}
+                placeholder="e.g. Dwarvish"
+                empty="No languages — most characters at least speak Common."
+                onChange={(languages) => set({ languages })}
+              />
+            </div>
+          </div>
+        </Section>
+
+        <Section title="Defenses">
+          <p className="text-muted-foreground mb-1.5 text-xs">
+            Click the dot to cycle: none → resistant → immune → vulnerable
+          </p>
+          <DamageGrid character={c} onChange={onChange} />
+
+          <Separator className="my-3" />
+
+          <p className="text-muted-foreground mb-1 text-xs">
+            Condition immunities
+          </p>
+          <TokenChecks
+            options={CONDITIONS}
+            values={c.conditionImmunities}
+            onChange={(conditionImmunities) => set({ conditionImmunities })}
+          />
         </Section>
 
         <Section title="Attacks">
@@ -766,6 +1136,84 @@ export function SheetTab({
 
         <Section title="Spells">
           <div className="space-y-1">
+            <div className="mb-2 flex items-center justify-between gap-3 rounded-md border px-3 py-2">
+              {tracksPreparation(c) ? (
+                <div className="flex items-center gap-2 text-sm">
+                  <BookOpenCheck
+                    className={cn(
+                      'size-4',
+                      prepared > 0 ? 'text-amber-500' : 'text-muted-foreground',
+                    )}
+                  />
+                  <span>
+                    <strong
+                      className={cn(
+                        prepared > prepareLimit && 'text-destructive',
+                      )}
+                    >
+                      {prepared}
+                    </strong>
+                    <span className="text-muted-foreground">
+                      {' '}
+                      / {prepareLimit}
+                    </span>{' '}
+                    prepared
+                  </span>
+                  {alwaysPrepared > 0 && (
+                    <span
+                      className="text-sky-600 dark:text-sky-400 flex items-center gap-1 text-xs"
+                      title="Domain, oath or circle spells — always prepared and free of the limit"
+                    >
+                      <Sparkles className="size-3 fill-current" />+
+                      {alwaysPrepared} always
+                    </span>
+                  )}
+                  {prepared > prepareLimit ? (
+                    <span className="text-destructive text-xs">
+                      (over the limit — unprepare {prepared - prepareLimit})
+                    </span>
+                  ) : (
+                    prepared === prepareLimit && (
+                      <span className="text-muted-foreground text-xs">
+                        (all prepared)
+                      </span>
+                    )
+                  )}
+                  {prepared > 0 && (
+                    <button
+                      type="button"
+                      className="text-muted-foreground hover:text-foreground text-xs underline underline-offset-2"
+                      title="Unprepare everything — for swapping the list after a long rest. Always-prepared spells are left alone."
+                      onClick={() =>
+                        set({
+                          spells: c.spells.map((s) => ({
+                            ...s,
+                            prepared: undefined,
+                          })),
+                        })
+                      }
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <span className="text-muted-foreground text-xs">
+                  Set a limit to track which spells are prepared.
+                </span>
+              )}
+              <label className="text-muted-foreground flex items-center gap-1.5 text-xs">
+                Prepared limit
+                <NumField
+                  value={c.preparedLimit}
+                  min={0}
+                  max={25}
+                  className="w-12"
+                  title="How many non-cantrip spells may be prepared at once — 0 to not track preparation at all (sorcerers, warlocks)"
+                  onCommit={(v) => set({ preparedLimit: v })}
+                />
+              </label>
+            </div>
             {c.spells.length === 0 && (
               <p className="text-muted-foreground text-xs">
                 No spells known. Use [[wiki links]] as names so the spell links
@@ -788,18 +1236,71 @@ export function SheetTab({
               const target = (articles ?? []).find(
                 (a) => a.title.toLowerCase() === title.toLowerCase(),
               )
+              // Cantrips need no preparation, so they keep a spacer instead of
+              // a toggle and all the names stay in one column.
+              const prepareBlocked = !canPrepare(c, spell)
+              const state = preparationState(spell)
+              // Unprepared spells read as inactive, so the live list stands out
+              // at a glance. Order never changes — the printed sheet shares it.
+              const dimmed = showPrepare && state === 'none'
               return (
                 <div
                   key={`${spell.name}-${idx}`}
                   className="group flex items-center gap-1.5 text-sm"
                 >
+                  {showPrepare &&
+                    (spell.level === 0 ? (
+                      <span className="w-5 shrink-0" />
+                    ) : (
+                      <button
+                        type="button"
+                        className={cn(
+                          'shrink-0 rounded p-0.5',
+                          state === 'always'
+                            ? 'text-sky-500 hover:text-sky-400'
+                            : state === 'prepared'
+                              ? 'text-amber-500 hover:text-amber-400'
+                              : prepareBlocked
+                                ? 'text-muted-foreground/25'
+                                : 'text-muted-foreground hover:text-foreground hover:bg-muted',
+                        )}
+                        title={
+                          state === 'always'
+                            ? 'Always prepared (domain, oath or circle spell) — free, outside the limit. Click to unprepare'
+                            : state === 'prepared'
+                              ? 'Prepared — click to make it always prepared'
+                              : prepareBlocked
+                                ? `All ${prepareLimit} prepared spells are in use — unprepare one first, or raise the limit above`
+                                : 'Prepare this spell'
+                        }
+                        disabled={prepareBlocked}
+                        onClick={() =>
+                          set({
+                            spells: c.spells.map((s, j) =>
+                              j === idx ? { ...s, ...cyclePreparation(s) } : s,
+                            ),
+                          })
+                        }
+                      >
+                        {state === 'always' ? (
+                          <Sparkles className="size-3.5 fill-current" />
+                        ) : state === 'prepared' ? (
+                          <BookOpenCheck className="size-3.5" />
+                        ) : (
+                          <BookOpen className="size-3.5" />
+                        )}
+                      </button>
+                    ))}
                   <span className="bg-muted w-9 shrink-0 rounded text-center font-mono text-xs">
                     {spell.level === 0 ? 'C' : `L${spell.level}`}
                   </span>
                   {target ? (
                     <button
                       type="button"
-                      className="text-primary min-w-0 flex-1 truncate text-left underline underline-offset-2"
+                      className={cn(
+                        'text-primary min-w-0 flex-1 truncate text-left underline underline-offset-2',
+                        dimmed && 'opacity-60',
+                      )}
                       title="Read in the spell panel"
                       onClick={() => openSpellInPanel(target.id)}
                     >
@@ -808,7 +1309,10 @@ export function SheetTab({
                   ) : (
                     <button
                       type="button"
-                      className="min-w-0 flex-1 truncate text-left underline decoration-dashed opacity-70 hover:opacity-100"
+                      className={cn(
+                        'min-w-0 flex-1 truncate text-left underline decoration-dashed opacity-70 hover:opacity-100',
+                        dimmed && 'opacity-40',
+                      )}
                       title={`No article called "${title}" yet — click to create it`}
                       onClick={() => onCreateMissing?.(title)}
                     >

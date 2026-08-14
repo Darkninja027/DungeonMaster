@@ -3,6 +3,7 @@ import path from 'node:path'
 import { BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import { addRecentWorld, readConfig, removeRecentWorld } from './recents'
 import {
+  atomicWrite,
   countArticles,
   createArticle,
   createFolder,
@@ -10,6 +11,7 @@ import {
   encodeWorldId,
   getArticle,
   initWorld,
+  isWorldFolder,
   moveArticle,
   moveFolder,
   readTree,
@@ -20,16 +22,38 @@ import {
   worldRoot,
   writeWorldMeta,
 } from './worldStore'
+import { GUIDE_CONTENT, GUIDE_FILENAME } from './guideArticle'
 import type { WorldSummary } from './worldStore'
 import {
   findMentions,
   listCharacters,
+  listTags,
   queryArticles,
+  searchRanked,
   searchWorld,
 } from './search'
 import type { ArticleQuery } from './search'
-import { deleteImage, listImages, uploadImage } from './images'
+import {
+  countImagesIn,
+  createImageFolder,
+  deleteImage,
+  deleteImageFolder,
+  listImageTree,
+  moveImage,
+  moveImageFolder,
+  renameImage,
+  renameImageFolder,
+  revealImage,
+  uploadImage,
+} from './images'
 import { readSession, readViews, writeSession, writeViews } from './session'
+import {
+  WORLD_SETTINGS_FILE,
+  migrateWorldFolder,
+  readWorldSettings,
+  seedWorldSettings,
+  writeWorldSettings,
+} from './worldSettings'
 import { noteSelfWrite, startWatching, stopWatching } from './watcher'
 import {
   buildIndex,
@@ -46,6 +70,60 @@ function worldSummary(root: string): WorldSummary {
     ...readWorldMeta(root),
     articleCount: countArticles(root),
   }
+}
+
+/**
+ * Give a freshly created or newly adopted world its settings file, so the folder
+ * is complete before anyone opens it in Obsidian. Called here rather than from
+ * initWorld to keep worldStore.ts from importing worldSettings.ts, which imports
+ * it back for atomicWrite.
+ *
+ * Never fatal: a world the user can't write to still opens, and readWorldSettings
+ * serves the seed from memory. Skipped if a file is already there — including a
+ * corrupt one, which is a hand edit to preserve, not to clobber.
+ */
+function scaffoldSettings(root: string): void {
+  try {
+    if (fs.existsSync(path.join(root, WORLD_SETTINGS_FILE))) return
+    seedWorldSettings(root)
+  } catch {
+    // read-only folder or a race with another window — the getter copes.
+  }
+}
+
+/**
+ * Drop the user guide into a brand-new world, so the first thing in an empty
+ * world is something worth reading.
+ *
+ * Only for worlds this app creates: adopting an existing folder (an Obsidian
+ * vault, say) must not scatter files into it, and a world that has been opened
+ * before is the user's to curate — deleting the guide has to stick.
+ *
+ * Never fatal, like scaffoldSettings: a world that can't take the file is still
+ * a perfectly good world. Skipped if a Guide.md is already there rather than
+ * clobbering whatever the user has under that name.
+ */
+function scaffoldGuide(root: string): void {
+  try {
+    const abs = path.join(root, GUIDE_FILENAME)
+    if (fs.existsSync(abs)) return
+    atomicWrite(abs, GUIDE_CONTENT)
+  } catch {
+    // read-only folder or a race with another window — not worth failing over.
+  }
+}
+
+/**
+ * Fold a legacy world.json into worldSettings.json on open, sending the leftover
+ * to the Recycle Bin like every other delete in this app. Cheap (an existsSync)
+ * once a world has been migrated, so it's safe on every open — but deliberately
+ * not called from worlds:list, which runs on every home-screen render and must
+ * not write.
+ */
+function migrateWorld(root: string): void {
+  migrateWorldFolder(root, (abs) => {
+    void trash(abs)
+  })
 }
 
 async function pickDirectory(title: string): Promise<string | null> {
@@ -68,18 +146,18 @@ async function trash(abs: string) {
 export function registerIpcHandlers() {
   // Worlds ------------------------------------------------------------------
   ipcMain.handle('worlds:list', () =>
-    readConfig()
-      .recentWorlds.filter((p) => fs.existsSync(path.join(p, 'world.json')))
-      .map(worldSummary),
+    readConfig().recentWorlds.filter(isWorldFolder).map(worldSummary),
   )
 
   ipcMain.handle('worlds:pickAndOpen', async () => {
     const dir = await pickDirectory('Open a world folder')
     if (!dir) return null
-    // A plain folder becomes a world by dropping a world.json into it.
-    if (!fs.existsSync(path.join(dir, 'world.json'))) {
+    // A plain folder becomes a world by dropping a worldSettings.json into it.
+    if (!isWorldFolder(dir)) {
       initWorld(dir, path.basename(dir), '')
     }
+    migrateWorld(dir)
+    scaffoldSettings(dir)
     addRecentWorld(dir)
     return worldSummary(dir)
   })
@@ -98,14 +176,20 @@ export function registerIpcHandlers() {
         throw new Error(`"${dir}" already exists and is not empty.`)
       }
       initWorld(dir, input.name.trim(), input.description ?? '')
+      scaffoldSettings(dir)
+      scaffoldGuide(dir)
       addRecentWorld(dir)
       return worldSummary(dir)
     },
   )
 
-  ipcMain.handle('worlds:get', (_e, { worldId }: { worldId: string }) =>
-    worldSummary(worldRoot(worldId)),
-  )
+  // Also a migration point: a world opened from recents never passes through
+  // worlds:pickAndOpen.
+  ipcMain.handle('worlds:get', (_e, { worldId }: { worldId: string }) => {
+    const root = worldRoot(worldId)
+    migrateWorld(root)
+    return worldSummary(root)
+  })
 
   ipcMain.handle(
     'worlds:update',
@@ -148,6 +232,23 @@ export function registerIpcHandlers() {
       queryArticles(worldId, query ?? {}),
   )
 
+  // Ranked search for the command palette — scored and sorted before capping.
+  ipcMain.handle(
+    'worlds:searchRanked',
+    (
+      _e,
+      {
+        worldId,
+        query,
+        limit,
+      }: { worldId: string; query: string; limit?: number },
+    ) => searchRanked(worldId, query, limit),
+  )
+
+  ipcMain.handle('worlds:tags', (_e, { worldId }: { worldId: string }) =>
+    listTags(worldId),
+  )
+
   // Watch the open world for EXTERNAL edits (Obsidian, git, Dropbox…) and
   // push debounced change batches to the renderer. App writes are suppressed
   // via the self-write ledger in watcher.ts.
@@ -158,7 +259,12 @@ export function registerIpcHandlers() {
       // Fire-and-forget: the batch is already pushed to the renderer, which
       // refetches; the rebuild just refreshes the search index in the
       // background and must not block the watcher callback.
-      void refreshIndex(worldId)
+      //
+      // Only article changes can affect the index, so an images-only or
+      // settings-only batch skips it — the index holds neither.
+      if (batch.treeChanged || batch.articleIds.length > 0) {
+        void refreshIndex(worldId)
+      }
       if (!sender.isDestroyed()) sender.send('world:changed', batch)
     })
     return buildIndex(worldId)
@@ -188,8 +294,11 @@ export function registerIpcHandlers() {
         name,
       }: { worldId: string; folderId: string; name: string },
     ) => {
-      renameFolder(worldId, folderId, name)
-      return refreshIndex(worldId) // article ids under the folder changed
+      // Await: the rename queues behind any in-flight world mutation, and the
+      // index must be rebuilt from the post-rename tree.
+      return renameFolder(worldId, folderId, name).then(
+        () => refreshIndex(worldId), // article ids under the folder changed
+      )
     },
   )
 
@@ -203,8 +312,9 @@ export function registerIpcHandlers() {
         parentFolderId,
       }: { worldId: string; folderId: string; parentFolderId: string | null },
     ) => {
-      moveFolder(worldId, folderId, parentFolderId)
-      return refreshIndex(worldId)
+      return moveFolder(worldId, folderId, parentFolderId).then(() =>
+        refreshIndex(worldId),
+      )
     },
   )
 
@@ -293,7 +403,7 @@ export function registerIpcHandlers() {
 
   ipcMain.handle(
     'articles:move',
-    (
+    async (
       _e,
       {
         worldId,
@@ -301,7 +411,7 @@ export function registerIpcHandlers() {
         folderId,
       }: { worldId: string; articleId: string; folderId: string | null },
     ) => {
-      moveArticle(worldId, articleId, folderId)
+      await moveArticle(worldId, articleId, folderId)
       return refreshIndex(worldId) // the article's id (its path) changed
     },
   )
@@ -325,8 +435,8 @@ export function registerIpcHandlers() {
   )
 
   // Images ------------------------------------------------------------------
-  ipcMain.handle('images:list', (_e, { worldId }: { worldId: string }) =>
-    listImages(worldId),
+  ipcMain.handle('images:tree', (_e, { worldId }: { worldId: string }) =>
+    listImageTree(worldId),
   )
 
   ipcMain.handle(
@@ -337,8 +447,14 @@ export function registerIpcHandlers() {
         worldId,
         fileName,
         bytes,
-      }: { worldId: string; fileName: string; bytes: ArrayBuffer },
-    ) => uploadImage(worldId, fileName, bytes),
+        folderId,
+      }: {
+        worldId: string
+        fileName: string
+        bytes: ArrayBuffer
+        folderId?: string | null
+      },
+    ) => uploadImage(worldId, fileName, bytes, folderId ?? null),
   )
 
   ipcMain.handle(
@@ -347,9 +463,128 @@ export function registerIpcHandlers() {
       deleteImage(worldId, imageId),
   )
 
+  // The four handlers below repoint _images/ references across the world, so
+  // article bodies change on disk — refresh the search index like folders:rename.
+  ipcMain.handle(
+    'images:rename',
+    async (
+      _e,
+      {
+        worldId,
+        imageId,
+        name,
+      }: { worldId: string; imageId: string; name: string },
+    ) => {
+      const info = await renameImage(worldId, imageId, name)
+      await refreshIndex(worldId)
+      return info
+    },
+  )
+
+  ipcMain.handle(
+    'images:move',
+    async (
+      _e,
+      {
+        worldId,
+        imageId,
+        folderId,
+      }: { worldId: string; imageId: string; folderId: string | null },
+    ) => {
+      const info = await moveImage(worldId, imageId, folderId)
+      await refreshIndex(worldId)
+      return info
+    },
+  )
+
+  ipcMain.handle(
+    'images:createFolder',
+    (
+      _e,
+      {
+        worldId,
+        parentFolderId,
+        name,
+      }: { worldId: string; parentFolderId?: string | null; name: string },
+    ) => createImageFolder(worldId, parentFolderId ?? null, name),
+  )
+
+  ipcMain.handle(
+    'images:renameFolder',
+    async (
+      _e,
+      {
+        worldId,
+        folderId,
+        name,
+      }: { worldId: string; folderId: string; name: string },
+    ) => {
+      const result = await renameImageFolder(worldId, folderId, name)
+      await refreshIndex(worldId)
+      return result
+    },
+  )
+
+  ipcMain.handle(
+    'images:moveFolder',
+    async (
+      _e,
+      {
+        worldId,
+        folderId,
+        parentFolderId,
+      }: { worldId: string; folderId: string; parentFolderId: string | null },
+    ) => {
+      const result = await moveImageFolder(worldId, folderId, parentFolderId)
+      await refreshIndex(worldId)
+      return result
+    },
+  )
+
+  ipcMain.handle(
+    'images:deleteFolder',
+    (_e, { worldId, folderId }: { worldId: string; folderId: string }) =>
+      deleteImageFolder(worldId, folderId),
+  )
+
+  ipcMain.handle(
+    'images:countIn',
+    (_e, { worldId, folderId }: { worldId: string; folderId: string }) =>
+      countImagesIn(worldId, folderId),
+  )
+
+  ipcMain.handle(
+    'images:reveal',
+    (_e, { worldId, imageId }: { worldId: string; imageId: string }) =>
+      revealImage(worldId, imageId),
+  )
+
   // Characters ----------------------------------------------------------------
   ipcMain.handle('characters:list', (_e, { worldId }: { worldId: string }) =>
     listCharacters(worldId),
+  )
+
+  // Reveal ------------------------------------------------------------------
+  // One channel for every file-backed entity, because they all are files:
+  // articles (and the characters/spells/monsters that are just articles) pass
+  // `<articleId>.md`, folders pass the folder id, and a world passes nothing.
+  ipcMain.handle(
+    'shell:reveal',
+    (_e, { worldId, relPath }: { worldId: string; relPath?: string }) => {
+      const root = worldRoot(worldId)
+      const abs = resolveInWorld(root, relPath ?? '')
+      // Without this the file manager opens on nothing when the file was
+      // renamed or deleted outside the app and the renderer is still stale.
+      if (!fs.existsSync(abs)) {
+        throw new Error(
+          'That file is no longer on disk — it may have been moved or renamed.',
+        )
+      }
+      // showItemInFolder selects the item inside its parent; the world root has
+      // no parent worth showing, so open that folder itself instead.
+      if (abs === root) void shell.openPath(abs)
+      else shell.showItemInFolder(abs)
+    },
   )
 
   // Session (initiative tracker) ---------------------------------------------
@@ -372,5 +607,18 @@ export function registerIpcHandlers() {
     'views:set',
     (_e, { worldId, state }: { worldId: string; state: unknown }) =>
       writeViews(worldId, state),
+  )
+
+  // Per-world settings (the class/subclass list) ------------------------------
+  // The getter scaffolds the file for worlds that predate the feature; the
+  // renderer owns the tolerant parse, so this returns the raw JSON.
+  ipcMain.handle('worldSettings:get', (_e, { worldId }: { worldId: string }) =>
+    readWorldSettings(worldId),
+  )
+
+  ipcMain.handle(
+    'worldSettings:set',
+    (_e, { worldId, state }: { worldId: string; state: unknown }) =>
+      writeWorldSettings(worldId, state),
   )
 }

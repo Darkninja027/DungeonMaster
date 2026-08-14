@@ -7,6 +7,9 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
+  /* Tells the engine to render native controls (select popups, scrollbars,
+     date pickers) light — without this they stay light even under .dark. */
+  color-scheme: light;
   --sea-ink: #173a40;
   --sea-ink-soft: #416166;
   --lagoon: #4fb8b2;
@@ -63,6 +66,7 @@
 }
 
 .dark {
+  color-scheme: dark;
   --sea-ink: #d7ece8;
   --sea-ink-soft: #afcdc8;
   --lagoon: #60d7cf;
@@ -409,6 +413,13 @@ a {
   padding: 48px 52px;
   margin: 0 auto;
   overflow: hidden;
+  /* The sheet is a fixed box that already clips its content, so layout inside
+     one sheet can never change another's geometry. Telling the browser that
+     keeps a re-layout (every keystroke in live preview) scoped to a single
+     sheet instead of the whole multi-sheet document. Deliberately not
+     `content-visibility: auto`: sheets past the fold would then skip layout
+     entirely and report a stale scrollWidth to the sheet-count measurer. */
+  contain: layout paint style;
 }
 
 /* Clips the column flow at the content edge so overflow columns from the
@@ -433,18 +444,10 @@ a {
   column-count: 1;
 }
 
-/* Offscreen copy used to count how many columns the content needs */
-.dnd-page.dnd-measure {
-  position: absolute;
-  left: -99999px;
-  top: 0;
-  width: auto;
-  height: auto;
-  padding: 0;
-  visibility: hidden;
-  box-shadow: none;
-  overflow: visible;
-}
+/* The sheet count now comes from the first sheet's own flow, so there is no
+   offscreen measurer copy any more (see Markdown.tsx). The `.dnd-measure`
+   guards in the print block and in exportPdf are left in place as harmless
+   belt-and-braces. */
 
 .dnd-page h1,
 .dnd-page h2,
@@ -482,6 +485,23 @@ a {
   font-family: 'Alegreya', serif;
   font-weight: 700;
 }
+/* h4 already dips below body size, so h5/h6 can't keep shrinking and stay
+   legible. They separate by letterform instead: small caps, then tracked-out
+   small caps, both tighter to the text they introduce than the levels above. */
+.dnd-page h5 {
+  font-size: 1em;
+  font-variant-caps: small-caps;
+  letter-spacing: 0.04em;
+  margin: 1.1em 0 0.3em;
+}
+.dnd-page h6 {
+  font-size: 0.95em;
+  font-variant-caps: small-caps;
+  letter-spacing: 0.1em;
+  font-weight: 500;
+  color: var(--dnd-ink);
+  margin: 1em 0 0.25em;
+}
 
 .dnd-page p {
   margin: 0 0 0.75em;
@@ -516,15 +536,32 @@ a {
   color: var(--dnd-red);
 }
 
+/* Tailwind's preflight sets `list-style: none` on every ul/ol, so the markers
+   have to be put back explicitly — otherwise the padding below indents a list
+   of invisible bullets and ::marker has nothing to colour. Same reason the
+   character-sheet lists restore it further down. */
 .dnd-page ul,
 .dnd-page ol {
   margin: 0 0 0.9em;
   padding-left: 1.4em;
 }
+.dnd-page ul {
+  list-style: disc outside;
+}
+.dnd-page ol {
+  list-style: decimal outside;
+}
+/* Nested levels get their own markers rather than repeating the parent's. */
+.dnd-page ul ul {
+  list-style: circle outside;
+}
+.dnd-page ul ul ul {
+  list-style: square outside;
+}
 .dnd-page li {
   margin-bottom: 0.25em;
 }
-.dnd-page ul li::marker {
+.dnd-page li::marker {
   color: var(--dnd-red);
 }
 
@@ -692,6 +729,811 @@ a {
 }
 .dnd-statblock-prose > :last-child {
   margin-bottom: 0;
+}
+
+/* --- Character sheet preview (see character/SheetPreview.tsx) ---------------
+   A classic 5e sheet drawn in the book's own vocabulary. Everything is nested
+   under .dnd-page because that is where --dnd-red/gold/ink/green are declared,
+   and the boxes centre their contents rather than relying on exact line-height
+   math so a missing webfont degrades instead of clipping. */
+
+.dnd-page .dnd-cs {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  font-size: 13px;
+  line-height: 1.35;
+}
+/* The clip boundary we control: an overflowing column can never push the
+   banner off the sheet or bleed into the page padding. */
+.dnd-page .dnd-cs-body {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.dnd-page .dnd-cs-body-split {
+  display: grid;
+  grid-template-columns: 168px 1fr;
+  column-gap: 20px;
+}
+.dnd-page .dnd-cs-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+}
+
+/* Banner */
+.dnd-page .dnd-cs-banner {
+  border-bottom: 2px solid var(--dnd-gold);
+  padding-bottom: 6px;
+  flex: 0 0 auto;
+}
+.dnd-page .dnd-cs-name {
+  font-family: 'Cinzel', serif;
+  font-weight: 700;
+  font-size: 30px;
+  line-height: 1.1;
+  color: var(--dnd-red);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dnd-page .dnd-cs-name-sm {
+  font-size: 21px;
+}
+.dnd-page .dnd-cs-sub {
+  font-size: 13px;
+  font-variant: small-caps;
+  letter-spacing: 0.03em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-top: 2px;
+}
+.dnd-page .dnd-cs-sub-sep {
+  color: var(--dnd-gold);
+  margin: 0 0.5em;
+}
+
+/* Generic gold box + section cap — the workhorse pair */
+.dnd-page .dnd-cs-box {
+  border: 1px solid var(--dnd-gold);
+  border-radius: 4px;
+  background: color-mix(in oklab, var(--dnd-green) 30%, white);
+  padding: 5px 8px;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.dnd-page .dnd-cs-cap {
+  font-family: 'Cinzel', serif;
+  font-size: 9.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--dnd-red);
+  border-bottom: 1px solid var(--dnd-gold);
+  margin-bottom: 4px;
+  padding-bottom: 2px;
+  flex: 0 0 auto;
+}
+.dnd-page .dnd-cs-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Left rail: the gap absorbs the badge overhanging each ability box *and* the
+   CHECK / SAVE caption row beneath it, which reaches ~25px past the border. */
+.dnd-page .dnd-cs-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 26px;
+  min-height: 0;
+}
+/* The boxes below the abilities have no overhanging oval to clear, so they don't
+   need the 18px the ovals ask for. Only 199px is left under the six ability
+   boxes for Passive + Defenses + Treasure, so the rail's gap is clawed back
+   above the first box (8px, still clearing the last oval) and between the rest
+   (6px) — measured in the app, not guessed: .dnd-cs-body clips silently. */
+/* The first lower box only claws back what the caption row leaves: the last
+   ability box's captions reach ~25px past its border, so pulling up more than
+   the 26px gap minus that would print "PASSIVE" on top of "MODIFIER". Boxes
+   after it have no caption row above them and can take the full pull. */
+.dnd-page .dnd-cs-rail > .dnd-cs-box {
+  margin-top: 0;
+}
+.dnd-page .dnd-cs-rail > .dnd-cs-box + .dnd-cs-box {
+  margin-top: -20px;
+}
+.dnd-page .dnd-cs-rail > .dnd-cs-box {
+  padding: 3px 7px;
+}
+.dnd-page .dnd-cs-rail > .dnd-cs-box > .dnd-cs-cap {
+  margin-bottom: 1px;
+  padding-bottom: 1px;
+  font-size: 8.5px;
+}
+/* One label/value line inside a rail box. The rail is only 168px wide, so the
+   label ellipsises rather than getting a fixed column like ProfLine's 62px. */
+.dnd-page .dnd-cs-railrow {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 4px;
+  font-size: 10px;
+  line-height: 1.2;
+}
+.dnd-page .dnd-cs-railrow > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Defenses in the rail: a small caps label inline before its comma-joined
+   values, because 168px can't carry ProfLine's side-by-side label column and
+   still leave room to read the values. */
+.dnd-page .dnd-cs-raildef {
+  font-size: 10px;
+  line-height: 1.25;
+}
+/* Two or more lists don't fit as separate lines, so they run together into one
+   paragraph rather than losing any off the bottom. A character resistant to
+   everything still overruns even that, so the paragraph is allowed to shrink
+   its own leading a touch further rather than clip — 8px is the floor at which
+   this still prints legibly. */
+.dnd-page .dnd-cs-raildef-flow {
+  font-size: 8px;
+  line-height: 1.1;
+}
+.dnd-page .dnd-cs-raildef .dnd-cs-raildef-label {
+  color: var(--dnd-red);
+  font-family: 'Cinzel', serif;
+  font-size: 8.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  /* A real gap after the label — without it "Res" runs into "cold". */
+  margin-right: 3px;
+}
+/* 92px, not the 100 it was: the badge below now carries a second number and a
+   CHECK / SAVE caption pair, and that caption row needs the height back. Six
+   boxes at 92 plus the rail gaps still leaves the 199px the rail's lower boxes
+   are sized against — see RAIL_*_HEIGHT in SheetPreview.tsx. */
+.dnd-page .dnd-cs-ability {
+  flex: 0 0 auto;
+  height: 92px;
+  border: 2px solid var(--dnd-gold);
+  border-radius: 8px;
+  background: color-mix(in oklab, var(--dnd-green) 35%, white);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  padding-bottom: 10px;
+  position: relative;
+}
+.dnd-page .dnd-cs-ability-name {
+  font-family: 'Cinzel', serif;
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--dnd-red);
+}
+.dnd-page .dnd-cs-ability-score {
+  font-family: 'Cinzel', serif;
+  font-size: 32px;
+  line-height: 1;
+  color: var(--dnd-ink);
+}
+/* The badge straddles the bottom border, as on the printed sheet, and carries
+   both of the d20 bonuses this ability grants: the check modifier on the left,
+   the saving throw on the right, split by a hairline. Wider than the classic
+   single-value oval because it now holds two numbers. */
+.dnd-page .dnd-cs-ability-mod {
+  position: absolute;
+  bottom: -13px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 86px;
+  height: 26px;
+  border: 2px solid var(--dnd-gold);
+  border-radius: 13px;
+  background: #f7efdd;
+  font-family: 'Cinzel', serif;
+  font-size: 15px;
+  display: flex;
+  align-items: stretch;
+  overflow: hidden;
+  /* The halves paint to the badge's edge, so the pill's own rounding has to
+     clip them — otherwise the proficient tint spills past the border. */
+  isolation: isolate;
+}
+/* A button, but it must print as plain text: no chrome, inherited type, and no
+   .dnd-roll-bar class, because unlike a chip these numbers belong on paper. */
+.dnd-page .dnd-cs-ability-modhalf {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  border: 0;
+  padding: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+/* The save half: a hairline divider, and a filled ground when proficient — the
+   same "filled means proficient" language the skill dots use, but it survives a
+   black-ink print better than a 9px dot inside a badge. */
+.dnd-page .dnd-cs-ability-modsave {
+  border-left: 1px solid var(--dnd-gold);
+}
+.dnd-page .dnd-cs-ability-modsave-prof {
+  background: color-mix(in oklab, var(--dnd-gold) 30%, #f7efdd);
+  font-weight: 700;
+}
+/* CHECK / SAVE captions under the badge, so the two halves are never ambiguous.
+   They sit outside the box entirely, in the rail's 18px inter-box gap. */
+.dnd-page .dnd-cs-ability-modkeys {
+  position: absolute;
+  bottom: -24px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 86px;
+  display: flex;
+  font-family: 'Cinzel', serif;
+  font-size: 6.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--dnd-red);
+  opacity: 0.8;
+}
+.dnd-page .dnd-cs-ability-modkeys > span {
+  flex: 1;
+  text-align: center;
+  white-space: nowrap;
+}
+
+/* AC shield — clip-path, no SVG and no asset */
+.dnd-page .dnd-cs-shield {
+  background: var(--dnd-gold);
+  clip-path: polygon(50% 0, 100% 12%, 100% 62%, 50% 100%, 0 62%, 0 12%);
+  padding: 3px;
+  height: 100%;
+}
+.dnd-page .dnd-cs-shield-inner {
+  width: 100%;
+  height: 100%;
+  background: color-mix(in oklab, var(--dnd-green) 30%, white);
+  clip-path: polygon(50% 0, 100% 12%, 100% 62%, 50% 100%, 0 62%, 0 12%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding-bottom: 8px;
+}
+.dnd-page .dnd-cs-shield-value {
+  font-family: 'Cinzel', serif;
+  font-size: 28px;
+  line-height: 1;
+  color: var(--dnd-ink);
+}
+
+/* Stat box: Initiative / Speed / Proficiency / Passive Perception */
+.dnd-page .dnd-cs-stat {
+  border: 1px solid var(--dnd-gold);
+  border-radius: 4px;
+  background: color-mix(in oklab, var(--dnd-green) 30%, white);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 4px;
+  overflow: hidden;
+}
+.dnd-page .dnd-cs-stat-value {
+  font-family: 'Cinzel', serif;
+  font-size: 22px;
+  line-height: 1;
+}
+.dnd-page .dnd-cs-stat-label {
+  font-size: 8.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--dnd-red);
+  text-align: center;
+  line-height: 1.2;
+}
+.dnd-page .dnd-cs-stat-note {
+  font-size: 9px;
+  opacity: 0.7;
+}
+
+/* Combat block: the AC shield, three stat tiles and HP on one row, then a
+   footer strip for hit dice and death saves. One box instead of the five it
+   replaced — each of those cost a cap, two borders and a 10px gap, which is
+   where page one's white space was going. */
+.dnd-page .dnd-cs-combat {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 74px 1fr 1fr 1fr 1.5fr 0.8fr;
+  gap: 7px;
+}
+.dnd-page .dnd-cs-combat-foot {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 11px;
+  border-top: 1px solid var(--dnd-gold);
+  margin-top: 4px;
+  padding-top: 3px;
+}
+.dnd-page .dnd-cs-deathsaves {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+/* Current / max / temp on one baseline, so HP reads as one pool with its
+   temporary top-up rather than needing a second box for the temp value. */
+.dnd-page .dnd-cs-hp-line {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+
+/* Skills and Equipped share the bottom of the right column, side by side. The
+   row owns the height (SKILLS_HEIGHT), so both boxes clip at the same line. */
+.dnd-page .dnd-cs-lowerrow {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  min-height: 0;
+}
+/* The right half stacks Equipped over Treasure; Equipped takes the slack. */
+.dnd-page .dnd-cs-lowerstack {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+}
+.dnd-page .dnd-cs-lowerstack > .dnd-cs-box:first-child {
+  flex: 1;
+  min-height: 0;
+}
+/* 18 skills in one narrow column, so the rows tighten from 26px to 21px. */
+.dnd-page .dnd-cs-skilllist .dnd-cs-row,
+.dnd-page .dnd-cs-equiplist .dnd-cs-equiprow {
+  height: 21px;
+}
+/* The slots spread across whatever height Equipped ends up with, rather than
+   bunching at the top and leaving a gap under the last one. */
+.dnd-page .dnd-cs-equiplist {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  overflow: hidden;
+}
+/* One row per coin, full names — this half of the page has the width for it and
+   a line each is what you'd actually write on. */
+.dnd-page .dnd-cs-coingrid {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  overflow: hidden;
+}
+.dnd-page .dnd-cs-coingrid .dnd-cs-railrow {
+  font-size: 11px;
+  border-bottom: 1px dotted color-mix(in oklab, var(--dnd-gold) 55%, white);
+}
+.dnd-page .dnd-cs-coinabbr {
+  font-size: 8.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--dnd-red);
+  opacity: 0.8;
+}
+/* Slot label then item name, the label in a fixed rail so the names line up. */
+.dnd-page .dnd-cs-equiprow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  border-bottom: 1px dotted color-mix(in oklab, var(--dnd-gold) 55%, white);
+}
+.dnd-page .dnd-cs-equiprow .dnd-cs-row-abil {
+  flex: 0 0 62px;
+}
+.dnd-page .dnd-cs-equiprow .dnd-cs-row-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* HP tile — sits inside the Combat box alongside the stat tiles, so it matches
+   their border weight and keeps only the red top edge that marks it as the
+   number you write on most. */
+.dnd-page .dnd-cs-hp {
+  border: 1px solid var(--dnd-gold);
+  border-top: 4px solid var(--dnd-red);
+  border-radius: 4px;
+  background: color-mix(in oklab, var(--dnd-green) 30%, white);
+  padding: 3px 8px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  overflow: hidden;
+}
+/* Its cap is inside a box that already has one, so it reads as a tile label. */
+.dnd-page .dnd-cs-combat .dnd-cs-hp > .dnd-cs-cap {
+  border-bottom: none;
+  margin-bottom: 0;
+  padding-bottom: 0;
+  font-size: 8.5px;
+}
+.dnd-page .dnd-cs-hp-current {
+  font-family: 'Cinzel', serif;
+  font-size: 32px;
+  line-height: 1;
+  color: var(--dnd-red);
+}
+/* Temp HP: the same tile as HP, but gold on top rather than red so it reads as
+   the secondary pool. Must come after .dnd-cs-hp — that rule sets the border-top
+   shorthand, which would otherwise put the red back. */
+.dnd-page .dnd-cs-hp-temp {
+  border-top-color: var(--dnd-gold);
+}
+.dnd-page .dnd-cs-hp-temp .dnd-cs-hp-line {
+  justify-content: center;
+}
+.dnd-page .dnd-cs-hp-tempvalue {
+  font-family: 'Cinzel', serif;
+  font-size: 26px;
+  line-height: 1;
+}
+/* Proficiency dot: none / proficient / expertise */
+.dnd-page .dnd-cs-dot {
+  width: 9px;
+  height: 9px;
+  flex: 0 0 9px;
+  border-radius: 50%;
+  border: 1.5px solid var(--dnd-red);
+  background: transparent;
+  box-sizing: border-box;
+}
+.dnd-page .dnd-cs-dot-prof {
+  background: var(--dnd-red);
+}
+.dnd-page .dnd-cs-dot-exp {
+  background: var(--dnd-red);
+  outline: 1.5px solid var(--dnd-red);
+  outline-offset: 1.5px;
+}
+
+/* One skill / saving-throw line. Every row carries its own dotted rule
+   underneath, the last one included, so a list reads as a ruled ledger. */
+.dnd-page .dnd-cs-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  font-size: 12.5px;
+  border-bottom: 1px dotted
+    color-mix(in oklab, var(--dnd-gold) 70%, transparent);
+}
+.dnd-page .dnd-cs-row-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dnd-page .dnd-cs-row-abil {
+  font-size: 8.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.6;
+  flex: 0 0 auto;
+}
+.dnd-page .dnd-cs-row-bonus {
+  font-family: 'Cinzel', serif;
+  font-size: 13px;
+  min-width: 26px;
+  text-align: right;
+  flex: 0 0 auto;
+}
+
+/* Two-column lists (skills, spells, inventory) inside a fixed box */
+.dnd-page .dnd-cs-2col {
+  column-count: 2;
+  column-gap: 24px;
+  min-height: 0;
+  overflow: hidden;
+}
+.dnd-page .dnd-cs-2col > * {
+  break-inside: avoid;
+}
+
+/* Static pips: death saves, spell slots */
+.dnd-page .dnd-cs-pips {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+}
+.dnd-page .dnd-cs-pip {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  border: 1.5px solid var(--dnd-ink);
+  display: inline-block;
+  box-sizing: border-box;
+}
+.dnd-page .dnd-cs-pip-used {
+  background: var(--dnd-red);
+}
+.dnd-page .dnd-cs-pip-fail {
+  background: #7a1010;
+}
+.dnd-page .dnd-cs-pip-ok {
+  background: #35601f;
+}
+
+/* Class features: name + optional rules text, grouped under a level cap */
+.dnd-page .dnd-cs-feature {
+  break-inside: avoid;
+  margin-bottom: 7px;
+}
+/* Keep a level heading with its first feature across the column break —
+   the JS paginator guards page boundaries, this guards column ones. */
+.dnd-page .dnd-cs-2col > .dnd-cs-cap {
+  break-after: avoid;
+  break-inside: avoid;
+}
+.dnd-page .dnd-cs-feature-name {
+  font-family: 'Cinzel', serif;
+  font-size: 12px;
+  color: var(--dnd-red);
+  line-height: 1.3;
+}
+/* Each session recap is its own card, so one night's events don't bleed into
+   the next — the same gold hairline and tinted fill the sheet's other boxes
+   are drawn with. The border carries the edge on its own, so the card still
+   reads as a card on a black-ink printer that drops the fill. */
+.dnd-page .dnd-cs-note {
+  border: 1px solid var(--dnd-gold);
+  border-radius: 4px;
+  background: color-mix(in oklab, var(--dnd-green) 30%, white);
+  padding: 6px 10px 7px;
+  margin-bottom: 6px;
+  break-inside: avoid;
+}
+.dnd-page .dnd-cs-note:last-child {
+  margin-bottom: 0;
+}
+/* The title reads as a heading in its own right, not as text following a date */
+.dnd-page .dnd-cs-note-title {
+  font-family: 'Cinzel', serif;
+  font-size: 11px;
+  color: var(--dnd-red);
+  line-height: 1.3;
+}
+.dnd-page .dnd-cs-note-meta {
+  font-size: 8.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.6;
+  margin-bottom: 2px;
+}
+
+.dnd-page .dnd-cs-feature-text {
+  font-size: 11px;
+  line-height: 1.35;
+  text-align: justify;
+  /* A justified last line would stretch a short one ("3rd Level: Bane") across
+     the whole column, which looks broken in a hand-typed list. */
+  text-align-last: start;
+  hyphens: auto;
+}
+/* Notes share the features' type, but not their justification: a recap is a log
+   of short beats, and justifying those opens rivers of white space between the
+   words of a half-full line. Ragged right reads as notes, which is what it is. */
+.dnd-page .dnd-cs-note-text {
+  font-size: 11px;
+  line-height: 1.35;
+  text-align: start;
+}
+/* Paragraphs inside a description sit tight and don't re-indent */
+.dnd-page .dnd-cs-feature-text p,
+.dnd-page .dnd-cs-note-text p {
+  margin: 0 0 0.3em;
+  text-indent: 0;
+}
+.dnd-page .dnd-cs-feature-text p:last-child,
+.dnd-page .dnd-cs-note-text p:last-child {
+  margin-bottom: 0;
+}
+/* A bulleted description keeps its markers inside the column. The list-style is
+   not decoration: Tailwind's preflight sets `list-style: none` on every ul/ol,
+   so without putting it back the padding indents a list of invisible bullets. */
+.dnd-page .dnd-cs-feature-text ul,
+.dnd-page .dnd-cs-note-text ul {
+  list-style: disc outside;
+  margin: 0.15em 0;
+  padding-left: 1.1em;
+}
+.dnd-page .dnd-cs-feature-text ol,
+.dnd-page .dnd-cs-note-text ol {
+  list-style: decimal outside;
+  margin: 0.15em 0;
+  padding-left: 1.1em;
+}
+/* Justification is for prose; a short bullet stretched across the column reads
+   as broken, so items align start like the headings do. (Note bodies are
+   already start-aligned throughout — this is only for features.) */
+.dnd-page .dnd-cs-feature-text li {
+  text-align: start;
+}
+/* A note's markdown headings are body-sized on the sheet — a real <h2> would
+   tower over the 11px note it introduces. */
+.dnd-page .dnd-cs-note-text h1,
+.dnd-page .dnd-cs-note-text h2,
+.dnd-page .dnd-cs-note-text h3,
+.dnd-page .dnd-cs-note-text h4 {
+  font-size: 11px;
+  font-weight: 700;
+  margin: 0.15em 0;
+  text-align: start;
+}
+/* Not yet gained — kept on the sheet so a build can be planned ahead */
+.dnd-page .dnd-cs-feature-future {
+  opacity: 0.45;
+}
+.dnd-page .dnd-cs-feature-future .dnd-cs-feature-name {
+  font-style: italic;
+}
+
+/* Spell level badge */
+.dnd-page .dnd-cs-lvl {
+  flex: 0 0 20px;
+  text-align: center;
+  font-family: 'Cinzel', serif;
+  font-size: 10px;
+  color: var(--dnd-red);
+  border: 1px solid var(--dnd-gold);
+  border-radius: 3px;
+  line-height: 1.5;
+}
+
+/* Spell list: two columns filled left-to-right, so reading order runs across
+   the page and then down. `dnd-cs-2col` (column-count) fills the whole left
+   column before starting the right, which reads as a grid rather than a list.
+   A level heading spans both columns and forces the next spell onto a new row,
+   so a level never starts halfway across. */
+.dnd-page .dnd-cs-spellgrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-auto-flow: row;
+  column-gap: 24px;
+  align-content: start;
+  min-height: 0;
+  overflow: hidden;
+}
+.dnd-page .dnd-cs-spellgrid > .dnd-cs-cap {
+  grid-column: 1 / -1;
+}
+
+/* Prepared marker: a filled or hollow dot, so it survives black-ink printing
+   where a colour difference would not. Cantrips render it empty. */
+.dnd-page .dnd-cs-prep {
+  flex: 0 0 10px;
+  text-align: center;
+  font-size: 9px;
+  line-height: 1.6;
+  color: var(--dnd-ink);
+}
+
+/* Attacks table: the page table look, tightened */
+.dnd-page table.dnd-cs-attacks {
+  margin: 0;
+  font-size: 12.5px;
+  table-layout: fixed;
+}
+.dnd-page table.dnd-cs-attacks th,
+.dnd-page table.dnd-cs-attacks td {
+  padding: 2px 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Column geometry lives here, not on the cells: .dnd-page thead th forces
+   text-align: left, so heads drifted away from their centred data. Setting the
+   width and alignment once per column keeps the two in step. */
+.dnd-page table.dnd-cs-attacks th:nth-child(1),
+.dnd-page table.dnd-cs-attacks td:nth-child(1) {
+  width: 55%;
+  text-align: left;
+}
+.dnd-page table.dnd-cs-attacks th:nth-child(2),
+.dnd-page table.dnd-cs-attacks td:nth-child(2) {
+  width: 20%;
+  text-align: center;
+}
+.dnd-page table.dnd-cs-attacks th:nth-child(3),
+.dnd-page table.dnd-cs-attacks td:nth-child(3) {
+  width: 25%;
+  text-align: center;
+}
+/* The roll chip is taken out of flow so it can't nudge the number it sits beside
+   off the column's centre line. It's dropped from the PDF anyway. */
+.dnd-page table.dnd-cs-attacks td:nth-child(2),
+.dnd-page table.dnd-cs-attacks td:nth-child(3) {
+  position: relative;
+}
+.dnd-page table.dnd-cs-attacks td .dnd-roll-bar {
+  position: absolute;
+  right: 2px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+.dnd-page .dnd-cs-truncated {
+  font-style: italic;
+  font-size: 11px;
+  opacity: 0.75;
+  padding-top: 3px;
+}
+
+/* Chips are interactive-only and get filtered out of the PDF by class, so the
+   number they sit beside is always plain text and the slot is fixed-width —
+   dropping the chip must not reflow the row. The margin reset overrides the
+   block-level .dnd-page .dnd-roll-bar rule further down this file. */
+.dnd-page .dnd-cs .dnd-roll-bar {
+  display: inline-flex;
+  margin: 0;
+  vertical-align: middle;
+  flex: 0 0 auto;
+}
+.dnd-page .dnd-cs-chip {
+  font-family: inherit;
+  font-size: 10px;
+  line-height: 1;
+  color: var(--dnd-red);
+  background: rgba(88, 24, 13, 0.08);
+  border: 1px solid var(--dnd-gold);
+  border-radius: 4px;
+  padding: 2px 4px;
+  cursor: pointer;
+}
+.dnd-page .dnd-cs-chip:hover {
+  background: rgba(88, 24, 13, 0.18);
+}
+/* Inert dashed text for unresolved wiki links, matching WikiText */
+.dnd-page .dnd-cs-link {
+  color: var(--dnd-red);
+  text-decoration: underline;
+  text-decoration-color: var(--dnd-gold);
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  cursor: pointer;
 }
 
 .dnd-page code {

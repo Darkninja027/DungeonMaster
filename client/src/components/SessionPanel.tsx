@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Dices, Skull, Sparkles, Swords } from 'lucide-react'
+import { Dices, PawPrint, Skull, Sparkles, Swords } from 'lucide-react'
 import { useRollLog } from '#/lib/rollLog'
 import { useSpellPanelRequest } from '#/lib/spellPanel'
 import { hydrateSession, useCombat } from '#/lib/sessionStore'
@@ -7,12 +7,29 @@ import { cn } from '#/lib/utils'
 import { Button } from '#/components/ui/button'
 import { EncounterBuilder } from '#/components/EncounterBuilder'
 import { InitiativeTracker } from '#/components/InitiativeTracker'
+import { MonsterReference } from '#/components/MonsterReference'
 import { RollHistory } from '#/components/RollHistory'
 import { SpellReference } from '#/components/character/SpellReference'
 
-type PanelTab = 'initiative' | 'encounter' | 'rolls' | 'spells'
+type PanelTab = 'initiative' | 'encounter' | 'rolls' | 'spells' | 'monsters'
 
 const STORAGE_KEY = 'dm.sessionPanel'
+
+const PANEL_TABS: Array<PanelTab> = [
+  'initiative',
+  'encounter',
+  'rolls',
+  'spells',
+  'monsters',
+]
+
+const TAB_TITLE: Record<PanelTab, string> = {
+  initiative: 'Initiative',
+  encounter: 'Encounter builder',
+  rolls: 'Roll history',
+  spells: 'Spells',
+  monsters: 'Bestiary',
+}
 
 function loadPanelState(): { open: boolean; tab: PanelTab } {
   try {
@@ -20,13 +37,7 @@ function loadPanelState(): { open: boolean; tab: PanelTab } {
       open?: boolean
       tab?: string
     }
-    const tab =
-      raw.tab === 'rolls' ||
-      raw.tab === 'spells' ||
-      raw.tab === 'encounter' ||
-      raw.tab === 'initiative'
-        ? raw.tab
-        : 'initiative'
+    const tab = PANEL_TABS.find((t) => t === raw.tab) ?? 'initiative'
     return { open: raw.open === true, tab }
   } catch {
     return { open: false, tab: 'initiative' }
@@ -69,15 +80,7 @@ export function SessionPanel({ worldId }: { worldId: string }) {
       {open && (
         <div className="flex h-full w-85 flex-col border-r">
           <div className="border-b px-3 py-2">
-            <h3 className="text-sm font-semibold">
-              {tab === 'initiative'
-                ? 'Initiative'
-                : tab === 'encounter'
-                  ? 'Encounter builder'
-                  : tab === 'rolls'
-                    ? 'Roll history'
-                    : 'Spells'}
-            </h3>
+            <h3 className="text-sm font-semibold">{TAB_TITLE[tab]}</h3>
           </div>
           <div className="min-h-0 flex-1">
             {tab === 'initiative' ? (
@@ -89,8 +92,10 @@ export function SessionPanel({ worldId }: { worldId: string }) {
               />
             ) : tab === 'rolls' ? (
               <RollHistory />
-            ) : (
+            ) : tab === 'spells' ? (
               <SpellReference worldId={worldId} />
+            ) : (
+              <MonsterReference worldId={worldId} />
             )}
           </div>
         </div>
@@ -147,6 +152,15 @@ export function SessionPanel({ worldId }: { worldId: string }) {
           onClick={() => toggle('spells')}
         >
           <Sparkles className="size-4" />
+        </Button>
+        <Button
+          variant={open && tab === 'monsters' ? 'secondary' : 'ghost'}
+          size="icon"
+          className="size-8"
+          title="Bestiary"
+          onClick={() => toggle('monsters')}
+        >
+          <PawPrint className="size-4" />
         </Button>
       </div>
     </div>

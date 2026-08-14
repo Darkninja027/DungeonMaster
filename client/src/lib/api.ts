@@ -67,6 +67,25 @@ export interface SearchResult {
   snippet: string
 }
 
+/** A scored search hit for the command palette. */
+export interface RankedResult {
+  id: string
+  folderId: string | null
+  title: string
+  snippet: string
+  /** Frontmatter `type`, lowercased. Characters route to their sheet, not the editor. */
+  type: string | null
+  score: number
+  /** [start, end) offsets into `title` for the characters that matched. */
+  matchRanges: Array<[number, number]>
+}
+
+/** A tag and how many articles carry it. */
+export interface TagCount {
+  tag: string
+  count: number
+}
+
 export interface MentionResult {
   id: string
   title: string
@@ -124,16 +143,46 @@ export interface WorldChangeBatch {
 }
 
 export interface ImageInfo {
+  /** '/'-separated path relative to _images/ — 'Maps/City/tavern.png'. */
   id: string
+  /** Basename only — 'tavern.png'. */
   fileName: string
+  /** Containing image folder id; null = the _images root. */
+  folderId: string | null
   contentType: string
   sizeBytes: number
   uploadedAt: string
   url: string
+  /** Portable disk path — '_images/Maps/City/tavern.png'. */
+  relPath: string
+  /** The same, per-segment percent-encoded. Use this in markdown. */
+  encodedRelPath: string
 }
 
+/** A folder under _images/. Mirrors FolderNode; ids are _images-relative. */
+export interface ImageFolder {
+  id: string
+  parentFolderId: string | null
+  name: string
+}
+
+export interface ImageTree {
+  folders: Array<ImageFolder>
+  images: Array<ImageInfo>
+}
+
+/**
+ * Electron wraps every main-process throw as
+ * `Error invoking remote method 'x:y': Error: <real message>`. Strip that here
+ * so the message we wrote in the main process is what the user actually reads.
+ */
 function invoke<T>(channel: string, args?: unknown): Promise<T> {
-  return window.dmApi.invoke<T>(channel, args)
+  return window.dmApi.invoke<T>(channel, args).catch((cause: unknown) => {
+    const raw = cause instanceof Error ? cause.message : String(cause)
+    throw new Error(
+      raw.replace(/^Error invoking remote method '[^']*':\s*(Error:\s*)?/, ''),
+    )
+  })
 }
 
 export const api = {
@@ -145,6 +194,15 @@ export const api = {
     tree: (worldId: string) => invoke<WorldTree>('worlds:tree', { worldId }),
     search: (worldId: string, query: string) =>
       invoke<Array<SearchResult>>('worlds:search', { worldId, query }),
+    /** Scored search for the command palette — sorted, then capped at `limit`. */
+    searchRanked: (worldId: string, query: string, limit?: number) =>
+      invoke<Array<RankedResult>>('worlds:searchRanked', {
+        worldId,
+        query,
+        limit,
+      }),
+    /** Every tag used in the world, with counts, most-used first. */
+    tags: (worldId: string) => invoke<Array<TagCount>>('worlds:tags', { worldId }),
     /** Articles whose frontmatter matches the query, sorted by title. */
     query: (worldId: string, query: ArticleQuery) =>
       invoke<Array<ArticleRef>>('worlds:query', { worldId, query }),
@@ -204,16 +262,61 @@ export const api = {
       invoke<void>('articles:delete', { worldId, articleId }),
   },
   images: {
-    list: (worldId: string) =>
-      invoke<Array<ImageInfo>>('images:list', { worldId }),
-    upload: async (worldId: string, file: File) =>
+    /** The whole _images/ tree: nested folders plus every image at any depth. */
+    tree: (worldId: string) => invoke<ImageTree>('images:tree', { worldId }),
+    /** Upload into `folderId` (null = the _images root). */
+    upload: async (
+      worldId: string,
+      file: File,
+      folderId: string | null = null,
+    ) =>
       invoke<ImageInfo>('images:upload', {
         worldId,
         fileName: file.name,
         bytes: await file.arrayBuffer(),
+        folderId,
       }),
+    /** Rename in place; repoints _images/ references world-wide. */
+    rename: (worldId: string, imageId: string, name: string) =>
+      invoke<ImageInfo>('images:rename', { worldId, imageId, name }),
+    /** Move between folders; repoints _images/ references world-wide. */
+    move: (worldId: string, imageId: string, folderId: string | null) =>
+      invoke<ImageInfo>('images:move', { worldId, imageId, folderId }),
+    /** To the Recycle Bin. References are left alone — the author decides. */
     delete: (worldId: string, imageId: string) =>
       invoke<void>('images:delete', { worldId, imageId }),
+    createFolder: (input: {
+      worldId: string
+      parentFolderId?: string | null
+      name: string
+    }) => invoke<ImageFolder>('images:createFolder', input),
+    renameFolder: (worldId: string, folderId: string, name: string) =>
+      invoke<{ id: string }>('images:renameFolder', {
+        worldId,
+        folderId,
+        name,
+      }),
+    moveFolder: (
+      worldId: string,
+      folderId: string,
+      parentFolderId: string | null,
+    ) =>
+      invoke<{ id: string }>('images:moveFolder', {
+        worldId,
+        folderId,
+        parentFolderId,
+      }),
+    deleteFolder: (worldId: string, folderId: string) =>
+      invoke<void>('images:deleteFolder', { worldId, folderId }),
+    /** Images under a folder subtree — for the delete confirmation. */
+    countIn: (worldId: string, folderId: string) =>
+      invoke<number>('images:countIn', { worldId, folderId }),
+    /**
+     * Show an image or image folder in the OS file manager. Pass '' for the
+     * _images folder itself.
+     */
+    reveal: (worldId: string, imageId: string) =>
+      invoke<void>('images:reveal', { worldId, imageId }),
   },
   characters: {
     /** Articles whose frontmatter declares `type: character`, sorted by title. */
@@ -238,6 +341,25 @@ export const api = {
       invoke<Array<SavedView> | null>('views:get', { worldId }),
     set: (worldId: string, state: Array<SavedView>) =>
       invoke<void>('views:set', { worldId, state }),
+  },
+  worldSettings: {
+    /**
+     * Raw worldSettings.json — deliberately `unknown`, because the file is
+     * hand-editable and the renderer owns the tolerant parse
+     * (lib/worldSettings.ts). null means missing or unparseable.
+     */
+    get: (worldId: string) => invoke<unknown>('worldSettings:get', { worldId }),
+    set: (worldId: string, state: unknown) =>
+      invoke<void>('worldSettings:set', { worldId, state }),
+  },
+  shell: {
+    /**
+     * Open the OS file manager with this file selected. `relPath` is
+     * world-relative: `<articleId>.md` for an article, a folder id for a
+     * folder, omitted for the world folder itself.
+     */
+    reveal: (worldId: string, relPath?: string) =>
+      invoke<void>('shell:reveal', { worldId, relPath }),
   },
   updates: {
     /** Subscribe to auto-update status; returns an unsubscribe fn. */

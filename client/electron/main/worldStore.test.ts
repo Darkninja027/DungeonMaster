@@ -18,6 +18,7 @@ import {
   moveFolder,
   readTree,
   renameArticle,
+  revealPath,
   updateArticle,
 } from './worldStore'
 import { findMentions, searchWorld } from './search'
@@ -136,20 +137,85 @@ describe('worldStore against a real temp folder', () => {
     ).rejects.toThrow(/not found/)
   })
 
-  it('moves articles between folders and blocks collisions', () => {
+  // The autosave shape after the "Article not found" fix: the editor sends the
+  // article's on-disk title, so a content save never renames the file.
+  it('an update whose title matches the file only writes content', async () => {
+    createArticle({ worldId, title: 'Keep', content: 'old' })
+    const updated = await updateArticle(worldId, 'Keep', {
+      title: 'Keep',
+      content: 'new',
+    })
+    expect(updated.id).toBe('Keep')
+    expect(getArticle(worldId, 'Keep').content).toBe('new')
+  })
+
+  // Regression: two updates used to interleave inside the awaited world-wide
+  // link rewrite, so the second targeted a path the first had already renamed
+  // away and failed with "Article not found".
+  it('serialises concurrent updates across a rename', async () => {
+    createArticle({ worldId, title: 'Gan', content: 'body' })
+    createArticle({ worldId, title: 'Linker', content: 'See [[Gan]].' })
+
+    const first = updateArticle(worldId, 'Gan', {
+      title: 'Ganda',
+      content: 'body',
+    })
+    const second = updateArticle(worldId, 'Ganda', {
+      title: 'Gandalf',
+      content: 'body2',
+    })
+    const [a, b] = await Promise.all([first, second])
+
+    expect(a.id).toBe('Ganda')
+    expect(b.id).toBe('Gandalf')
+    expect(getArticle(worldId, 'Gandalf').content).toBe('body2')
+    expect(getArticle(worldId, 'Linker').content).toBe('See [[Gandalf]].')
+  })
+
+  // Rename-first ordering: content must not land on the old file when the
+  // rename is going to be rejected.
+  it('a colliding rename does not write content to the old file', async () => {
+    createArticle({ worldId, title: 'One', content: 'original' })
+    createArticle({ worldId, title: 'Two', content: '' })
+    await expect(
+      updateArticle(worldId, 'One', { title: 'Two', content: 'clobber' }),
+    ).rejects.toThrow(/already exists/)
+    expect(getArticle(worldId, 'One').content).toBe('original')
+  })
+
+  // The link rewrite snapshots the tree then awaits per file, so an article can
+  // become unreadable mid-walk. The rename is already committed by then —
+  // failing the whole save would lose the user's edit over a cosmetic link.
+  it('a rename survives an unreadable article during the link rewrite', async () => {
+    createArticle({ worldId, title: 'Old Name', content: 'x' })
+    createArticle({ worldId, title: 'Linker', content: 'See [[Old Name]].' })
+    // A directory named like an article: readTree lists it, readFile gets EISDIR.
+    fs.mkdirSync(path.join(root, 'Broken.md'))
+
+    const updated = await updateArticle(worldId, 'Old Name', {
+      title: 'New Name',
+      content: 'x',
+    })
+    expect(updated.id).toBe('New Name')
+    expect(getArticle(worldId, 'Linker').content).toBe('See [[New Name]].')
+  })
+
+  it('moves articles between folders and blocks collisions', async () => {
     createFolder({ worldId, name: 'A' })
     createFolder({ worldId, name: 'B' })
     createArticle({ worldId, folderId: 'A', title: 'Doc' })
     createArticle({ worldId, folderId: 'B', title: 'Doc' })
-    expect(() => moveArticle(worldId, 'A/Doc', 'B')).toThrow(/already exists/)
-    moveArticle(worldId, 'A/Doc', null)
+    await expect(moveArticle(worldId, 'A/Doc', 'B')).rejects.toThrow(
+      /already exists/,
+    )
+    await moveArticle(worldId, 'A/Doc', null)
     expect(getArticle(worldId, 'Doc').folderId).toBeNull()
   })
 
-  it('blocks moving a folder into its own descendant', () => {
+  it('blocks moving a folder into its own descendant', async () => {
     createFolder({ worldId, name: 'Outer' })
     createFolder({ worldId, parentFolderId: 'Outer', name: 'Inner' })
-    expect(() => moveFolder(worldId, 'Outer', 'Outer/Inner')).toThrow(
+    await expect(moveFolder(worldId, 'Outer', 'Outer/Inner')).rejects.toThrow(
       /into itself/,
     )
   })
@@ -221,5 +287,17 @@ describe('worldStore against a real temp folder', () => {
     fs.mkdirSync(path.join(root, '_images'))
     fs.writeFileSync(path.join(root, '_images', 'map.png'), 'x')
     expect(readTree(root).folders).toHaveLength(0)
+  })
+
+  it('ignores nested image folders in the tree', () => {
+    // Image organisation lives under _images/; none of it may leak into the
+    // article tree, however deep it goes.
+    fs.mkdirSync(path.join(root, '_images', 'Maps', 'City'), {
+      recursive: true,
+    })
+    fs.writeFileSync(path.join(root, '_images', 'Maps', 'City', 'x.png'), 'x')
+    const tree = readTree(root)
+    expect(tree.folders).toHaveLength(0)
+    expect(tree.articles).toHaveLength(0)
   })
 })

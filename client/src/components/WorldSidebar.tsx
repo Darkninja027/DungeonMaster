@@ -8,6 +8,7 @@ import {
   FilePlus2,
   FileText,
   Folder as FolderIcon,
+  FolderOpen,
   FolderPlus,
   MoreHorizontal,
   Pencil,
@@ -18,8 +19,11 @@ import {
   X,
 } from 'lucide-react'
 import { api } from '#/lib/api'
+import { onPaletteAction } from '#/lib/paletteActions'
 import { useShortcut } from '#/lib/useShortcut'
 import type { ArticleSummary, FolderNode, WorldTree } from '#/lib/api'
+import { isLibraryFolder } from '#/lib/libraryFolders'
+import { REVEAL_LABEL, revealer } from '#/lib/reveal'
 import { articleTemplates, newArticleContent } from '#/lib/templates'
 import { cn } from '#/lib/utils'
 import { SmartViews } from '#/components/SmartViews'
@@ -58,6 +62,7 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
   const navigate = useNavigate()
   const params = useParams({ strict: false })
   const activeArticleId = params.articleId ?? null
+  const reveal = revealer(worldId)
 
   const tree = useQuery({
     queryKey: ['worlds', worldId, 'tree'],
@@ -84,16 +89,26 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
   const [searchTerm, setSearchTerm] = useState('')
   const searchInputRef = useRef<HTMLInputElement>(null)
 
-  useShortcut('k', () => {
-    searchInputRef.current?.focus()
-    searchInputRef.current?.select()
-  })
+  // Ctrl+K belongs to the command palette; this box is still click-to-search.
   useShortcut(
     'n',
     () => openDialog({ mode: 'new-article', parentFolderId: null }),
     {
       enabled: dialog === null,
     },
+  )
+
+  // Creation commands run from the palette open the dialogs owned here. The
+  // action kinds are named to match the dialog modes, so this is a pass-through.
+  // Subscribed once: openDialog is re-created each render but only touches
+  // setState, so a stale closure would still open the right dialog.
+  const openDialogRef = useRef<(state: NameDialogState) => void>(undefined)
+  useEffect(
+    () =>
+      onPaletteAction((action) =>
+        openDialogRef.current?.({ mode: action.kind, parentFolderId: null }),
+      ),
+    [],
   )
 
   useEffect(() => {
@@ -105,6 +120,9 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
     queryKey: ['worlds', worldId, 'search', searchTerm],
     queryFn: () => api.worlds.search(worldId, searchTerm),
     enabled: searchTerm.length > 0,
+    // Search backs the Content tree, so it hides library hits the same way —
+    // spells and monsters are searched from their own panels.
+    select: (results) => results.filter((r) => !isLibraryFolder(r.folderId)),
   })
 
   // Prefix invalidation: tree, characters list, search, world meta.
@@ -264,6 +282,7 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
     // menu open/close resets it.
     requestAnimationFrame(() => setDialog(state))
   }
+  openDialogRef.current = openDialog
 
   const handleDrop = (targetFolderId: string | null) => {
     if (!dragItem) return
@@ -349,6 +368,9 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
           </DropdownMenuItem>
           <DropdownMenuItem onClick={() => duplicateArticle.mutate(article.id)}>
             <Copy /> Duplicate
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => reveal(`${article.id}.md`)}>
+            <FolderOpen /> {REVEAL_LABEL}
           </DropdownMenuItem>
           <DropdownMenuItem
             variant="destructive"
@@ -447,6 +469,9 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
               >
                 <Pencil /> Rename
               </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => reveal(folder.id)}>
+                <FolderOpen /> {REVEAL_LABEL}
+              </DropdownMenuItem>
               <DropdownMenuItem
                 variant="destructive"
                 onClick={() => {
@@ -474,6 +499,15 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
     )
   }
 
+  // Library folders (Characters/Spells/Monsters) have their own homes in the
+  // UI, so the world tree omits them and stays purely about worldbuilding.
+  const rootFolders = (tree.data?.folders ?? []).filter(
+    (f) => f.parentFolderId === null && !isLibraryFolder(f.id),
+  )
+  const rootArticles = (tree.data?.articles ?? []).filter(
+    (a) => a.folderId === null,
+  )
+
   return (
     <div className="bg-muted/30 flex h-full w-72 shrink-0 flex-col border-r">
       <div className="border-b">
@@ -500,18 +534,38 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
             </p>
           )}
           {characters.data?.map((ch) => (
-            <Link
+            <div
               key={ch.id}
-              to="/worlds/$worldId/characters/$articleId"
-              params={{ worldId, articleId: ch.id }}
               className={cn(
-                'hover:bg-accent flex items-center gap-1.5 rounded px-2 py-1 text-sm',
+                'group hover:bg-accent flex items-center rounded pr-1 text-sm',
                 activeArticleId === ch.id && 'bg-accent font-medium',
               )}
             >
-              <Users className="text-muted-foreground size-3.5 shrink-0" />
-              <span className="truncate">{ch.title}</span>
-            </Link>
+              <Link
+                to="/worlds/$worldId/characters/$articleId"
+                params={{ worldId, articleId: ch.id }}
+                className="flex min-w-0 flex-1 items-center gap-1.5 px-2 py-1"
+              >
+                <Users className="text-muted-foreground size-3.5 shrink-0" />
+                <span className="truncate">{ch.title}</span>
+              </Link>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="size-6 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100"
+                  >
+                    <MoreHorizontal className="size-3.5" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start">
+                  <DropdownMenuItem onClick={() => reveal(`${ch.id}.md`)}>
+                    <FolderOpen /> {REVEAL_LABEL}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
           ))}
         </div>
       </div>
@@ -542,6 +596,15 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
             }
           >
             <FolderPlus className="size-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-7"
+            title="Open the world folder"
+            onClick={() => reveal()}
+          >
+            <FolderOpen className="size-4" />
           </Button>
         </div>
       </div>
@@ -614,18 +677,13 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
             )}
             {tree.data && (
               <>
-                {tree.data.folders
-                  .filter((f) => f.parentFolderId === null)
-                  .map((f) => renderFolder(tree.data, f, 0))}
-                {tree.data.articles
-                  .filter((a) => a.folderId === null)
-                  .map((a) => renderArticle(a, 0))}
-                {tree.data.folders.length === 0 &&
-                  tree.data.articles.length === 0 && (
-                    <p className="text-muted-foreground px-2 py-4 text-sm">
-                      Nothing here yet. Create an article or folder above.
-                    </p>
-                  )}
+                {rootFolders.map((f) => renderFolder(tree.data, f, 0))}
+                {rootArticles.map((a) => renderArticle(a, 0))}
+                {rootFolders.length === 0 && rootArticles.length === 0 && (
+                  <p className="text-muted-foreground px-2 py-4 text-sm">
+                    Nothing here yet. Create an article or folder above.
+                  </p>
+                )}
               </>
             )}
           </div>

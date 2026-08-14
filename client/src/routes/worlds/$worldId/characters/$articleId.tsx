@@ -1,20 +1,40 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { FileText, Save, Trash2 } from 'lucide-react'
+import {
+  Eye,
+  FileDown,
+  FileText,
+  FolderOpen,
+  Loader2,
+  Save,
+  Trash2,
+} from 'lucide-react'
 import { api } from '#/lib/api'
-import { parseCharacter, serializeCharacter } from '#/lib/character'
+import { REVEAL_LABEL, revealer } from '#/lib/reveal'
+import { parseCharacter, serializeCharacter, setLevel } from '#/lib/character'
 import type { Character } from '#/lib/character'
+import { findClass, subclassLabelFor, subclassesFor } from '#/lib/classes'
+import { useClasses } from '#/lib/useWorldSettings'
+import { exportPdf } from '#/lib/exportPdf'
 import { useShortcut } from '#/lib/useShortcut'
+import { useArticleEditorSave } from '#/lib/useArticleEditorSave'
+import { useMarkdownEditor } from '#/lib/useMarkdownEditor'
+import { useWikiLinkOpener } from '#/lib/useWikiLinkOpener'
+import { MarkdownContextMenu } from '#/components/MarkdownContextMenu'
 import type { RollSource } from '#/lib/rollLog'
 import { Button } from '#/components/ui/button'
 import { Input } from '#/components/ui/input'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '#/components/ui/tabs'
 import { Textarea } from '#/components/ui/textarea'
+import { cn } from '#/lib/utils'
 import { NumField } from '#/components/character/NumField'
 import { SheetTab } from '#/components/character/SheetTab'
 import { InventoryTab } from '#/components/character/InventoryTab'
+import { EquipmentTab } from '#/components/character/EquipmentTab'
+import { FeaturesTab } from '#/components/character/FeaturesTab'
 import { NotesTab } from '#/components/character/NotesTab'
+import { SheetFitPane, SheetPreview } from '#/components/character/SheetPreview'
 import { CreateMissingArticleDialog } from '#/components/CreateMissingArticleDialog'
 
 export const Route = createFileRoute('/worlds/$worldId/characters/$articleId')({
@@ -25,6 +45,7 @@ function CharacterPage() {
   const { worldId, articleId } = Route.useParams()
   const queryClient = useQueryClient()
   const navigate = useNavigate()
+  const reveal = revealer(worldId)
 
   const article = useQuery({
     queryKey: ['articles', articleId],
@@ -34,20 +55,63 @@ function CharacterPage() {
     queryKey: ['worlds', worldId, 'tree'],
     queryFn: () => api.worlds.tree(worldId),
   })
+  // This world's own class list, from its worldSettings.json — homebrew included.
+  // Must stay above the early return below: hook order can't be conditional.
+  const classes = useClasses(worldId)
 
   const [title, setTitle] = useState('')
   const [character, setCharacter] = useState<Character | null>(null)
   const [body, setBody] = useState('')
-  const [dirty, setDirty] = useState(false)
+  // `editSeq` bumps on every edit so the autosave debounce restarts on each
+  // keystroke; `dirty` alone stays true and would fire 2s after the first one.
+  const [{ dirty, editSeq }, setDirtyState] = useState({
+    dirty: false,
+    editSeq: 0,
+  })
+  const setDirty = useCallback((next: boolean) => {
+    setDirtyState((prev) => ({
+      dirty: next,
+      editSeq: next ? prev.editSeq + 1 : prev.editSeq,
+    }))
+  }, [])
   // Broken [[link]] clicked in inventory/notes -> offer to create the article.
   const [missingTitle, setMissingTitle] = useState<string | null>(null)
+  // Ctrl+Click / Ctrl+Enter on a [[link]] in the raw backstory text.
+  const openWikiLink = useWikiLinkOpener({
+    worldId,
+    articles: tree.data?.articles,
+    onMissing: setMissingTitle,
+  })
+  // Formatting shortcuts for the Backstory tab's markdown textarea.
+  const backstoryEditor = useMarkdownEditor({
+    onFallbackChange: (value) => {
+      setBody(value)
+      setDirty(true)
+    },
+    onWikiLinkOpen: openWikiLink,
+  })
+  // Controlled so Export PDF can switch to the preview before capturing it.
+  const [tab, setTab] = useState('sheet')
+  const [exporting, setExporting] = useState(false)
 
   // Same guarded reset as the article editor: only load fresh state when a
   // different character arrives or nothing is unsaved.
   const loadedIdRef = useRef<string | null>(null)
+  // Content of the last successful save. A save writes the result back into the
+  // query cache, which hands this effect a new `article.data` object with
+  // `dirty` freshly false — so without this guard every autosave reparses the
+  // character into all-new objects mid-edit, collapsing the open note (and
+  // churning every other tab's fields underneath the cursor).
+  const savedContentRef = useRef<string | null>(null)
+  // A half-typed title isn't tracked by `dirty` (it isn't content), so it needs
+  // its own guard or a background refetch would clobber it mid-word.
+  const titleDirtyRef = useRef(false)
   useEffect(() => {
     if (!article.data) return
-    if (loadedIdRef.current === article.data.id && dirty) return
+    if (loadedIdRef.current === article.data.id) {
+      if (dirty || titleDirtyRef.current) return
+      if (article.data.content === savedContentRef.current) return
+    }
     loadedIdRef.current = article.data.id
     const parsed = parseCharacter(article.data.content)
     setTitle(article.data.title)
@@ -56,39 +120,33 @@ function CharacterPage() {
     setDirty(false)
   }, [article.data, dirty])
 
-  const save = useMutation({
-    mutationFn: () => {
-      const currentId = article.data?.id ?? articleId
+  const { commitTitle, saveNow, isPending, error } = useArticleEditorSave({
+    worldId,
+    routeArticleId: articleId,
+    article: article.data,
+    title,
+    getContent: () => {
       if (!character) throw new Error('Nothing to save.')
-      return api.articles.update(worldId, currentId, {
-        title,
-        content: serializeCharacter(character, body),
-      })
+      return serializeCharacter(character, body)
     },
-    onSuccess: (updated) => {
-      queryClient.setQueryData(['articles', updated.id], updated)
-      queryClient.invalidateQueries({ queryKey: ['worlds', worldId] })
-      setDirty(false)
-      if (updated.id !== articleId) {
-        navigate({
-          to: '/worlds/$worldId/characters/$articleId',
-          params: { worldId, articleId: updated.id },
-          replace: true,
-        })
-      }
+    dirty,
+    setDirty,
+    editSeq,
+    onSaved: (updated) => {
+      savedContentRef.current = updated.content
+    },
+    onRenamed: (newId) => {
+      navigate({
+        to: '/worlds/$worldId/characters/$articleId',
+        params: { worldId, articleId: newId },
+        replace: true,
+      })
     },
   })
 
-  const saveMutate = save.mutate
-  const savePending = save.isPending
-  useEffect(() => {
-    if (!dirty || !title.trim() || savePending) return
-    const timer = setTimeout(() => saveMutate(), 2000)
-    return () => clearTimeout(timer)
-  }, [dirty, title, character, body, savePending, saveMutate])
-
   useShortcut('s', () => {
-    if (dirty && title.trim() && !save.isPending) save.mutate()
+    commitTitle()
+    if (dirty) saveNow()
   })
 
   const remove = useMutation({
@@ -125,12 +183,28 @@ function CharacterPage() {
   return (
     <div className="flex h-full flex-col">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b px-4 py-2">
+        {/* The title is the filename, so committing it renames the file and
+            rewrites [[links]] world-wide. Far too expensive (and racy) to do on
+            a keystroke — hence blur/Enter, not `dirty`. */}
         <Input
           value={title}
           className="max-w-56 border-none text-lg font-semibold shadow-none focus-visible:ring-1"
           onChange={(e) => {
             setTitle(e.target.value)
-            setDirty(true)
+            titleDirtyRef.current = true
+          }}
+          onBlur={() => {
+            titleDirtyRef.current = false
+            commitTitle()
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault()
+              e.currentTarget.blur()
+            } else if (e.key === 'Escape') {
+              setTitle(article.data?.title ?? title)
+              titleDirtyRef.current = false
+            }
           }}
         />
         <Input
@@ -139,12 +213,45 @@ function CharacterPage() {
           className="h-7 w-28 text-sm"
           onChange={(e) => update({ ...character, race: e.target.value })}
         />
+        {/* A datalist, not a <select>: the world's class names are one click
+            away but homebrew stays typeable, which the on-disk format
+            requires. */}
         <Input
+          list="dm-classes"
           value={character.class}
           placeholder="Class"
           className="h-7 w-28 text-sm"
-          onChange={(e) => update({ ...character, class: e.target.value })}
+          onChange={(e) => {
+            const value = e.target.value
+            const known = findClass(classes, value)
+            update({
+              ...character,
+              class: value,
+              // Naming a known class sets its hit die; homebrew leaves whatever
+              // size the sheet already had.
+              hitDice: known
+                ? { ...character.hitDice, size: known.hitDie }
+                : character.hitDice,
+            })
+          }}
         />
+        <datalist id="dm-classes">
+          {classes.map((cl) => (
+            <option key={cl.id} value={cl.name} />
+          ))}
+        </datalist>
+        <Input
+          list="dm-subclasses"
+          value={character.subclass}
+          placeholder={subclassLabelFor(classes, character.class)}
+          className="h-7 w-36 text-sm"
+          onChange={(e) => update({ ...character, subclass: e.target.value })}
+        />
+        <datalist id="dm-subclasses">
+          {subclassesFor(classes, character.class).map((name) => (
+            <option key={name} value={name} />
+          ))}
+        </datalist>
         <label className="flex items-center gap-1 text-sm">
           Lvl
           <NumField
@@ -152,7 +259,9 @@ function CharacterPage() {
             min={1}
             max={20}
             className="w-10"
-            onCommit={(v) => update({ ...character, level: v })}
+            // setLevel, not a bare assignment: hit dice follow the level unless
+            // the sheet has pinned them.
+            onCommit={(v) => update(setLevel(character, v))}
           />
         </label>
         <Input
@@ -187,12 +296,40 @@ function CharacterPage() {
             </Link>
           </Button>
           <Button
-            size="sm"
-            disabled={!dirty || !title.trim() || save.isPending}
-            onClick={() => save.mutate()}
+            variant="outline"
+            size="icon"
+            className="size-8"
+            title="Export the character sheet as PDF"
+            disabled={exporting}
+            onClick={async () => {
+              setTab('preview')
+              setExporting(true)
+              try {
+                // let the preview tab mount and paint before capturing
+                await new Promise((r) =>
+                  requestAnimationFrame(() => requestAnimationFrame(r)),
+                )
+                const area = document.querySelector<HTMLElement>('.print-area')
+                if (area)
+                  await exportPdf(area, `${title.trim() || 'character'}.pdf`)
+              } finally {
+                setExporting(false)
+              }
+            }}
           >
+            {exporting ? <Loader2 className="animate-spin" /> : <FileDown />}
+          </Button>
+          <Button size="sm" disabled={!dirty || isPending} onClick={saveNow}>
             <Save />
-            {save.isPending ? 'Saving…' : dirty ? 'Save' : 'Saved'}
+            {isPending ? 'Saving…' : dirty ? 'Save' : 'Saved'}
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            title={REVEAL_LABEL}
+            onClick={() => reveal(`${article.data?.id ?? articleId}.md`)}
+          >
+            <FolderOpen />
           </Button>
           <Button
             variant="ghost"
@@ -208,13 +345,13 @@ function CharacterPage() {
           </Button>
         </div>
       </div>
-      {save.isError && (
+      {error && (
         <p className="text-destructive border-b px-4 py-1 text-sm">
-          {save.error.message}
+          {error.message}
         </p>
       )}
 
-      <Tabs defaultValue="sheet" className="min-h-0 flex-1 gap-0">
+      <Tabs value={tab} onValueChange={setTab} className="min-h-0 flex-1 gap-0">
         <div className="border-b px-4 py-1.5">
           <TabsList className="h-8">
             <TabsTrigger value="sheet" className="text-xs">
@@ -223,11 +360,24 @@ function CharacterPage() {
             <TabsTrigger value="inventory" className="text-xs">
               Inventory ({character.inventory.length})
             </TabsTrigger>
+            <TabsTrigger value="equipment" className="text-xs">
+              Equipment
+            </TabsTrigger>
+            <TabsTrigger value="features" className="text-xs">
+              Features (
+              {character.features.length +
+                character.traits.length +
+                character.feats.length}
+              )
+            </TabsTrigger>
             <TabsTrigger value="notes" className="text-xs">
               Notes ({character.notes.length})
             </TabsTrigger>
             <TabsTrigger value="backstory" className="text-xs">
               Backstory
+            </TabsTrigger>
+            <TabsTrigger value="preview" className="text-xs">
+              <Eye className="size-3.5" /> Preview
             </TabsTrigger>
           </TabsList>
         </div>
@@ -252,6 +402,24 @@ function CharacterPage() {
             onCreateMissing={setMissingTitle}
           />
         </TabsContent>
+        <TabsContent
+          value="equipment"
+          className="min-h-0 flex-1 overflow-y-auto"
+        >
+          <EquipmentTab character={character} onChange={update} />
+        </TabsContent>
+        <TabsContent
+          value="features"
+          className="min-h-0 flex-1 overflow-y-auto"
+        >
+          <FeaturesTab
+            character={character}
+            onChange={update}
+            worldId={worldId}
+            articles={tree.data?.articles}
+            onCreateMissing={setMissingTitle}
+          />
+        </TabsContent>
         <TabsContent value="notes" className="min-h-0 flex-1 overflow-y-auto">
           <NotesTab
             character={character}
@@ -262,15 +430,46 @@ function CharacterPage() {
           />
         </TabsContent>
         <TabsContent value="backstory" className="flex min-h-0 flex-1 flex-col">
-          <Textarea
-            value={body}
-            placeholder="Backstory, bonds, ideals, flaws — markdown with [[wiki links]]."
-            className="h-full min-h-0 flex-1 resize-none rounded-none border-none font-mono text-sm shadow-none focus-visible:ring-0"
-            onChange={(e) => {
-              setBody(e.target.value)
-              setDirty(true)
-            }}
-          />
+          <MarkdownContextMenu editor={backstoryEditor}>
+            <Textarea
+              ref={backstoryEditor.ref}
+              value={body}
+              placeholder="Backstory, bonds, ideals, flaws — markdown with [[wiki links]]."
+              className={cn(
+                'h-full min-h-0 flex-1 resize-none rounded-none border-none font-mono text-sm shadow-none focus-visible:ring-0',
+                // Ctrl held over a [[link]]: show it is clickable.
+                backstoryEditor.wikiLinkHovered && 'cursor-pointer',
+              )}
+              onMouseMove={backstoryEditor.onMouseMove}
+              onMouseLeave={backstoryEditor.onMouseLeave}
+              onChange={(e) => {
+                setBody(e.target.value)
+                setDirty(true)
+              }}
+              onClick={backstoryEditor.onClick}
+              onKeyDown={backstoryEditor.onKeyDown}
+              onBeforeInput={backstoryEditor.onBeforeInput}
+            />
+          </MarkdownContextMenu>
+        </TabsContent>
+        <TabsContent
+          value="preview"
+          className="min-h-0 flex-1 overflow-y-auto bg-stone-800/90 dark:bg-stone-950"
+        >
+          {/* .print-area sits outside the zoom wrapper so browser Ctrl+P
+              doesn't inherit the scale; exportPdf finds .dnd-page either way. */}
+          <div className="print-area">
+            <SheetFitPane>
+              <SheetPreview
+                character={character}
+                body={body}
+                title={title}
+                source={source}
+                worldId={worldId}
+                articles={tree.data?.articles}
+              />
+            </SheetFitPane>
+          </div>
         </TabsContent>
       </Tabs>
 

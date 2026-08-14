@@ -58,13 +58,18 @@ Everyone's app picks it up automatically on their next launch.
 
 ```
 My World/
-  world.json          # name, description, createdAt
+  worldSettings.json  # name, description, createdAt + homebrew classes
   Fens Crossing.md    # root-level article
   NPCs/               # folders are directories
     Strahd.md
   _images/            # world image library
     map.png
 ```
+
+`worldSettings.json` is what marks a folder as a world, and it's safe to
+hand-edit. Worlds made by older versions have a separate `world.json`; it's
+folded into `worldSettings.json` and sent to the Recycle Bin the next time the
+world is opened.
 
 ## Migrating from the old SQLite version
 

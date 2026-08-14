@@ -1,4 +1,11 @@
-import { useDeferredValue, useEffect, useRef, useState } from 'react'
+import {
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import { Link, createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
@@ -6,7 +13,9 @@ import {
   Columns2,
   Eye,
   FileDown,
+  FolderOpen,
   Link2,
+  List,
   Loader2,
   Pencil,
   Save,
@@ -14,8 +23,11 @@ import {
   Wand2,
 } from 'lucide-react'
 import { api } from '#/lib/api'
-import { isCharacterContent } from '#/lib/character'
+import { REVEAL_LABEL, revealer } from '#/lib/reveal'
+import { isCharacterContent, parseCharacter } from '#/lib/character'
 import { useShortcut } from '#/lib/useShortcut'
+import { useArticleEditorSave } from '#/lib/useArticleEditorSave'
+import type { ImageInfo } from '#/lib/api'
 import type { RollSource } from '#/lib/rollLog'
 import { exportPdf } from '#/lib/exportPdf'
 import { formatMarkdown, snippets } from '#/lib/formatMarkdown'
@@ -24,7 +36,9 @@ import { Button } from '#/components/ui/button'
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuSub,
   DropdownMenuSubContent,
@@ -37,8 +51,23 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '#/components/ui/tabs'
 import { Textarea } from '#/components/ui/textarea'
 import { cn } from '#/lib/utils'
 import { BookView } from '#/components/Markdown'
+import {
+  MENU_GROUP_LABEL as INSERT_GROUP_LABEL,
+  MarkdownContextMenu,
+} from '#/components/MarkdownContextMenu'
+import { TableOfContents } from '#/components/TableOfContents'
+import {
+  activeHeadingAt,
+  editorScrollTopFor,
+  parseHeadings,
+  scrollPreviewToHeading,
+} from '#/lib/toc'
+import type { TocHeading } from '#/lib/toc'
+import { SheetPreview } from '#/components/character/SheetPreview'
 import { ImagePickerDialog } from '#/components/ImagePickerDialog'
 import { HowToDialog } from '#/components/HowToDialog'
+import { useMarkdownEditor } from '#/lib/useMarkdownEditor'
+import { useWikiLinkOpener } from '#/lib/useWikiLinkOpener'
 import { CreateMissingArticleDialog } from '#/components/CreateMissingArticleDialog'
 
 export const Route = createFileRoute('/worlds/$worldId/articles/$articleId')({
@@ -63,6 +92,20 @@ function LinkToArticle({
       {title}
     </Link>
   )
+}
+
+const TOC_KEY = 'dm.articleToc'
+
+/** Outline pane visibility, remembered across sessions like the session panel. */
+function loadTocOpen(): boolean {
+  try {
+    const raw = JSON.parse(localStorage.getItem(TOC_KEY) ?? '') as {
+      open?: boolean
+    }
+    return raw.open === true
+  } catch {
+    return false
+  }
 }
 
 /**
@@ -124,6 +167,7 @@ function ArticlePage() {
   const { worldId, articleId } = Route.useParams()
   const queryClient = useQueryClient()
   const navigate = useNavigate()
+  const reveal = revealer(worldId)
 
   const article = useQuery({
     queryKey: ['articles', articleId],
@@ -140,18 +184,40 @@ function ArticlePage() {
 
   const [title, setTitle] = useState('')
   const [content, setContent] = useState('')
-  const [dirty, setDirty] = useState(false)
+  // `editSeq` bumps on every edit so the autosave debounce restarts on each
+  // keystroke; `dirty` alone stays true and would fire 2s after the first one.
+  const [{ dirty, editSeq }, setDirtyState] = useState({
+    dirty: false,
+    editSeq: 0,
+  })
+  const setDirty = useCallback((next: boolean) => {
+    setDirtyState((prev) => ({
+      dirty: next,
+      editSeq: next ? prev.editSeq + 1 : prev.editSeq,
+    }))
+  }, [])
   const [externalChange, setExternalChange] = useState(false)
   const [tab, setTab] = useState('write')
   const [livePreview, setLivePreview] = useState(false)
   const [exporting, setExporting] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const [tocOpen, setTocOpen] = useState(loadTocOpen)
+  const [activeHeadingId, setActiveHeadingId] = useState<string | null>(null)
+  const previewRef = useRef<HTMLDivElement>(null)
 
   // [[ autocomplete: the partial title being typed after an unclosed [[
   const [linkQuery, setLinkQuery] = useState<string | null>(null)
   const [linkIndex, setLinkIndex] = useState(0)
+  // _images/ autocomplete: the partial path being typed after an _images/ prefix
+  const [imageQuery, setImageQuery] = useState<string | null>(null)
+  const [imageIndex, setImageIndex] = useState(0)
   // Create-from-broken-link dialog
   const [missingTitle, setMissingTitle] = useState<string | null>(null)
+
+  const images = useQuery({
+    queryKey: ['worlds', worldId, 'images'],
+    queryFn: () => api.images.tree(worldId),
+  })
 
   const linkMatches =
     linkQuery !== null
@@ -164,13 +230,70 @@ function ArticlePage() {
           .slice(0, 6)
       : []
 
-  const updateLinkQuery = () => {
+  const imageMatches =
+    imageQuery !== null
+      ? (images.data?.images ?? [])
+          .filter((i) => i.id.toLowerCase().includes(imageQuery.toLowerCase()))
+          .slice(0, 6)
+      : []
+
+  // A path is being typed once an _images/ prefix is open: inside a markdown
+  // link — ](_images/… — or on a statblock `image:` line, in either the bare or
+  // the picker's markdown form.
+  const IMAGE_PATH_TYPING =
+    /(?:\]\(|^[ \t]*image:[ \t]*(?:!\[[^\]]*\]\()?)_images\/([^)\n]*)$/m
+
+  // The outline, parsed from the source rather than the rendered DOM — the book
+  // preview repeats the whole document on every sheet, so its headings are
+  // duplicated `sheetCount` times over. See lib/toc.ts.
+  const headings = useMemo(() => parseHeadings(content), [content])
+
+  useEffect(() => {
+    localStorage.setItem(TOC_KEY, JSON.stringify({ open: tocOpen }))
+  }, [tocOpen])
+
+  /**
+   * Jump to a heading. Where that lands depends on the tab: the Write tab puts
+   * the caret on the heading's line and scrolls it near the top; the Preview
+   * tab scrolls to the book sheet the heading is actually visible on.
+   */
+  const goToHeading = (heading: TocHeading) => {
+    setActiveHeadingId(heading.id)
+    if (tab === 'preview') {
+      const scroller = previewRef.current
+      if (scroller) scrollPreviewToHeading(scroller, heading)
+      return
+    }
+    // setTimeout(0) for the same reason completeLink uses one: the textarea may
+    // not be focusable until React has committed the current render.
+    setTimeout(() => {
+      const textarea = textareaRef.current
+      if (!textarea) return
+      textarea.focus()
+      textarea.setSelectionRange(heading.offset, heading.offset)
+      textarea.scrollTop = editorScrollTopFor(textarea, heading.offset)
+    }, 0)
+  }
+
+  const updateQueries = () => {
     const textarea = textareaRef.current
-    if (!textarea) return setLinkQuery(null)
+    if (!textarea) {
+      setLinkQuery(null)
+      setImageQuery(null)
+      return
+    }
     const before = textarea.value.slice(0, textarea.selectionStart)
-    const m = before.match(/\[\[([^\][\n]*)$/)
-    setLinkQuery(m ? m[1] : null)
+    const link = before.match(/\[\[([^\][\n]*)$/)
+    setLinkQuery(link ? link[1] : null)
     setLinkIndex(0)
+    // Only one strip shows at a time; an open [[ wins.
+    const image = link ? null : before.match(IMAGE_PATH_TYPING)
+    setImageQuery(image ? image[1] : null)
+    setImageIndex(0)
+    // The outline follows the caret: count the newlines behind it to get the
+    // current line, then take the last heading at or above it.
+    const line = before.split('\n').length - 1
+    setActiveHeadingId(activeHeadingAt(headings, line)?.id ?? null)
   }
 
   const completeLink = (linkTitle: string) => {
@@ -190,13 +313,39 @@ function ArticlePage() {
     }, 0)
   }
 
+  /** Replace the partial _images/… path being typed with a real image path. */
+  const completeImagePath = (image: ImageInfo) => {
+    const textarea = textareaRef.current
+    if (!textarea) return
+    const pos = textarea.selectionStart
+    const start = content.lastIndexOf('_images/', pos)
+    if (start < 0) return
+    setContent(
+      content.slice(0, start) + image.encodedRelPath + content.slice(pos),
+    )
+    setDirty(true)
+    setImageQuery(null)
+    const cursor = start + image.encodedRelPath.length
+    setTimeout(() => {
+      textarea.focus()
+      textarea.setSelectionRange(cursor, cursor)
+    }, 0)
+  }
+
   // Reset the editor whenever a different (or freshly loaded) article arrives.
   // Guarded so a background refetch can never clobber unsaved edits: only
   // reset when a different article loads, or when there is nothing unsaved.
   const loadedIdRef = useRef<string | null>(null)
+  // A half-typed title isn't tracked by `dirty` (it isn't content), so it needs
+  // its own guard or a background refetch would clobber it mid-word.
+  const titleDirtyRef = useRef(false)
   useEffect(() => {
     if (!article.data) return
-    if (loadedIdRef.current === article.data.id && dirty) return
+    if (
+      loadedIdRef.current === article.data.id &&
+      (dirty || titleDirtyRef.current)
+    )
+      return
     loadedIdRef.current = article.data.id
     setTitle(article.data.title)
     setContent(article.data.content)
@@ -217,40 +366,28 @@ function ArticlePage() {
     })
   }, [worldId, articleId])
 
-  const save = useMutation({
-    // Key the save off the query cache's id, not the route param: after a
-    // rename the article's id (its file path) changes, and a stale route
-    // param must never write to the old path.
-    mutationFn: () => {
-      const currentId = article.data?.id ?? articleId
-      return api.articles.update(worldId, currentId, { title, content })
-    },
-    onSuccess: (updated) => {
-      queryClient.setQueryData(['articles', updated.id], updated)
-      queryClient.invalidateQueries({ queryKey: ['worlds', worldId, 'tree'] })
-      setDirty(false)
-      if (updated.id !== articleId) {
-        // Rename: the file moved, so re-key the URL without adding history.
-        navigate({
-          to: '/worlds/$worldId/articles/$articleId',
-          params: { worldId, articleId: updated.id },
-          replace: true,
-        })
-      }
+  const { commitTitle, saveNow, isPending, error } = useArticleEditorSave({
+    worldId,
+    routeArticleId: articleId,
+    article: article.data,
+    title,
+    getContent: () => content,
+    dirty,
+    setDirty,
+    editSeq,
+    onRenamed: (newId) => {
+      // Rename: the file moved, so re-key the URL without adding history.
+      navigate({
+        to: '/worlds/$worldId/articles/$articleId',
+        params: { worldId, articleId: newId },
+        replace: true,
+      })
     },
   })
 
-  // Autosave: 2s after the last keystroke, while there are unsaved changes.
-  const saveMutate = save.mutate
-  const savePending = save.isPending
-  useEffect(() => {
-    if (!dirty || !title.trim() || savePending) return
-    const timer = setTimeout(() => saveMutate(), 2000)
-    return () => clearTimeout(timer)
-  }, [dirty, title, content, savePending, saveMutate])
-
   useShortcut('s', () => {
-    if (dirty && title.trim() && !save.isPending) save.mutate()
+    commitTitle()
+    if (dirty) saveNow()
   })
   useShortcut('p', () => setTab((t) => (t === 'write' ? 'preview' : 'write')))
 
@@ -263,24 +400,80 @@ function ArticlePage() {
     },
   })
 
-  // Attribute rolls to the saved article (stable while typing).
-  const rollSource: RollSource | undefined = article.data
-    ? { worldId, articleId: article.data.id, title: article.data.title }
-    : undefined
+  // Attribute rolls to the saved article. Memoised on the values rather than
+  // rebuilt each render: this object is a dependency of the renderer's
+  // component map, so a fresh reference per keystroke would rebuild every
+  // markdown subtree while typing.
+  const savedId = article.data?.id
+  const savedTitle = article.data?.title
+  const rollSource: RollSource | undefined = useMemo(
+    () =>
+      savedId != null && savedTitle != null
+        ? { worldId, articleId: savedId, title: savedTitle }
+        : undefined,
+    [worldId, savedId, savedTitle],
+  )
+  // The sheet preview always needs a source; fall back to the route's ids
+  // before the article query resolves. Memoised for the same reason.
+  const sheetSource: RollSource = useMemo(
+    () => rollSource ?? { worldId, articleId, title },
+    [rollSource, worldId, articleId, title],
+  )
 
-  const insertAtCursor = (snippet: string) => {
-    const textarea = textareaRef.current
-    setContent((prev) => {
-      if (!textarea) return `${prev}\n\n${snippet}\n`
-      const start = textarea.selectionStart
-      const end = textarea.selectionEnd
-      return `${prev.slice(0, start)}${snippet}${prev.slice(end)}`
-    })
-    setDirty(true)
+  // Characters preview as a parchment sheet rather than as prose, since all
+  // their data lives in the frontmatter that BookView deliberately strips.
+  const isCharacter = isCharacterContent(content)
+  const parsedCharacter = useMemo(
+    () => (isCharacter ? parseCharacter(content) : null),
+    [isCharacter, content],
+  )
+
+  // Ctrl+Click / Ctrl+Enter on a [[link]] in the raw editor: jump to the
+  // article, or offer to create it — the same reach the preview already has.
+  const openWikiLink = useWikiLinkOpener({
+    worldId,
+    articles: tree.data?.articles,
+    onMissing: setMissingTitle,
+  })
+
+  // Formatting shortcuts (Ctrl+B/I/E, Ctrl+T tables, bracket-wrapping…). Edits
+  // go through execCommand so the native undo stack survives, which also means
+  // the textarea's own onChange fires and drives autosave as usual.
+  const editor = useMarkdownEditor({
+    ref: textareaRef,
+    onFallbackChange: (value) => {
+      setContent(value)
+      setDirty(true)
+    },
+    // While the [[ ]] suggestion strip is up it owns Tab and Enter.
+    isSuppressed: (e) =>
+      linkQuery !== null &&
+      linkMatches.length > 0 &&
+      ['Tab', 'Enter', 'ArrowUp', 'ArrowDown', 'Escape'].includes(e.key),
+    onWikiLinkOpen: openWikiLink,
+  })
+  const insertAtCursor = editor.insertText
+  const insertBlock = editor.insertBlock
+
+  /**
+   * Upload dropped/pasted image files into the world and insert them at the
+   * cursor. Clipboard screenshots all arrive named "image.png", which the
+   * upload dedupe turns into "image (2).png" and so on.
+   */
+  const uploadAndInsert = async (files: Array<File>) => {
+    const pictures = files.filter((f) => f.type.startsWith('image/'))
+    if (pictures.length === 0) return
+    try {
+      for (const file of pictures) {
+        const image = await api.images.upload(worldId, file)
+        const alt = image.fileName.replace(/\.[^.]+$/, '')
+        insertAtCursor(`![${alt}](${image.encodedRelPath})`)
+      }
+      queryClient.invalidateQueries({ queryKey: ['worlds', worldId, 'images'] })
+    } catch (error) {
+      alert((error as Error).message)
+    }
   }
-
-  // Block snippets (tables, boxes) need blank lines around them to parse as markdown.
-  const insertBlock = (snippet: string) => insertAtCursor(`\n\n${snippet}\n\n`)
 
   const tidy = async () => {
     const formatted = await formatMarkdown(content)
@@ -304,12 +497,28 @@ function ArticlePage() {
   return (
     <div className="flex h-full flex-col">
       <div className="flex items-center gap-2 border-b px-4 py-2">
+        {/* The title is the filename, so committing it renames the file and
+            rewrites [[links]] world-wide. Far too expensive (and racy) to do on
+            a keystroke — hence blur/Enter, not `dirty`. */}
         <Input
           value={title}
           className="max-w-md border-none text-lg font-semibold shadow-none focus-visible:ring-1"
           onChange={(e) => {
             setTitle(e.target.value)
-            setDirty(true)
+            titleDirtyRef.current = true
+          }}
+          onBlur={() => {
+            titleDirtyRef.current = false
+            commitTitle()
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault()
+              e.currentTarget.blur()
+            } else if (e.key === 'Escape') {
+              setTitle(article.data?.title ?? title)
+              titleDirtyRef.current = false
+            }
           }}
         />
         <div className="ml-auto flex items-center gap-2">
@@ -319,58 +528,117 @@ function ArticlePage() {
                 Insert <ChevronDown className="size-3.5" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={() => insertBlock(snippets.table)}>
-                Table
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => insertBlock(snippets.readAloud)}>
-                Read-aloud box
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => insertBlock(snippets.divider)}>
-                Divider
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={() => insertAtCursor(snippets.namedRoll)}
-              >
-                Named roll
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => insertBlock(snippets.statBlock)}>
-                Stat block
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={() => insertBlock(snippets.portraitImage)}
-              >
-                Portrait image (text wraps)
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => insertBlock(snippets.pageBreak)}>
-                Page break
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={() => insertBlock(snippets.singleColumn)}
-              >
-                Single-column page
-              </DropdownMenuItem>
+            <DropdownMenuContent
+              align="end"
+              className="max-h-[70vh] overflow-y-auto"
+            >
+              {/* Block snippets go through insertBlock so they get the blank
+                  lines that make them parse as their own block; inline ones
+                  (rolls, wiki links) drop straight at the cursor. */}
+              <DropdownMenuGroup>
+                <DropdownMenuLabel className={INSERT_GROUP_LABEL}>
+                  Text
+                </DropdownMenuLabel>
+                <DropdownMenuItem onClick={() => insertBlock(snippets.table)}>
+                  Table
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => insertBlock(snippets.rollableTable)}
+                >
+                  Rollable d100 table
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => insertBlock(snippets.divider)}>
+                  Divider
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => insertAtCursor(snippets.wikiLink)}
+                >
+                  Wiki link
+                </DropdownMenuItem>
+              </DropdownMenuGroup>
               <DropdownMenuSeparator />
-              <DropdownMenuSub>
-                <DropdownMenuSubTrigger>Template</DropdownMenuSubTrigger>
-                <DropdownMenuSubContent>
-                  {articleTemplates
-                    .filter((t) => t.id !== 'blank')
-                    .map((template) => (
-                      <DropdownMenuItem
-                        key={template.id}
-                        onClick={() => insertBlock(template.body.trim())}
-                      >
-                        <div>
-                          <span className="block">{template.name}</span>
-                          <span className="text-muted-foreground block text-xs">
-                            {template.description}
-                          </span>
-                        </div>
-                      </DropdownMenuItem>
-                    ))}
-                </DropdownMenuSubContent>
-              </DropdownMenuSub>
+              <DropdownMenuGroup>
+                <DropdownMenuLabel className={INSERT_GROUP_LABEL}>
+                  D&amp;D
+                </DropdownMenuLabel>
+                <DropdownMenuItem
+                  onClick={() => insertBlock(snippets.readAloud)}
+                >
+                  Read-aloud box
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => insertBlock(snippets.statBlock)}
+                >
+                  Stat block
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => insertAtCursor(snippets.namedRoll)}
+                >
+                  Named roll
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => insertAtCursor(snippets.hiddenRoll)}
+                >
+                  Hidden DM roll
+                </DropdownMenuItem>
+              </DropdownMenuGroup>
+              <DropdownMenuSeparator />
+              <DropdownMenuGroup>
+                <DropdownMenuLabel className={INSERT_GROUP_LABEL}>
+                  Layout
+                </DropdownMenuLabel>
+                <DropdownMenuItem
+                  onClick={() => insertBlock(snippets.portraitImage)}
+                >
+                  Portrait image (text wraps)
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => insertBlock(snippets.floatImage)}
+                >
+                  Floating image
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => insertBlock(snippets.pageBreak)}
+                >
+                  Page break
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => insertBlock(snippets.singleColumn)}
+                >
+                  Single-column page
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => insertBlock(snippets.twoColumn)}
+                >
+                  Two-column page
+                </DropdownMenuItem>
+              </DropdownMenuGroup>
+              <DropdownMenuSeparator />
+              <DropdownMenuGroup>
+                <DropdownMenuLabel className={INSERT_GROUP_LABEL}>
+                  Templates
+                </DropdownMenuLabel>
+                <DropdownMenuSub>
+                  <DropdownMenuSubTrigger>Template</DropdownMenuSubTrigger>
+                  <DropdownMenuSubContent>
+                    {articleTemplates
+                      .filter((t) => t.id !== 'blank')
+                      .map((template) => (
+                        <DropdownMenuItem
+                          key={template.id}
+                          onClick={() => insertBlock(template.body.trim())}
+                        >
+                          <div>
+                            <span className="block">{template.name}</span>
+                            <span className="text-muted-foreground block text-xs">
+                              {template.description}
+                            </span>
+                          </div>
+                        </DropdownMenuItem>
+                      ))}
+                  </DropdownMenuSubContent>
+                </DropdownMenuSub>
+              </DropdownMenuGroup>
             </DropdownMenuContent>
           </DropdownMenu>
           <Button
@@ -381,7 +649,17 @@ function ArticlePage() {
           >
             <Wand2 /> Tidy
           </Button>
-          <ImagePickerDialog worldId={worldId} onInsert={insertAtCursor} />
+          <ImagePickerDialog
+            worldId={worldId}
+            onInsert={insertAtCursor}
+            // A rename/move rewrote _images/ paths in article bodies. A clean
+            // editor reloads from the invalidated cache; a dirty one would
+            // autosave the stale path back, so surface the same banner the file
+            // watcher uses and let the author choose.
+            onRefsRewritten={() => {
+              if (dirty) setExternalChange(true)
+            }}
+          />
           <Button
             variant="outline"
             size="icon"
@@ -407,12 +685,16 @@ function ArticlePage() {
             {exporting ? <Loader2 className="animate-spin" /> : <FileDown />}
           </Button>
           <HowToDialog />
+          <Button size="sm" disabled={!dirty || isPending} onClick={saveNow}>
+            <Save /> {isPending ? 'Saving…' : dirty ? 'Save' : 'Saved'}
+          </Button>
           <Button
-            size="sm"
-            disabled={!dirty || !title.trim() || save.isPending}
-            onClick={() => save.mutate()}
+            variant="ghost"
+            size="icon"
+            title={REVEAL_LABEL}
+            onClick={() => reveal(`${article.data?.id ?? articleId}.md`)}
           >
-            <Save /> {save.isPending ? 'Saving…' : dirty ? 'Save' : 'Saved'}
+            <FolderOpen />
           </Button>
           <Button
             variant="ghost"
@@ -426,12 +708,12 @@ function ArticlePage() {
           </Button>
         </div>
       </div>
-      {save.isError && (
+      {error && (
         <p className="text-destructive border-b px-4 py-1 text-sm">
-          {save.error.message}
+          {error.message}
         </p>
       )}
-      {isCharacterContent(content) && (
+      {isCharacter && (
         <div className="bg-accent/40 flex items-center gap-2 border-b px-4 py-1 text-sm">
           <span>This is a character — the frontmatter is its sheet data.</span>
           <Button variant="outline" size="sm" className="h-6 text-xs" asChild>
@@ -474,126 +756,255 @@ function ArticlePage() {
         </div>
       )}
 
-      <Tabs value={tab} onValueChange={setTab} className="min-h-0 flex-1 gap-0">
-        <div className="flex items-center border-b px-4 py-1.5">
-          <TabsList className="h-8">
-            <TabsTrigger value="write" className="text-xs">
-              <Pencil className="size-3.5" /> Write
-            </TabsTrigger>
-            <TabsTrigger value="preview" className="text-xs">
-              <Eye className="size-3.5" /> Preview
-            </TabsTrigger>
-          </TabsList>
-          {tab === 'write' && (
-            <Button
-              variant={livePreview ? 'secondary' : 'ghost'}
-              size="sm"
-              className="ml-auto h-8 text-xs"
-              title="Show a live preview beside the editor"
-              onClick={() => setLivePreview((v) => !v)}
-            >
-              <Columns2 className="size-3.5" /> Live preview
-            </Button>
-          )}
-        </div>
-        <TabsContent value="write" className="flex min-h-0 flex-1 flex-col">
-          {linkQuery !== null && linkMatches.length > 0 && (
-            <div className="bg-muted/60 flex items-center gap-1.5 overflow-x-auto border-b px-3 py-1.5 text-sm">
-              <span className="text-muted-foreground shrink-0 text-xs">
-                Link to:
-              </span>
-              {linkMatches.map((match, i) => (
-                <button
-                  key={match.id}
-                  type="button"
-                  className={cn(
-                    'shrink-0 rounded border px-2 py-0.5 text-xs',
-                    i === linkIndex
-                      ? 'bg-accent border-primary'
-                      : 'hover:bg-accent',
-                  )}
-                  onMouseDown={(e) => {
-                    e.preventDefault()
-                    completeLink(match.title)
-                  }}
-                >
-                  {match.title}
-                </button>
-              ))}
-              <span className="text-muted-foreground shrink-0 text-xs">
-                ↹ Tab · ⏎ Enter
-              </span>
-            </div>
-          )}
-          <div className="flex min-h-0 flex-1">
-            <Textarea
-              ref={textareaRef}
-              value={content}
-              placeholder="Write your lore in markdown…"
-              className="h-full min-h-0 flex-1 resize-none rounded-none border-none font-mono text-sm shadow-none focus-visible:ring-0"
-              onChange={(e) => {
-                setContent(e.target.value)
-                setDirty(true)
-                requestAnimationFrame(updateLinkQuery)
-              }}
-              onClick={updateLinkQuery}
-              onKeyUp={(e) => {
-                if (
-                  !['ArrowDown', 'ArrowUp', 'Enter', 'Tab', 'Escape'].includes(
-                    e.key,
-                  )
-                )
-                  updateLinkQuery()
-              }}
-              onKeyDown={(e) => {
-                if (linkQuery === null || linkMatches.length === 0) return
-                if (e.key === 'ArrowDown') {
-                  e.preventDefault()
-                  setLinkIndex((i) => (i + 1) % linkMatches.length)
-                } else if (e.key === 'ArrowUp') {
-                  e.preventDefault()
-                  setLinkIndex(
-                    (i) => (i - 1 + linkMatches.length) % linkMatches.length,
-                  )
-                } else if (e.key === 'Enter' || e.key === 'Tab') {
-                  e.preventDefault()
-                  completeLink(linkMatches[linkIndex].title)
-                } else if (e.key === 'Escape') {
-                  setLinkQuery(null)
-                }
-              }}
-            />
-            {livePreview && (
-              <LivePreviewPane
-                content={content}
-                articles={tree.data?.articles}
-                worldId={worldId}
-                source={rollSource}
-                onCreateMissing={setMissingTitle}
-              />
-            )}
-          </div>
-        </TabsContent>
-        <TabsContent
-          value="preview"
-          className="min-h-0 flex-1 overflow-y-auto bg-stone-800/90 dark:bg-stone-950"
+      <div className="flex min-h-0 flex-1">
+        <Tabs
+          value={tab}
+          onValueChange={setTab}
+          className="min-h-0 flex-1 gap-0"
         >
-          <div className="print-area p-6 md:p-10">
-            {content.trim() ? (
-              <BookView
-                articles={tree.data?.articles}
-                worldId={worldId}
-                source={rollSource}
-                onCreateMissing={setMissingTitle}
-              >
-                {content}
-              </BookView>
-            ) : (
-              <p className="text-stone-400">Nothing to preview yet.</p>
-            )}
+          <div className="flex items-center border-b px-4 py-1.5">
+            <TabsList className="h-8">
+              <TabsTrigger value="write" className="text-xs">
+                <Pencil className="size-3.5" /> Write
+              </TabsTrigger>
+              <TabsTrigger value="preview" className="text-xs">
+                <Eye className="size-3.5" /> Preview
+              </TabsTrigger>
+            </TabsList>
+            <div className="ml-auto flex items-center gap-2">
+              {tab === 'write' && (
+                <Button
+                  variant={livePreview ? 'secondary' : 'ghost'}
+                  size="sm"
+                  className="h-8 text-xs"
+                  title="Show a live preview beside the editor"
+                  onClick={() => setLivePreview((v) => !v)}
+                >
+                  <Columns2 className="size-3.5" /> Live preview
+                </Button>
+              )}
+              {!parsedCharacter && (
+                <Button
+                  variant={tocOpen ? 'secondary' : 'ghost'}
+                  size="sm"
+                  className="h-8 text-xs"
+                  title="Show the article outline"
+                  onClick={() => setTocOpen((v) => !v)}
+                >
+                  <List className="size-3.5" /> Outline
+                </Button>
+              )}
+            </div>
           </div>
-        </TabsContent>
-      </Tabs>
+          <TabsContent value="write" className="flex min-h-0 flex-1 flex-col">
+            {linkQuery !== null && linkMatches.length > 0 && (
+              <div className="bg-muted/60 flex items-center gap-1.5 overflow-x-auto border-b px-3 py-1.5 text-sm">
+                <span className="text-muted-foreground shrink-0 text-xs">
+                  Link to:
+                </span>
+                {linkMatches.map((match, i) => (
+                  <button
+                    key={match.id}
+                    type="button"
+                    className={cn(
+                      'shrink-0 rounded border px-2 py-0.5 text-xs',
+                      i === linkIndex
+                        ? 'bg-accent border-primary'
+                        : 'hover:bg-accent',
+                    )}
+                    onMouseDown={(e) => {
+                      e.preventDefault()
+                      completeLink(match.title)
+                    }}
+                  >
+                    {match.title}
+                  </button>
+                ))}
+                <span className="text-muted-foreground shrink-0 text-xs">
+                  ↹ Tab · ⏎ Enter
+                </span>
+              </div>
+            )}
+            {imageQuery !== null && imageMatches.length > 0 && (
+              <div className="bg-muted/60 flex items-center gap-1.5 overflow-x-auto border-b px-3 py-1.5 text-sm">
+                <span className="text-muted-foreground shrink-0 text-xs">
+                  Image:
+                </span>
+                {imageMatches.map((match, i) => (
+                  <button
+                    key={match.id}
+                    type="button"
+                    className={cn(
+                      'shrink-0 rounded border px-2 py-0.5 text-xs',
+                      i === imageIndex
+                        ? 'bg-accent border-primary'
+                        : 'hover:bg-accent',
+                    )}
+                    onMouseDown={(e) => {
+                      e.preventDefault()
+                      completeImagePath(match)
+                    }}
+                  >
+                    {match.id}
+                  </button>
+                ))}
+                <span className="text-muted-foreground shrink-0 text-xs">
+                  ↹ Tab · ⏎ Enter
+                </span>
+              </div>
+            )}
+            <div className="flex min-h-0 flex-1">
+              <MarkdownContextMenu editor={editor}>
+                <Textarea
+                  ref={textareaRef}
+                  value={content}
+                  placeholder="Write your lore in markdown…"
+                  className={cn(
+                    'h-full min-h-0 flex-1 resize-none rounded-none border-none font-mono text-sm shadow-none focus-visible:ring-0',
+                    // Ctrl held over a [[link]]: show it is clickable.
+                    editor.wikiLinkHovered && 'cursor-pointer',
+                  )}
+                  onMouseMove={editor.onMouseMove}
+                  onMouseLeave={editor.onMouseLeave}
+                  onChange={(e) => {
+                    setContent(e.target.value)
+                    setDirty(true)
+                    requestAnimationFrame(updateQueries)
+                  }}
+                  onClick={(e) => {
+                    // Ctrl+Click opens a [[link]]; a plain click just moves
+                    // the caret, which the autocomplete needs to re-read.
+                    editor.onClick(e)
+                    updateQueries()
+                  }}
+                  onPaste={(e) => {
+                    const files = Array.from(e.clipboardData.files)
+                    if (files.some((f) => f.type.startsWith('image/'))) {
+                      e.preventDefault()
+                      uploadAndInsert(files)
+                    }
+                  }}
+                  onDragOver={(e) => {
+                    // Only claim the drop for files — the textarea's own text-drag
+                    // behaviour must keep working.
+                    if (e.dataTransfer.types.indexOf('Files') >= 0)
+                      e.preventDefault()
+                  }}
+                  onDrop={(e) => {
+                    const files = Array.from(e.dataTransfer.files)
+                    if (files.some((f) => f.type.startsWith('image/'))) {
+                      e.preventDefault()
+                      uploadAndInsert(files)
+                    }
+                  }}
+                  onKeyUp={(e) => {
+                    if (
+                      ![
+                        'ArrowDown',
+                        'ArrowUp',
+                        'Enter',
+                        'Tab',
+                        'Escape',
+                      ].includes(e.key)
+                    )
+                      updateQueries()
+                  }}
+                  onBeforeInput={editor.onBeforeInput}
+                  onKeyDown={(e) => {
+                    if (imageQuery !== null && imageMatches.length > 0) {
+                      if (e.key === 'ArrowDown') {
+                        e.preventDefault()
+                        setImageIndex((i) => (i + 1) % imageMatches.length)
+                      } else if (e.key === 'ArrowUp') {
+                        e.preventDefault()
+                        setImageIndex(
+                          (i) =>
+                            (i - 1 + imageMatches.length) % imageMatches.length,
+                        )
+                      } else if (e.key === 'Enter' || e.key === 'Tab') {
+                        e.preventDefault()
+                        completeImagePath(imageMatches[imageIndex])
+                      } else if (e.key === 'Escape') {
+                        setImageQuery(null)
+                      }
+                      return
+                    }
+                    if (linkQuery === null || linkMatches.length === 0)
+                      return editor.onKeyDown(e)
+                    if (e.key === 'ArrowDown') {
+                      e.preventDefault()
+                      setLinkIndex((i) => (i + 1) % linkMatches.length)
+                    } else if (e.key === 'ArrowUp') {
+                      e.preventDefault()
+                      setLinkIndex(
+                        (i) =>
+                          (i - 1 + linkMatches.length) % linkMatches.length,
+                      )
+                    } else if (e.key === 'Enter' || e.key === 'Tab') {
+                      e.preventDefault()
+                      completeLink(linkMatches[linkIndex].title)
+                    } else if (e.key === 'Escape') {
+                      setLinkQuery(null)
+                    } else {
+                      // Anything the suggestion strip doesn't claim (Ctrl+B and
+                      // friends) still belongs to the formatting shortcuts.
+                      editor.onKeyDown(e)
+                    }
+                  }}
+                />
+              </MarkdownContextMenu>
+              {livePreview && (
+                <LivePreviewPane
+                  content={content}
+                  articles={tree.data?.articles}
+                  worldId={worldId}
+                  source={rollSource}
+                  onCreateMissing={setMissingTitle}
+                />
+              )}
+            </div>
+          </TabsContent>
+          {/* This TabsContent is itself the preview's scroll container — the
+            outline scrolls it, not .print-area. */}
+          <TabsContent
+            ref={previewRef}
+            value="preview"
+            className="min-h-0 flex-1 overflow-y-auto bg-stone-800/90 dark:bg-stone-950"
+          >
+            <div className="print-area p-6 md:p-10">
+              {!content.trim() ? (
+                <p className="text-stone-400">Nothing to preview yet.</p>
+              ) : parsedCharacter ? (
+                <SheetPreview
+                  character={parsedCharacter.character}
+                  body={parsedCharacter.body}
+                  title={title}
+                  source={sheetSource}
+                  worldId={worldId}
+                  articles={tree.data?.articles}
+                />
+              ) : (
+                <BookView
+                  articles={tree.data?.articles}
+                  worldId={worldId}
+                  source={rollSource}
+                  onCreateMissing={setMissingTitle}
+                >
+                  {content}
+                </BookView>
+              )}
+            </div>
+          </TabsContent>
+        </Tabs>
+        {tocOpen && !parsedCharacter && (
+          <TableOfContents
+            headings={headings}
+            activeId={activeHeadingId}
+            onSelect={goToHeading}
+            onClose={() => setTocOpen(false)}
+          />
+        )}
+      </div>
       <Separator />
       <div className="text-muted-foreground flex items-center gap-3 px-4 py-1 text-xs">
         <span>

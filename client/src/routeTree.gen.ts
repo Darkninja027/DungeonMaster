@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as WorldsWorldIdRouteRouteImport } from './routes/worlds/$worldId/route'
 import { Route as WorldsWorldIdIndexRouteImport } from './routes/worlds/$worldId/index'
+import { Route as WorldsWorldIdSettingsRouteImport } from './routes/worlds/$worldId/settings'
 import { Route as WorldsWorldIdArticlesArticleIdRouteImport } from './routes/worlds/$worldId/articles/$articleId'
 import { Route as WorldsWorldIdCharactersArticleIdRouteImport } from './routes/worlds/$worldId/characters/$articleId'
 
@@ -30,6 +31,11 @@ const WorldsWorldIdIndexRoute = WorldsWorldIdIndexRouteImport.update({
   path: '/',
   getParentRoute: () => WorldsWorldIdRouteRoute,
 } as any)
+const WorldsWorldIdSettingsRoute = WorldsWorldIdSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => WorldsWorldIdRouteRoute,
+} as any)
 const WorldsWorldIdArticlesArticleIdRoute =
   WorldsWorldIdArticlesArticleIdRouteImport.update({
     id: '/articles/$articleId',
@@ -46,12 +52,14 @@ const WorldsWorldIdCharactersArticleIdRoute =
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/worlds/$worldId': typeof WorldsWorldIdRouteRouteWithChildren
+  '/worlds/$worldId/settings': typeof WorldsWorldIdSettingsRoute
   '/worlds/$worldId/': typeof WorldsWorldIdIndexRoute
   '/worlds/$worldId/articles/$articleId': typeof WorldsWorldIdArticlesArticleIdRoute
   '/worlds/$worldId/characters/$articleId': typeof WorldsWorldIdCharactersArticleIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/worlds/$worldId/settings': typeof WorldsWorldIdSettingsRoute
   '/worlds/$worldId': typeof WorldsWorldIdIndexRoute
   '/worlds/$worldId/articles/$articleId': typeof WorldsWorldIdArticlesArticleIdRoute
   '/worlds/$worldId/characters/$articleId': typeof WorldsWorldIdCharactersArticleIdRoute
@@ -60,6 +68,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/worlds/$worldId': typeof WorldsWorldIdRouteRouteWithChildren
+  '/worlds/$worldId/settings': typeof WorldsWorldIdSettingsRoute
   '/worlds/$worldId/': typeof WorldsWorldIdIndexRoute
   '/worlds/$worldId/articles/$articleId': typeof WorldsWorldIdArticlesArticleIdRoute
   '/worlds/$worldId/characters/$articleId': typeof WorldsWorldIdCharactersArticleIdRoute
@@ -69,12 +78,14 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/worlds/$worldId'
+    | '/worlds/$worldId/settings'
     | '/worlds/$worldId/'
     | '/worlds/$worldId/articles/$articleId'
     | '/worlds/$worldId/characters/$articleId'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/worlds/$worldId/settings'
     | '/worlds/$worldId'
     | '/worlds/$worldId/articles/$articleId'
     | '/worlds/$worldId/characters/$articleId'
@@ -82,6 +93,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/worlds/$worldId'
+    | '/worlds/$worldId/settings'
     | '/worlds/$worldId/'
     | '/worlds/$worldId/articles/$articleId'
     | '/worlds/$worldId/characters/$articleId'
@@ -115,6 +127,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WorldsWorldIdIndexRouteImport
       parentRoute: typeof WorldsWorldIdRouteRoute
     }
+    '/worlds/$worldId/settings': {
+      id: '/worlds/$worldId/settings'
+      path: '/settings'
+      fullPath: '/worlds/$worldId/settings'
+      preLoaderRoute: typeof WorldsWorldIdSettingsRouteImport
+      parentRoute: typeof WorldsWorldIdRouteRoute
+    }
     '/worlds/$worldId/articles/$articleId': {
       id: '/worlds/$worldId/articles/$articleId'
       path: '/articles/$articleId'
@@ -133,12 +152,14 @@ declare module '@tanstack/react-router' {
 }
 
 interface WorldsWorldIdRouteRouteChildren {
+  WorldsWorldIdSettingsRoute: typeof WorldsWorldIdSettingsRoute
   WorldsWorldIdIndexRoute: typeof WorldsWorldIdIndexRoute
   WorldsWorldIdArticlesArticleIdRoute: typeof WorldsWorldIdArticlesArticleIdRoute
   WorldsWorldIdCharactersArticleIdRoute: typeof WorldsWorldIdCharactersArticleIdRoute
 }
 
 const WorldsWorldIdRouteRouteChildren: WorldsWorldIdRouteRouteChildren = {
+  WorldsWorldIdSettingsRoute: WorldsWorldIdSettingsRoute,
   WorldsWorldIdIndexRoute: WorldsWorldIdIndexRoute,
   WorldsWorldIdArticlesArticleIdRoute: WorldsWorldIdArticlesArticleIdRoute,
   WorldsWorldIdCharactersArticleIdRoute: WorldsWorldIdCharactersArticleIdRoute,

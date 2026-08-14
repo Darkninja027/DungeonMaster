@@ -80,8 +80,8 @@ export function HowToDialog() {
               desc="Tables render PHB-style with green striped rows. Use the Insert menu for a starter table or a full stat block."
             />
             <Row
-              code="![alt](url)"
-              desc="An image with a plate-style frame. Use the Images button to upload and insert."
+              code="![alt](_images/Maps/city.png)"
+              desc="An image with a plate-style frame. Use the Images button to upload, organise into folders, and insert — or just paste a screenshot or drag an image file straight into the editor. Typing an _images/ path suggests matches."
             />
           </Section>
 
@@ -112,6 +112,10 @@ export function HowToDialog() {
             <Row
               code="[[Article Title|shown text]]"
               desc="Same link, but displays different text."
+            />
+            <Row
+              code="Ctrl+Shift+L"
+              desc="Wraps the selected text in [[ ]] to make it a wiki link — or opens an empty pair at the cursor. Right-click gives the same thing."
             />
             <Row
               code="Broken links"
@@ -165,7 +169,7 @@ export function HowToDialog() {
             />
             <Row
               code="Insert"
-              desc="Drops templates at your cursor: tables, read-aloud boxes, dividers, stat blocks, page breaks."
+              desc="Drops ready-made markdown at your cursor, grouped into Text (tables, rollable d100 tables, dividers, wiki links), D&D (read-aloud boxes, stat blocks, named and hidden rolls), Layout (images, page breaks, column settings) and whole-article Templates."
             />
           </Section>
         </ScrollArea>
