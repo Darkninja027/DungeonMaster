@@ -114,6 +114,10 @@ export function HowToDialog() {
               desc="Same link, but displays different text."
             />
             <Row
+              code="Ctrl+Shift+L"
+              desc="Wraps the selected text in [[ ]] to make it a wiki link — or opens an empty pair at the cursor. Right-click gives the same thing."
+            />
+            <Row
               code="Broken links"
               desc="A dashed-underline link means no article has that title yet — click it in the preview to create the article from a template."
             />

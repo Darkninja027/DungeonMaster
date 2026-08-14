@@ -261,3 +261,36 @@ export function padBlock(
     },
   }
 }
+
+/**
+ * The `[[wiki link]]` containing `pos`, or null when the caret isn't in one.
+ * Powers Ctrl+Click / Ctrl+Enter in the editor, where the text is raw and there
+ * is no anchor element to click.
+ *
+ * `title` is the target article; `label` is the shown text of a piped
+ * `[[Title|shown]]` link, which is display-only and never the link target.
+ *
+ * A position anywhere from the opening `[[` through the closing `]]` counts —
+ * clicking the brackets themselves is still clicking the link. Scans from the
+ * nearest `[[` at or before `pos` so an unclosed `[[` earlier in the document
+ * can't swallow a later, well-formed link.
+ */
+export function wikiLinkAt(
+  text: string,
+  pos: number,
+): { title: string; label: string; start: number; end: number } | null {
+  const open = text.lastIndexOf('[[', pos)
+  if (open < 0) return null
+  const close = text.indexOf(']]', open)
+  if (close < 0 || pos > close + 2) return null
+
+  const inner = text.slice(open + 2, close)
+  // A newline or a nested `[[` means the brackets never actually paired up.
+  if (inner.includes('\n') || inner.includes('[[')) return null
+
+  const pipe = inner.indexOf('|')
+  const title = (pipe >= 0 ? inner.slice(0, pipe) : inner).trim()
+  if (!title) return null
+  const label = pipe >= 0 ? inner.slice(pipe + 1).trim() : title
+  return { title, label, start: open, end: close + 2 }
+}

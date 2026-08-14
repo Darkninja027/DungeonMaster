@@ -8,6 +8,7 @@ import {
   lineBounds,
   padBlock,
   toggleWrap,
+  wikiLinkAt,
 } from './markdownEditing'
 import type { EditResult, Selection } from './markdownEditing'
 
@@ -297,5 +298,73 @@ describe('padBlock', () => {
     const text = 'keep REPLACE keep'
     const result = padBlock(text, { start: 5, end: 12 }, 'TABLE')
     expect(apply(text, result)).toBe('keep \n\nTABLE\n\n keep')
+  })
+})
+
+describe('wikiLinkAt', () => {
+  const TEXT = 'Go to [[Bryertown]] now.'
+  const inner = TEXT.indexOf('Bryertown')
+
+  it('finds the link the caret sits inside', () => {
+    expect(wikiLinkAt(TEXT, inner + 3)).toEqual({
+      title: 'Bryertown',
+      label: 'Bryertown',
+      start: 6,
+      end: 19,
+    })
+  })
+
+  it('counts the brackets themselves as part of the link', () => {
+    // Clicking the "[[" or the "]]" is still clicking the link.
+    for (const pos of [6, 7, 8, 17, 18, 19]) {
+      expect(wikiLinkAt(TEXT, pos)?.title).toBe('Bryertown')
+    }
+  })
+
+  it('returns null outside the link', () => {
+    expect(wikiLinkAt(TEXT, 0)).toBeNull() // before it
+    expect(wikiLinkAt(TEXT, TEXT.length)).toBeNull() // after it
+  })
+
+  it('splits a piped link into target and shown text', () => {
+    const text = 'See [[Barovia|that cursed land]] again.'
+    const link = wikiLinkAt(text, text.indexOf('cursed'))
+    expect(link?.title).toBe('Barovia')
+    expect(link?.label).toBe('that cursed land')
+  })
+
+  it('trims surrounding space so the title matches an article', () => {
+    const text = '[[  Strahd  ]]'
+    expect(wikiLinkAt(text, 5)?.title).toBe('Strahd')
+  })
+
+  it('ignores an unclosed opener', () => {
+    expect(wikiLinkAt('a [[ half typed', 8)).toBeNull()
+  })
+
+  it('does not span a newline', () => {
+    // Two unrelated lines must not pair into one link.
+    expect(wikiLinkAt('[[open\nclose]]', 3)).toBeNull()
+  })
+
+  it('rejects an empty link', () => {
+    expect(wikiLinkAt('x [[]] y', 4)).toBeNull()
+  })
+
+  it('picks the link the caret is in, not an earlier one', () => {
+    const text = '[[First]] and [[Second]]'
+    expect(wikiLinkAt(text, text.indexOf('Second'))?.title).toBe('Second')
+    expect(wikiLinkAt(text, text.indexOf('First'))?.title).toBe('First')
+  })
+
+  it('is not fooled by an earlier stray opener', () => {
+    // The unclosed "[[" must not swallow the later well-formed link.
+    const text = 'oops [[ then [[Real]] here'
+    expect(wikiLinkAt(text, text.indexOf('Real'))?.title).toBe('Real')
+  })
+
+  it('returns null between two separate links', () => {
+    const text = '[[First]] and [[Second]]'
+    expect(wikiLinkAt(text, text.indexOf(' and ') + 2)).toBeNull()
   })
 })

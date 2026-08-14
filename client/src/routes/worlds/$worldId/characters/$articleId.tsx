@@ -20,6 +20,8 @@ import { exportPdf } from '#/lib/exportPdf'
 import { useShortcut } from '#/lib/useShortcut'
 import { useArticleEditorSave } from '#/lib/useArticleEditorSave'
 import { useMarkdownEditor } from '#/lib/useMarkdownEditor'
+import { useWikiLinkOpener } from '#/lib/useWikiLinkOpener'
+import { MarkdownContextMenu } from '#/components/MarkdownContextMenu'
 import type { RollSource } from '#/lib/rollLog'
 import { Button } from '#/components/ui/button'
 import { Input } from '#/components/ui/input'
@@ -71,15 +73,22 @@ function CharacterPage() {
       editSeq: next ? prev.editSeq + 1 : prev.editSeq,
     }))
   }, [])
+  // Broken [[link]] clicked in inventory/notes -> offer to create the article.
+  const [missingTitle, setMissingTitle] = useState<string | null>(null)
+  // Ctrl+Click / Ctrl+Enter on a [[link]] in the raw backstory text.
+  const openWikiLink = useWikiLinkOpener({
+    worldId,
+    articles: tree.data?.articles,
+    onMissing: setMissingTitle,
+  })
   // Formatting shortcuts for the Backstory tab's markdown textarea.
   const backstoryEditor = useMarkdownEditor({
     onFallbackChange: (value) => {
       setBody(value)
       setDirty(true)
     },
+    onWikiLinkOpen: openWikiLink,
   })
-  // Broken [[link]] clicked in inventory/notes -> offer to create the article.
-  const [missingTitle, setMissingTitle] = useState<string | null>(null)
   // Controlled so Export PDF can switch to the preview before capturing it.
   const [tab, setTab] = useState('sheet')
   const [exporting, setExporting] = useState(false)
@@ -420,18 +429,21 @@ function CharacterPage() {
           />
         </TabsContent>
         <TabsContent value="backstory" className="flex min-h-0 flex-1 flex-col">
-          <Textarea
-            ref={backstoryEditor.ref}
-            value={body}
-            placeholder="Backstory, bonds, ideals, flaws — markdown with [[wiki links]]."
-            className="h-full min-h-0 flex-1 resize-none rounded-none border-none font-mono text-sm shadow-none focus-visible:ring-0"
-            onChange={(e) => {
-              setBody(e.target.value)
-              setDirty(true)
-            }}
-            onKeyDown={backstoryEditor.onKeyDown}
-            onBeforeInput={backstoryEditor.onBeforeInput}
-          />
+          <MarkdownContextMenu editor={backstoryEditor}>
+            <Textarea
+              ref={backstoryEditor.ref}
+              value={body}
+              placeholder="Backstory, bonds, ideals, flaws — markdown with [[wiki links]]."
+              className="h-full min-h-0 flex-1 resize-none rounded-none border-none font-mono text-sm shadow-none focus-visible:ring-0"
+              onChange={(e) => {
+                setBody(e.target.value)
+                setDirty(true)
+              }}
+              onClick={backstoryEditor.onClick}
+              onKeyDown={backstoryEditor.onKeyDown}
+              onBeforeInput={backstoryEditor.onBeforeInput}
+            />
+          </MarkdownContextMenu>
         </TabsContent>
         <TabsContent
           value="preview"

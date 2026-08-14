@@ -14,6 +14,8 @@ import {
 import type { Character, FeatureEntry, FeatureSource } from '#/lib/character'
 import { cn } from '#/lib/utils'
 import { useMarkdownEditor } from '#/lib/useMarkdownEditor'
+import { useWikiLinkOpener } from '#/lib/useWikiLinkOpener'
+import { MarkdownContextMenu } from '#/components/MarkdownContextMenu'
 import { Button } from '#/components/ui/button'
 import { Input } from '#/components/ui/input'
 import { Textarea } from '#/components/ui/textarea'
@@ -65,6 +67,7 @@ function Badge({ entry }: { entry: FeatureEntry }) {
 function AddForm({
   character,
   onAdd,
+  onWikiLinkOpen,
 }: {
   character: Character
   onAdd: (
@@ -73,6 +76,7 @@ function AddForm({
     text: string,
     level: number,
   ) => void
+  onWikiLinkOpen?: (title: string) => void
 }) {
   const [open, setOpen] = useState(false)
   const [source, setSource] = useState<FeatureSource>('class')
@@ -83,6 +87,7 @@ function AddForm({
   const editor = useMarkdownEditor({
     ref: textRef,
     onFallbackChange: setText,
+    onWikiLinkOpen,
   })
 
   const submit = () => {
@@ -155,19 +160,25 @@ function AddForm({
           }
         }}
       />
-      <Textarea
-        ref={textRef}
-        value={text}
-        placeholder="Description — what it does. [[Wiki links]] and dice like 2d6 stay live."
-        className="min-h-16 text-sm"
-        onChange={(e) => setText(e.target.value)}
-        onBeforeInput={editor.onBeforeInput}
-        onKeyDown={(e) => {
-          // Ctrl+Enter submits; everything else is a formatting shortcut.
-          if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) submit()
-          else editor.onKeyDown(e)
-        }}
-      />
+      <MarkdownContextMenu editor={editor}>
+        <Textarea
+          ref={textRef}
+          value={text}
+          placeholder="Description — what it does. [[Wiki links]] and dice like 2d6 stay live."
+          className="min-h-16 text-sm"
+          onChange={(e) => setText(e.target.value)}
+          onClick={editor.onClick}
+          onBeforeInput={editor.onBeforeInput}
+          onKeyDown={(e) => {
+            // Ctrl+Enter opens a [[link]] when the caret is in one, and
+            // otherwise submits the feature.
+            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+              editor.onKeyDown(e)
+              if (!e.defaultPrevented) submit()
+            } else editor.onKeyDown(e)
+          }}
+        />
+      </MarkdownContextMenu>
       <div className="flex gap-2">
         <Button size="sm" disabled={!name.trim()} onClick={submit}>
           <Plus className="size-3.5" /> Add
@@ -197,6 +208,7 @@ function FeatureRow({
   worldId,
   articles,
   onCreateMissing,
+  onWikiLinkOpen,
   onToggle,
   onEdit,
   onChange,
@@ -209,6 +221,7 @@ function FeatureRow({
   worldId?: string
   articles?: Array<{ id: string; title: string }>
   onCreateMissing?: (title: string) => void
+  onWikiLinkOpen?: (title: string) => void
   onToggle: () => void
   onEdit: () => void
   onChange: (patch: { name?: string; text?: string; level?: number }) => void
@@ -216,6 +229,7 @@ function FeatureRow({
 }) {
   const editor = useMarkdownEditor({
     onFallbackChange: (value) => onChange({ text: value }),
+    onWikiLinkOpen,
   })
   return (
     <li className={cn('group rounded-md border', muted && 'opacity-60')}>
@@ -276,16 +290,19 @@ function FeatureRow({
                   </label>
                 )}
               </div>
-              <Textarea
-                autoFocus
-                ref={editor.ref}
-                value={entry.text ?? ''}
-                placeholder="Description — what it does."
-                className="min-h-24 text-sm"
-                onChange={(e) => onChange({ text: e.target.value })}
-                onKeyDown={editor.onKeyDown}
-                onBeforeInput={editor.onBeforeInput}
-              />
+              <MarkdownContextMenu editor={editor}>
+                <Textarea
+                  autoFocus
+                  ref={editor.ref}
+                  value={entry.text ?? ''}
+                  placeholder="Description — what it does."
+                  className="min-h-24 text-sm"
+                  onChange={(e) => onChange({ text: e.target.value })}
+                  onClick={editor.onClick}
+                  onKeyDown={editor.onKeyDown}
+                  onBeforeInput={editor.onBeforeInput}
+                />
+              </MarkdownContextMenu>
               <Button size="sm" variant="ghost" onClick={onEdit}>
                 Done
               </Button>
@@ -334,6 +351,12 @@ export function FeaturesTab({
 }) {
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<Filter>('all')
+  // Ctrl+Click / Ctrl+Enter on a [[link]] while editing a feature's markdown.
+  const openWikiLink = useWikiLinkOpener({
+    worldId,
+    articles,
+    onMissing: onCreateMissing,
+  })
   // Keyed by source+index rather than by object identity: rows are recreated on
   // every edit, so identity would collapse the row you are typing in.
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
@@ -395,6 +418,7 @@ export function FeaturesTab({
 
       <AddForm
         character={character}
+        onWikiLinkOpen={openWikiLink}
         onAdd={(source, name, text, level) =>
           onChange({
             ...character,
@@ -445,6 +469,7 @@ export function FeaturesTab({
                 worldId={worldId}
                 articles={articles}
                 onCreateMissing={onCreateMissing}
+                onWikiLinkOpen={openWikiLink}
                 onToggle={() => toggle(key)}
                 onEdit={() => {
                   // Editing implies expanded — clicking Edit on a collapsed row

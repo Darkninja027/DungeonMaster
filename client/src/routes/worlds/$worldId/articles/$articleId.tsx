@@ -51,6 +51,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '#/components/ui/tabs'
 import { Textarea } from '#/components/ui/textarea'
 import { cn } from '#/lib/utils'
 import { BookView } from '#/components/Markdown'
+import {
+  MENU_GROUP_LABEL as INSERT_GROUP_LABEL,
+  MarkdownContextMenu,
+} from '#/components/MarkdownContextMenu'
 import { TableOfContents } from '#/components/TableOfContents'
 import {
   activeHeadingAt,
@@ -63,6 +67,7 @@ import { SheetPreview } from '#/components/character/SheetPreview'
 import { ImagePickerDialog } from '#/components/ImagePickerDialog'
 import { HowToDialog } from '#/components/HowToDialog'
 import { useMarkdownEditor } from '#/lib/useMarkdownEditor'
+import { useWikiLinkOpener } from '#/lib/useWikiLinkOpener'
 import { CreateMissingArticleDialog } from '#/components/CreateMissingArticleDialog'
 
 export const Route = createFileRoute('/worlds/$worldId/articles/$articleId')({
@@ -423,6 +428,14 @@ function ArticlePage() {
     [isCharacter, content],
   )
 
+  // Ctrl+Click / Ctrl+Enter on a [[link]] in the raw editor: jump to the
+  // article, or offer to create it — the same reach the preview already has.
+  const openWikiLink = useWikiLinkOpener({
+    worldId,
+    articles: tree.data?.articles,
+    onMissing: setMissingTitle,
+  })
+
   // Formatting shortcuts (Ctrl+B/I/E, Ctrl+T tables, bracket-wrapping…). Edits
   // go through execCommand so the native undo stack survives, which also means
   // the textarea's own onChange fires and drives autosave as usual.
@@ -437,6 +450,7 @@ function ArticlePage() {
       linkQuery !== null &&
       linkMatches.length > 0 &&
       ['Tab', 'Enter', 'ArrowUp', 'ArrowDown', 'Escape'].includes(e.key),
+    onWikiLinkOpen: openWikiLink,
   })
   const insertAtCursor = editor.insertText
   const insertBlock = editor.insertBlock
@@ -522,7 +536,9 @@ function ArticlePage() {
                   lines that make them parse as their own block; inline ones
                   (rolls, wiki links) drop straight at the cursor. */}
               <DropdownMenuGroup>
-                <DropdownMenuLabel>Text</DropdownMenuLabel>
+                <DropdownMenuLabel className={INSERT_GROUP_LABEL}>
+                  Text
+                </DropdownMenuLabel>
                 <DropdownMenuItem onClick={() => insertBlock(snippets.table)}>
                   Table
                 </DropdownMenuItem>
@@ -542,7 +558,9 @@ function ArticlePage() {
               </DropdownMenuGroup>
               <DropdownMenuSeparator />
               <DropdownMenuGroup>
-                <DropdownMenuLabel>D&amp;D</DropdownMenuLabel>
+                <DropdownMenuLabel className={INSERT_GROUP_LABEL}>
+                  D&amp;D
+                </DropdownMenuLabel>
                 <DropdownMenuItem
                   onClick={() => insertBlock(snippets.readAloud)}
                 >
@@ -566,7 +584,9 @@ function ArticlePage() {
               </DropdownMenuGroup>
               <DropdownMenuSeparator />
               <DropdownMenuGroup>
-                <DropdownMenuLabel>Layout</DropdownMenuLabel>
+                <DropdownMenuLabel className={INSERT_GROUP_LABEL}>
+                  Layout
+                </DropdownMenuLabel>
                 <DropdownMenuItem
                   onClick={() => insertBlock(snippets.portraitImage)}
                 >
@@ -595,7 +615,9 @@ function ArticlePage() {
               </DropdownMenuGroup>
               <DropdownMenuSeparator />
               <DropdownMenuGroup>
-                <DropdownMenuLabel>Templates</DropdownMenuLabel>
+                <DropdownMenuLabel className={INSERT_GROUP_LABEL}>
+                  Templates
+                </DropdownMenuLabel>
                 <DropdownMenuSub>
                   <DropdownMenuSubTrigger>Template</DropdownMenuSubTrigger>
                   <DropdownMenuSubContent>
@@ -832,91 +854,99 @@ function ArticlePage() {
               </div>
             )}
             <div className="flex min-h-0 flex-1">
-              <Textarea
-                ref={textareaRef}
-                value={content}
-                placeholder="Write your lore in markdown…"
-                className="h-full min-h-0 flex-1 resize-none rounded-none border-none font-mono text-sm shadow-none focus-visible:ring-0"
-                onChange={(e) => {
-                  setContent(e.target.value)
-                  setDirty(true)
-                  requestAnimationFrame(updateQueries)
-                }}
-                onClick={updateQueries}
-                onPaste={(e) => {
-                  const files = Array.from(e.clipboardData.files)
-                  if (files.some((f) => f.type.startsWith('image/'))) {
-                    e.preventDefault()
-                    uploadAndInsert(files)
-                  }
-                }}
-                onDragOver={(e) => {
-                  // Only claim the drop for files — the textarea's own text-drag
-                  // behaviour must keep working.
-                  if (e.dataTransfer.types.indexOf('Files') >= 0)
-                    e.preventDefault()
-                }}
-                onDrop={(e) => {
-                  const files = Array.from(e.dataTransfer.files)
-                  if (files.some((f) => f.type.startsWith('image/'))) {
-                    e.preventDefault()
-                    uploadAndInsert(files)
-                  }
-                }}
-                onKeyUp={(e) => {
-                  if (
-                    ![
-                      'ArrowDown',
-                      'ArrowUp',
-                      'Enter',
-                      'Tab',
-                      'Escape',
-                    ].includes(e.key)
-                  )
+              <MarkdownContextMenu editor={editor}>
+                <Textarea
+                  ref={textareaRef}
+                  value={content}
+                  placeholder="Write your lore in markdown…"
+                  className="h-full min-h-0 flex-1 resize-none rounded-none border-none font-mono text-sm shadow-none focus-visible:ring-0"
+                  onChange={(e) => {
+                    setContent(e.target.value)
+                    setDirty(true)
+                    requestAnimationFrame(updateQueries)
+                  }}
+                  onClick={(e) => {
+                    // Ctrl+Click opens a [[link]]; a plain click just moves
+                    // the caret, which the autocomplete needs to re-read.
+                    editor.onClick(e)
                     updateQueries()
-                }}
-                onBeforeInput={editor.onBeforeInput}
-                onKeyDown={(e) => {
-                  if (imageQuery !== null && imageMatches.length > 0) {
+                  }}
+                  onPaste={(e) => {
+                    const files = Array.from(e.clipboardData.files)
+                    if (files.some((f) => f.type.startsWith('image/'))) {
+                      e.preventDefault()
+                      uploadAndInsert(files)
+                    }
+                  }}
+                  onDragOver={(e) => {
+                    // Only claim the drop for files — the textarea's own text-drag
+                    // behaviour must keep working.
+                    if (e.dataTransfer.types.indexOf('Files') >= 0)
+                      e.preventDefault()
+                  }}
+                  onDrop={(e) => {
+                    const files = Array.from(e.dataTransfer.files)
+                    if (files.some((f) => f.type.startsWith('image/'))) {
+                      e.preventDefault()
+                      uploadAndInsert(files)
+                    }
+                  }}
+                  onKeyUp={(e) => {
+                    if (
+                      ![
+                        'ArrowDown',
+                        'ArrowUp',
+                        'Enter',
+                        'Tab',
+                        'Escape',
+                      ].includes(e.key)
+                    )
+                      updateQueries()
+                  }}
+                  onBeforeInput={editor.onBeforeInput}
+                  onKeyDown={(e) => {
+                    if (imageQuery !== null && imageMatches.length > 0) {
+                      if (e.key === 'ArrowDown') {
+                        e.preventDefault()
+                        setImageIndex((i) => (i + 1) % imageMatches.length)
+                      } else if (e.key === 'ArrowUp') {
+                        e.preventDefault()
+                        setImageIndex(
+                          (i) =>
+                            (i - 1 + imageMatches.length) % imageMatches.length,
+                        )
+                      } else if (e.key === 'Enter' || e.key === 'Tab') {
+                        e.preventDefault()
+                        completeImagePath(imageMatches[imageIndex])
+                      } else if (e.key === 'Escape') {
+                        setImageQuery(null)
+                      }
+                      return
+                    }
+                    if (linkQuery === null || linkMatches.length === 0)
+                      return editor.onKeyDown(e)
                     if (e.key === 'ArrowDown') {
                       e.preventDefault()
-                      setImageIndex((i) => (i + 1) % imageMatches.length)
+                      setLinkIndex((i) => (i + 1) % linkMatches.length)
                     } else if (e.key === 'ArrowUp') {
                       e.preventDefault()
-                      setImageIndex(
+                      setLinkIndex(
                         (i) =>
-                          (i - 1 + imageMatches.length) % imageMatches.length,
+                          (i - 1 + linkMatches.length) % linkMatches.length,
                       )
                     } else if (e.key === 'Enter' || e.key === 'Tab') {
                       e.preventDefault()
-                      completeImagePath(imageMatches[imageIndex])
+                      completeLink(linkMatches[linkIndex].title)
                     } else if (e.key === 'Escape') {
-                      setImageQuery(null)
+                      setLinkQuery(null)
+                    } else {
+                      // Anything the suggestion strip doesn't claim (Ctrl+B and
+                      // friends) still belongs to the formatting shortcuts.
+                      editor.onKeyDown(e)
                     }
-                    return
-                  }
-                  if (linkQuery === null || linkMatches.length === 0)
-                    return editor.onKeyDown(e)
-                  if (e.key === 'ArrowDown') {
-                    e.preventDefault()
-                    setLinkIndex((i) => (i + 1) % linkMatches.length)
-                  } else if (e.key === 'ArrowUp') {
-                    e.preventDefault()
-                    setLinkIndex(
-                      (i) => (i - 1 + linkMatches.length) % linkMatches.length,
-                    )
-                  } else if (e.key === 'Enter' || e.key === 'Tab') {
-                    e.preventDefault()
-                    completeLink(linkMatches[linkIndex].title)
-                  } else if (e.key === 'Escape') {
-                    setLinkQuery(null)
-                  } else {
-                    // Anything the suggestion strip doesn't claim (Ctrl+B and
-                    // friends) still belongs to the formatting shortcuts.
-                    editor.onKeyDown(e)
-                  }
-                }}
-              />
+                  }}
+                />
+              </MarkdownContextMenu>
               {livePreview && (
                 <LivePreviewPane
                   content={content}

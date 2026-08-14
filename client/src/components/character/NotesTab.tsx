@@ -13,6 +13,8 @@ import {
 import type { Character, CharacterNote } from '#/lib/character'
 import { cn } from '#/lib/utils'
 import { useMarkdownEditor } from '#/lib/useMarkdownEditor'
+import { useWikiLinkOpener } from '#/lib/useWikiLinkOpener'
+import { MarkdownContextMenu } from '#/components/MarkdownContextMenu'
 import { Button } from '#/components/ui/button'
 import { Input } from '#/components/ui/input'
 import { Textarea } from '#/components/ui/textarea'
@@ -158,16 +160,21 @@ function TagEditor({
 function AddNote({
   known,
   onAdd,
+  onWikiLinkOpen,
 }: {
   known: Array<string>
   onAdd: (note: CharacterNote) => void
+  onWikiLinkOpen?: (title: string) => void
 }) {
   const [open, setOpen] = useState(false)
   const [title, setTitle] = useState('')
   const [text, setText] = useState('')
   const [at, setAt] = useState(today())
   const [tags, setTags] = useState<Array<string>>([])
-  const editor = useMarkdownEditor({ onFallbackChange: setText })
+  const editor = useMarkdownEditor({
+    onFallbackChange: setText,
+    onWikiLinkOpen,
+  })
 
   const submit = () => {
     if (!text.trim() && !title.trim()) return
@@ -205,19 +212,25 @@ function AddNote({
           onChange={(e) => setAt(e.target.value)}
         />
       </div>
-      <Textarea
-        ref={editor.ref}
-        value={text}
-        placeholder="What happened? Markdown works — ## headings, - bullets, **bold**, [[Wiki links]] and dice like 2d6."
-        className="min-h-28 text-sm"
-        onChange={(e) => setText(e.target.value)}
-        onBeforeInput={editor.onBeforeInput}
-        onKeyDown={(e) => {
-          // Ctrl+Enter submits; everything else is a formatting shortcut.
-          if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) submit()
-          else editor.onKeyDown(e)
-        }}
-      />
+      <MarkdownContextMenu editor={editor}>
+        <Textarea
+          ref={editor.ref}
+          value={text}
+          placeholder="What happened? Markdown works — ## headings, - bullets, **bold**, [[Wiki links]] and dice like 2d6."
+          className="min-h-28 text-sm"
+          onChange={(e) => setText(e.target.value)}
+          onClick={editor.onClick}
+          onBeforeInput={editor.onBeforeInput}
+          onKeyDown={(e) => {
+            // Ctrl+Enter opens a [[link]] when the caret is in one, and
+            // otherwise submits the note.
+            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+              editor.onKeyDown(e)
+              if (!e.defaultPrevented) submit()
+            } else editor.onKeyDown(e)
+          }}
+        />
+      </MarkdownContextMenu>
       <TagEditor tags={tags} known={known} onChange={setTags} />
       <div className="flex gap-2">
         <Button
@@ -253,6 +266,7 @@ function NoteRow({
   worldId,
   articles,
   onCreateMissing,
+  onWikiLinkOpen,
   onToggle,
   onEdit,
   onChange,
@@ -267,6 +281,7 @@ function NoteRow({
   worldId: string
   articles?: Array<{ id: string; title: string }>
   onCreateMissing?: (title: string) => void
+  onWikiLinkOpen?: (title: string) => void
   onToggle: () => void
   onEdit: () => void
   onChange: (patch: Partial<CharacterNote>) => void
@@ -278,6 +293,7 @@ function NoteRow({
     note.title?.trim() || notePreview(note.text) || 'Untitled note'
   const editor = useMarkdownEditor({
     onFallbackChange: (value) => onChange({ text: value }),
+    onWikiLinkOpen,
   })
 
   return (
@@ -362,16 +378,19 @@ function NoteRow({
                   onChange={(e) => onChange({ at: e.target.value })}
                 />
               </div>
-              <Textarea
-                autoFocus
-                ref={editor.ref}
-                value={note.text}
-                className="min-h-32 text-sm"
-                placeholder="Markdown works here."
-                onChange={(e) => onChange({ text: e.target.value })}
-                onKeyDown={editor.onKeyDown}
-                onBeforeInput={editor.onBeforeInput}
-              />
+              <MarkdownContextMenu editor={editor}>
+                <Textarea
+                  autoFocus
+                  ref={editor.ref}
+                  value={note.text}
+                  className="min-h-32 text-sm"
+                  placeholder="Markdown works here."
+                  onChange={(e) => onChange({ text: e.target.value })}
+                  onClick={editor.onClick}
+                  onKeyDown={editor.onKeyDown}
+                  onBeforeInput={editor.onBeforeInput}
+                />
+              </MarkdownContextMenu>
               <TagEditor
                 tags={note.tags ?? []}
                 known={known}
@@ -419,6 +438,12 @@ export function NotesTab({
 }) {
   const [query, setQuery] = useState('')
   const [activeTags, setActiveTags] = useState<Array<string>>([])
+  // Ctrl+Click / Ctrl+Enter on a [[link]] while editing a note's raw markdown.
+  const openWikiLink = useWikiLinkOpener({
+    worldId,
+    articles,
+    onMissing: onCreateMissing,
+  })
   // Keyed by stored-array index, not note object. Object identity would be
   // correct until something upstream reparses the character (an autosave
   // round-trip does exactly that), at which point every note is a fresh object
@@ -484,6 +509,7 @@ export function NotesTab({
 
       <AddNote
         known={known}
+        onWikiLinkOpen={openWikiLink}
         onAdd={(note) => {
           // Prepending shifts every stored index by one; slide the open rows
           // along with them so nothing collapses when a note is added.
@@ -511,6 +537,7 @@ export function NotesTab({
               worldId={worldId}
               articles={articles}
               onCreateMissing={onCreateMissing}
+              onWikiLinkOpen={openWikiLink}
               onToggle={() =>
                 setExpanded((prev) => {
                   const next = new Set(prev)

@@ -835,6 +835,7 @@ to hand-edit.
 | `Ctrl+I` | Italic |
 | `Ctrl+E` | Inline code |
 | `Ctrl+Shift+K` | Insert a markdown link |
+| `Ctrl+Shift+L` | Wrap the selection in `[[ ]]` as a wiki link |
 | `Ctrl+D` | Insert a `1d20+5` roll |
 | `Ctrl+T` | Insert a table |
 | `Ctrl+R` | Add a row to the table you are in |

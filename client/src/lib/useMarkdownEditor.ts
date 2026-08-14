@@ -1,4 +1,4 @@
-import { useCallback, useRef } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import {
   TABLE_SNIPPET,
   WRAPPERS,
@@ -7,6 +7,7 @@ import {
   insertLink,
   padBlock,
   toggleWrap,
+  wikiLinkAt,
 } from '#/lib/markdownEditing'
 import type { EditResult } from '#/lib/markdownEditing'
 
@@ -57,6 +58,12 @@ export interface MarkdownEditorOptions {
    * this to let its `[[` autocomplete own Tab and Enter while the strip is up.
    */
   isSuppressed?: (event: React.KeyboardEvent<HTMLTextAreaElement>) => boolean
+  /**
+   * Ctrl+Click (or Ctrl+Enter) on a `[[wiki link]]`. The caller decides what
+   * "open" means — navigate to the article, or offer to create it when no
+   * article has that title.
+   */
+  onWikiLinkOpen?: (title: string) => void
 }
 
 export function useMarkdownEditor(options: MarkdownEditorOptions = {}) {
@@ -144,6 +151,21 @@ export function useMarkdownEditor(options: MarkdownEditorOptions = {}) {
     [transform],
   )
 
+  /**
+   * Opens the `[[wiki link]]` at `pos`, if there is one. Returns true when a
+   * link was found and handed to the caller, so the caller knows whether to
+   * consume the event.
+   */
+  const openWikiLinkAt = useCallback((pos: number): boolean => {
+    const open = latest.current.onWikiLinkOpen
+    const textarea = ref.current
+    if (!open || !textarea) return false
+    const link = wikiLinkAt(textarea.value, pos)
+    if (!link) return false
+    open(link.title)
+    return true
+  }, [])
+
   const onKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
       if (latest.current.isSuppressed?.(e)) return
@@ -170,12 +192,32 @@ export function useMarkdownEditor(options: MarkdownEditorOptions = {}) {
 
       if (!mod || e.altKey) return
 
+      // Ctrl+Enter opens the [[wiki link]] the caret is in — the keyboard
+      // equivalent of Ctrl+Clicking it. Only consumed when there IS a link, so
+      // the editors that bind Ctrl+Enter to "submit" keep working everywhere
+      // else in the text.
+      if (e.key === 'Enter') {
+        const textarea = ref.current
+        if (textarea && openWikiLinkAt(textarea.selectionStart)) {
+          e.preventDefault()
+        }
+        return
+      }
+
       // Ctrl+Shift+K is the markdown link: plain Ctrl+K belongs to the
       // command palette, which is global and has the stronger claim.
+      // Ctrl+Shift+L sits next to it for the [[wiki link]] — the same gesture
+      // as typing `[` twice over a selection, without the double keystroke.
       if (e.shiftKey) {
-        if (e.key.toLowerCase() === 'k') {
-          e.preventDefault()
-          transform((text, start, end) => insertLink(text, { start, end }))
+        switch (e.key.toLowerCase()) {
+          case 'k':
+            e.preventDefault()
+            transform((text, start, end) => insertLink(text, { start, end }))
+            break
+          case 'l':
+            e.preventDefault()
+            wrap(WRAPPERS.wikiLink)
+            break
         }
         return
       }
@@ -210,7 +252,7 @@ export function useMarkdownEditor(options: MarkdownEditorOptions = {}) {
           break
       }
     },
-    [transform, wrap, insertBlock, insertText],
+    [transform, wrap, insertBlock, insertText, openWikiLinkAt],
   )
 
   /**
@@ -238,13 +280,81 @@ export function useMarkdownEditor(options: MarkdownEditorOptions = {}) {
     [wrap],
   )
 
+  /**
+   * Ctrl+Click a `[[wiki link]]` to open it — the textarea holds raw text, so
+   * there is no anchor to click. Read on click rather than mousedown: by then
+   * the browser has moved the caret to the clicked character, which is the
+   * position to test.
+   *
+   * A plain click still just places the caret.
+   */
+  const onClick = useCallback(
+    (e: React.MouseEvent<HTMLTextAreaElement>) => {
+      if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey) return
+      const textarea = ref.current
+      if (!textarea) return
+      if (openWikiLinkAt(textarea.selectionStart)) e.preventDefault()
+    },
+    [openWikiLinkAt],
+  )
+
+  /**
+   * Whether text was selected when the context menu was last opened. Sampled on
+   * right-click rather than read live, because opening the menu moves focus off
+   * the textarea — by the time an item renders, `selectionStart` and
+   * `selectionEnd` no longer reflect what the user had highlighted.
+   */
+  const [hasSelection, setHasSelection] = useState(false)
+
+  /**
+   * Right-click bookkeeping. Deliberately does NOT preventDefault: the Radix
+   * ContextMenuTrigger wrapping the textarea owns that, and suppressing it here
+   * would stop the menu from opening at all.
+   */
+  const onContextMenu = useCallback(() => {
+    const textarea = ref.current
+    if (!textarea) return
+    setHasSelection(textarea.selectionStart !== textarea.selectionEnd)
+  }, [])
+
+  /**
+   * Clipboard and selection commands, run against the textarea.
+   *
+   * execCommand for the same reason applyEdit uses it (see the module docblock):
+   * it keeps the native undo stack intact and fires a real `input` event, so
+   * autosave needs no special handling. `navigator.clipboard.readText()` plus a
+   * state write would paste correctly but destroy undo.
+   *
+   * Focus must be restored first — the menu took it when it opened, and
+   * execCommand targets the focused element.
+   */
+  const execEditorCommand = useCallback(
+    (command: 'cut' | 'copy' | 'paste' | 'selectAll') => {
+      const textarea = ref.current
+      if (!textarea) return
+      textarea.focus()
+      try {
+        document.execCommand(command)
+      } catch {
+        // Refused (e.g. a paste without clipboard permission) — leave the
+        // document untouched rather than half-applying the command.
+      }
+    },
+    [],
+  )
+
   return {
     ref,
     onKeyDown,
     onBeforeInput,
+    onClick,
+    onContextMenu,
+    hasSelection,
+    execEditorCommand,
     insertBlock,
     insertText,
     wrap,
     applyEdit,
+    transform,
   }
 }
