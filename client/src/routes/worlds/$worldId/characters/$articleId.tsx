@@ -27,6 +27,7 @@ import { Button } from '#/components/ui/button'
 import { Input } from '#/components/ui/input'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '#/components/ui/tabs'
 import { Textarea } from '#/components/ui/textarea'
+import { cn } from '#/lib/utils'
 import { NumField } from '#/components/character/NumField'
 import { SheetTab } from '#/components/character/SheetTab'
 import { InventoryTab } from '#/components/character/InventoryTab'
@@ -434,7 +435,13 @@ function CharacterPage() {
               ref={backstoryEditor.ref}
               value={body}
               placeholder="Backstory, bonds, ideals, flaws — markdown with [[wiki links]]."
-              className="h-full min-h-0 flex-1 resize-none rounded-none border-none font-mono text-sm shadow-none focus-visible:ring-0"
+              className={cn(
+                'h-full min-h-0 flex-1 resize-none rounded-none border-none font-mono text-sm shadow-none focus-visible:ring-0',
+                // Ctrl held over a [[link]]: show it is clickable.
+                backstoryEditor.wikiLinkHovered && 'cursor-pointer',
+              )}
+              onMouseMove={backstoryEditor.onMouseMove}
+              onMouseLeave={backstoryEditor.onMouseLeave}
               onChange={(e) => {
                 setBody(e.target.value)
                 setDirty(true)

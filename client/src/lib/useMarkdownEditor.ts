@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   TABLE_SNIPPET,
   WRAPPERS,
@@ -281,6 +281,73 @@ export function useMarkdownEditor(options: MarkdownEditorOptions = {}) {
   )
 
   /**
+   * True while Ctrl (or Cmd) is held AND the pointer sits over a `[[wiki
+   * link]]` — the editor uses it to show a pointer cursor, so the link reads as
+   * clickable before you click it.
+   *
+   * `cursor` is a property of the whole textarea, so this is deliberately
+   * position-aware: showing a pointer across the entire box would promise
+   * clickability over plain prose, where Ctrl+Click does nothing.
+   */
+  const [wikiLinkHovered, setWikiLinkHovered] = useState(false)
+  // Last pointer position, so a Ctrl press with a stationary mouse can re-test
+  // without waiting for the next mousemove.
+  const pointer = useRef<{ x: number; y: number } | null>(null)
+
+  const hitTestWikiLink = useCallback((x: number, y: number, ctrl: boolean) => {
+    const textarea = ref.current
+    if (!ctrl || !textarea || !latest.current.onWikiLinkOpen) {
+      setWikiLinkHovered(false)
+      return
+    }
+    // caretPositionFromPoint resolves a point to a character offset inside the
+    // textarea directly — no mirror element needed (verified in Chromium, which
+    // is all this Electron app runs on).
+    const pos = document.caretPositionFromPoint?.(x, y)
+    if (!pos || pos.offsetNode !== textarea) {
+      setWikiLinkHovered(false)
+      return
+    }
+    setWikiLinkHovered(wikiLinkAt(textarea.value, pos.offset) !== null)
+  }, [])
+
+  const onMouseMove = useCallback(
+    (e: React.MouseEvent<HTMLTextAreaElement>) => {
+      pointer.current = { x: e.clientX, y: e.clientY }
+      hitTestWikiLink(e.clientX, e.clientY, e.ctrlKey || e.metaKey)
+    },
+    [hitTestWikiLink],
+  )
+
+  const onMouseLeave = useCallback(() => {
+    pointer.current = null
+    setWikiLinkHovered(false)
+  }, [])
+
+  /**
+   * Pressing or releasing Ctrl without moving the mouse must still flip the
+   * cursor, so watch the key on the window rather than the textarea — the
+   * textarea may not even have focus while you hover it.
+   */
+  useEffect(() => {
+    const sync = (e: KeyboardEvent) => {
+      const p = pointer.current
+      if (!p) return
+      hitTestWikiLink(p.x, p.y, e.ctrlKey || e.metaKey)
+    }
+    // Releasing the window (alt-tab) leaves Ctrl stuck down otherwise.
+    const clear = () => setWikiLinkHovered(false)
+    window.addEventListener('keydown', sync)
+    window.addEventListener('keyup', sync)
+    window.addEventListener('blur', clear)
+    return () => {
+      window.removeEventListener('keydown', sync)
+      window.removeEventListener('keyup', sync)
+      window.removeEventListener('blur', clear)
+    }
+  }, [hitTestWikiLink])
+
+  /**
    * Ctrl+Click a `[[wiki link]]` to open it — the textarea holds raw text, so
    * there is no anchor to click. Read on click rather than mousedown: by then
    * the browser has moved the caret to the clicked character, which is the
@@ -348,6 +415,9 @@ export function useMarkdownEditor(options: MarkdownEditorOptions = {}) {
     onKeyDown,
     onBeforeInput,
     onClick,
+    onMouseMove,
+    onMouseLeave,
+    wikiLinkHovered,
     onContextMenu,
     hasSelection,
     execEditorCommand,

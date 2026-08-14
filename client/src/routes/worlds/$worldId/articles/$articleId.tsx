@@ -859,7 +859,13 @@ function ArticlePage() {
                   ref={textareaRef}
                   value={content}
                   placeholder="Write your lore in markdown…"
-                  className="h-full min-h-0 flex-1 resize-none rounded-none border-none font-mono text-sm shadow-none focus-visible:ring-0"
+                  className={cn(
+                    'h-full min-h-0 flex-1 resize-none rounded-none border-none font-mono text-sm shadow-none focus-visible:ring-0',
+                    // Ctrl held over a [[link]]: show it is clickable.
+                    editor.wikiLinkHovered && 'cursor-pointer',
+                  )}
+                  onMouseMove={editor.onMouseMove}
+                  onMouseLeave={editor.onMouseLeave}
                   onChange={(e) => {
                     setContent(e.target.value)
                     setDirty(true)

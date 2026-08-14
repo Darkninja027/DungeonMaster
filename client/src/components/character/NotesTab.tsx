@@ -217,9 +217,14 @@ function AddNote({
           ref={editor.ref}
           value={text}
           placeholder="What happened? Markdown works — ## headings, - bullets, **bold**, [[Wiki links]] and dice like 2d6."
-          className="min-h-28 text-sm"
+          className={cn(
+            'min-h-28 text-sm',
+            editor.wikiLinkHovered && 'cursor-pointer',
+          )}
           onChange={(e) => setText(e.target.value)}
           onClick={editor.onClick}
+          onMouseMove={editor.onMouseMove}
+          onMouseLeave={editor.onMouseLeave}
           onBeforeInput={editor.onBeforeInput}
           onKeyDown={(e) => {
             // Ctrl+Enter opens a [[link]] when the caret is in one, and
@@ -383,10 +388,15 @@ function NoteRow({
                   autoFocus
                   ref={editor.ref}
                   value={note.text}
-                  className="min-h-32 text-sm"
+                  className={cn(
+                    'min-h-32 text-sm',
+                    editor.wikiLinkHovered && 'cursor-pointer',
+                  )}
                   placeholder="Markdown works here."
                   onChange={(e) => onChange({ text: e.target.value })}
                   onClick={editor.onClick}
+                  onMouseMove={editor.onMouseMove}
+                  onMouseLeave={editor.onMouseLeave}
                   onKeyDown={editor.onKeyDown}
                   onBeforeInput={editor.onBeforeInput}
                 />

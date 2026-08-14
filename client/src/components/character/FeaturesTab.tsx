@@ -165,9 +165,14 @@ function AddForm({
           ref={textRef}
           value={text}
           placeholder="Description — what it does. [[Wiki links]] and dice like 2d6 stay live."
-          className="min-h-16 text-sm"
+          className={cn(
+            'min-h-16 text-sm',
+            editor.wikiLinkHovered && 'cursor-pointer',
+          )}
           onChange={(e) => setText(e.target.value)}
           onClick={editor.onClick}
+          onMouseMove={editor.onMouseMove}
+          onMouseLeave={editor.onMouseLeave}
           onBeforeInput={editor.onBeforeInput}
           onKeyDown={(e) => {
             // Ctrl+Enter opens a [[link]] when the caret is in one, and
@@ -296,9 +301,14 @@ function FeatureRow({
                   ref={editor.ref}
                   value={entry.text ?? ''}
                   placeholder="Description — what it does."
-                  className="min-h-24 text-sm"
+                  className={cn(
+                    'min-h-24 text-sm',
+                    editor.wikiLinkHovered && 'cursor-pointer',
+                  )}
                   onChange={(e) => onChange({ text: e.target.value })}
                   onClick={editor.onClick}
+                  onMouseMove={editor.onMouseMove}
+                  onMouseLeave={editor.onMouseLeave}
                   onKeyDown={editor.onKeyDown}
                   onBeforeInput={editor.onBeforeInput}
                 />
