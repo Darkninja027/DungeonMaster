@@ -36,7 +36,9 @@ import { Button } from '#/components/ui/button'
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuSub,
   DropdownMenuSubContent,
@@ -512,58 +514,109 @@ function ArticlePage() {
                 Insert <ChevronDown className="size-3.5" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={() => insertBlock(snippets.table)}>
-                Table
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => insertBlock(snippets.readAloud)}>
-                Read-aloud box
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => insertBlock(snippets.divider)}>
-                Divider
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={() => insertAtCursor(snippets.namedRoll)}
-              >
-                Named roll
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => insertBlock(snippets.statBlock)}>
-                Stat block
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={() => insertBlock(snippets.portraitImage)}
-              >
-                Portrait image (text wraps)
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => insertBlock(snippets.pageBreak)}>
-                Page break
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={() => insertBlock(snippets.singleColumn)}
-              >
-                Single-column page
-              </DropdownMenuItem>
+            <DropdownMenuContent
+              align="end"
+              className="max-h-[70vh] overflow-y-auto"
+            >
+              {/* Block snippets go through insertBlock so they get the blank
+                  lines that make them parse as their own block; inline ones
+                  (rolls, wiki links) drop straight at the cursor. */}
+              <DropdownMenuGroup>
+                <DropdownMenuLabel>Text</DropdownMenuLabel>
+                <DropdownMenuItem onClick={() => insertBlock(snippets.table)}>
+                  Table
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => insertBlock(snippets.rollableTable)}
+                >
+                  Rollable d100 table
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => insertBlock(snippets.divider)}>
+                  Divider
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => insertAtCursor(snippets.wikiLink)}
+                >
+                  Wiki link
+                </DropdownMenuItem>
+              </DropdownMenuGroup>
               <DropdownMenuSeparator />
-              <DropdownMenuSub>
-                <DropdownMenuSubTrigger>Template</DropdownMenuSubTrigger>
-                <DropdownMenuSubContent>
-                  {articleTemplates
-                    .filter((t) => t.id !== 'blank')
-                    .map((template) => (
-                      <DropdownMenuItem
-                        key={template.id}
-                        onClick={() => insertBlock(template.body.trim())}
-                      >
-                        <div>
-                          <span className="block">{template.name}</span>
-                          <span className="text-muted-foreground block text-xs">
-                            {template.description}
-                          </span>
-                        </div>
-                      </DropdownMenuItem>
-                    ))}
-                </DropdownMenuSubContent>
-              </DropdownMenuSub>
+              <DropdownMenuGroup>
+                <DropdownMenuLabel>D&amp;D</DropdownMenuLabel>
+                <DropdownMenuItem
+                  onClick={() => insertBlock(snippets.readAloud)}
+                >
+                  Read-aloud box
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => insertBlock(snippets.statBlock)}
+                >
+                  Stat block
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => insertAtCursor(snippets.namedRoll)}
+                >
+                  Named roll
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => insertAtCursor(snippets.hiddenRoll)}
+                >
+                  Hidden DM roll
+                </DropdownMenuItem>
+              </DropdownMenuGroup>
+              <DropdownMenuSeparator />
+              <DropdownMenuGroup>
+                <DropdownMenuLabel>Layout</DropdownMenuLabel>
+                <DropdownMenuItem
+                  onClick={() => insertBlock(snippets.portraitImage)}
+                >
+                  Portrait image (text wraps)
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => insertBlock(snippets.floatImage)}
+                >
+                  Floating image
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => insertBlock(snippets.pageBreak)}
+                >
+                  Page break
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => insertBlock(snippets.singleColumn)}
+                >
+                  Single-column page
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => insertBlock(snippets.twoColumn)}
+                >
+                  Two-column page
+                </DropdownMenuItem>
+              </DropdownMenuGroup>
+              <DropdownMenuSeparator />
+              <DropdownMenuGroup>
+                <DropdownMenuLabel>Templates</DropdownMenuLabel>
+                <DropdownMenuSub>
+                  <DropdownMenuSubTrigger>Template</DropdownMenuSubTrigger>
+                  <DropdownMenuSubContent>
+                    {articleTemplates
+                      .filter((t) => t.id !== 'blank')
+                      .map((template) => (
+                        <DropdownMenuItem
+                          key={template.id}
+                          onClick={() => insertBlock(template.body.trim())}
+                        >
+                          <div>
+                            <span className="block">{template.name}</span>
+                            <span className="text-muted-foreground block text-xs">
+                              {template.description}
+                            </span>
+                          </div>
+                        </DropdownMenuItem>
+                      ))}
+                  </DropdownMenuSubContent>
+                </DropdownMenuSub>
+              </DropdownMenuGroup>
             </DropdownMenuContent>
           </DropdownMenu>
           <Button

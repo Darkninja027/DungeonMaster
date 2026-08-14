@@ -251,14 +251,30 @@ export const snippets = {
     '| Cell   | Cell   | Cell   |',
     '| Cell   | Cell   | Cell   |',
   ].join('\n'),
+  // First header cell must be bare dice notation (RollableTable matches /^d\d+$/)
+  // for the Roll button to appear; the second names the roll in history.
+  rollableTable: [
+    '| d100 | Trinket |',
+    '| ---- | ------- |',
+    '| 01–25 | A cracked hourglass that runs backwards. |',
+    '| 26–50 | A brass key with no matching lock. |',
+    '| 51–75 | A vial of water from a river that no longer exists. |',
+    '| 76–100 | A silver ring engraved with a name you cannot read. |',
+  ].join('\n'),
   readAloud:
     '> Boxed read-aloud text: describe the scene to your players here.',
   divider: '---',
   namedRoll: '[Short Sword](1d20+5)',
+  // #hidename must trail the label: the chip shows only the dice, while roll
+  // history still logs the name.
+  hiddenRoll: '[Sneak Attack #hidename](3d6)',
+  wikiLink: '[[Article Title|shown text]]',
   pageBreak: '\\page',
   singleColumn: '\\columns 1',
+  twoColumn: '\\columns 2',
   portraitImage:
     '![Portrait](https://placehold.co/440x560/8a7a5c/2b2117?text=Portrait#right&w=45%)',
+  floatImage: '![Alt text](_images/your-image.png#left&w=40%)',
   statBlock: [
     '```statblock',
     'name: Creature Name',

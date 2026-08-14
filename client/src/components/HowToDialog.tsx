@@ -165,7 +165,7 @@ export function HowToDialog() {
             />
             <Row
               code="Insert"
-              desc="Drops templates at your cursor: tables, read-aloud boxes, dividers, stat blocks, page breaks."
+              desc="Drops ready-made markdown at your cursor, grouped into Text (tables, rollable d100 tables, dividers, wiki links), D&D (read-aloud boxes, stat blocks, named and hidden rolls), Layout (images, page breaks, column settings) and whole-article Templates."
             />
           </Section>
         </ScrollArea>
