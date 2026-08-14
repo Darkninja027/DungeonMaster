@@ -12,8 +12,10 @@ export interface BookPage {
   body: string
 }
 
-const PAGE_MARKER = /^\\page\s*$/
-const COLUMNS_MARKER = /^\\columns\s+([12])\s*$/
+// Exported so the outline parser (lib/toc.ts) recognises exactly the same
+// markers this one does — two copies would drift.
+export const PAGE_MARKER = /^\\page\s*$/
+export const COLUMNS_MARKER = /^\\columns\s+([12])\s*$/
 
 /**
  * Split leading YAML frontmatter (---\n…\n---) from the markdown body.

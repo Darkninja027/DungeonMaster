@@ -408,6 +408,33 @@ function statBlockFence(children: React.ReactNode): string | null {
   return null
 }
 
+/**
+ * Stamp each heading with the text the outline pane knows it by, so a click
+ * there can find it in the rendered flow.
+ *
+ * Deliberately NOT an id or an incrementing ordinal: the same components object
+ * serves every sheet copy of the document (see the sheet loop below), so a
+ * counter would keep climbing across sheets and ids would be duplicated
+ * `sheetCount` times over. A text attribute is identical in every copy, which
+ * is exactly what the lookup wants — it queries one sheet's flow and reads the
+ * heading's horizontal offset from it.
+ */
+function headingComponent(level: 1 | 2 | 3 | 4 | 5 | 6) {
+  const Tag = `h${level}` as const
+  return function Heading({
+    children,
+    ...props
+  }: {
+    children?: React.ReactNode
+  }) {
+    return (
+      <Tag data-toc-text={childText(children).trim()} {...props}>
+        {children}
+      </Tag>
+    )
+  }
+}
+
 function createComponents(
   push: (href: string) => void,
   onCreateMissing?: (title: string) => void,
@@ -416,6 +443,12 @@ function createComponents(
   articles?: Array<{ id: string; title: string }>,
 ): Components {
   return {
+    h1: headingComponent(1),
+    h2: headingComponent(2),
+    h3: headingComponent(3),
+    h4: headingComponent(4),
+    h5: headingComponent(5),
+    h6: headingComponent(6),
     table: ({ children }) => (
       <RollableTable source={source}>{children}</RollableTable>
     ),
@@ -708,16 +741,26 @@ export const BookView = memo(function BookView({
   return (
     <div className="dnd-book flex flex-col items-center gap-8">
       {pages.map((page, i) => (
-        <Markdown
+        // data-book-page / data-book-columns address each \page chunk for the
+        // outline pane, which scrolls to a chunk and then works out which of
+        // its sheets a heading landed on. `contents` keeps the wrapper out of
+        // the layout so the sheets still lay out exactly as before.
+        <div
           key={i}
-          columns={page.columns ?? 2}
-          articles={articles}
-          worldId={worldId}
-          onCreateMissing={onCreateMissing}
-          source={source}
+          className="contents"
+          data-book-page={i}
+          data-book-columns={page.columns ?? 2}
         >
-          {page.body}
-        </Markdown>
+          <Markdown
+            columns={page.columns ?? 2}
+            articles={articles}
+            worldId={worldId}
+            onCreateMissing={onCreateMissing}
+            source={source}
+          >
+            {page.body}
+          </Markdown>
+        </div>
       ))}
     </div>
   )

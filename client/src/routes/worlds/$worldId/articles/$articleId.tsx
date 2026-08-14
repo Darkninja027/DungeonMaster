@@ -15,6 +15,7 @@ import {
   FileDown,
   FolderOpen,
   Link2,
+  List,
   Loader2,
   Pencil,
   Save,
@@ -48,6 +49,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '#/components/ui/tabs'
 import { Textarea } from '#/components/ui/textarea'
 import { cn } from '#/lib/utils'
 import { BookView } from '#/components/Markdown'
+import { TableOfContents } from '#/components/TableOfContents'
+import {
+  activeHeadingAt,
+  editorScrollTopFor,
+  parseHeadings,
+  scrollPreviewToHeading,
+} from '#/lib/toc'
+import type { TocHeading } from '#/lib/toc'
 import { SheetPreview } from '#/components/character/SheetPreview'
 import { ImagePickerDialog } from '#/components/ImagePickerDialog'
 import { HowToDialog } from '#/components/HowToDialog'
@@ -76,6 +85,20 @@ function LinkToArticle({
       {title}
     </Link>
   )
+}
+
+const TOC_KEY = 'dm.articleToc'
+
+/** Outline pane visibility, remembered across sessions like the session panel. */
+function loadTocOpen(): boolean {
+  try {
+    const raw = JSON.parse(localStorage.getItem(TOC_KEY) ?? '') as {
+      open?: boolean
+    }
+    return raw.open === true
+  } catch {
+    return false
+  }
 }
 
 /**
@@ -171,6 +194,9 @@ function ArticlePage() {
   const [livePreview, setLivePreview] = useState(false)
   const [exporting, setExporting] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const [tocOpen, setTocOpen] = useState(loadTocOpen)
+  const [activeHeadingId, setActiveHeadingId] = useState<string | null>(null)
+  const previewRef = useRef<HTMLDivElement>(null)
 
   // [[ autocomplete: the partial title being typed after an unclosed [[
   const [linkQuery, setLinkQuery] = useState<string | null>(null)
@@ -210,6 +236,38 @@ function ArticlePage() {
   const IMAGE_PATH_TYPING =
     /(?:\]\(|^[ \t]*image:[ \t]*(?:!\[[^\]]*\]\()?)_images\/([^)\n]*)$/m
 
+  // The outline, parsed from the source rather than the rendered DOM — the book
+  // preview repeats the whole document on every sheet, so its headings are
+  // duplicated `sheetCount` times over. See lib/toc.ts.
+  const headings = useMemo(() => parseHeadings(content), [content])
+
+  useEffect(() => {
+    localStorage.setItem(TOC_KEY, JSON.stringify({ open: tocOpen }))
+  }, [tocOpen])
+
+  /**
+   * Jump to a heading. Where that lands depends on the tab: the Write tab puts
+   * the caret on the heading's line and scrolls it near the top; the Preview
+   * tab scrolls to the book sheet the heading is actually visible on.
+   */
+  const goToHeading = (heading: TocHeading) => {
+    setActiveHeadingId(heading.id)
+    if (tab === 'preview') {
+      const scroller = previewRef.current
+      if (scroller) scrollPreviewToHeading(scroller, heading)
+      return
+    }
+    // setTimeout(0) for the same reason completeLink uses one: the textarea may
+    // not be focusable until React has committed the current render.
+    setTimeout(() => {
+      const textarea = textareaRef.current
+      if (!textarea) return
+      textarea.focus()
+      textarea.setSelectionRange(heading.offset, heading.offset)
+      textarea.scrollTop = editorScrollTopFor(textarea, heading.offset)
+    }, 0)
+  }
+
   const updateQueries = () => {
     const textarea = textareaRef.current
     if (!textarea) {
@@ -225,6 +283,10 @@ function ArticlePage() {
     const image = link ? null : before.match(IMAGE_PATH_TYPING)
     setImageQuery(image ? image[1] : null)
     setImageIndex(0)
+    // The outline follows the caret: count the newlines behind it to get the
+    // current line, then take the last heading at or above it.
+    const line = before.split('\n').length - 1
+    setActiveHeadingId(activeHeadingAt(headings, line)?.id ?? null)
   }
 
   const completeLink = (linkTitle: string) => {
@@ -619,207 +681,241 @@ function ArticlePage() {
         </div>
       )}
 
-      <Tabs value={tab} onValueChange={setTab} className="min-h-0 flex-1 gap-0">
-        <div className="flex items-center border-b px-4 py-1.5">
-          <TabsList className="h-8">
-            <TabsTrigger value="write" className="text-xs">
-              <Pencil className="size-3.5" /> Write
-            </TabsTrigger>
-            <TabsTrigger value="preview" className="text-xs">
-              <Eye className="size-3.5" /> Preview
-            </TabsTrigger>
-          </TabsList>
-          {tab === 'write' && (
-            <Button
-              variant={livePreview ? 'secondary' : 'ghost'}
-              size="sm"
-              className="ml-auto h-8 text-xs"
-              title="Show a live preview beside the editor"
-              onClick={() => setLivePreview((v) => !v)}
-            >
-              <Columns2 className="size-3.5" /> Live preview
-            </Button>
-          )}
-        </div>
-        <TabsContent value="write" className="flex min-h-0 flex-1 flex-col">
-          {linkQuery !== null && linkMatches.length > 0 && (
-            <div className="bg-muted/60 flex items-center gap-1.5 overflow-x-auto border-b px-3 py-1.5 text-sm">
-              <span className="text-muted-foreground shrink-0 text-xs">
-                Link to:
-              </span>
-              {linkMatches.map((match, i) => (
-                <button
-                  key={match.id}
-                  type="button"
-                  className={cn(
-                    'shrink-0 rounded border px-2 py-0.5 text-xs',
-                    i === linkIndex
-                      ? 'bg-accent border-primary'
-                      : 'hover:bg-accent',
-                  )}
-                  onMouseDown={(e) => {
-                    e.preventDefault()
-                    completeLink(match.title)
-                  }}
+      <div className="flex min-h-0 flex-1">
+        <Tabs
+          value={tab}
+          onValueChange={setTab}
+          className="min-h-0 flex-1 gap-0"
+        >
+          <div className="flex items-center border-b px-4 py-1.5">
+            <TabsList className="h-8">
+              <TabsTrigger value="write" className="text-xs">
+                <Pencil className="size-3.5" /> Write
+              </TabsTrigger>
+              <TabsTrigger value="preview" className="text-xs">
+                <Eye className="size-3.5" /> Preview
+              </TabsTrigger>
+            </TabsList>
+            <div className="ml-auto flex items-center gap-2">
+              {tab === 'write' && (
+                <Button
+                  variant={livePreview ? 'secondary' : 'ghost'}
+                  size="sm"
+                  className="h-8 text-xs"
+                  title="Show a live preview beside the editor"
+                  onClick={() => setLivePreview((v) => !v)}
                 >
-                  {match.title}
-                </button>
-              ))}
-              <span className="text-muted-foreground shrink-0 text-xs">
-                ↹ Tab · ⏎ Enter
-              </span>
-            </div>
-          )}
-          {imageQuery !== null && imageMatches.length > 0 && (
-            <div className="bg-muted/60 flex items-center gap-1.5 overflow-x-auto border-b px-3 py-1.5 text-sm">
-              <span className="text-muted-foreground shrink-0 text-xs">
-                Image:
-              </span>
-              {imageMatches.map((match, i) => (
-                <button
-                  key={match.id}
-                  type="button"
-                  className={cn(
-                    'shrink-0 rounded border px-2 py-0.5 text-xs',
-                    i === imageIndex
-                      ? 'bg-accent border-primary'
-                      : 'hover:bg-accent',
-                  )}
-                  onMouseDown={(e) => {
-                    e.preventDefault()
-                    completeImagePath(match)
-                  }}
+                  <Columns2 className="size-3.5" /> Live preview
+                </Button>
+              )}
+              {!parsedCharacter && (
+                <Button
+                  variant={tocOpen ? 'secondary' : 'ghost'}
+                  size="sm"
+                  className="h-8 text-xs"
+                  title="Show the article outline"
+                  onClick={() => setTocOpen((v) => !v)}
                 >
-                  {match.id}
-                </button>
-              ))}
-              <span className="text-muted-foreground shrink-0 text-xs">
-                ↹ Tab · ⏎ Enter
-              </span>
+                  <List className="size-3.5" /> Outline
+                </Button>
+              )}
             </div>
-          )}
-          <div className="flex min-h-0 flex-1">
-            <Textarea
-              ref={textareaRef}
-              value={content}
-              placeholder="Write your lore in markdown…"
-              className="h-full min-h-0 flex-1 resize-none rounded-none border-none font-mono text-sm shadow-none focus-visible:ring-0"
-              onChange={(e) => {
-                setContent(e.target.value)
-                setDirty(true)
-                requestAnimationFrame(updateQueries)
-              }}
-              onClick={updateQueries}
-              onPaste={(e) => {
-                const files = Array.from(e.clipboardData.files)
-                if (files.some((f) => f.type.startsWith('image/'))) {
-                  e.preventDefault()
-                  uploadAndInsert(files)
-                }
-              }}
-              onDragOver={(e) => {
-                // Only claim the drop for files — the textarea's own text-drag
-                // behaviour must keep working.
-                if (e.dataTransfer.types.indexOf('Files') >= 0)
-                  e.preventDefault()
-              }}
-              onDrop={(e) => {
-                const files = Array.from(e.dataTransfer.files)
-                if (files.some((f) => f.type.startsWith('image/'))) {
-                  e.preventDefault()
-                  uploadAndInsert(files)
-                }
-              }}
-              onKeyUp={(e) => {
-                if (
-                  !['ArrowDown', 'ArrowUp', 'Enter', 'Tab', 'Escape'].includes(
-                    e.key,
+          </div>
+          <TabsContent value="write" className="flex min-h-0 flex-1 flex-col">
+            {linkQuery !== null && linkMatches.length > 0 && (
+              <div className="bg-muted/60 flex items-center gap-1.5 overflow-x-auto border-b px-3 py-1.5 text-sm">
+                <span className="text-muted-foreground shrink-0 text-xs">
+                  Link to:
+                </span>
+                {linkMatches.map((match, i) => (
+                  <button
+                    key={match.id}
+                    type="button"
+                    className={cn(
+                      'shrink-0 rounded border px-2 py-0.5 text-xs',
+                      i === linkIndex
+                        ? 'bg-accent border-primary'
+                        : 'hover:bg-accent',
+                    )}
+                    onMouseDown={(e) => {
+                      e.preventDefault()
+                      completeLink(match.title)
+                    }}
+                  >
+                    {match.title}
+                  </button>
+                ))}
+                <span className="text-muted-foreground shrink-0 text-xs">
+                  ↹ Tab · ⏎ Enter
+                </span>
+              </div>
+            )}
+            {imageQuery !== null && imageMatches.length > 0 && (
+              <div className="bg-muted/60 flex items-center gap-1.5 overflow-x-auto border-b px-3 py-1.5 text-sm">
+                <span className="text-muted-foreground shrink-0 text-xs">
+                  Image:
+                </span>
+                {imageMatches.map((match, i) => (
+                  <button
+                    key={match.id}
+                    type="button"
+                    className={cn(
+                      'shrink-0 rounded border px-2 py-0.5 text-xs',
+                      i === imageIndex
+                        ? 'bg-accent border-primary'
+                        : 'hover:bg-accent',
+                    )}
+                    onMouseDown={(e) => {
+                      e.preventDefault()
+                      completeImagePath(match)
+                    }}
+                  >
+                    {match.id}
+                  </button>
+                ))}
+                <span className="text-muted-foreground shrink-0 text-xs">
+                  ↹ Tab · ⏎ Enter
+                </span>
+              </div>
+            )}
+            <div className="flex min-h-0 flex-1">
+              <Textarea
+                ref={textareaRef}
+                value={content}
+                placeholder="Write your lore in markdown…"
+                className="h-full min-h-0 flex-1 resize-none rounded-none border-none font-mono text-sm shadow-none focus-visible:ring-0"
+                onChange={(e) => {
+                  setContent(e.target.value)
+                  setDirty(true)
+                  requestAnimationFrame(updateQueries)
+                }}
+                onClick={updateQueries}
+                onPaste={(e) => {
+                  const files = Array.from(e.clipboardData.files)
+                  if (files.some((f) => f.type.startsWith('image/'))) {
+                    e.preventDefault()
+                    uploadAndInsert(files)
+                  }
+                }}
+                onDragOver={(e) => {
+                  // Only claim the drop for files — the textarea's own text-drag
+                  // behaviour must keep working.
+                  if (e.dataTransfer.types.indexOf('Files') >= 0)
+                    e.preventDefault()
+                }}
+                onDrop={(e) => {
+                  const files = Array.from(e.dataTransfer.files)
+                  if (files.some((f) => f.type.startsWith('image/'))) {
+                    e.preventDefault()
+                    uploadAndInsert(files)
+                  }
+                }}
+                onKeyUp={(e) => {
+                  if (
+                    ![
+                      'ArrowDown',
+                      'ArrowUp',
+                      'Enter',
+                      'Tab',
+                      'Escape',
+                    ].includes(e.key)
                   )
-                )
-                  updateQueries()
-              }}
-              onBeforeInput={editor.onBeforeInput}
-              onKeyDown={(e) => {
-                if (imageQuery !== null && imageMatches.length > 0) {
+                    updateQueries()
+                }}
+                onBeforeInput={editor.onBeforeInput}
+                onKeyDown={(e) => {
+                  if (imageQuery !== null && imageMatches.length > 0) {
+                    if (e.key === 'ArrowDown') {
+                      e.preventDefault()
+                      setImageIndex((i) => (i + 1) % imageMatches.length)
+                    } else if (e.key === 'ArrowUp') {
+                      e.preventDefault()
+                      setImageIndex(
+                        (i) =>
+                          (i - 1 + imageMatches.length) % imageMatches.length,
+                      )
+                    } else if (e.key === 'Enter' || e.key === 'Tab') {
+                      e.preventDefault()
+                      completeImagePath(imageMatches[imageIndex])
+                    } else if (e.key === 'Escape') {
+                      setImageQuery(null)
+                    }
+                    return
+                  }
+                  if (linkQuery === null || linkMatches.length === 0)
+                    return editor.onKeyDown(e)
                   if (e.key === 'ArrowDown') {
                     e.preventDefault()
-                    setImageIndex((i) => (i + 1) % imageMatches.length)
+                    setLinkIndex((i) => (i + 1) % linkMatches.length)
                   } else if (e.key === 'ArrowUp') {
                     e.preventDefault()
-                    setImageIndex(
-                      (i) =>
-                        (i - 1 + imageMatches.length) % imageMatches.length,
+                    setLinkIndex(
+                      (i) => (i - 1 + linkMatches.length) % linkMatches.length,
                     )
                   } else if (e.key === 'Enter' || e.key === 'Tab') {
                     e.preventDefault()
-                    completeImagePath(imageMatches[imageIndex])
+                    completeLink(linkMatches[linkIndex].title)
                   } else if (e.key === 'Escape') {
-                    setImageQuery(null)
+                    setLinkQuery(null)
+                  } else {
+                    // Anything the suggestion strip doesn't claim (Ctrl+B and
+                    // friends) still belongs to the formatting shortcuts.
+                    editor.onKeyDown(e)
                   }
-                  return
-                }
-                if (linkQuery === null || linkMatches.length === 0)
-                  return editor.onKeyDown(e)
-                if (e.key === 'ArrowDown') {
-                  e.preventDefault()
-                  setLinkIndex((i) => (i + 1) % linkMatches.length)
-                } else if (e.key === 'ArrowUp') {
-                  e.preventDefault()
-                  setLinkIndex(
-                    (i) => (i - 1 + linkMatches.length) % linkMatches.length,
-                  )
-                } else if (e.key === 'Enter' || e.key === 'Tab') {
-                  e.preventDefault()
-                  completeLink(linkMatches[linkIndex].title)
-                } else if (e.key === 'Escape') {
-                  setLinkQuery(null)
-                } else {
-                  // Anything the suggestion strip doesn't claim (Ctrl+B and
-                  // friends) still belongs to the formatting shortcuts.
-                  editor.onKeyDown(e)
-                }
-              }}
-            />
-            {livePreview && (
-              <LivePreviewPane
-                content={content}
-                articles={tree.data?.articles}
-                worldId={worldId}
-                source={rollSource}
-                onCreateMissing={setMissingTitle}
+                }}
               />
-            )}
-          </div>
-        </TabsContent>
-        <TabsContent
-          value="preview"
-          className="min-h-0 flex-1 overflow-y-auto bg-stone-800/90 dark:bg-stone-950"
-        >
-          <div className="print-area p-6 md:p-10">
-            {!content.trim() ? (
-              <p className="text-stone-400">Nothing to preview yet.</p>
-            ) : parsedCharacter ? (
-              <SheetPreview
-                character={parsedCharacter.character}
-                body={parsedCharacter.body}
-                title={title}
-                source={sheetSource}
-                worldId={worldId}
-                articles={tree.data?.articles}
-              />
-            ) : (
-              <BookView
-                articles={tree.data?.articles}
-                worldId={worldId}
-                source={rollSource}
-                onCreateMissing={setMissingTitle}
-              >
-                {content}
-              </BookView>
-            )}
-          </div>
-        </TabsContent>
-      </Tabs>
+              {livePreview && (
+                <LivePreviewPane
+                  content={content}
+                  articles={tree.data?.articles}
+                  worldId={worldId}
+                  source={rollSource}
+                  onCreateMissing={setMissingTitle}
+                />
+              )}
+            </div>
+          </TabsContent>
+          {/* This TabsContent is itself the preview's scroll container — the
+            outline scrolls it, not .print-area. */}
+          <TabsContent
+            ref={previewRef}
+            value="preview"
+            className="min-h-0 flex-1 overflow-y-auto bg-stone-800/90 dark:bg-stone-950"
+          >
+            <div className="print-area p-6 md:p-10">
+              {!content.trim() ? (
+                <p className="text-stone-400">Nothing to preview yet.</p>
+              ) : parsedCharacter ? (
+                <SheetPreview
+                  character={parsedCharacter.character}
+                  body={parsedCharacter.body}
+                  title={title}
+                  source={sheetSource}
+                  worldId={worldId}
+                  articles={tree.data?.articles}
+                />
+              ) : (
+                <BookView
+                  articles={tree.data?.articles}
+                  worldId={worldId}
+                  source={rollSource}
+                  onCreateMissing={setMissingTitle}
+                >
+                  {content}
+                </BookView>
+              )}
+            </div>
+          </TabsContent>
+        </Tabs>
+        {tocOpen && !parsedCharacter && (
+          <TableOfContents
+            headings={headings}
+            activeId={activeHeadingId}
+            onSelect={goToHeading}
+            onClose={() => setTocOpen(false)}
+          />
+        )}
+      </div>
       <Separator />
       <div className="text-muted-foreground flex items-center gap-3 px-4 py-1 text-xs">
         <span>
