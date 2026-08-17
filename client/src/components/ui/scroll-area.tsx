@@ -14,9 +14,21 @@ function ScrollArea({
       className={cn('relative', className)}
       {...props}
     >
+      {/*
+        Radix wraps children in an inline-styled `display: table; min-width:100%`
+        div so content can size itself. A table sizes to its *content*, and
+        `width:100%` on one acts as a minimum rather than a cap — so a long row
+        grows the wrapper past the viewport and `min-w-0 flex-1` inside can
+        never claw the width back. That pushed the bestiary's trailing
+        edit/menu buttons outside the panel once titles got long enough.
+
+        Forcing the wrapper back to `display: block` makes it fill the viewport
+        and clip normally, which is what every list here wants. Content that
+        genuinely needs to scroll sideways should set its own `overflow-x`.
+      */}
       <ScrollAreaPrimitive.Viewport
         data-slot="scroll-area-viewport"
-        className="size-full rounded-[inherit] transition-[color,box-shadow] outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-1"
+        className="size-full rounded-[inherit] transition-[color,box-shadow] outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-1 [&>div]:block! [&>div]:min-w-0!"
       >
         {children}
       </ScrollAreaPrimitive.Viewport>

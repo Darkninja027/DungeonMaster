@@ -63,6 +63,12 @@ import {
   refreshIndex,
 } from './indexer'
 import { nameError, resolveInWorld } from './sanitize'
+import {
+  clearLibrary,
+  getLibrary,
+  importMarkdownFolder,
+  setLibrary,
+} from './library'
 
 function worldSummary(root: string): WorldSummary {
   return {
@@ -620,5 +626,35 @@ export function registerIpcHandlers() {
     'worldSettings:set',
     (_e, { worldId, state }: { worldId: string; state: unknown }) =>
       writeWorldSettings(worldId, state),
+  )
+
+  // Global library ------------------------------------------------------------
+  ipcMain.handle('library:get', () => getLibrary())
+
+  ipcMain.handle('library:pick', async () => {
+    const dir = await pickDirectory('Choose a folder for your global library')
+    return dir ? setLibrary(dir) : null
+  })
+
+  ipcMain.handle('library:forget', () => clearLibrary())
+
+  // Picks and imports in one round-trip, so the renderer never handles a disk
+  // path — it has no business knowing one, and can't be trusted with one.
+  ipcMain.handle(
+    'library:import',
+    // `target` is typed unknown deliberately: it crosses IPC, so the renderer's
+    // type is a claim, not a guarantee. Narrow it here before it picks a folder.
+    async (_e, { target }: { target: unknown }) => {
+      if (target !== 'Monsters' && target !== 'Spells') {
+        throw new Error(`Unknown import target: ${String(target)}`)
+      }
+      // No "choose a library first" gate: importMarkdownFolder creates the
+      // default one, so the only thing to ask about is what to import.
+      const dir = await pickDirectory(
+        `Choose a folder of markdown files to import as ${target.toLowerCase()}`,
+      )
+      if (!dir) return null
+      return importMarkdownFolder(dir, target)
+    },
   )
 }
