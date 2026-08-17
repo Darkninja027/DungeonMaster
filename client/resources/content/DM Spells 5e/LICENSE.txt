@@ -1,0 +1,10 @@
+Monster and spell text is from the System Reference Document 5.1
+("SRD 5.1") by Wizards of the Coast LLC, available under the
+Creative Commons Attribution 4.0 International License:
+https://creativecommons.org/licenses/by/4.0/legalcode
+
+Retrieved via the open5e API (https://open5e.com) filtered to
+document__slug=wotc-srd.
+
+Intended for import into DungeonMaster's global library. Not
+bundled with the application.

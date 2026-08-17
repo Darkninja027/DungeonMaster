@@ -56,6 +56,37 @@ const MAX_FILE_BYTES = 2 * 1024 * 1024
 const MAX_FILES = 5000
 
 /**
+ * Bump when the bundled content changes. Stored in the library so a seed runs
+ * once per version rather than on every launch — and so shipping new spells in
+ * a later release tops up an existing library instead of being ignored.
+ */
+const BUNDLED_CONTENT_VERSION = 1
+const SEED_MARKER = '.seeded.json'
+
+/**
+ * The content shipped beside the app: four folders of markdown, mapped to the
+ * library folder each one imports into. Named to match extraResources in
+ * electron-builder.yml.
+ */
+const BUNDLED_SETS: Array<{ dir: string; target: LibraryFolder }> = [
+  { dir: 'DM Bestiary 5e', target: 'Monsters' },
+  { dir: 'DM Bestiary 5.5e', target: 'Monsters' },
+  { dir: 'DM Spells 5e', target: 'Spells' },
+  { dir: 'DM Spells 5.5e', target: 'Spells' },
+]
+
+/**
+ * Where the bundled content lives. Packaged it sits in resources/content next
+ * to the asar; in dev it comes from the repo's own assets folder so the seed
+ * path is exercised without building an installer.
+ */
+function bundledContentDir(): string {
+  return app.isPackaged
+    ? path.join(process.resourcesPath, 'content')
+    : path.join(app.getAppPath(), 'resources', 'content')
+}
+
+/**
  * Where the library goes when the user hasn't chosen somewhere else:
  * %APPDATA%/dungeonmaster/Library on Windows, the platform equivalent
  * elsewhere. Alongside config.json, so the app's own state stays in one place.
@@ -104,6 +135,71 @@ export function ensureLibrary(): LibraryInfo {
   const existing = getLibrary()
   if (existing?.available) return existing
   return setLibrary(existing?.path ?? defaultLibraryPath())
+}
+
+/** Which bundled-content version this library has already been seeded with. */
+function seededVersion(root: string): number {
+  try {
+    const raw: unknown = JSON.parse(
+      fs.readFileSync(path.join(root, SEED_MARKER), 'utf8'),
+    )
+    const v = (raw as { version?: unknown }).version
+    return typeof v === 'number' ? v : 0
+  } catch {
+    return 0
+  }
+}
+
+/**
+ * Copy the content shipped with the app into the library, once per content
+ * version. Called on startup so a fresh install opens with a full bestiary and
+ * spell list rather than empty panels.
+ *
+ * Deliberately quiet and non-fatal: a failure here must never stop the app
+ * launching.
+ *
+ * The rule is "a content update tops the library back up to the full shipped
+ * set". Concretely:
+ *
+ *  - Same version, every later launch: does nothing at all.
+ *  - Version bumped: copies any shipped file whose name isn't already in the
+ *    library, and leaves every existing entry exactly as it is — so a spell
+ *    the user edited keeps their wording, and nothing gains a "(2)" twin.
+ *  - A file the user deleted therefore comes back on the *next* version bump,
+ *    since "deleted" and "never had it" look identical on disk. That's the
+ *    accepted trade for not maintaining a tombstone list that would drift out
+ *    of sync the moment anyone edited the folder outside the app.
+ */
+export async function seedBundledContent(): Promise<ImportSummary | null> {
+  const source = bundledContentDir()
+  if (!fs.existsSync(source)) return null
+
+  const library = ensureLibrary()
+  if (seededVersion(library.path) >= BUNDLED_CONTENT_VERSION) return null
+
+  let copied = 0
+  const skipped: Array<ImportSkip> = []
+  let truncated = false
+  for (const set of BUNDLED_SETS) {
+    const dir = path.join(source, set.dir)
+    if (!fs.existsSync(dir)) continue
+    const summary = await importMarkdownFolder(dir, set.target, {
+      skipExisting: true,
+    })
+    copied += summary.copied
+    skipped.push(...summary.skipped)
+    truncated ||= summary.truncated
+  }
+
+  atomicWrite(
+    path.join(library.path, SEED_MARKER),
+    JSON.stringify(
+      { version: BUNDLED_CONTENT_VERSION, seededAt: new Date().toISOString() },
+      null,
+      2,
+    ),
+  )
+  return { copied, skipped, truncated }
 }
 
 /**
@@ -217,6 +313,16 @@ function pathError(rel: string): string | null {
 export async function importMarkdownFolder(
   sourceDir: string,
   target: LibraryFolder,
+  options: {
+    /**
+     * Leave a same-named entry alone instead of adding "Name (2).md".
+     *
+     * For the bundled seed, where re-running after a content update should top
+     * up what's new rather than duplicate the whole list. A user-driven import
+     * keeps the dedupe, because there the second copy is usually the point.
+     */
+    skipExisting?: boolean
+  } = {},
 ): Promise<ImportSummary> {
   // Creates the default library on first use rather than demanding a location.
   const library = ensureLibrary()
@@ -250,6 +356,8 @@ export async function importMarkdownFolder(
         )
         for (const level of missingAncestors(destDir)) noteSelfWrite(level)
         fs.mkdirSync(destDir, { recursive: true })
+
+        if (options.skipExisting && entryExists(destDir, `${stem}.md`)) continue
 
         const name = dedupeName((n) => entryExists(destDir, n), stem)
         atomicWrite(

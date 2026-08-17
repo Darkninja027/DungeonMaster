@@ -4,6 +4,7 @@ import { autoUpdater } from 'electron-updater'
 import log from 'electron-log'
 import { registerIpcHandlers } from './ipc'
 import { registerWorldProtocol, handleWorldProtocol } from './images'
+import { seedBundledContent } from './library'
 
 const devServerUrl = process.env.VITE_DEV_SERVER_URL
 
@@ -84,6 +85,20 @@ if (!app.requestSingleInstanceLock()) {
     handleWorldProtocol()
     registerIpcHandlers()
     const win = createWindow()
+
+    // Fill the global library from the content shipped with the app, so a
+    // fresh install opens with a full bestiary and spell list. Runs once per
+    // bundled-content version and never blocks the window: a failure here is a
+    // missing convenience, not a reason to stop launching.
+    void seedBundledContent()
+      .then((summary) => {
+        if (summary?.copied) {
+          log.info(`[library] seeded ${summary.copied} bundled articles`)
+        }
+      })
+      .catch((error: unknown) => {
+        log.warn('[library] bundled content seed failed', error)
+      })
 
     // Replay the latest update status to the renderer once it has loaded —
     // updater events can fire before the page is ready to receive them.
