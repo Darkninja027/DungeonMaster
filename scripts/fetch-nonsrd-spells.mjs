@@ -2,46 +2,61 @@
  * Fetches spell pages from dnd5e.wikidot.com for spells that are NOT in the
  * SRD 5.1 export, and writes them as DungeonMaster spell articles.
  *
+ * By default it writes straight into the SRD spell folder, so one import gets
+ * you the complete list. Every file it writes carries `srd: false` in its
+ * frontmatter, which is what tells the two sets apart once merged.
+ *
  * ── Licensing ─────────────────────────────────────────────────────────────
  * Unlike the SRD content in seed-import-fixtures.mjs, these spells are NOT
  * released under CC-BY. They come from the Player's Handbook, Xanathar's
  * Guide, Tasha's Cauldron, Fizban's Treasury and Unearthed Arcana, and are
  * Wizards of the Coast's copyrighted material. This script is a personal-use
- * convenience for content you own; the output is not safe to redistribute.
- * It writes to a separate folder and a NOTICE.txt saying so.
+ * convenience for content you own.
+ *
+ * Merging them into the SRD folder means that folder is NO LONGER safe to
+ * redistribute — the CC-BY licence covers only the 319 SRD spells. A
+ * NOTICE.txt saying so is written alongside. To keep a publishable folder,
+ * pass an explicit out-dir instead.
  * ──────────────────────────────────────────────────────────────────────────
  *
- * Run:  node scripts/fetch-nonsrd-spells.mjs <names-file> <out-dir>
- *       node scripts/fetch-nonsrd-spells.mjs --resume ...   (skip existing)
+ * Run:  node scripts/fetch-nonsrd-spells.mjs <names-file>            (merge)
+ *       node scripts/fetch-nonsrd-spells.mjs <names-file> <out-dir>  (separate)
+ *       node scripts/fetch-nonsrd-spells.mjs <names-file> --resume
  *
  * Pages are cached under scripts/.cache/spells/ so re-runs cost nothing.
  */
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const cacheDir = path.join(here, '.cache', 'spells')
-const [namesFile, outDir] = process.argv.slice(2).filter((a) => !a.startsWith('--'))
+const positional = process.argv.slice(2).filter((a) => !a.startsWith('--'))
+const namesFile = positional[0]
+// Default: merge into the SRD spell folder so a user imports once.
+const outDir =
+  positional[1] ?? path.join(os.homedir(), 'Desktop', 'DM Spells 5e')
 const resume = process.argv.includes('--resume')
 
-if (!namesFile || !outDir) {
-  console.error('usage: node scripts/fetch-nonsrd-spells.mjs <names-file> <out-dir>')
+if (!namesFile) {
+  console.error('usage: node scripts/fetch-nonsrd-spells.mjs <names-file> [out-dir]')
   process.exit(1)
 }
 
-const NOTICE = `The spells in this folder are NOT SRD content.
+const NOTICE = `SOME OF THE SPELLS IN THIS FOLDER ARE NOT SRD CONTENT.
 
-They are from the Player's Handbook, Xanathar's Guide to Everything,
-Tasha's Cauldron of Everything, Fizban's Treasury of Dragons and
-Unearthed Arcana, and remain the copyrighted material of Wizards of
-the Coast LLC. They are reproduced here for personal use with content
-you own.
+Files whose frontmatter says "srd: false" are from the Player's
+Handbook, Xanathar's Guide to Everything, Tasha's Cauldron of
+Everything, Fizban's Treasury of Dragons and Unearthed Arcana, and
+remain the copyrighted material of Wizards of the Coast LLC. They are
+reproduced here for personal use with content you own.
 
-Do not redistribute this folder. The CC-BY SRD 5.1 spells live in a
-separate folder and carry their own LICENSE.txt.
+The CC-BY licence in LICENSE.txt covers ONLY the SRD 5.1 spells (those
+without "srd: false"). Because this folder now mixes the two, it is
+NOT safe to redistribute as a whole.
 
-Text retrieved from dnd5e.wikidot.com.
+Non-SRD text retrieved from dnd5e.wikidot.com.
 `
 
 /** nameError rejects these, so strip them the same way the SRD seeder does. */
@@ -115,11 +130,15 @@ const LEVELS = {
  */
 function parseSpell(html, name) {
   const m = html.match(/<div id="page-content">([\s\S]*?)<div class="page-tags">/)
-  const body = m ? m[1] : html
+  // Cut at the first <script>: wikidot injects ad config after the spell text,
+  // and stripping tags would otherwise leave raw JS in the description.
+  const body = (m ? m[1] : html).split(/<script/i)[0]
   const text = strip(body)
 
+  // Labels are bolded and end with either ":" or "." depending on the field
+  // ("**Casting Time:** 1 action" vs "**Spell Lists.** Wizard").
   const field = (label) => {
-    const re = new RegExp(`\\*\\*${label}:?\\*\\*\\s*([^\\n]+)`, 'i')
+    const re = new RegExp(`\\*\\*${label}[:.]?\\*\\*\\s*([^\\n]+)`, 'i')
     const hit = text.match(re)
     return hit ? hit[1].trim() : null
   }
@@ -156,16 +175,34 @@ function parseSpell(html, name) {
     return nl < 0 ? '' : after.slice(nl + 1).trim()
   })()
 
+  const spellLists = field('Spell Lists') ?? field('Classes')
+
+  // "Spell Lists." is wikidot's own trailing footer, not spell text — drop it
+  // before splitting, or it ends up inside the At Higher Levels paragraph.
+  // The trailing "*" lines are the remains of an <em> that wraps the footer
+  // and, on many pages, the At Higher Levels paragraph too.
+  const descNoFooter = desc
+    .replace(/\n?\*?\*?\*Spell Lists[:.]?\*\*[^\n]*/i, '')
+    .replace(/^\s*\*\s*$/gm, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+
   // "At Higher Levels." is conventionally the last paragraph.
   let higher = null
-  let main = desc
-  const hl = desc.match(/\*\*At Higher Levels\.?\*\*\s*([\s\S]*)$/i)
+  let main = descNoFooter
+  const hl = descNoFooter.match(/\*\*At Higher Levels\.?\*\*\s*\*?\s*([\s\S]*)$/i)
   if (hl) {
-    higher = hl[1].trim()
-    main = desc.slice(0, hl.index).trim()
+    higher = hl[1].replace(/^\*\s*/, '').replace(/\s*\*\s*$/, '').trim()
+    main = descNoFooter.slice(0, hl.index).trim()
   }
-
-  const spellLists = field('Spell Lists') ?? field('Classes')
+  // Orphaned <em> markers can sit on either side of the split.
+  const tidy = (s) =>
+    s
+      .replace(/^\s*\*\s*$/gm, '')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim()
+  main = tidy(main)
+  higher = higher ? tidy(higher) : null
 
   return {
     name,
@@ -177,14 +214,23 @@ function parseSpell(html, name) {
     components: field('Components') ?? '—',
     duration: duration ?? '—',
     concentration: /concentration/i.test(duration ?? ''),
-    classes: spellLists ? strip(spellLists).replace(/\s+/g, ' ') : '',
+    // The label sits inside an <em> on some pages, so a leading "*" survives
+    // the markdown conversion.
+    classes: spellLists
+      ? strip(spellLists).replace(/^[*\s]+/, '').replace(/\s+/g, ' ').trim()
+      : '',
     desc: main,
     higher,
   }
 }
 
 function article(s) {
-  const levelLabel = s.level === 0 ? 'Cantrip' : `Level ${s.level}`
+  // Matches the SRD seeder's wording: "Cantrip evocation" reads wrong, the
+  // books say "Evocation cantrip".
+  const subtitle =
+    s.level === 0
+      ? `${s.school.charAt(0).toUpperCase()}${s.school.slice(1)} cantrip`
+      : `Level ${s.level} ${s.school}`
   return `---
 type: spell
 level: ${s.level ?? 0}
@@ -195,7 +241,7 @@ srd: false
 
 # ${s.name}
 
-*${levelLabel} ${s.school}${s.ritual ? ' (ritual)' : ''}*
+*${subtitle}${s.ritual ? ' (ritual)' : ''}*
 
 | | |
 | --- | --- |
