@@ -15,6 +15,16 @@ electronDist: .electron-dist
 files:
   - dist/**
   - dist-electron/**
+# The bestiary and spell list shipped with the app. Kept OUT of the asar as
+# extraResources so the seeder can walk it with plain fs on first run — an
+# asar-packed folder is not a real directory. Lands at resources/content,
+# which library.ts resolves via process.resourcesPath.
+extraResources:
+  - from: resources/content
+    to: content
+    filter:
+      - '**/*.md'
+      - '**/*.txt'
 win:
   target: nsis
 publish:

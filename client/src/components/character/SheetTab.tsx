@@ -11,6 +11,7 @@ import {
 } from 'lucide-react'
 import { api } from '#/lib/api'
 import { articleTemplates } from '#/lib/templates'
+import { useLibraryEntries } from '#/lib/useGlobalLibrary'
 import {
   ABILITIES,
   ABILITY_NAMES,
@@ -379,57 +380,135 @@ export function SheetTab({
   const [spellName, setSpellName] = useState('')
   const [spellLevel, setSpellLevel] = useState(0)
   const queryClient = useQueryClient()
+  const librarySpells = useLibraryEntries('Spells')
 
   // When the typed/picked name matches a library spell, prefill the level
   // dropdown from its article — once per matched article, so the DM can
   // still override it (e.g. add Magic Missile at 3rd level to upcast).
+  //
+  // Matches this world first, then the global library, and carries the owning
+  // world id so the fetch reads from the folder the article actually lives in.
   const matchedSpell = (() => {
     const title = wikiLinkTitle(spellName).trim().toLowerCase()
-    if (!title) return undefined
-    return (articles ?? []).find((a) => a.title.toLowerCase() === title)
+    if (!title) return null
+    const local = (articles ?? []).find((a) => a.title.toLowerCase() === title)
+    if (local) return { worldId: source.worldId, id: local.id }
+    const global = librarySpells.entries.find(
+      (e) => e.title.toLowerCase() === title,
+    )
+    return global ? { worldId: global.worldId, id: global.articleId } : null
   })()
-  const matchedSpellId = matchedSpell?.id ?? null
+  // A composite key: the same article id can exist in both worlds.
+  const matchedSpellKey = matchedSpell
+    ? `${matchedSpell.worldId}:${matchedSpell.id}`
+    : null
+  const matchedWorldId = matchedSpell?.worldId ?? null
+  const matchedId = matchedSpell?.id ?? null
   const prefilledIdRef = useRef<string | null>(null)
   useEffect(() => {
-    if (matchedSpellId === null) {
+    if (matchedSpellKey === null || matchedWorldId === null || matchedId === null) {
       prefilledIdRef.current = null
       return
     }
-    if (prefilledIdRef.current === matchedSpellId) return
-    prefilledIdRef.current = matchedSpellId
+    if (prefilledIdRef.current === matchedSpellKey) return
+    prefilledIdRef.current = matchedSpellKey
     api.articles
-      .get(source.worldId, matchedSpellId)
+      .get(matchedWorldId, matchedId)
       .then((art) => {
         const info = spellInfoFromContent(art.content)
         if (info.level !== null) setSpellLevel(info.level)
       })
       .catch(() => {})
-  }, [matchedSpellId, source.worldId])
+  }, [matchedSpellKey, matchedWorldId, matchedId])
 
-  // The world's spell library is the top-level Spells/ folder.
-  const spellSuggestions = spellName.trim()
+  // Suggestions come from this world's Spells/ folder *and* the global library,
+  // so a fresh world with an imported SRD list isn't an empty picker. A global
+  // suggestion is marked: adding one copies it into the world first, because
+  // the sheet stores [[wiki links]] and those only resolve within a world.
+  const needle = spellName.trim().toLowerCase()
+  const typedTitle = wikiLinkTitle(spellName).toLowerCase()
+  const worldSuggestions = needle
     ? (articles ?? [])
         .filter(
           (a) =>
             (a.folderId === SPELLS_FOLDER ||
               a.folderId?.startsWith(`${SPELLS_FOLDER}/`)) &&
-            a.title.toLowerCase().includes(spellName.trim().toLowerCase()) &&
-            a.title.toLowerCase() !== wikiLinkTitle(spellName).toLowerCase(),
+            a.title.toLowerCase().includes(needle) &&
+            a.title.toLowerCase() !== typedTitle,
         )
-        .slice(0, 6)
+        .map((a) => ({ id: a.id, title: a.title, global: false }))
     : []
+  // Anything the world already has by that title wins — no duplicate rows, and
+  // no offering to copy in something that's already local.
+  const worldTitles = new Set(
+    (articles ?? []).map((a) => a.title.toLowerCase()),
+  )
+  const globalSuggestions = needle
+    ? librarySpells.entries
+        .filter(
+          (e) =>
+            e.title.toLowerCase().includes(needle) &&
+            e.title.toLowerCase() !== typedTitle &&
+            !worldTitles.has(e.title.toLowerCase()),
+        )
+        .map((e) => ({ id: e.articleId, title: e.title, global: true }))
+    : []
+  const spellSuggestions = [...worldSuggestions, ...globalSuggestions].slice(
+    0,
+    8,
+  )
 
   /**
    * Adding a spell links it to the library: an existing article of that name
-   * (anywhere in the world) is wiki-linked; an unknown spell gets a stub
-   * article created in Spells/ so the library always knows it.
+   * (anywhere in the world) is wiki-linked; a global-library spell is copied
+   * into the world first; an unknown spell gets a stub article created in
+   * Spells/ so the library always knows it.
+   *
+   * Global spells are copied rather than linked in place because the sheet
+   * stores `[[Name]]`, and wiki links resolve within a single world — a bare
+   * link to a library article would render as "missing" on the sheet.
    */
   const addSpell = useMutation({
     mutationFn: async (input: { name: string; level: number }) => {
       const title = wikiLinkTitle(input.name)
-      const existing = (articles ?? []).find(
+      let existing = (articles ?? []).find(
         (a) => a.title.toLowerCase() === title.toLowerCase(),
       )
+
+      // Not in this world, but in the global library: copy it in, then treat it
+      // as an ordinary local spell from here on.
+      if (!existing) {
+        const fromLibrary = librarySpells.entries.find(
+          (e) => e.title.toLowerCase() === title.toLowerCase(),
+        )
+        if (fromLibrary) {
+          const source_ = await api.articles.get(
+            fromLibrary.worldId,
+            fromLibrary.articleId,
+          )
+          try {
+            await api.folders.create({
+              worldId: source.worldId,
+              parentFolderId: null,
+              name: SPELLS_FOLDER,
+            })
+          } catch {
+            // folder already exists
+          }
+          const copied = await api.articles.create({
+            worldId: source.worldId,
+            folderId: SPELLS_FOLDER,
+            title: fromLibrary.title,
+            content: source_.content,
+          })
+          existing = {
+            id: copied.id,
+            title: copied.title,
+            folderId: copied.folderId,
+          }
+        }
+      }
+
       if (existing) {
         // The dropdown wins for level (it was prefilled from the article,
         // and changing it is how you upcast). Damage comes from the library,
@@ -1233,9 +1312,22 @@ export function SheetTab({
                       (_, i) => spell.level + 1 + i,
                     ).filter((lvl) => (slotFor(lvl)?.total ?? 0) > 0)
                   : []
-              const target = (articles ?? []).find(
+              // This world first, then the global library — a spell the party
+              // uses may only exist in the shared list, and it should still be
+              // readable rather than offering to create a duplicate.
+              const localTarget = (articles ?? []).find(
                 (a) => a.title.toLowerCase() === title.toLowerCase(),
               )
+              const globalTarget = localTarget
+                ? undefined
+                : librarySpells.entries.find(
+                    (e) => e.title.toLowerCase() === title.toLowerCase(),
+                  )
+              const target = localTarget
+                ? { id: localTarget.id }
+                : globalTarget
+                  ? { id: globalTarget.articleId }
+                  : undefined
               // Cantrips need no preparation, so they keep a spacer instead of
               // a toggle and all the names stay in one column.
               const prepareBlocked = !canPrepare(c, spell)
@@ -1425,12 +1517,24 @@ export function SheetTab({
                 </span>
                 {spellSuggestions.map((a) => (
                   <button
-                    key={a.id}
+                    // Composite key: a world spell and a library spell can
+                    // share an article id (both are Spells/Fireball).
+                    key={`${a.global ? 'g' : 'w'}:${a.id}`}
                     type="button"
-                    className="hover:bg-accent rounded border px-1.5 py-0.5 text-xs"
+                    className="hover:bg-accent flex items-center gap-1 rounded border px-1.5 py-0.5 text-xs"
+                    title={
+                      a.global
+                        ? 'From your global library — adding it copies it into this world'
+                        : undefined
+                    }
                     onClick={() => setSpellName(`[[${a.title}]]`)}
                   >
                     {a.title}
+                    {a.global && (
+                      <span className="text-muted-foreground text-[10px]">
+                        Global
+                      </span>
+                    )}
                   </button>
                 ))}
               </div>

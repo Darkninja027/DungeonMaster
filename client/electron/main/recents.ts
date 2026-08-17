@@ -4,6 +4,8 @@ import { app } from 'electron'
 
 interface Config {
   recentWorlds: Array<string> // absolute folder paths, most recent first
+  /** The global library folder, or null when the user hasn't chosen one. */
+  libraryRoot: string | null
 }
 
 function configPath(): string {
@@ -22,38 +24,63 @@ function normalizeRecent(entry: unknown): string | null {
   return null
 }
 
-export function readConfig(): Config {
+/** The file as it sits on disk, or {} if it's missing, corrupt, or not an object. */
+function readRaw(): Record<string, unknown> {
   try {
-    const raw = JSON.parse(fs.readFileSync(configPath(), 'utf8')) as {
-      recentWorlds?: unknown
-    }
-    const entries = Array.isArray(raw.recentWorlds) ? raw.recentWorlds : []
-    return {
-      recentWorlds: entries
-        .map(normalizeRecent)
-        .filter((p): p is string => p !== null),
-    }
+    const raw: unknown = JSON.parse(fs.readFileSync(configPath(), 'utf8'))
+    return typeof raw === 'object' && raw !== null && !Array.isArray(raw)
+      ? (raw as Record<string, unknown>)
+      : {}
   } catch {
-    return { recentWorlds: [] }
+    return {}
   }
 }
 
-function writeConfig(config: Config) {
+export function readConfig(): Config {
+  const raw = readRaw()
+  const entries = Array.isArray(raw.recentWorlds) ? raw.recentWorlds : []
+  return {
+    recentWorlds: entries
+      .map(normalizeRecent)
+      .filter((p): p is string => p !== null),
+    libraryRoot:
+      typeof raw.libraryRoot === 'string' && raw.libraryRoot !== ''
+        ? raw.libraryRoot
+        : null,
+  }
+}
+
+/**
+ * Splice keys into config.json, preserving everything else in it — the same
+ * contract writeWorldMeta holds for the world file. Replacing the whole object
+ * would mean addRecentWorld silently wiped libraryRoot (and any key a
+ * hand-editor added) on every world open.
+ */
+function writeConfig(patch: Partial<Config>) {
   fs.mkdirSync(path.dirname(configPath()), { recursive: true })
-  fs.writeFileSync(configPath(), JSON.stringify(config, null, 2))
+  const next = { ...readRaw(), ...patch }
+  fs.writeFileSync(configPath(), JSON.stringify(next, null, 2))
 }
 
 export function addRecentWorld(absPath: string) {
-  const config = readConfig()
-  config.recentWorlds = [
-    absPath,
-    ...config.recentWorlds.filter((p) => p !== absPath),
-  ].slice(0, 20)
-  writeConfig(config)
+  const { recentWorlds } = readConfig()
+  writeConfig({
+    recentWorlds: [absPath, ...recentWorlds.filter((p) => p !== absPath)].slice(
+      0,
+      20,
+    ),
+  })
 }
 
 export function removeRecentWorld(absPath: string) {
-  const config = readConfig()
-  config.recentWorlds = config.recentWorlds.filter((p) => p !== absPath)
-  writeConfig(config)
+  const { recentWorlds } = readConfig()
+  writeConfig({ recentWorlds: recentWorlds.filter((p) => p !== absPath) })
+}
+
+export function readLibraryRoot(): string | null {
+  return readConfig().libraryRoot
+}
+
+export function writeLibraryRoot(absPath: string | null) {
+  writeConfig({ libraryRoot: absPath })
 }

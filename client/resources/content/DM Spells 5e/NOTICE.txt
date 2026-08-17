@@ -1,0 +1,13 @@
+SOME OF THE SPELLS IN THIS FOLDER ARE NOT SRD CONTENT.
+
+Files whose frontmatter says "srd: false" are from the Player's
+Handbook, Xanathar's Guide to Everything, Tasha's Cauldron of
+Everything, Fizban's Treasury of Dragons and Unearthed Arcana, and
+remain the copyrighted material of Wizards of the Coast LLC. They are
+reproduced here for personal use with content you own.
+
+The CC-BY licence in LICENSE.txt covers ONLY the SRD 5.1 spells (those
+without "srd: false"). Because this folder now mixes the two, it is
+NOT safe to redistribute as a whole.
+
+Non-SRD text retrieved from dnd5e.wikidot.com.

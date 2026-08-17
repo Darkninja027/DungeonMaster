@@ -10,7 +10,19 @@ vi.mock('electron', () => ({
   app: { getPath: () => userData },
 }))
 
-const { readConfig, addRecentWorld } = await import('./recents')
+const {
+  readConfig,
+  addRecentWorld,
+  removeRecentWorld,
+  readLibraryRoot,
+  writeLibraryRoot,
+} = await import('./recents')
+
+function readRawConfig(): Record<string, unknown> {
+  return JSON.parse(
+    fs.readFileSync(path.join(userData, 'config.json'), 'utf8'),
+  ) as Record<string, unknown>
+}
 
 function writeRawConfig(contents: string) {
   fs.writeFileSync(path.join(userData, 'config.json'), contents)
@@ -92,5 +104,49 @@ describe('readConfig', () => {
       'C:\\Worlds\\Legacy',
       'C:\\Worlds\\Real',
     ])
+  })
+})
+
+describe('libraryRoot', () => {
+  it('is null when unset, blank, or the wrong type', () => {
+    expect(readLibraryRoot()).toBeNull()
+    writeRawConfig(JSON.stringify({ libraryRoot: '' }))
+    expect(readLibraryRoot()).toBeNull()
+    writeRawConfig(JSON.stringify({ libraryRoot: 42 }))
+    expect(readLibraryRoot()).toBeNull()
+  })
+
+  it('round-trips through a write', () => {
+    writeLibraryRoot('C:\\Worlds\\Library')
+    expect(readLibraryRoot()).toBe('C:\\Worlds\\Library')
+    writeLibraryRoot(null)
+    expect(readLibraryRoot()).toBeNull()
+  })
+
+  // The whole reason writeConfig splices instead of replacing: opening a world
+  // must not wipe the library the user configured.
+  it('survives addRecentWorld and removeRecentWorld', () => {
+    writeLibraryRoot('C:\\Worlds\\Library')
+    addRecentWorld('C:\\Worlds\\A')
+    addRecentWorld('C:\\Worlds\\B')
+    expect(readLibraryRoot()).toBe('C:\\Worlds\\Library')
+    removeRecentWorld('C:\\Worlds\\A')
+    expect(readLibraryRoot()).toBe('C:\\Worlds\\Library')
+    expect(readConfig().recentWorlds).toEqual(['C:\\Worlds\\B'])
+  })
+
+  it('does not clobber recents when the library is set', () => {
+    addRecentWorld('C:\\Worlds\\A')
+    writeLibraryRoot('C:\\Worlds\\Library')
+    expect(readConfig().recentWorlds).toEqual(['C:\\Worlds\\A'])
+  })
+
+  it('preserves unknown hand-added keys across writes', () => {
+    writeRawConfig(
+      JSON.stringify({ _comment: 'hand written', recentWorlds: [] }),
+    )
+    addRecentWorld('C:\\Worlds\\A')
+    writeLibraryRoot('C:\\Worlds\\Library')
+    expect(readRawConfig()._comment).toBe('hand written')
   })
 })

@@ -144,7 +144,15 @@ export async function formatMarkdown(text: string): Promise<string> {
  * Resolved against article titles (case-insensitive) into normal markdown
  * links; unresolved links point at #missing so the renderer can flag them.
  */
-const WIKI_LINK = /\[\[([^\][\n|]+)(?:\|([^\][\n]+))?\]\]/g
+/**
+ * Exported as a source string, not a RegExp: the live-preview decorator scans
+ * for the same syntax, and a shared `g`-flagged object carries a mutable
+ * `lastIndex` between the two callers — which silently skips every other match.
+ * Sharing the grammar rather than the object avoids that entirely.
+ */
+export const WIKI_LINK_SOURCE = String.raw`\[\[([^\][\n|]+)(?:\|([^\][\n]+))?\]\]`
+
+const WIKI_LINK = new RegExp(WIKI_LINK_SOURCE, 'g')
 
 export function resolveWikiLinks(
   text: string,
@@ -166,13 +174,13 @@ export function resolveWikiLinks(
     })
 }
 
-const DICE_NOTATION = String.raw`\d{0,2}d\d{1,3}(?:[+-]\d{1,3})?`
+// Exported for the live-preview decorator, so the editor chips exactly what
+// this module would linkify. See WIKI_LINK_SOURCE for why it's a string.
+export const DICE_NOTATION = String.raw`\d{0,2}d\d{1,3}(?:[+-]\d{1,3})?`
 const CODE_SPANS = '```[\\s\\S]*?```|`[^`\\n]*`'
 // A complete named-roll link, either form: [Short Sword](2d6+3) or (dice:2d6+3)
-const NAMED_ROLL = new RegExp(
-  String.raw`\[([^\]\n]+)\]\((?:dice:)?(${DICE_NOTATION})\)`,
-  'g',
-)
+export const NAMED_ROLL_SOURCE = String.raw`\[([^\]\n]+)\]\((?:dice:)?(${DICE_NOTATION})\)`
+const NAMED_ROLL = new RegExp(NAMED_ROLL_SOURCE, 'g')
 // Split patterns with exactly ONE capture group each, so split() alternates
 // plain (even index) / excluded (odd index) segments.
 const SKIP_CODE = new RegExp(`(${CODE_SPANS})`)

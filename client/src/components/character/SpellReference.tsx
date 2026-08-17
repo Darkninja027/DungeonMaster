@@ -1,14 +1,16 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ChevronDown,
   ChevronRight,
+  Copy,
   FolderOpen,
   MoreHorizontal,
   Plus,
   Search,
   SquarePen,
+  Trash2,
   X,
 } from 'lucide-react'
 import { api } from '#/lib/api'
@@ -19,6 +21,15 @@ import {
   useSpellPanelRequest,
 } from '#/lib/spellPanel'
 import { articleTemplates } from '#/lib/templates'
+import {
+  collectSpells,
+  entryKey,
+  filterEntries,
+  mergeEntries,
+} from '#/lib/bestiary'
+import type { LibraryEntry } from '#/lib/bestiary'
+import { useLibraryEntries } from '#/lib/useGlobalLibrary'
+import { LibraryImportButton } from '#/components/LibraryImportButton'
 import { Button } from '#/components/ui/button'
 import {
   DropdownMenu,
@@ -47,8 +58,11 @@ function SpellArticle({
   title: string
   articles?: Array<{ id: string; title: string }>
 }) {
+  // Keyed by world as well as article: a global library entry and a world
+  // article can share an id (both have Spells/Fireball), and a bare articleId
+  // key would serve one world's content for the other's row.
   const article = useQuery({
-    queryKey: ['articles', articleId],
+    queryKey: ['worlds', worldId, 'articles', articleId],
     queryFn: () => api.articles.get(worldId, articleId),
   })
   if (article.isPending)
@@ -76,7 +90,8 @@ function SpellArticle({
 export function SpellReference({ worldId }: { worldId: string }) {
   const queryClient = useQueryClient()
   const navigate = useNavigate()
-  const reveal = revealer(worldId)
+  // No panel-level revealer: each row builds one from its own entry's world, so
+  // a library entry reveals in the library folder rather than this one.
   const tree = useQuery({
     queryKey: ['worlds', worldId, 'tree'],
     queryFn: () => api.worlds.tree(worldId),
@@ -86,14 +101,38 @@ export function SpellReference({ worldId }: { worldId: string }) {
   const [openId, setOpenId] = useState<string | null>(null)
   const [newSpell, setNewSpell] = useState('')
 
-  // Fulfil "open this spell" requests from character sheets.
+  // The world's own spell library, plus the global one, merged into one list.
+  const library = useLibraryEntries('Spells')
+  const spells = useMemo(
+    () =>
+      mergeEntries(
+        collectSpells(worldId, tree.data, { folder: SPELLS_FOLDER }),
+        library.entries,
+      ),
+    [worldId, tree.data, library.entries],
+  )
+
+  // Fulfil "open this spell" requests from character sheets. The request only
+  // carries an article id, so prefer this world's copy and fall back to the
+  // library — a sheet's spell is far more likely to be the local one.
   const request = useSpellPanelRequest()
+  // Set alongside openId when the request came from a sheet, so the row scrolls
+  // itself into view once it renders. Expanding alone isn't enough: with a few
+  // hundred library spells the opened row is usually far off-screen.
+  const [scrollToKey, setScrollToKey] = useState<string | null>(null)
   useEffect(() => {
     if (!request) return
+    const match =
+      spells.find((s) => !s.global && s.articleId === request.articleId) ??
+      spells.find((s) => s.articleId === request.articleId)
     setFilter('')
-    setOpenId(request.articleId)
+    if (match) {
+      const key = entryKey(match)
+      setOpenId(key)
+      setScrollToKey(key)
+    }
     consumeSpellPanelRequest()
-  }, [request])
+  }, [request, spells])
 
   // Create a library spell and jump to its article to write the description.
   const createSpell = useMutation({
@@ -132,6 +171,50 @@ export function SpellReference({ worldId }: { worldId: string }) {
     createSpell.mutate(title)
   }
 
+  // Only ever called for this world's own entries — a library entry is
+  // read-only here, and deleting one from inside a world would remove it from
+  // every other world too.
+  const deleteSpell = useMutation({
+    mutationFn: (entry: LibraryEntry) =>
+      api.articles.delete(entry.worldId, entry.articleId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['worlds', worldId] })
+      setOpenId(null)
+    },
+    onError: (error: Error) => alert(error.message),
+  })
+
+  // The editable escape hatch for a read-only library entry: copy it in, then
+  // it's an ordinary article of this world and every affordance works.
+  const copyToWorld = useMutation({
+    mutationFn: async (entry: LibraryEntry) => {
+      const source = await api.articles.get(entry.worldId, entry.articleId)
+      try {
+        await api.folders.create({
+          worldId,
+          parentFolderId: null,
+          name: SPELLS_FOLDER,
+        })
+      } catch {
+        // folder already exists
+      }
+      return api.articles.create({
+        worldId,
+        folderId: SPELLS_FOLDER,
+        title: entry.title,
+        content: source.content,
+      })
+    },
+    onSuccess: (created) => {
+      queryClient.invalidateQueries({ queryKey: ['worlds', worldId] })
+      navigate({
+        to: '/worlds/$worldId/articles/$articleId',
+        params: { worldId, articleId: created.id },
+      })
+    },
+    onError: (error: Error) => alert(error.message),
+  })
+
   if (tree.isPending) {
     return <p className="text-muted-foreground p-4 text-sm">Loading…</p>
   }
@@ -143,45 +226,43 @@ export function SpellReference({ worldId }: { worldId: string }) {
     )
   }
 
-  const spells = tree.data.articles
-    .filter(
-      (a) =>
-        a.folderId === SPELLS_FOLDER ||
-        a.folderId?.startsWith(`${SPELLS_FOLDER}/`),
-    )
-    .filter(
-      (a) =>
-        !filter.trim() ||
-        a.title.toLowerCase().includes(filter.trim().toLowerCase()),
-    )
-    .sort((a, b) =>
-      a.title.localeCompare(b.title, undefined, { sensitivity: 'base' }),
-    )
+  const visible = filterEntries(spells, filter)
+  // A configured-but-missing library (moved folder, drive not plugged in) is
+  // said out loud rather than silently showing a shorter list.
+  const libraryUnavailable = library.info !== null && !library.info.available
 
   return (
     <div className="flex h-full flex-col">
       <div className="border-b px-2 py-1.5">
-        <div className="relative">
-          <Search className="text-muted-foreground absolute left-2 top-1/2 size-3.5 -translate-y-1/2" />
-          <Input
-            value={filter}
-            placeholder="Search spells…"
-            className="h-7 px-7 text-sm"
-            onChange={(e) => setFilter(e.target.value)}
-          />
-          {filter && (
-            <button
-              type="button"
-              className="text-muted-foreground hover:text-foreground absolute right-2 top-1/2 -translate-y-1/2"
-              onClick={() => setFilter('')}
-            >
-              <X className="size-3.5" />
-            </button>
-          )}
+        <div className="flex items-center gap-1">
+          <div className="relative min-w-0 flex-1">
+            <Search className="text-muted-foreground absolute left-2 top-1/2 size-3.5 -translate-y-1/2" />
+            <Input
+              value={filter}
+              placeholder="Search spells…"
+              className="h-7 px-7 text-sm"
+              onChange={(e) => setFilter(e.target.value)}
+            />
+            {filter && (
+              <button
+                type="button"
+                className="text-muted-foreground hover:text-foreground absolute right-2 top-1/2 -translate-y-1/2"
+                onClick={() => setFilter('')}
+              >
+                <X className="size-3.5" />
+              </button>
+            )}
+          </div>
+          <LibraryImportButton target="Spells" />
         </div>
+        {libraryUnavailable && (
+          <p className="text-muted-foreground mt-1.5 text-xs">
+            Global library unavailable — {library.info?.path}
+          </p>
+        )}
       </div>
       <ScrollArea className="min-h-0 flex-1">
-        {spells.length === 0 ? (
+        {visible.length === 0 ? (
           <p className="text-muted-foreground p-4 text-sm">
             {filter.trim()
               ? 'No spells match.'
@@ -189,16 +270,32 @@ export function SpellReference({ worldId }: { worldId: string }) {
           </p>
         ) : (
           <ul className="divide-y">
-            {spells.map((spell) => {
-              const open = openId === spell.id
+            {visible.map((spell) => {
+              const key = entryKey(spell)
+              const open = openId === key
               return (
-                <li key={spell.id} className="group px-3 py-1.5">
+                <li
+                  key={key}
+                  className="group px-3 py-1.5"
+                  // A callback ref, not an effect: it fires when this row is
+                  // actually in the DOM, which is the only moment scrolling can
+                  // work. Clears the request so a later manual scroll sticks.
+                  ref={
+                    key === scrollToKey
+                      ? (el) => {
+                          if (!el) return
+                          el.scrollIntoView({ block: 'center' })
+                          setScrollToKey(null)
+                        }
+                      : undefined
+                  }
+                >
                   <div className="flex items-center gap-1.5">
                     <button
                       type="button"
                       className="flex min-w-0 flex-1 items-center gap-1.5 text-left text-sm"
                       title={open ? 'Hide description' : 'Show description'}
-                      onClick={() => setOpenId(open ? null : spell.id)}
+                      onClick={() => setOpenId(open ? null : key)}
                     >
                       {open ? (
                         <ChevronDown className="text-muted-foreground size-3.5 shrink-0" />
@@ -208,15 +305,38 @@ export function SpellReference({ worldId }: { worldId: string }) {
                       <span className="min-w-0 flex-1 truncate">
                         {spell.title}
                       </span>
+                      {spell.global && (
+                        <span
+                          className="bg-muted text-muted-foreground shrink-0 rounded px-1 text-[10px]"
+                          title="From your global library — shared by every world."
+                        >
+                          Global
+                        </span>
+                      )}
                     </button>
-                    <Link
-                      to="/worlds/$worldId/articles/$articleId"
-                      params={{ worldId, articleId: spell.id }}
-                      className="text-muted-foreground hover:text-foreground shrink-0 opacity-0 group-hover:opacity-100"
-                      title="Edit the spell's article"
-                    >
-                      <SquarePen className="size-3.5" />
-                    </Link>
+                    {spell.global ? (
+                      <button
+                        type="button"
+                        className="text-muted-foreground hover:text-foreground shrink-0 opacity-0 group-hover:opacity-100"
+                        title="Library entries are read-only here"
+                        onClick={() =>
+                          alert(
+                            `"${spell.title}" lives in your global library, so it is read-only from inside a world.\n\nUse "Copy to this world" to make an editable copy, or open the library folder to edit it everywhere.`,
+                          )
+                        }
+                      >
+                        <SquarePen className="size-3.5" />
+                      </button>
+                    ) : (
+                      <Link
+                        to="/worlds/$worldId/articles/$articleId"
+                        params={{ worldId, articleId: spell.articleId }}
+                        className="text-muted-foreground hover:text-foreground shrink-0 opacity-0 group-hover:opacity-100"
+                        title="Edit the spell's article"
+                      >
+                        <SquarePen className="size-3.5" />
+                      </Link>
+                    )}
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
                         <Button
@@ -228,21 +348,54 @@ export function SpellReference({ worldId }: { worldId: string }) {
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
+                        {spell.global && (
+                          <DropdownMenuItem
+                            disabled={copyToWorld.isPending}
+                            onClick={() => copyToWorld.mutate(spell)}
+                          >
+                            <Copy /> Copy to this world
+                          </DropdownMenuItem>
+                        )}
                         <DropdownMenuItem
-                          onClick={() => reveal(`${spell.id}.md`)}
+                          onClick={() =>
+                            revealer(spell.worldId)(`${spell.articleId}.md`)
+                          }
                         >
                           <FolderOpen /> {REVEAL_LABEL}
                         </DropdownMenuItem>
+                        {/* World entries only. Deleting a library entry from
+                            inside a world would take it out of every world. */}
+                        {!spell.global && (
+                          <DropdownMenuItem
+                            variant="destructive"
+                            onClick={() => {
+                              if (
+                                confirm(
+                                  `Delete "${spell.title}"? It goes to the Recycle Bin.`,
+                                )
+                              ) {
+                                deleteSpell.mutate(spell)
+                              }
+                            }}
+                          >
+                            <Trash2 /> Delete
+                          </DropdownMenuItem>
+                        )}
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </div>
                   {open && (
                     <div className="bg-muted/40 ml-5 mt-1.5 rounded p-2">
+                      {/* Both the world id and the article list come from the
+                          entry's own world, so [[links]] resolve within the
+                          library and _images/ paths load over world://. */}
                       <SpellArticle
-                        worldId={worldId}
-                        articleId={spell.id}
+                        worldId={spell.worldId}
+                        articleId={spell.articleId}
                         title={spell.title}
-                        articles={tree.data.articles}
+                        articles={
+                          spell.global ? library.articles : tree.data.articles
+                        }
                       />
                     </div>
                   )}

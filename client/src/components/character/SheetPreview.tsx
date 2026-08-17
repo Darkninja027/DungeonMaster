@@ -58,6 +58,7 @@ import type { FeatureRow, SpellRow } from '#/lib/sheetPages'
 import { roll } from '#/lib/rollAction'
 import type { RollSource } from '#/lib/rollLog'
 import { openSpellInPanel } from '#/lib/spellPanel'
+import { useLibraryEntries } from '#/lib/useGlobalLibrary'
 import { cn } from '#/lib/utils'
 import { InlineMarkdown, Markdown } from '#/components/Markdown'
 import { WikiText } from './WikiText'
@@ -830,9 +831,18 @@ function SpellName({
   articles?: Array<ArticleRef>
 }) {
   const title = wikiLinkTitle(name)
-  const target = (articles ?? []).find(
+  // This world first, then the global library — a shared-list spell should be
+  // readable from the sheet, not shown as an unresolved name.
+  const librarySpells = useLibraryEntries('Spells')
+  const local = (articles ?? []).find(
     (a) => a.title.toLowerCase() === title.toLowerCase(),
   )
+  const global = local
+    ? undefined
+    : librarySpells.entries.find(
+        (e) => e.title.toLowerCase() === title.toLowerCase(),
+      )
+  const target = local ? { id: local.id } : global ? { id: global.articleId } : undefined
   if (!target) {
     return (
       <span

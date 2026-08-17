@@ -1,0 +1,12 @@
+SOME OF THE SPELLS IN THIS FOLDER ARE NOT SRD CONTENT.
+
+Files whose frontmatter says "srd: false" are from the 2024 Player's
+Handbook and later supplements, and remain the copyrighted material of
+Wizards of the Coast LLC. They are reproduced here for personal use
+with content you own.
+
+The CC-BY licence in LICENSE.txt covers ONLY the SRD 5.2 spells (those
+without "srd: false"). Because this folder now mixes the two, it is
+NOT safe to redistribute as a whole.
+
+Non-SRD text retrieved from dnd2024.wikidot.com.

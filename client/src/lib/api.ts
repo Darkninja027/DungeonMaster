@@ -171,6 +171,34 @@ export interface ImageTree {
   images: Array<ImageInfo>
 }
 
+/** The two folders the global library is scaffolded with — the import targets. */
+export type LibraryFolder = 'Monsters' | 'Spells'
+
+/**
+ * The global library folder, shared by every world. It's a real world folder,
+ * so `worldId` works anywhere the app takes one — tree, articles, reveal, and
+ * world:// image URLs all resolve against it unchanged.
+ */
+export interface LibraryInfo {
+  worldId: string
+  path: string
+  /** False when the folder has been moved, deleted, or is on a drive that's away. */
+  available: boolean
+}
+
+export interface ImportSkip {
+  /** Path relative to the folder the user picked. */
+  file: string
+  reason: string
+}
+
+export interface ImportSummary {
+  copied: number
+  skipped: Array<ImportSkip>
+  /** True when the import hit its file cap and stopped early. */
+  truncated: boolean
+}
+
 /**
  * Electron wraps every main-process throw as
  * `Error invoking remote method 'x:y': Error: <real message>`. Strip that here
@@ -202,7 +230,8 @@ export const api = {
         limit,
       }),
     /** Every tag used in the world, with counts, most-used first. */
-    tags: (worldId: string) => invoke<Array<TagCount>>('worlds:tags', { worldId }),
+    tags: (worldId: string) =>
+      invoke<Array<TagCount>>('worlds:tags', { worldId }),
     /** Articles whose frontmatter matches the query, sorted by title. */
     query: (worldId: string, query: ArticleQuery) =>
       invoke<Array<ArticleRef>>('worlds:query', { worldId, query }),
@@ -351,6 +380,20 @@ export const api = {
     get: (worldId: string) => invoke<unknown>('worldSettings:get', { worldId }),
     set: (worldId: string, state: unknown) =>
       invoke<void>('worldSettings:set', { worldId, state }),
+  },
+  library: {
+    /** The configured global library, or null if the user hasn't chosen one. */
+    get: () => invoke<LibraryInfo | null>('library:get'),
+    /** Directory picker; scaffolds the folder. Returns null if the user cancels. */
+    pick: () => invoke<LibraryInfo | null>('library:pick'),
+    /** Forget the library path. The folder itself is left alone. */
+    forget: () => invoke<void>('library:forget'),
+    /**
+     * Pick a folder of markdown and recursively copy it into the library's
+     * Monsters or Spells folder. Null if the user cancels the picker.
+     */
+    import: (target: LibraryFolder) =>
+      invoke<ImportSummary | null>('library:import', { target }),
   },
   shell: {
     /**
