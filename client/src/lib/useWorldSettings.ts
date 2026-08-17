@@ -3,6 +3,7 @@ import { api } from './api'
 import type { ClassInfo } from './classes'
 import {
   DEFAULT_SETTINGS,
+  SETTINGS_VERSION,
   parseWorldSettings,
   serializeWorldSettings,
 } from './worldSettings'
@@ -61,4 +62,43 @@ export function useSaveWorldSettings(worldId: string) {
       queryClient.setQueryData(worldSettingsKey(worldId), next)
     },
   })
+}
+
+/**
+ * Read the settings plus a `patch` that saves ONE section without disturbing
+ * the others.
+ *
+ * The whole file is rewritten on every write, so a section that built its own
+ * payload would have to remember every field it doesn't own — and the day
+ * someone adds a setting, each existing section silently starts erasing it.
+ * Patching against what is currently on disk makes that impossible by
+ * construction, which is what lets each section own its own save button.
+ *
+ * `version` is stamped rather than echoed: we are writing today's shape, so
+ * preserving an older number would leave the file claiming a version it no
+ * longer matches.
+ */
+export function useWorldSettingsSection(worldId: string) {
+  const settings = useWorldSettings(worldId)
+  const save = useSaveWorldSettings(worldId)
+  const loaded = settings.data
+
+  const patch = (
+    changes: Partial<WorldSettings>,
+    options?: { onSuccess?: () => void },
+  ) => {
+    save.mutate(
+      {
+        // DEFAULT_SETTINGS first so every required field has a value even
+        // before the file has loaded.
+        ...DEFAULT_SETTINGS,
+        ...loaded,
+        ...changes,
+        version: SETTINGS_VERSION,
+      },
+      { onSuccess: options?.onSuccess },
+    )
+  }
+
+  return { settings: loaded, patch, isPending: save.isPending, error: save.error }
 }

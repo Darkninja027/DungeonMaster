@@ -17,14 +17,36 @@ import type { ClassInfo } from './classes'
 
 /** Written into every file we save, since a whole-file rewrite would drop it. */
 export const SETTINGS_COMMENT =
-  'Homebrew classes for this world. Class and subclass on a character are free ' +
-  'text — this list only supplies dropdown suggestions and hit dice, so a ' +
-  'class missing from here still works on a sheet.'
+  'Settings for this world. "liveEdit" picks the article editing surface: ' +
+  '"remember" (default) shows a Live edit button and keeps your last choice, ' +
+  '"always" hides markdown syntax while you type, "never" uses the plain text ' +
+  'editor. "classes" are homebrew classes: class and subclass on a character ' +
+  'are free text, so this list only supplies dropdown suggestions and hit ' +
+  'dice, and a class missing from here still works on a sheet.'
 
-export const SETTINGS_VERSION = 2
+export const SETTINGS_VERSION = 3
+
+/**
+ * How the article editor picks its editing surface.
+ *
+ * `remember` is the default and the pre-existing behaviour: the Write tab shows
+ * a Live edit button and the last choice is kept in localStorage. Setting
+ * `always` or `never` makes the world decide instead, and the button disappears
+ * — a per-article override would contradict a preference the author set
+ * deliberately for the whole world.
+ */
+export type LiveEditMode = 'remember' | 'always' | 'never'
+
+export const LIVE_EDIT_MODES: Array<LiveEditMode> = [
+  'remember',
+  'always',
+  'never',
+]
 
 export interface WorldSettings {
   version: number
+  /** Editing surface for this world's articles. See LiveEditMode. */
+  liveEdit: LiveEditMode
   /**
    * The world's own metadata, which shares this file. The renderer reads it
    * from WorldSummary (worlds:get) rather than here — these are carried through
@@ -40,6 +62,7 @@ export interface WorldSettings {
 /** What a world gets before it has a file of its own. */
 export const DEFAULT_SETTINGS: WorldSettings = {
   version: SETTINGS_VERSION,
+  liveEdit: 'remember',
   classes: PHB_CLASSES,
 }
 
@@ -71,6 +94,21 @@ function cleanList(values: Array<string>): Array<string> {
     seen.add(key)
     return [text]
   })
+}
+
+/**
+ * A hand-edited `liveEdit` that isn't one of the three known modes falls back
+ * to `remember` rather than being dropped — an unrecognised value shouldn't
+ * lock someone into an editor they can't switch out of, and `remember` is the
+ * only mode that leaves the toggle on screen.
+ *
+ * A file written before this field existed (version 2) simply has no key, which
+ * lands on the same default. That is the whole migration.
+ */
+function parseLiveEdit(raw: unknown): LiveEditMode {
+  return LIVE_EDIT_MODES.includes(raw as LiveEditMode)
+    ? (raw as LiveEditMode)
+    : 'remember'
 }
 
 /** The on-disk identity is the name; `id` is derived, never stored. */
@@ -107,7 +145,13 @@ function parseClass(raw: unknown): ClassInfo | null {
 export function parseWorldSettings(raw: unknown): WorldSettings {
   if (raw === null || typeof raw !== 'object') return DEFAULT_SETTINGS
   const r = raw as Record<string, unknown>
-  if (!Array.isArray(r.classes)) return DEFAULT_SETTINGS
+
+  // Parsed before the classes guard below, so a world whose class list is
+  // missing or malformed still keeps a valid editor preference — field-by-field
+  // tolerance is the contract for this file.
+  const liveEdit = parseLiveEdit(r.liveEdit)
+
+  if (!Array.isArray(r.classes)) return { ...DEFAULT_SETTINGS, liveEdit }
 
   const seen = new Set<string>()
   const classes = r.classes.flatMap((entry): Array<ClassInfo> => {
@@ -130,6 +174,7 @@ export function parseWorldSettings(raw: unknown): WorldSettings {
       typeof r.version === 'number' && Number.isFinite(r.version)
         ? r.version
         : SETTINGS_VERSION,
+    liveEdit,
     ...meta,
     classes,
   }
@@ -149,6 +194,7 @@ export function serializeWorldSettings(settings: WorldSettings): unknown {
   return {
     version: settings.version,
     _comment: SETTINGS_COMMENT,
+    liveEdit: settings.liveEdit,
     ...(settings.name !== undefined && { name: settings.name }),
     ...(settings.description !== undefined && {
       description: settings.description,

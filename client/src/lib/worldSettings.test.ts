@@ -47,7 +47,11 @@ describe('parseWorldSettings — tolerance', () => {
   })
 
   it('defaults a missing version rather than rejecting the file', () => {
-    expect(parseWorldSettings({ classes: [{ name: 'Bard' }] }).version).toBe(2)
+    // The current version, not a literal: this asserts the fallback behaviour,
+    // which must keep holding across version bumps.
+    expect(parseWorldSettings({ classes: [{ name: 'Bard' }] }).version).toBe(
+      SETTINGS_VERSION,
+    )
     expect(
       parseWorldSettings({ version: 7, classes: [{ name: 'Bard' }] }).version,
     ).toBe(7)
@@ -182,10 +186,56 @@ describe('serializeWorldSettings', () => {
   })
 
   it('round-trips an emptied list as empty, not as the defaults', () => {
-    const emptied = { version: 1, classes: [] }
+    const emptied = { version: 1, liveEdit: 'remember' as const, classes: [] }
     const again = parseWorldSettings(
       JSON.parse(JSON.stringify(serializeWorldSettings(emptied))),
     )
     expect(again.classes).toEqual([])
+  })
+})
+
+describe('liveEdit', () => {
+  it('defaults to remember when absent', () => {
+    // A version-2 file written before the field existed. This is the whole
+    // migration: no key means the pre-existing toggle behaviour.
+    expect(parseWorldSettings({ version: 2, classes: [] }).liveEdit).toBe(
+      'remember',
+    )
+  })
+
+  it.each(['remember', 'always', 'never'] as const)('accepts %j', (mode) => {
+    expect(
+      parseWorldSettings({ liveEdit: mode, classes: [] }).liveEdit,
+    ).toBe(mode)
+  })
+
+  it('falls back to remember for an unrecognised value', () => {
+    // Falling back to `remember` rather than dropping the field matters: it is
+    // the only mode that leaves the toggle on screen, so a typo can never lock
+    // someone into an editor they cannot switch away from.
+    expect(
+      parseWorldSettings({ liveEdit: 'sometimes', classes: [] }).liveEdit,
+    ).toBe('remember')
+    expect(parseWorldSettings({ liveEdit: 7, classes: [] }).liveEdit).toBe(
+      'remember',
+    )
+  })
+
+  it('survives a malformed class list', () => {
+    // The classes guard used to return DEFAULT_SETTINGS wholesale, which would
+    // silently discard a perfectly good editor preference.
+    expect(
+      parseWorldSettings({ liveEdit: 'always', classes: 'nonsense' }).liveEdit,
+    ).toBe('always')
+  })
+
+  it('round-trips through serialize', () => {
+    // The serializer rewrites the whole file, so an unwritten field is lost on
+    // the next save.
+    const parsed = parseWorldSettings({ liveEdit: 'always', classes: [] })
+    const again = parseWorldSettings(
+      JSON.parse(JSON.stringify(serializeWorldSettings(parsed))),
+    )
+    expect(again.liveEdit).toBe('always')
   })
 })

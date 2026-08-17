@@ -21,6 +21,7 @@ import {
   Save,
   Trash2,
   Wand2,
+  WandSparkles,
 } from 'lucide-react'
 import { api } from '#/lib/api'
 import { REVEAL_LABEL, revealer } from '#/lib/reveal'
@@ -69,6 +70,10 @@ import { HowToDialog } from '#/components/HowToDialog'
 import { useMarkdownEditor } from '#/lib/useMarkdownEditor'
 import { useWikiLinkOpener } from '#/lib/useWikiLinkOpener'
 import { CreateMissingArticleDialog } from '#/components/CreateMissingArticleDialog'
+import { LiveMarkdownEditor } from '#/components/LiveMarkdownEditor'
+import { padBlock } from '#/lib/markdownEditing'
+import { useWorldSettings } from '#/lib/useWorldSettings'
+import type { LiveEditorHandle } from '#/components/LiveMarkdownEditor'
 
 export const Route = createFileRoute('/worlds/$worldId/articles/$articleId')({
   component: ArticlePage,
@@ -95,6 +100,9 @@ function LinkToArticle({
 }
 
 const TOC_KEY = 'dm.articleToc'
+// Separate key rather than a field on TOC_KEY: that one's shape is {open} and
+// its loader would need migrating to carry a second flag.
+const LIVE_EDIT_KEY = 'dm.articleLiveEdit'
 
 /** Outline pane visibility, remembered across sessions like the session panel. */
 function loadTocOpen(): boolean {
@@ -103,6 +111,18 @@ function loadTocOpen(): boolean {
       open?: boolean
     }
     return raw.open === true
+  } catch {
+    return false
+  }
+}
+
+/** Live-edit (syntax-hiding) mode, remembered the same way. */
+function loadLiveEdit(): boolean {
+  try {
+    const raw = JSON.parse(localStorage.getItem(LIVE_EDIT_KEY) ?? '') as {
+      on?: boolean
+    }
+    return raw.on === true
   } catch {
     return false
   }
@@ -199,8 +219,10 @@ function ArticlePage() {
   const [externalChange, setExternalChange] = useState(false)
   const [tab, setTab] = useState('write')
   const [livePreview, setLivePreview] = useState(false)
+  const [rememberedLiveEdit, setRememberedLiveEdit] = useState(loadLiveEdit)
   const [exporting, setExporting] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const liveEditorRef = useRef<LiveEditorHandle>(null)
   const [tocOpen, setTocOpen] = useState(loadTocOpen)
   const [activeHeadingId, setActiveHeadingId] = useState<string | null>(null)
   const previewRef = useRef<HTMLDivElement>(null)
@@ -252,6 +274,25 @@ function ArticlePage() {
     localStorage.setItem(TOC_KEY, JSON.stringify({ open: tocOpen }))
   }, [tocOpen])
 
+  useEffect(() => {
+    localStorage.setItem(
+      LIVE_EDIT_KEY,
+      JSON.stringify({ on: rememberedLiveEdit }),
+    )
+  }, [rememberedLiveEdit])
+
+  /**
+   * The world's setting decides the editing surface; `remember` hands the
+   * decision back to the per-article toggle and the localStorage memory.
+   *
+   * `worldLiveEdit` therefore doubles as "is the toggle shown" — when the world
+   * has an opinion, offering a button that contradicts it would be a worse kind
+   * of confusing than simply not having one.
+   */
+  const worldLiveEdit = useWorldSettings(worldId).data?.liveEdit ?? 'remember'
+  const liveEdit =
+    worldLiveEdit === 'remember' ? rememberedLiveEdit : worldLiveEdit === 'always'
+
   /**
    * Jump to a heading. Where that lands depends on the tab: the Write tab puts
    * the caret on the heading's line and scrolls it near the top; the Preview
@@ -264,9 +305,15 @@ function ArticlePage() {
       if (scroller) scrollPreviewToHeading(scroller, heading)
       return
     }
-    // setTimeout(0) for the same reason completeLink uses one: the textarea may
+    // setTimeout(0) for the same reason completeLink uses one: the editor may
     // not be focusable until React has committed the current render.
     setTimeout(() => {
+      // CodeMirror knows its own geometry, so it needs none of the mirror-div
+      // measuring editorScrollTopFor does for the textarea.
+      if (liveEditorRef.current) {
+        liveEditorRef.current.goTo(heading.offset)
+        return
+      }
       const textarea = textareaRef.current
       if (!textarea) return
       textarea.focus()
@@ -452,8 +499,29 @@ function ArticlePage() {
       ['Tab', 'Enter', 'ArrowUp', 'ArrowDown', 'Escape'].includes(e.key),
     onWikiLinkOpen: openWikiLink,
   })
-  const insertAtCursor = editor.insertText
-  const insertBlock = editor.insertBlock
+  // The Insert menu, image picker and upload all insert through these. In live
+  // edit the textarea isn't mounted, so its hook would no-op silently — route
+  // to whichever surface is actually on screen.
+  const insertAtCursor = useCallback(
+    (text: string) => {
+      if (liveEditorRef.current) liveEditorRef.current.insert(text)
+      else editor.insertText(text)
+    },
+    [editor],
+  )
+  const insertBlock = useCallback(
+    (snippet: string) => {
+      // padBlock adds the blank lines that make a snippet parse as its own
+      // block. The textarea path gets that inside the hook; here it runs
+      // against CodeMirror's own document and caret.
+      if (liveEditorRef.current)
+        liveEditorRef.current.transform((text, start, end) =>
+          padBlock(text, { start, end }, snippet),
+        )
+      else editor.insertBlock(snippet)
+    },
+    [editor],
+  )
 
   /**
    * Upload dropped/pasted image files into the world and insert them at the
@@ -772,6 +840,22 @@ function ArticlePage() {
               </TabsTrigger>
             </TabsList>
             <div className="ml-auto flex items-center gap-2">
+              {/* Deliberately NOT exclusive with the split pane below: the
+                  book preview is the trusted renderer, so seeing both at once
+                  is how you check what live edit is painting. */}
+              {tab === 'write' &&
+                !parsedCharacter &&
+                worldLiveEdit === 'remember' && (
+                  <Button
+                    variant={liveEdit ? 'secondary' : 'ghost'}
+                    size="sm"
+                    className="h-8 text-xs"
+                    title="Experimental: hide markdown syntax while editing. No [[ ]] or image autocomplete. Set a default for the whole world in Settings."
+                    onClick={() => setRememberedLiveEdit((v) => !v)}
+                  >
+                    <WandSparkles className="size-3.5" /> Live edit
+                  </Button>
+                )}
               {tab === 'write' && (
                 <Button
                   variant={livePreview ? 'secondary' : 'ghost'}
@@ -854,6 +938,28 @@ function ArticlePage() {
               </div>
             )}
             <div className="flex min-h-0 flex-1">
+              {liveEdit && !parsedCharacter ? (
+                <LiveMarkdownEditor
+                  ref={liveEditorRef}
+                  value={content}
+                  className="min-h-0 min-w-0 flex-1 overflow-hidden"
+                  source={rollSource}
+                  onWikiLinkOpen={openWikiLink}
+                  onFiles={uploadAndInsert}
+                  onChange={(next) => {
+                    setContent(next)
+                    // Load-bearing: useArticleEditorSave's debounce keys on
+                    // editSeq, which only advances through setDirty. Without
+                    // this, edits are typed, shown, and never written to disk
+                    // while the button still reads "Saved".
+                    setDirty(true)
+                  }}
+                  onSelectionChange={(offset) => {
+                    const line = content.slice(0, offset).split('\n').length - 1
+                    setActiveHeadingId(activeHeadingAt(headings, line)?.id ?? null)
+                  }}
+                />
+              ) : (
               <MarkdownContextMenu editor={editor}>
                 <Textarea
                   ref={textareaRef}
@@ -953,6 +1059,7 @@ function ArticlePage() {
                   }}
                 />
               </MarkdownContextMenu>
+              )}
               {livePreview && (
                 <LivePreviewPane
                   content={content}
