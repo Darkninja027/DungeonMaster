@@ -116,13 +116,21 @@ export function SpellReference({ worldId }: { worldId: string }) {
   // carries an article id, so prefer this world's copy and fall back to the
   // library — a sheet's spell is far more likely to be the local one.
   const request = useSpellPanelRequest()
+  // Set alongside openId when the request came from a sheet, so the row scrolls
+  // itself into view once it renders. Expanding alone isn't enough: with a few
+  // hundred library spells the opened row is usually far off-screen.
+  const [scrollToKey, setScrollToKey] = useState<string | null>(null)
   useEffect(() => {
     if (!request) return
     const match =
       spells.find((s) => !s.global && s.articleId === request.articleId) ??
       spells.find((s) => s.articleId === request.articleId)
     setFilter('')
-    if (match) setOpenId(entryKey(match))
+    if (match) {
+      const key = entryKey(match)
+      setOpenId(key)
+      setScrollToKey(key)
+    }
     consumeSpellPanelRequest()
   }, [request, spells])
 
@@ -266,7 +274,22 @@ export function SpellReference({ worldId }: { worldId: string }) {
               const key = entryKey(spell)
               const open = openId === key
               return (
-                <li key={key} className="group px-3 py-1.5">
+                <li
+                  key={key}
+                  className="group px-3 py-1.5"
+                  // A callback ref, not an effect: it fires when this row is
+                  // actually in the DOM, which is the only moment scrolling can
+                  // work. Clears the request so a later manual scroll sticks.
+                  ref={
+                    key === scrollToKey
+                      ? (el) => {
+                          if (!el) return
+                          el.scrollIntoView({ block: 'center' })
+                          setScrollToKey(null)
+                        }
+                      : undefined
+                  }
+                >
                   <div className="flex items-center gap-1.5">
                     <button
                       type="button"

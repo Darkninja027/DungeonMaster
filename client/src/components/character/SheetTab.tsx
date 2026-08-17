@@ -1312,9 +1312,22 @@ export function SheetTab({
                       (_, i) => spell.level + 1 + i,
                     ).filter((lvl) => (slotFor(lvl)?.total ?? 0) > 0)
                   : []
-              const target = (articles ?? []).find(
+              // This world first, then the global library — a spell the party
+              // uses may only exist in the shared list, and it should still be
+              // readable rather than offering to create a duplicate.
+              const localTarget = (articles ?? []).find(
                 (a) => a.title.toLowerCase() === title.toLowerCase(),
               )
+              const globalTarget = localTarget
+                ? undefined
+                : librarySpells.entries.find(
+                    (e) => e.title.toLowerCase() === title.toLowerCase(),
+                  )
+              const target = localTarget
+                ? { id: localTarget.id }
+                : globalTarget
+                  ? { id: globalTarget.articleId }
+                  : undefined
               // Cantrips need no preparation, so they keep a spacer instead of
               // a toggle and all the names stay in one column.
               const prepareBlocked = !canPrepare(c, spell)
