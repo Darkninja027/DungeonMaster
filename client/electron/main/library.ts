@@ -110,13 +110,37 @@ export function defaultLibraryPath(): string {
  * lose the user's choice over a temporary condition.
  */
 export function getLibrary(): LibraryInfo | null {
-  const root = readLibraryRoot()
+  const root = healDefaultPathCase(readLibraryRoot())
   if (root === null) return null
   return {
     worldId: encodeWorldId(root),
     path: root,
     available: fs.existsSync(root) && isWorldFolder(root),
   }
+}
+
+/**
+ * Rewrite a stored path that differs from the default only by case.
+ *
+ * World ids are hex of the path *bytes*, so "…\DungeonMaster\Library" and
+ * "…\dungeonmaster\Library" are two different ids for one folder on Windows.
+ * Both open fine on disk, so nothing ever errors — the library just gets cached
+ * under an id no other caller derives, which is invisible until something
+ * silently reads the wrong slot.
+ *
+ * Only the default location is healed, and only where the filesystem is
+ * genuinely case-insensitive: rewriting a path the user chose would be
+ * overreach, and on Linux the two spellings really are different folders.
+ * Deliberately not fixed inside encodeWorldId — lowercasing there would change
+ * the id of every existing world and break every world:// image URL.
+ */
+function healDefaultPathCase(root: string | null): string | null {
+  if (root === null || process.platform !== 'win32') return root
+  const canonical = defaultLibraryPath()
+  if (root === canonical) return root
+  if (root.toLowerCase() !== canonical.toLowerCase()) return root
+  writeLibraryRoot(canonical)
+  return canonical
 }
 
 /**
@@ -165,10 +189,11 @@ function seededVersion(root: string): number {
  *  - Version bumped: copies any shipped file whose name isn't already in the
  *    library, and leaves every existing entry exactly as it is — so a spell
  *    the user edited keeps their wording, and nothing gains a "(2)" twin.
- *  - A file the user deleted therefore comes back on the *next* version bump,
- *    since "deleted" and "never had it" look identical on disk. That's the
- *    accepted trade for not maintaining a tombstone list that would drift out
- *    of sync the moment anyone edited the folder outside the app.
+ *  - A file the user deleted therefore does not come back on its own until the
+ *    *next* version bump, since "deleted" and "never had it" look identical on
+ *    disk. That's the accepted trade for not maintaining a tombstone list that
+ *    would drift out of sync the moment anyone edited the folder outside the
+ *    app. restoreBundledFolder is the manual escape hatch for exactly that.
  */
 export async function seedBundledContent(): Promise<ImportSummary | null> {
   const source = bundledContentDir()
@@ -177,19 +202,7 @@ export async function seedBundledContent(): Promise<ImportSummary | null> {
   const library = ensureLibrary()
   if (seededVersion(library.path) >= BUNDLED_CONTENT_VERSION) return null
 
-  let copied = 0
-  const skipped: Array<ImportSkip> = []
-  let truncated = false
-  for (const set of BUNDLED_SETS) {
-    const dir = path.join(source, set.dir)
-    if (!fs.existsSync(dir)) continue
-    const summary = await importMarkdownFolder(dir, set.target, {
-      skipExisting: true,
-    })
-    copied += summary.copied
-    skipped.push(...summary.skipped)
-    truncated ||= summary.truncated
-  }
+  const summary = await copyBundledSets(source, BUNDLED_SETS)
 
   atomicWrite(
     path.join(library.path, SEED_MARKER),
@@ -199,7 +212,58 @@ export async function seedBundledContent(): Promise<ImportSummary | null> {
       2,
     ),
   )
+  return summary
+}
+
+/**
+ * Copy the given bundled sets into the library, topping up rather than
+ * duplicating. Shared by the automatic seed and the manual restore so the two
+ * can never drift apart on what "top up" means.
+ *
+ * A set whose folder isn't there is skipped rather than reported: shipping
+ * fewer sets than the table lists is a packaging choice, not a user-facing error.
+ */
+async function copyBundledSets(
+  source: string,
+  sets: Array<{ dir: string; target: LibraryFolder }>,
+): Promise<ImportSummary> {
+  let copied = 0
+  const skipped: Array<ImportSkip> = []
+  let truncated = false
+  for (const set of sets) {
+    const dir = path.join(source, set.dir)
+    if (!fs.existsSync(dir)) continue
+    const summary = await importMarkdownFolder(dir, set.target, {
+      skipExisting: true,
+    })
+    copied += summary.copied
+    skipped.push(...summary.skipped)
+    truncated ||= summary.truncated
+  }
   return { copied, skipped, truncated }
+}
+
+/**
+ * Re-copy the content shipped with the app into one library folder, on demand.
+ *
+ * The user-facing repair for a library that's missing entries — whether they
+ * deleted a spell by accident or a seed half-finished. Unlike seedBundledContent
+ * this is *not* version-gated and writes no marker: it is a manual action, so it
+ * runs every time it's asked and leaves the automatic seed's bookkeeping alone.
+ *
+ * Existing files are left exactly as they are, so a spell the user reworded
+ * keeps their wording and nothing gains a "(2)" twin. Returns null when no
+ * bundled content shipped, matching seedBundledContent.
+ */
+export async function restoreBundledFolder(
+  target: LibraryFolder,
+): Promise<ImportSummary | null> {
+  const source = bundledContentDir()
+  if (!fs.existsSync(source)) return null
+  return copyBundledSets(
+    source,
+    BUNDLED_SETS.filter((set) => set.target === target),
+  )
 }
 
 /**

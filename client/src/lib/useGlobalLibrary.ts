@@ -21,16 +21,33 @@ export function useLibrary() {
   })
 }
 
+/** The frontmatter `type:` that backs each panel's folder. */
+const LIBRARY_TYPE = { Monsters: 'monster', Spells: 'spell' } as const
+
 /**
  * Library entries for one panel.
  *
- * Keyed under ['worlds', libraryWorldId, …] — the same namespace as any other
- * world — so the open world's watcher invalidation (['worlds', worldId]) never
- * touches these, and a library import never invalidates the open world.
+ * Keyed under ['library', libraryWorldId, …] rather than ['worlds', …]. The
+ * library is a world folder and every handler treats it as one, so the obvious
+ * key was the world namespace — but seven other call sites mount the *open*
+ * world's tree under the identical ['worlds', worldId, 'tree'] shape, and
+ * whichever mounted first won the cache slot for the whole staleTime. The
+ * library panel would then render the open world's tree, which has no Spells/
+ * folder in it. A separate prefix makes that collision impossible, and it is
+ * still outside the watcher's ['worlds', worldId] prefix, so the original
+ * property — that world invalidation never touches the library, or vice versa —
+ * is preserved. Anything invalidating library content must use this prefix.
  *
  * The library isn't indexed or watched: search.ts falls back to a disk scan
- * when no index is live, so these queries are correct as-is. staleTime keeps
- * that scan from re-running every time the panel is toggled.
+ * when no index is live, so these queries are correct as-is.
+ *
+ * Both are staleTime: Infinity because that scan is expensive — the library is
+ * the biggest folder the app touches, and the scan blocks the main process, so
+ * a refetch stalls the whole window rather than just this panel. Nothing can
+ * change the library from inside the app except import and restore, and both
+ * invalidate ['library'], so an expiry would only buy re-scans nobody asked
+ * for. Content edited outside the app is picked up on the next launch, the same
+ * bargain the library already makes by not being watched.
  */
 export function useLibraryEntries(folder: LibraryFolder): {
   entries: Array<LibraryEntry>
@@ -46,18 +63,22 @@ export function useLibraryEntries(folder: LibraryFolder): {
   const worldId = info?.worldId ?? ''
 
   const tree = useQuery({
-    queryKey: ['worlds', worldId, 'tree'],
+    queryKey: ['library', worldId, 'tree'],
     queryFn: () => api.worlds.tree(worldId),
     enabled,
-    staleTime: 5 * 60_000,
+    staleTime: Infinity,
   })
 
-  // Monsters union in `type: monster` articles; spells match by folder alone.
+  // Both panels union in their frontmatter type, so neither depends on the tree
+  // read alone. The seeded content carries `type: monster` / `type: spell`, and
+  // queryArticles reads the folder straight off disk, so this is a genuinely
+  // independent source rather than a second view of the same fetch.
+  const type = LIBRARY_TYPE[folder]
   const typed = useQuery({
-    queryKey: ['worlds', worldId, 'query', { type: 'monster' }],
-    queryFn: () => api.worlds.query(worldId, { type: 'monster' }),
-    enabled: enabled && folder === 'Monsters',
-    staleTime: 5 * 60_000,
+    queryKey: ['library', worldId, 'query', { type }],
+    queryFn: () => api.worlds.query(worldId, { type }),
+    enabled,
+    staleTime: Infinity,
   })
 
   // Memoized because callers feed `entries` into their own useMemo deps — a
@@ -66,7 +87,7 @@ export function useLibraryEntries(folder: LibraryFolder): {
     if (!enabled) return EMPTY_ENTRIES
     return folder === 'Monsters'
       ? collectMonsters(worldId, tree.data, typed.data, { global: true })
-      : collectSpells(worldId, tree.data, { global: true })
+      : collectSpells(worldId, tree.data, typed.data, { global: true })
   }, [enabled, folder, worldId, tree.data, typed.data])
 
   return {
@@ -75,8 +96,6 @@ export function useLibraryEntries(folder: LibraryFolder): {
       ? (tree.data?.articles ?? EMPTY_ARTICLES)
       : EMPTY_ARTICLES,
     info,
-    isPending: enabled
-      ? tree.isPending || (folder === 'Monsters' && typed.isPending)
-      : false,
+    isPending: enabled ? tree.isPending || typed.isPending : false,
   }
 }

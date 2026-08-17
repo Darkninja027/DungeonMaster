@@ -105,6 +105,13 @@ export interface ArticleRef {
   id: string
   folderId: string | null
   title: string
+  /**
+   * Frontmatter `cr` / `xp` when the article declares them, so a bestiary list
+   * can show challenge ratings without fetching every article's full text.
+   * Null when absent — fall back to parseStatBlock on the article itself.
+   */
+  cr: string | null
+  xp: number | null
 }
 
 /** A saved Smart View: a named frontmatter query, persisted to .dm/views.json. */
@@ -394,6 +401,13 @@ export const api = {
      */
     import: (target: LibraryFolder) =>
       invoke<ImportSummary | null>('library:import', { target }),
+    /**
+     * Re-copy the content shipped with the app into one library folder, putting
+     * back anything missing. Existing files are left untouched, so edits
+     * survive. Null if the build shipped no bundled content.
+     */
+    restore: (target: LibraryFolder) =>
+      invoke<ImportSummary | null>('library:restore', { target }),
   },
   shell: {
     /**

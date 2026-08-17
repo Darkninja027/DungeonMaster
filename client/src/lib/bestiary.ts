@@ -21,6 +21,15 @@ export interface LibraryEntry {
    * builder can see it. Always true for spells, which match by folder alone.
    */
   queryable: boolean
+  /**
+   * Challenge rating and XP from frontmatter, when the query supplied them.
+   *
+   * Carried here so the bestiary list can label rows straight from the query it
+   * already ran. Null for folder-only entries, which no query described — those
+   * rows fall back to reading the article, one fetch instead of hundreds.
+   */
+  cr?: string | null
+  xp?: number | null
 }
 
 /** Stable React key. A bare articleId collides — two worlds both have Monsters/Goblin. */
@@ -71,7 +80,55 @@ export function collectMonsters(
       queryable: queryable.has(a.id),
     })
   }
-  // Typed articles win: they're queryable wherever they live in the world.
+  // Typed articles win: they're queryable wherever they live in the world, and
+  // they're the only source that carries cr/xp.
+  for (const a of typed ?? []) {
+    byId.set(a.id, {
+      worldId,
+      articleId: a.id,
+      title: a.title,
+      global,
+      queryable: true,
+      cr: a.cr,
+      xp: a.xp,
+    })
+  }
+  return [...byId.values()].sort(byTitle)
+}
+
+/**
+ * Spells in one world: everything under `Spells/` plus every article whose
+ * frontmatter says `type: spell`, deduped by id.
+ *
+ * The two sources are deliberately redundant. Folder membership alone used to be
+ * the only source, which made the whole list hostage to one tree read — if that
+ * read was empty or belonged to another world, the panel rendered nothing while
+ * the files sat on disk. Monsters never showed that failure because they already
+ * unioned a frontmatter query, so this mirrors them.
+ *
+ * Unlike monsters, `queryable` stays true throughout: it means "the encounter
+ * builder can see this", which is a monster-only concept.
+ */
+export function collectSpells(
+  worldId: string,
+  tree: WorldTree | undefined,
+  typed?: Array<ArticleRef> | undefined,
+  options: { global?: boolean; folder?: string } = {},
+): Array<LibraryEntry> {
+  const folder = options.folder ?? 'Spells'
+  const global = options.global ?? false
+  const byId = new Map<string, LibraryEntry>()
+
+  for (const a of tree?.articles ?? []) {
+    if (!inFolder(a, folder)) continue
+    byId.set(a.id, {
+      worldId,
+      articleId: a.id,
+      title: a.title,
+      global,
+      queryable: true,
+    })
+  }
   for (const a of typed ?? []) {
     byId.set(a.id, {
       worldId,
@@ -82,26 +139,6 @@ export function collectMonsters(
     })
   }
   return [...byId.values()].sort(byTitle)
-}
-
-/** Spells in one world: folder membership only — there is no `type: spell` union. */
-export function collectSpells(
-  worldId: string,
-  tree: WorldTree | undefined,
-  options: { global?: boolean; folder?: string } = {},
-): Array<LibraryEntry> {
-  const folder = options.folder ?? 'Spells'
-  const global = options.global ?? false
-  return (tree?.articles ?? [])
-    .filter((a) => inFolder(a, folder))
-    .map((a) => ({
-      worldId,
-      articleId: a.id,
-      title: a.title,
-      global,
-      queryable: true,
-    }))
-    .sort(byTitle)
 }
 
 /**

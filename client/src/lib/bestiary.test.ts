@@ -24,10 +24,17 @@ function tree(
   }
 }
 
-const ref = (id: string, title: string): ArticleRef => ({
+const ref = (
+  id: string,
+  title: string,
+  extra: Partial<ArticleRef> = {},
+): ArticleRef => ({
   id,
   folderId: id.includes('/') ? id.slice(0, id.lastIndexOf('/')) : null,
   title,
+  cr: null,
+  xp: null,
+  ...extra,
 })
 
 describe('collectMonsters', () => {
@@ -149,13 +156,56 @@ describe('collectSpells', () => {
     ])
   })
 
-  // Spells match by folder alone, so there is no "invisible to the builder" case.
+  // `queryable` means "the encounter builder can see this", which is a monster
+  // concept — spells are never hidden from anything, typed or not.
   it('always reports queryable', () => {
     const entries = collectSpells(
       WORLD,
       tree([{ id: 'Spells/Fireball', folderId: 'Spells', title: 'Fireball' }]),
     )
     expect(entries[0].queryable).toBe(true)
+  })
+
+  // The regression this union exists for: the library's spells used to hang
+  // entirely on one tree read, so a tree that was empty — or belonged to another
+  // world, which a shared query key made routine — rendered an empty panel while
+  // the files sat on disk.
+  it('takes typed spells when the tree is missing', () => {
+    const entries = collectSpells(LIB, undefined, [
+      ref('Spells/Fireball', 'Fireball'),
+      ref('Spells/Bless', 'Bless'),
+    ])
+    expect(entries.map((e) => e.articleId)).toEqual([
+      'Spells/Bless',
+      'Spells/Fireball',
+    ])
+  })
+
+  it('takes typed spells when the tree is another world’s', () => {
+    const entries = collectSpells(
+      LIB,
+      tree([{ id: 'NPCs/Strahd', folderId: 'NPCs', title: 'Strahd' }]),
+      [ref('Spells/Fireball', 'Fireball')],
+    )
+    expect(entries.map((e) => e.articleId)).toEqual(['Spells/Fireball'])
+  })
+
+  it('does not duplicate a spell present in both sources', () => {
+    const entries = collectSpells(
+      LIB,
+      tree([{ id: 'Spells/Fireball', folderId: 'Spells', title: 'Fireball' }]),
+      [ref('Spells/Fireball', 'Fireball')],
+    )
+    expect(entries).toHaveLength(1)
+  })
+
+  // Typed articles are matched on frontmatter, so they count wherever they live
+  // — the same rule collectMonsters already applies.
+  it('takes a typed spell filed outside the Spells folder', () => {
+    const entries = collectSpells(LIB, tree([]), [
+      ref('Homebrew/Chromatic Orb', 'Chromatic Orb'),
+    ])
+    expect(entries.map((e) => e.articleId)).toEqual(['Homebrew/Chromatic Orb'])
   })
 })
 

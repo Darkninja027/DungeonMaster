@@ -33,6 +33,7 @@ import {
 import type { LibraryEntry } from '#/lib/bestiary'
 import { useLibraryEntries } from '#/lib/useGlobalLibrary'
 import { LibraryImportButton } from '#/components/LibraryImportButton'
+import { VirtualList } from '#/components/VirtualList'
 import { Button } from '#/components/ui/button'
 import {
   DropdownMenu,
@@ -41,7 +42,6 @@ import {
   DropdownMenuTrigger,
 } from '#/components/ui/dropdown-menu'
 import { Input } from '#/components/ui/input'
-import { ScrollArea } from '#/components/ui/scroll-area'
 import { InlineMarkdown, PANEL_PROSE } from '#/components/Markdown'
 
 const MONSTERS_FOLDER = 'Monsters'
@@ -211,11 +211,25 @@ export function MonsterReference({ worldId }: { worldId: string }) {
     [worldId, tree.data, typed.data, library.entries],
   )
 
-  // CR/XP for the list rows. Cached by React Query, so re-renders don't re-read
-  // disk — the same pattern the encounter builder uses. Each row fetches from
-  // its own world, so a global entry reads out of the library folder.
-  const contents = useQueries({
-    queries: monsters.map((m) => ({
+  // CR/XP for the list rows, taken from the frontmatter the query already
+  // parsed. This used to fetch every monster's full article — one IPC
+  // round-trip each, which at library scale meant several hundred of them on
+  // every panel open, to re-derive two numbers the main process had in hand.
+  //
+  // Only entries with no frontmatter cr fall back to reading the article, so
+  // hand-written stat blocks still show a rating. That set is normally empty
+  // and always small; the bundled bestiary declares both fields throughout.
+  const visible = useMemo(
+    () => filterEntries(monsters, filter),
+    [monsters, filter],
+  )
+
+  const needsFetch = useMemo(
+    () => monsters.filter((m) => m.cr == null),
+    [monsters],
+  )
+  const fetched = useQueries({
+    queries: needsFetch.map((m) => ({
       queryKey: ['worlds', m.worldId, 'articles', m.articleId],
       queryFn: () => api.articles.get(m.worldId, m.articleId),
     })),
@@ -224,14 +238,17 @@ export function MonsterReference({ worldId }: { worldId: string }) {
   // a bare id would show one row's CR on the other's.
   const crByKey = useMemo(() => {
     const map = new Map<string, { cr: string | null; xp: number | null }>()
-    // contents is mapped from monsters, so the indices line up one-to-one.
-    contents.forEach((q, i) => {
+    for (const m of monsters) {
+      if (m.cr != null) map.set(entryKey(m), { cr: m.cr, xp: m.xp ?? null })
+    }
+    // fetched is mapped from needsFetch, so the indices line up one-to-one.
+    fetched.forEach((q, i) => {
       if (!q.data) return
       const sb = parseStatBlock(q.data.content)
-      map.set(entryKey(monsters[i]), { cr: sb.cr, xp: sb.xp })
+      map.set(entryKey(needsFetch[i]), { cr: sb.cr, xp: sb.xp })
     })
     return map
-  }, [contents, monsters])
+  }, [monsters, needsFetch, fetched])
 
   if (tree.isPending) {
     return <p className="text-muted-foreground p-4 text-sm">Loading…</p>
@@ -245,7 +262,6 @@ export function MonsterReference({ worldId }: { worldId: string }) {
   }
 
   const needle = filter.trim().toLowerCase()
-  const visible = filterEntries(monsters, filter)
   // A configured-but-missing library (moved folder, drive not plugged in) is
   // said out loud rather than silently showing a shorter list.
   const libraryUnavailable = library.info !== null && !library.info.available
@@ -281,153 +297,154 @@ export function MonsterReference({ worldId }: { worldId: string }) {
           </p>
         )}
       </div>
-      <ScrollArea className="min-h-0 flex-1">
-        {visible.length === 0 ? (
+      <VirtualList
+        className="min-h-0 flex-1"
+        items={visible}
+        estimateHeight={32}
+        getKey={entryKey}
+        empty={
           <p className="text-muted-foreground p-4 text-sm">
             {needle
               ? 'No monsters match.'
               : 'The bestiary is empty. Add one below to start a stat block.'}
           </p>
-        ) : (
-          <ul className="divide-y">
-            {visible.map((monster) => {
-              const key = entryKey(monster)
-              const open = openId === key
-              const stats = crByKey.get(key)
-              return (
-                <li key={key} className="group px-3 py-1.5">
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      type="button"
-                      className="flex min-w-0 flex-1 items-center gap-1.5 text-left text-sm"
-                      title={open ? 'Hide stat block' : 'Show stat block'}
-                      onClick={() => setOpenId(open ? null : key)}
-                    >
-                      {open ? (
-                        <ChevronDown className="text-muted-foreground size-3.5 shrink-0" />
-                      ) : (
-                        <ChevronRight className="text-muted-foreground size-3.5 shrink-0" />
-                      )}
-                      <span className="min-w-0 flex-1 truncate">
-                        {monster.title}
-                      </span>
-                      {monster.global && (
-                        <span
-                          className="bg-muted text-muted-foreground shrink-0 rounded px-1 text-[10px]"
-                          title="From your global library — shared by every world."
-                        >
-                          Global
-                        </span>
-                      )}
-                      {/* Only for the world's own entries: a global monster is
-                          invisible to the encounter builder for a different
-                          reason (no world qualifier on combatants yet), so the
-                          "add the frontmatter" advice would be wrong here. */}
-                      {!monster.queryable && !monster.global && (
-                        <span
-                          className="shrink-0 text-amber-600"
-                          title="No `type: monster` frontmatter — the encounter builder can't see this one. Open the article and add it."
-                        >
-                          <TriangleAlert className="size-3.5" />
-                        </span>
-                      )}
-                      {stats?.cr != null && (
-                        <span className="text-muted-foreground shrink-0 text-xs">
-                          CR {stats.cr}
-                        </span>
-                      )}
-                    </button>
-                    {monster.global ? (
-                      <button
-                        type="button"
-                        className="text-muted-foreground hover:text-foreground shrink-0 opacity-0 group-hover:opacity-100"
-                        title="Library entries are read-only here"
-                        onClick={() =>
-                          alert(
-                            `"${monster.title}" lives in your global library, so it is read-only from inside a world.\n\nUse "Copy to this world" to make an editable copy, or open the library folder to edit it everywhere.`,
-                          )
-                        }
-                      >
-                        <SquarePen className="size-3.5" />
-                      </button>
-                    ) : (
-                      <Link
-                        to="/worlds/$worldId/articles/$articleId"
-                        params={{ worldId, articleId: monster.articleId }}
-                        className="text-muted-foreground hover:text-foreground shrink-0 opacity-0 group-hover:opacity-100"
-                        title="Edit the monster's article"
-                      >
-                        <SquarePen className="size-3.5" />
-                      </Link>
-                    )}
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="size-6 shrink-0 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100"
-                        >
-                          <MoreHorizontal className="size-3.5" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        {monster.global && (
-                          <DropdownMenuItem
-                            disabled={copyToWorld.isPending}
-                            onClick={() => copyToWorld.mutate(monster)}
-                          >
-                            <Copy /> Copy to this world
-                          </DropdownMenuItem>
-                        )}
-                        <DropdownMenuItem
-                          onClick={() =>
-                            revealer(monster.worldId)(`${monster.articleId}.md`)
-                          }
-                        >
-                          <FolderOpen /> {REVEAL_LABEL}
-                        </DropdownMenuItem>
-                        {/* World entries only. Deleting a library entry from
-                            inside a world would take it out of every world. */}
-                        {!monster.global && (
-                          <DropdownMenuItem
-                            variant="destructive"
-                            onClick={() => {
-                              if (
-                                confirm(
-                                  `Delete "${monster.title}"? It goes to the Recycle Bin.`,
-                                )
-                              ) {
-                                deleteMonster.mutate(monster)
-                              }
-                            }}
-                          >
-                            <Trash2 /> Delete
-                          </DropdownMenuItem>
-                        )}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
-                  {open && (
-                    <div className="bg-muted/40 ml-5 mt-1.5 rounded p-2">
-                      {/* Both the world id and the article list come from the
-                          entry's own world, so [[links]] resolve within the
-                          library and _images/ portraits load over world://. */}
-                      <MonsterArticle
-                        worldId={monster.worldId}
-                        articleId={monster.articleId}
-                        title={monster.title}
-                        articles={
-                          monster.global ? library.articles : tree.data.articles
-                        }
-                      />
-                    </div>
+        }
+        renderRow={(monster) => {
+          const key = entryKey(monster)
+          const open = openId === key
+          const stats = crByKey.get(key)
+          return (
+            <>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  className="flex min-w-0 flex-1 items-center gap-1.5 text-left text-sm"
+                  title={open ? 'Hide stat block' : 'Show stat block'}
+                  onClick={() => setOpenId(open ? null : key)}
+                >
+                  {open ? (
+                    <ChevronDown className="text-muted-foreground size-3.5 shrink-0" />
+                  ) : (
+                    <ChevronRight className="text-muted-foreground size-3.5 shrink-0" />
                   )}
-                </li>
-              )
-            })}
-          </ul>
-        )}
-      </ScrollArea>
+                  <span className="min-w-0 flex-1 truncate">
+                    {monster.title}
+                  </span>
+                  {monster.global && (
+                    <span
+                      className="bg-muted text-muted-foreground shrink-0 rounded px-1 text-[10px]"
+                      title="From your global library — shared by every world."
+                    >
+                      Global
+                    </span>
+                  )}
+                  {/* Only for the world's own entries: a global monster is
+                        invisible to the encounter builder for a different
+                        reason (no world qualifier on combatants yet), so the
+                        "add the frontmatter" advice would be wrong here. */}
+                  {!monster.queryable && !monster.global && (
+                    <span
+                      className="shrink-0 text-amber-600"
+                      title="No `type: monster` frontmatter — the encounter builder can't see this one. Open the article and add it."
+                    >
+                      <TriangleAlert className="size-3.5" />
+                    </span>
+                  )}
+                  {stats?.cr != null && (
+                    <span className="text-muted-foreground shrink-0 text-xs">
+                      CR {stats.cr}
+                    </span>
+                  )}
+                </button>
+                {monster.global ? (
+                  <button
+                    type="button"
+                    className="text-muted-foreground hover:text-foreground shrink-0 opacity-0 group-hover:opacity-100"
+                    title="Library entries are read-only here"
+                    onClick={() =>
+                      alert(
+                        `"${monster.title}" lives in your global library, so it is read-only from inside a world.\n\nUse "Copy to this world" to make an editable copy, or open the library folder to edit it everywhere.`,
+                      )
+                    }
+                  >
+                    <SquarePen className="size-3.5" />
+                  </button>
+                ) : (
+                  <Link
+                    to="/worlds/$worldId/articles/$articleId"
+                    params={{ worldId, articleId: monster.articleId }}
+                    className="text-muted-foreground hover:text-foreground shrink-0 opacity-0 group-hover:opacity-100"
+                    title="Edit the monster's article"
+                  >
+                    <SquarePen className="size-3.5" />
+                  </Link>
+                )}
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-6 shrink-0 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100"
+                    >
+                      <MoreHorizontal className="size-3.5" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    {monster.global && (
+                      <DropdownMenuItem
+                        disabled={copyToWorld.isPending}
+                        onClick={() => copyToWorld.mutate(monster)}
+                      >
+                        <Copy /> Copy to this world
+                      </DropdownMenuItem>
+                    )}
+                    <DropdownMenuItem
+                      onClick={() =>
+                        revealer(monster.worldId)(`${monster.articleId}.md`)
+                      }
+                    >
+                      <FolderOpen /> {REVEAL_LABEL}
+                    </DropdownMenuItem>
+                    {/* World entries only. Deleting a library entry from
+                          inside a world would take it out of every world. */}
+                    {!monster.global && (
+                      <DropdownMenuItem
+                        variant="destructive"
+                        onClick={() => {
+                          if (
+                            confirm(
+                              `Delete "${monster.title}"? It goes to the Recycle Bin.`,
+                            )
+                          ) {
+                            deleteMonster.mutate(monster)
+                          }
+                        }}
+                      >
+                        <Trash2 /> Delete
+                      </DropdownMenuItem>
+                    )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+              {open && (
+                <div className="bg-muted/40 ml-5 mt-1.5 rounded p-2">
+                  {/* Both the world id and the article list come from the
+                        entry's own world, so [[links]] resolve within the
+                        library and _images/ portraits load over world://. */}
+                  <MonsterArticle
+                    worldId={monster.worldId}
+                    articleId={monster.articleId}
+                    title={monster.title}
+                    articles={
+                      monster.global ? library.articles : tree.data.articles
+                    }
+                  />
+                </div>
+              )}
+            </>
+          )
+        }}
+      />
       <div className="flex gap-1.5 border-t p-2">
         <Input
           value={newMonster}

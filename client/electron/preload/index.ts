@@ -48,6 +48,7 @@ const CHANNELS = new Set([
   'library:pick',
   'library:forget',
   'library:import',
+  'library:restore',
   'shell:reveal',
   'updates:quitAndInstall',
 ])

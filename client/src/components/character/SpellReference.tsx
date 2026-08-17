@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
@@ -30,6 +30,8 @@ import {
 import type { LibraryEntry } from '#/lib/bestiary'
 import { useLibraryEntries } from '#/lib/useGlobalLibrary'
 import { LibraryImportButton } from '#/components/LibraryImportButton'
+import { VirtualList } from '#/components/VirtualList'
+import type { VirtualListHandle } from '#/components/VirtualList'
 import { Button } from '#/components/ui/button'
 import {
   DropdownMenu,
@@ -38,7 +40,6 @@ import {
   DropdownMenuTrigger,
 } from '#/components/ui/dropdown-menu'
 import { Input } from '#/components/ui/input'
-import { ScrollArea } from '#/components/ui/scroll-area'
 import { InlineMarkdown, PANEL_PROSE } from '#/components/Markdown'
 
 const SPELLS_FOLDER = 'Spells'
@@ -106,20 +107,23 @@ export function SpellReference({ worldId }: { worldId: string }) {
   const spells = useMemo(
     () =>
       mergeEntries(
-        collectSpells(worldId, tree.data, { folder: SPELLS_FOLDER }),
+        // No typed union for the open world: its own spells are whatever sits in
+        // the Spells folder, and it has a live watcher keeping this tree honest.
+        collectSpells(worldId, tree.data, undefined, { folder: SPELLS_FOLDER }),
         library.entries,
       ),
     [worldId, tree.data, library.entries],
   )
 
+  const visible = useMemo(() => filterEntries(spells, filter), [spells, filter])
+  // The list owns its own virtualizer, so scrolling re-renders the rows without
+  // re-rendering this panel's header, footer and mutations on every frame.
+  const listRef = useRef<VirtualListHandle>(null)
+
   // Fulfil "open this spell" requests from character sheets. The request only
   // carries an article id, so prefer this world's copy and fall back to the
   // library — a sheet's spell is far more likely to be the local one.
   const request = useSpellPanelRequest()
-  // Set alongside openId when the request came from a sheet, so the row scrolls
-  // itself into view once it renders. Expanding alone isn't enough: with a few
-  // hundred library spells the opened row is usually far off-screen.
-  const [scrollToKey, setScrollToKey] = useState<string | null>(null)
   useEffect(() => {
     if (!request) return
     const match =
@@ -127,11 +131,17 @@ export function SpellReference({ worldId }: { worldId: string }) {
       spells.find((s) => s.articleId === request.articleId)
     setFilter('')
     if (match) {
-      const key = entryKey(match)
-      setOpenId(key)
-      setScrollToKey(key)
+      setOpenId(entryKey(match))
+      // Expanding alone isn't enough — with a few hundred library spells the
+      // opened row is usually far off-screen, and a virtualized row that isn't
+      // mounted cannot scroll itself into view. scrollToIndex does both jobs:
+      // it moves the list and brings the row into the rendered window. Indexed
+      // against the unfiltered list because the filter was just cleared above.
+      const index = spells.indexOf(match)
+      if (index >= 0) listRef.current?.scrollToIndex(index)
     }
     consumeSpellPanelRequest()
+    // The request is consumed above, so a re-run from any dep is a no-op.
   }, [request, spells])
 
   // Create a library spell and jump to its article to write the description.
@@ -226,7 +236,6 @@ export function SpellReference({ worldId }: { worldId: string }) {
     )
   }
 
-  const visible = filterEntries(spells, filter)
   // A configured-but-missing library (moved folder, drive not plugged in) is
   // said out loud rather than silently showing a shorter list.
   const libraryUnavailable = library.info !== null && !library.info.available
@@ -261,150 +270,135 @@ export function SpellReference({ worldId }: { worldId: string }) {
           </p>
         )}
       </div>
-      <ScrollArea className="min-h-0 flex-1">
-        {visible.length === 0 ? (
+      <VirtualList
+        className="min-h-0 flex-1"
+        items={visible}
+        estimateHeight={32}
+        handleRef={listRef}
+        getKey={entryKey}
+        empty={
           <p className="text-muted-foreground p-4 text-sm">
             {filter.trim()
               ? 'No spells match.'
               : 'The spell library is empty. Add one below, or add a spell on a character sheet — unknown spells land here automatically.'}
           </p>
-        ) : (
-          <ul className="divide-y">
-            {visible.map((spell) => {
-              const key = entryKey(spell)
-              const open = openId === key
-              return (
-                <li
-                  key={key}
-                  className="group px-3 py-1.5"
-                  // A callback ref, not an effect: it fires when this row is
-                  // actually in the DOM, which is the only moment scrolling can
-                  // work. Clears the request so a later manual scroll sticks.
-                  ref={
-                    key === scrollToKey
-                      ? (el) => {
-                          if (!el) return
-                          el.scrollIntoView({ block: 'center' })
-                          setScrollToKey(null)
-                        }
-                      : undefined
-                  }
+        }
+        renderRow={(spell) => {
+          const key = entryKey(spell)
+          const open = openId === key
+          return (
+            <>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  className="flex min-w-0 flex-1 items-center gap-1.5 text-left text-sm"
+                  title={open ? 'Hide description' : 'Show description'}
+                  onClick={() => setOpenId(open ? null : key)}
                 >
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      type="button"
-                      className="flex min-w-0 flex-1 items-center gap-1.5 text-left text-sm"
-                      title={open ? 'Hide description' : 'Show description'}
-                      onClick={() => setOpenId(open ? null : key)}
-                    >
-                      {open ? (
-                        <ChevronDown className="text-muted-foreground size-3.5 shrink-0" />
-                      ) : (
-                        <ChevronRight className="text-muted-foreground size-3.5 shrink-0" />
-                      )}
-                      <span className="min-w-0 flex-1 truncate">
-                        {spell.title}
-                      </span>
-                      {spell.global && (
-                        <span
-                          className="bg-muted text-muted-foreground shrink-0 rounded px-1 text-[10px]"
-                          title="From your global library — shared by every world."
-                        >
-                          Global
-                        </span>
-                      )}
-                    </button>
-                    {spell.global ? (
-                      <button
-                        type="button"
-                        className="text-muted-foreground hover:text-foreground shrink-0 opacity-0 group-hover:opacity-100"
-                        title="Library entries are read-only here"
-                        onClick={() =>
-                          alert(
-                            `"${spell.title}" lives in your global library, so it is read-only from inside a world.\n\nUse "Copy to this world" to make an editable copy, or open the library folder to edit it everywhere.`,
-                          )
-                        }
-                      >
-                        <SquarePen className="size-3.5" />
-                      </button>
-                    ) : (
-                      <Link
-                        to="/worlds/$worldId/articles/$articleId"
-                        params={{ worldId, articleId: spell.articleId }}
-                        className="text-muted-foreground hover:text-foreground shrink-0 opacity-0 group-hover:opacity-100"
-                        title="Edit the spell's article"
-                      >
-                        <SquarePen className="size-3.5" />
-                      </Link>
-                    )}
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="size-6 shrink-0 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100"
-                        >
-                          <MoreHorizontal className="size-3.5" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        {spell.global && (
-                          <DropdownMenuItem
-                            disabled={copyToWorld.isPending}
-                            onClick={() => copyToWorld.mutate(spell)}
-                          >
-                            <Copy /> Copy to this world
-                          </DropdownMenuItem>
-                        )}
-                        <DropdownMenuItem
-                          onClick={() =>
-                            revealer(spell.worldId)(`${spell.articleId}.md`)
-                          }
-                        >
-                          <FolderOpen /> {REVEAL_LABEL}
-                        </DropdownMenuItem>
-                        {/* World entries only. Deleting a library entry from
-                            inside a world would take it out of every world. */}
-                        {!spell.global && (
-                          <DropdownMenuItem
-                            variant="destructive"
-                            onClick={() => {
-                              if (
-                                confirm(
-                                  `Delete "${spell.title}"? It goes to the Recycle Bin.`,
-                                )
-                              ) {
-                                deleteSpell.mutate(spell)
-                              }
-                            }}
-                          >
-                            <Trash2 /> Delete
-                          </DropdownMenuItem>
-                        )}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
-                  {open && (
-                    <div className="bg-muted/40 ml-5 mt-1.5 rounded p-2">
-                      {/* Both the world id and the article list come from the
-                          entry's own world, so [[links]] resolve within the
-                          library and _images/ paths load over world://. */}
-                      <SpellArticle
-                        worldId={spell.worldId}
-                        articleId={spell.articleId}
-                        title={spell.title}
-                        articles={
-                          spell.global ? library.articles : tree.data.articles
-                        }
-                      />
-                    </div>
+                  {open ? (
+                    <ChevronDown className="text-muted-foreground size-3.5 shrink-0" />
+                  ) : (
+                    <ChevronRight className="text-muted-foreground size-3.5 shrink-0" />
                   )}
-                </li>
-              )
-            })}
-          </ul>
-        )}
-      </ScrollArea>
+                  <span className="min-w-0 flex-1 truncate">{spell.title}</span>
+                  {spell.global && (
+                    <span
+                      className="bg-muted text-muted-foreground shrink-0 rounded px-1 text-[10px]"
+                      title="From your global library — shared by every world."
+                    >
+                      Global
+                    </span>
+                  )}
+                </button>
+                {spell.global ? (
+                  <button
+                    type="button"
+                    className="text-muted-foreground hover:text-foreground shrink-0 opacity-0 group-hover:opacity-100"
+                    title="Library entries are read-only here"
+                    onClick={() =>
+                      alert(
+                        `"${spell.title}" lives in your global library, so it is read-only from inside a world.\n\nUse "Copy to this world" to make an editable copy, or open the library folder to edit it everywhere.`,
+                      )
+                    }
+                  >
+                    <SquarePen className="size-3.5" />
+                  </button>
+                ) : (
+                  <Link
+                    to="/worlds/$worldId/articles/$articleId"
+                    params={{ worldId, articleId: spell.articleId }}
+                    className="text-muted-foreground hover:text-foreground shrink-0 opacity-0 group-hover:opacity-100"
+                    title="Edit the spell's article"
+                  >
+                    <SquarePen className="size-3.5" />
+                  </Link>
+                )}
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-6 shrink-0 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100"
+                    >
+                      <MoreHorizontal className="size-3.5" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    {spell.global && (
+                      <DropdownMenuItem
+                        disabled={copyToWorld.isPending}
+                        onClick={() => copyToWorld.mutate(spell)}
+                      >
+                        <Copy /> Copy to this world
+                      </DropdownMenuItem>
+                    )}
+                    <DropdownMenuItem
+                      onClick={() =>
+                        revealer(spell.worldId)(`${spell.articleId}.md`)
+                      }
+                    >
+                      <FolderOpen /> {REVEAL_LABEL}
+                    </DropdownMenuItem>
+                    {/* World entries only. Deleting a library entry from
+                          inside a world would take it out of every world. */}
+                    {!spell.global && (
+                      <DropdownMenuItem
+                        variant="destructive"
+                        onClick={() => {
+                          if (
+                            confirm(
+                              `Delete "${spell.title}"? It goes to the Recycle Bin.`,
+                            )
+                          ) {
+                            deleteSpell.mutate(spell)
+                          }
+                        }}
+                      >
+                        <Trash2 /> Delete
+                      </DropdownMenuItem>
+                    )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+              {open && (
+                <div className="bg-muted/40 ml-5 mt-1.5 rounded p-2">
+                  {/* Both the world id and the article list come from the
+                        entry's own world, so [[links]] resolve within the
+                        library and _images/ paths load over world://. */}
+                  <SpellArticle
+                    worldId={spell.worldId}
+                    articleId={spell.articleId}
+                    title={spell.title}
+                    articles={
+                      spell.global ? library.articles : tree.data.articles
+                    }
+                  />
+                </div>
+              )}
+            </>
+          )
+        }}
+      />
       <div className="flex gap-1.5 border-t p-2">
         <Input
           value={newSpell}

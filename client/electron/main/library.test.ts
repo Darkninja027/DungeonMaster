@@ -100,6 +100,34 @@ describe('library against real temp folders', () => {
       expect(getLibrary()).toBeNull()
       expect(fs.existsSync(libPath('worldSettings.json'))).toBe(true)
     })
+
+    // World ids are hex of the path bytes, so a stored path that differs from
+    // the default only by case yields a second id for one folder. Windows opens
+    // either, so nothing errors — the library just caches under an id nobody
+    // else derives. Windows-only: elsewhere the two really are different folders.
+    describe.runIf(process.platform === 'win32')('default path casing', () => {
+      const miscased = () => {
+        const canonical = defaultLibraryPath()
+        return path.join(
+          path.dirname(canonical).toUpperCase(),
+          path.basename(canonical),
+        )
+      }
+
+      it('rewrites a stored default path that differs only by case', () => {
+        setLibrary(miscased())
+        expect(getLibrary()?.path).toBe(defaultLibraryPath())
+        // Healed in the store too, not just in this one read.
+        expect(getLibrary()?.worldId).toBe(encodeWorldId(defaultLibraryPath()))
+      })
+
+      // A path the user chose is theirs, whatever its casing.
+      it('leaves a non-default path exactly as stored', () => {
+        const chosen = path.join(scratch, 'MyLibrary')
+        setLibrary(chosen)
+        expect(getLibrary()?.path).toBe(chosen)
+      })
+    })
   })
 
   describe('ensureLibrary', () => {

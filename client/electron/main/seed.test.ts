@@ -15,8 +15,13 @@ vi.mock('electron', () => ({
   },
 }))
 
-const { importMarkdownFolder, seedBundledContent, setLibrary, getLibrary } =
-  await import('./library')
+const {
+  importMarkdownFolder,
+  restoreBundledFolder,
+  seedBundledContent,
+  setLibrary,
+  getLibrary,
+} = await import('./library')
 
 let scratch = ''
 let contentDir = ''
@@ -47,7 +52,9 @@ afterEach(() => {
 
 const libFiles = (folder: string) => {
   const dir = path.join(getLibrary()!.path, folder)
-  return fs.existsSync(dir) ? fs.readdirSync(dir).filter((f) => f.endsWith('.md')) : []
+  return fs.existsSync(dir)
+    ? fs.readdirSync(dir).filter((f) => f.endsWith('.md'))
+    : []
 }
 
 describe('seedBundledContent', () => {
@@ -96,7 +103,7 @@ describe('seedBundledContent', () => {
     expect(libFiles('Spells')).toEqual([])
   })
 
-  it('leaves the user\'s own edits alone', async () => {
+  it("leaves the user's own edits alone", async () => {
     writeContent('DM Spells 5e', { 'Fireball.md': spell('Fireball') })
     await seedBundledContent()
     const abs = path.join(getLibrary()!.path, 'Spells', 'Fireball.md')
@@ -115,6 +122,98 @@ describe('seedBundledContent', () => {
     await seedBundledContent()
 
     expect(getLibrary()?.path).toBe(custom)
+    expect(fs.existsSync(path.join(custom, 'Spells', 'Fireball.md'))).toBe(true)
+  })
+})
+
+describe('restoreBundledFolder', () => {
+  it('does nothing when no content ships with the app', async () => {
+    fs.rmSync(contentDir, { recursive: true, force: true })
+    expect(await restoreBundledFolder('Spells')).toBeNull()
+  })
+
+  // The whole point of the button: seedBundledContent is version-gated, so a
+  // file deleted after the seed stays gone until the next release. This is the
+  // way back, and it must work at the version already on disk.
+  it('restores a deleted file at the same content version', async () => {
+    writeContent('DM Spells 5e', { 'Fireball.md': spell('Fireball') })
+    await seedBundledContent()
+    fs.rmSync(path.join(getLibrary()!.path, 'Spells', 'Fireball.md'))
+
+    const summary = await restoreBundledFolder('Spells')
+
+    expect(summary?.copied).toBe(1)
+    expect(libFiles('Spells')).toEqual(['Fireball.md'])
+  })
+
+  it('draws on every set that targets the folder', async () => {
+    writeContent('DM Spells 5e', { 'Fireball.md': spell('Fireball') })
+    writeContent('DM Spells 5.5e', { 'Fireball 5.5e.md': spell('Fireball') })
+
+    const summary = await restoreBundledFolder('Spells')
+
+    expect(summary?.copied).toBe(2)
+    expect(libFiles('Spells').sort()).toEqual([
+      'Fireball 5.5e.md',
+      'Fireball.md',
+    ])
+  })
+
+  it('leaves the other folder untouched', async () => {
+    writeContent('DM Spells 5e', { 'Fireball.md': spell('Fireball') })
+    writeContent('DM Bestiary 5e', { 'Goblin.md': monster('Goblin') })
+
+    await restoreBundledFolder('Spells')
+
+    expect(libFiles('Spells')).toEqual(['Fireball.md'])
+    expect(libFiles('Monsters')).toEqual([])
+  })
+
+  // Restoring must never cost someone their rewording, and must never leave a
+  // "(2)" twin behind — the two failure modes that would make it unusable.
+  it('preserves a user edit without adding a duplicate', async () => {
+    writeContent('DM Spells 5e', { 'Fireball.md': spell('Fireball') })
+    await seedBundledContent()
+    const edited = path.join(getLibrary()!.path, 'Spells', 'Fireball.md')
+    fs.writeFileSync(edited, '# My Fireball\n')
+
+    const summary = await restoreBundledFolder('Spells')
+
+    expect(summary?.copied).toBe(0)
+    expect(libFiles('Spells')).toEqual(['Fireball.md'])
+    expect(fs.readFileSync(edited, 'utf8')).toBe('# My Fireball\n')
+  })
+
+  // A manual restore must not disturb the automatic seed's bookkeeping, or it
+  // would trigger a full re-copy on the next launch.
+  it('leaves the seed marker alone', async () => {
+    writeContent('DM Spells 5e', { 'Fireball.md': spell('Fireball') })
+    await seedBundledContent()
+    const marker = path.join(getLibrary()!.path, '.seeded.json')
+    const before = fs.readFileSync(marker, 'utf8')
+
+    await restoreBundledFolder('Spells')
+
+    expect(fs.readFileSync(marker, 'utf8')).toBe(before)
+  })
+
+  // Restoring is how someone with no library gets one, so it can't require one.
+  it('creates the library when there is none', async () => {
+    writeContent('DM Spells 5e', { 'Fireball.md': spell('Fireball') })
+
+    const summary = await restoreBundledFolder('Spells')
+
+    expect(summary?.copied).toBe(1)
+    expect(getLibrary()?.available).toBe(true)
+  })
+
+  it('restores into a library the user relocated', async () => {
+    const custom = path.join(scratch, 'MyLibrary')
+    setLibrary(custom)
+    writeContent('DM Spells 5e', { 'Fireball.md': spell('Fireball') })
+
+    await restoreBundledFolder('Spells')
+
     expect(fs.existsSync(path.join(custom, 'Spells', 'Fireball.md'))).toBe(true)
   })
 })

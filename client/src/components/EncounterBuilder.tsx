@@ -23,7 +23,13 @@ const DIFFICULTY_STYLE: Record<Difficulty, string> = {
 }
 
 /** Roll a d20 with the given modifier, logging it to the shared roll history. */
-function rollInitiative(worldId: string, ref: ArticleRef, mod: number): number {
+// Takes only what it reads, so callers can pass any id/title pair — a character
+// row here isn't always a full ArticleRef.
+function rollInitiative(
+  worldId: string,
+  ref: Pick<ArticleRef, 'id' | 'title'>,
+  mod: number,
+): number {
   const notation = mod === 0 ? 'd20' : `d20${signed(mod)}`
   const result = rollDice(notation)
   const total = result?.total ?? 10
@@ -260,7 +266,8 @@ export function EncounterBuilder({
                       <span
                         className={cn(
                           'flex size-4 shrink-0 items-center justify-center rounded border',
-                          selected && 'bg-primary border-primary text-primary-foreground',
+                          selected &&
+                            'bg-primary border-primary text-primary-foreground',
                         )}
                       >
                         {selected && '✓'}
@@ -285,7 +292,12 @@ export function EncounterBuilder({
       <div className="space-y-2 border-t p-2">
         {rating ? (
           <div className="flex items-baseline justify-between text-sm">
-            <span className={cn('font-semibold capitalize', DIFFICULTY_STYLE[rating.difficulty])}>
+            <span
+              className={cn(
+                'font-semibold capitalize',
+                DIFFICULTY_STYLE[rating.difficulty],
+              )}
+            >
               {rating.difficulty}
             </span>
             <span className="text-muted-foreground text-xs">

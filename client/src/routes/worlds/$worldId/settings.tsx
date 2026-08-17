@@ -37,7 +37,7 @@ function WorldSettingsPage() {
         <p className="text-muted-foreground text-xs">
           Stored as <code>worldSettings.json</code> in the world folder; safe to
           hand-edit. If your edits don’t show up, check it for a JSON syntax
-          error.
+          error. Library is the exception — it applies to every world.
         </p>
       </div>
 

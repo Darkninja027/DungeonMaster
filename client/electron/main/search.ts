@@ -6,6 +6,38 @@ import { getIndex, parseFrontmatter } from './indexer'
 import type { IndexEntry } from './indexer'
 
 /**
+ * Parsed articles from the disk-scan fallback, keyed by absolute path.
+ *
+ * Only the unindexed path uses this — an indexed world already has everything
+ * in memory. It exists for the global library, which is never the open world
+ * and so never gets an index, yet is the largest folder the app touches: 1600+
+ * files that the Bestiary and Spells panels re-read on every open. Reading and
+ * YAML-parsing that set costs several hundred milliseconds of *blocking*
+ * main-process time, which stalls the whole window, not just the panel.
+ *
+ * Keyed on the mtime readTree already stat'd, so an edit — by this app, by
+ * Obsidian, by anything — invalidates its own entry on the next scan. That
+ * keeps the fallback's defining property intact: it always agrees with the
+ * index, because it always reflects what is actually on disk. Reusing that
+ * stat rather than taking a fresh one matters: at this size a second round of
+ * stat calls would cost more than the parse this cache is saving.
+ */
+const scanCache = new Map<string, { updatedAt: string; entry: IndexEntry }>()
+
+/**
+ * Cap on remembered files. The library is ~1600 and a large world similar, so
+ * this holds both at once; past that the cache clears wholesale rather than
+ * evicting cleverly, since the scan that refills it is the thing being
+ * optimised and LRU bookkeeping would cost more than the occasional refill.
+ */
+const SCAN_CACHE_MAX = 8000
+
+/** Forget cached scans. Exported for tests, which reuse temp paths. */
+export function dropScanCache(): void {
+  scanCache.clear()
+}
+
+/**
  * Yields every article with its content — from the in-memory index when one
  * is live for this world, otherwise straight from disk. Query logic below is
  * identical either way, so index and fallback always agree.
@@ -17,18 +49,24 @@ function* articleEntries(worldId: string): Generator<IndexEntry> {
     return
   }
   const root = worldRoot(worldId)
+  if (scanCache.size > SCAN_CACHE_MAX) scanCache.clear()
   for (const article of readTree(root).articles) {
-    const content = fs.readFileSync(
-      resolveInWorld(root, article.id + '.md'),
-      'utf8',
-    )
-    yield {
+    const abs = resolveInWorld(root, article.id + '.md')
+    const hit = scanCache.get(abs)
+    if (hit && hit.updatedAt === article.updatedAt) {
+      yield hit.entry
+      continue
+    }
+    const content = fs.readFileSync(abs, 'utf8')
+    const entry: IndexEntry = {
       id: article.id,
       folderId: article.folderId,
       title: article.title,
       content,
       frontmatter: parseFrontmatter(content),
     }
+    scanCache.set(abs, { updatedAt: article.updatedAt, entry })
+    yield entry
   }
 }
 
@@ -134,13 +172,9 @@ export function searchRanked(
   if (!q) return []
   const scored: Array<RankedResult> = []
 
-  for (const {
-    id,
-    folderId,
-    title,
-    content,
-    frontmatter,
-  } of articleEntries(worldId)) {
+  for (const { id, folderId, title, content, frontmatter } of articleEntries(
+    worldId,
+  )) {
     const titleMatch = scoreTitle(title, q)
     const snippet = bodySnippet(content, q)
     if (!titleMatch && !snippet) continue
@@ -217,6 +251,17 @@ export interface ArticleRef {
   id: string
   folderId: string | null
   title: string
+  /**
+   * Frontmatter `cr` / `xp`, when the article declares them.
+   *
+   * Carried on the ref so a bestiary list can show challenge ratings without
+   * fetching every article's full text — at library scale that was one IPC
+   * round-trip per monster, several hundred of them, to re-derive two numbers
+   * this scan had already parsed and discarded. Null when absent; a caller that
+   * wants the statblock's own values still has to read the article.
+   */
+  cr: string | null
+  xp: number | null
 }
 
 /** Case-insensitive equality between a frontmatter scalar and a query string. */
@@ -266,11 +311,34 @@ export function queryArticles(
 ): Array<ArticleRef> {
   const results: Array<ArticleRef> = []
   for (const { id, folderId, title, frontmatter } of articleEntries(worldId)) {
-    if (matchesQuery(frontmatter, query)) results.push({ id, folderId, title })
+    if (!matchesQuery(frontmatter, query)) continue
+    results.push({
+      id,
+      folderId,
+      title,
+      cr: scalarString(frontmatter?.cr),
+      xp: scalarNumber(frontmatter?.xp),
+    })
   }
   return results.sort((a, b) =>
     a.title.localeCompare(b.title, undefined, { sensitivity: 'base' }),
   )
+}
+
+/** A frontmatter scalar as a trimmed string, or null if absent or structured. */
+function scalarString(value: unknown): string | null {
+  if (value == null) return null
+  if (Array.isArray(value) || typeof value === 'object') return null
+  const text = String(value).trim()
+  return text === '' ? null : text
+}
+
+/** A frontmatter scalar as a finite number, or null. YAML may hand back either. */
+function scalarNumber(value: unknown): number | null {
+  const text = scalarString(value)
+  if (text === null) return null
+  const n = Number(text)
+  return Number.isFinite(n) ? n : null
 }
 
 /**

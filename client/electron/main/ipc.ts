@@ -67,8 +67,10 @@ import {
   clearLibrary,
   getLibrary,
   importMarkdownFolder,
+  restoreBundledFolder,
   setLibrary,
 } from './library'
+import type { LibraryFolder } from './library'
 
 function worldSummary(root: string): WorldSummary {
   return {
@@ -642,19 +644,37 @@ export function registerIpcHandlers() {
   // path — it has no business knowing one, and can't be trusted with one.
   ipcMain.handle(
     'library:import',
-    // `target` is typed unknown deliberately: it crosses IPC, so the renderer's
-    // type is a claim, not a guarantee. Narrow it here before it picks a folder.
     async (_e, { target }: { target: unknown }) => {
-      if (target !== 'Monsters' && target !== 'Spells') {
-        throw new Error(`Unknown import target: ${String(target)}`)
-      }
+      const folder = libraryFolder(target)
       // No "choose a library first" gate: importMarkdownFolder creates the
       // default one, so the only thing to ask about is what to import.
       const dir = await pickDirectory(
-        `Choose a folder of markdown files to import as ${target.toLowerCase()}`,
+        `Choose a folder of markdown files to import as ${folder.toLowerCase()}`,
       )
       if (!dir) return null
-      return importMarkdownFolder(dir, target)
+      return importMarkdownFolder(dir, folder)
     },
   )
+
+  // No picker: the source is the content shipped inside the app, so there is
+  // nothing to ask. Missing entries are topped up and existing ones left alone.
+  ipcMain.handle(
+    'library:restore',
+    async (_e, { target }: { target: unknown }) =>
+      restoreBundledFolder(libraryFolder(target)),
+  )
+}
+
+/**
+ * Narrow a renderer-supplied library folder.
+ *
+ * `target` arrives as unknown deliberately: it crosses IPC, so the renderer's
+ * type is a claim, not a guarantee. Every library handler narrows here before
+ * the value reaches disk.
+ */
+function libraryFolder(target: unknown): LibraryFolder {
+  if (target !== 'Monsters' && target !== 'Spells') {
+    throw new Error(`Unknown library folder: ${String(target)}`)
+  }
+  return target
 }
