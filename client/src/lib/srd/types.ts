@@ -256,6 +256,58 @@ export interface SpellcastingInfo {
    * `slotsByLevel`; absent means it never changes.
    */
   cantripsByLevel?: Record<number, number>
+  /**
+   * Spells known, at the levels where the number changes. Same lookup rule
+   * again. Only the "known" casters have one — Bard, Ranger, Sorcerer and
+   * Warlock. A preparer has no cap to track, and a wizard's spellbook grows by
+   * a flat amount per level instead; see `spellbook`.
+   */
+  spellsKnownByLevel?: Record<number, number>
+  /**
+   * A wizard adds a fixed number of spells to their spellbook each level,
+   * independent of how many they can prepare. `prepares` alone can't say this:
+   * a cleric prepares from the whole list and adds nothing.
+   */
+  spellbook?: { perLevel: number }
+}
+
+/**
+ * A subclass: the archetype chosen at level 1, 2 or 3 depending on the class.
+ *
+ * `Character.subclass` stores only this name, as free text, so everything here
+ * is an affordance — a subclass the tables don't know contributes its name and
+ * nothing else, exactly like a race or a class.
+ *
+ * Features use the same `{ level, name, text }` shape as `ClassKit.features`,
+ * which is what lets `featuresGained` take class and subclass as two sources
+ * through one code path.
+ */
+export interface SubclassInfo {
+  /** React keys and lookups only. Never reaches disk. */
+  id: string
+  /** What lands in `Character.subclass`. */
+  name: string
+  summary?: string
+  /** Features by the character level they are gained at. */
+  features: Array<{ level: number; name: string; text?: string }>
+  /**
+   * Domain, oath and circle spells: always prepared and exempt from the
+   * prepared limit, which is what `Character.Spell.alwaysPrepared` models.
+   * Keyed by the *spell* level, granted at the character level 5e says — the
+   * level-up wizard reads `grantedAt` for that.
+   */
+  spells?: Array<SubclassSpells>
+  /** Rare, but real: Life Domain's heavy armor, Valor Bard's martial weapons. */
+  grant?: Grant
+}
+
+/** One row of a subclass's always-prepared spell table. */
+export interface SubclassSpells {
+  /** The character level at which these are granted. */
+  grantedAt: number
+  /** Spell level, 1-9. */
+  level: number
+  names: Array<string>
 }
 
 /**
@@ -282,8 +334,25 @@ export interface ClassKit {
    * placeholder so the prompt matches the class you picked.
    */
   subclassLabel: string
-  /** Subclass names, no rules text. Offered as suggestions, never enforced. */
-  subclasses: Array<string>
+  /**
+   * Subclasses, always as full definitions **in memory**.
+   *
+   * On disk this field is a union: every build before subclasses carried
+   * features wrote a bare string array, and a world file is never rewritten
+   * just because it was opened, so `Array<string | SubclassInfo>` has to be
+   * readable forever. That union is erased at the parsers — `parseSubclasses`
+   * in `lib/homebrew.ts` — so no consumer ever sees a string.
+   *
+   * Keeping the union out of the in-memory type is deliberate. Were it here,
+   * the obvious fix at each call site would be an inline
+   * `typeof s === 'string' ? s : s.name`, which compiles, reads fine, and
+   * quietly drops the features. A non-union type makes the compiler name every
+   * site that has to be thought about.
+   *
+   * `serializeSubclass` writes a name-only entry back as a bare string, so a
+   * file only gains objects for subclasses that genuinely carry something.
+   */
+  subclasses: Array<SubclassInfo>
   saves: Array<Ability>
   /** The class's skill list and how many to choose from it. */
   skillChoices: PickList
@@ -312,8 +381,23 @@ export interface ClassKit {
    * Whether the subclass is chosen at level 1 (Cleric, Sorcerer, Warlock) or
    * later. Drives whether the Class step shows a subclass picker or a muted
    * "chosen at level 3" note.
+   *
+   * @deprecated Superseded by `subclassLevel`, which can say "2". Still read
+   * from disk — files written by older builds only have this — and still
+   * written, so an older build opening the same file finds what it expects.
+   * `subclassLevelOf` in `lib/tables.ts` resolves the two.
    */
   subclassAtLevel1?: boolean
+  /**
+   * The character level at which this class chooses its subclass. 1 for Cleric,
+   * Sorcerer and Warlock, 2 for Wizard, 3 for everyone else.
+   *
+   * The boolean above could not express Wizard's level 2, so a Wizard fell
+   * through to the level-3 default. Harmless while a subclass was only a name;
+   * once it carries features, an Evocation Wizard got Sculpt Spells a level
+   * late.
+   */
+  subclassLevel?: number
   /**
    * A sensible ability priority for the one-click auto-assign on the standard
    * array and rolled methods. Highest first.

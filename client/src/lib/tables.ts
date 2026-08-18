@@ -17,7 +17,13 @@ import type { ClassInfo } from './classes'
 import type { Homebrew } from './homebrew'
 import { EMPTY_HOMEBREW } from './homebrew'
 import { SRD_BACKGROUNDS, SRD_CLASS_KITS, SRD_RACES } from './srd'
-import type { BackgroundInfo, ClassKit, RaceInfo, SubraceInfo } from './srd'
+import type {
+  BackgroundInfo,
+  ClassKit,
+  RaceInfo,
+  SubclassInfo,
+  SubraceInfo,
+} from './srd'
 
 export interface Tables {
   races: Array<RaceInfo>
@@ -64,7 +70,7 @@ export function kitFromClassInfo(cl: ClassInfo): ClassKit {
     name: cl.name,
     hitDie: cl.hitDie,
     subclassLabel: cl.subclassLabel,
-    subclasses: cl.subclasses,
+    subclasses: cl.subclasses.map(subclassFromName),
     saves: [],
     skillChoices: {
       id: `legacy-${cl.id}-skills`,
@@ -79,6 +85,89 @@ export function kitFromClassInfo(cl: ClassInfo): ClassKit {
     features: [],
     abilityPriority: ['str', 'dex', 'con', 'int', 'wis', 'cha'],
   }
+}
+
+/** A bare name as a subclass with nothing else — the legacy shape, in full. */
+export function subclassFromName(name: string): SubclassInfo {
+  return { id: subclassId(name), name, features: [] }
+}
+
+function subclassId(name: string): string {
+  return (
+    name
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '') || 'subclass'
+  )
+}
+
+/**
+ * Rebuild a subclass list from an edited list of names, keeping what survived.
+ *
+ * The editor binds a plain token field to the names, so without this every
+ * retype would replace the entries wholesale and silently discard the features
+ * the user just authored — the same class of bug as `layerSubclasses`, this
+ * time in the UI. A name that is still present keeps its definition; only a
+ * genuinely new name becomes a fresh empty entry.
+ */
+export function reconcileSubclasses(
+  existing: Array<SubclassInfo>,
+  names: Array<string>,
+): Array<SubclassInfo> {
+  const byName = new Map(existing.map((sub) => [nameKey(sub.name), sub]))
+  return names.flatMap((name) => {
+    const trimmed = name.trim()
+    if (trimmed === '') return []
+    return [byName.get(nameKey(trimmed)) ?? subclassFromName(trimmed)]
+  })
+}
+
+/** Whether a subclass carries anything beyond its name. */
+function isBareSubclass(sub: SubclassInfo): boolean {
+  return (
+    sub.features.length === 0 &&
+    sub.summary === undefined &&
+    sub.spells === undefined &&
+    sub.grant === undefined
+  )
+}
+
+/**
+ * Overlay a legacy subclass list onto a richer one, by name.
+ *
+ * **This is the same bug as `layerClasses`, one level down.** A legacy entry is
+ * a bare name — all `ClassInfo` ever carried — and every world is seeded with
+ * twelve classes in that shape. Taking the legacy list as a replacement would
+ * strip the features and bonus spells off every SRD subclass in every world.
+ *
+ * So a name that already exists keeps its rich definition, and only genuinely
+ * new names append. A legacy entry that *does* carry content wins, because a
+ * user who hand-wrote it means it.
+ *
+ * Note the deliberate asymmetry with `hitDie` and `subclassLabel` in
+ * `layerClasses`: there, "the legacy file said d6" is real information. Here,
+ * "the legacy file said the name" is not. Don't unify them.
+ */
+function layerSubclasses(
+  existing: Array<SubclassInfo>,
+  legacy: Array<SubclassInfo>,
+): Array<SubclassInfo> {
+  const order: Array<string> = existing.map((sub) => nameKey(sub.name))
+  const byName = new Map(existing.map((sub) => [nameKey(sub.name), sub]))
+  for (const sub of legacy) {
+    const key = nameKey(sub.name)
+    if (key === '') continue
+    const have = byName.get(key)
+    // A name-only legacy entry tells us nothing the richer one doesn't.
+    if (have && isBareSubclass(sub)) continue
+    if (!have) order.push(key)
+    byName.set(key, sub)
+  }
+  return order.flatMap((key) => {
+    const sub = byName.get(key)
+    return sub ? [sub] : []
+  })
 }
 
 function nameKey(name: string): string {
@@ -156,7 +245,13 @@ function layerClasses(global: Homebrew, world: WorldTables): Array<ClassKit> {
         ...existing,
         hitDie: legacy.hitDie,
         subclassLabel: legacy.subclassLabel,
-        subclasses: legacy.subclasses,
+        // Overlaid, not replaced — see `layerSubclasses`. Passing the legacy
+        // list straight through here is how every SRD subclass in every world
+        // would lose its features.
+        subclasses: layerSubclasses(
+          existing.subclasses,
+          legacy.subclasses.map(subclassFromName),
+        ),
       })
     } else {
       byName.set(key, kitFromClassInfo(legacy))
@@ -181,7 +276,10 @@ export function classesFrom(tables: Tables): Array<ClassInfo> {
     name: kit.name,
     hitDie: kit.hitDie,
     subclassLabel: kit.subclassLabel,
-    subclasses: kit.subclasses,
+    // Names only: `ClassInfo` is the sheet-facing shape and has no use for
+    // features. Handing over the entries themselves renders "[object Object]"
+    // in the sheet's subclass datalist.
+    subclasses: kit.subclasses.map((sub) => sub.name),
   }))
 }
 
@@ -217,6 +315,36 @@ export function findKit(
   if (key === '') return undefined
   return kits.find((k) => nameKey(k.name) === key)
 }
+
+/**
+ * Subclass lookup within a kit. Name in, undefined out, like every other lookup
+ * here — a subclass the tables don't know contributes its name and nothing
+ * else, which is what keeps a hand-typed archetype working.
+ */
+export function findSubclass(
+  kit: ClassKit | undefined,
+  name: string,
+): SubclassInfo | undefined {
+  const key = nameKey(name)
+  if (key === '' || !kit) return undefined
+  return kit.subclasses.find((sub) => nameKey(sub.name) === key)
+}
+
+/**
+ * The character level at which a class chooses its subclass.
+ *
+ * Resolves the two fields that can say it: `subclassLevel` when a file or table
+ * has one, else the older `subclassAtLevel1` boolean, else 3. The boolean could
+ * not express Wizard's level 2, which is why the number exists.
+ */
+export function subclassLevelOf(kit: ClassKit | undefined): number {
+  if (!kit) return DEFAULT_SUBCLASS_LEVEL
+  if (typeof kit.subclassLevel === 'number') return kit.subclassLevel
+  return kit.subclassAtLevel1 === true ? 1 : DEFAULT_SUBCLASS_LEVEL
+}
+
+/** Where 5e puts the subclass choice when a class doesn't say otherwise. */
+export const DEFAULT_SUBCLASS_LEVEL = 3
 
 /**
  * Subrace lookup, and the one genuinely dangerous case in this file.

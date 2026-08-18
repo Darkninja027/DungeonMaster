@@ -164,7 +164,8 @@ export function draftClassInfo(draft: CharacterDraft): ClassInfo | undefined {
     name: kit.name,
     hitDie: kit.hitDie,
     subclassLabel: kit.subclassLabel,
-    subclasses: kit.subclasses,
+    // Names only — `ClassInfo` is the sheet-facing shape.
+    subclasses: kit.subclasses.map((sub) => sub.name),
   }
 }
 

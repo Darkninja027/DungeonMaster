@@ -6,6 +6,7 @@ import { SRD_BACKGROUNDS } from './backgrounds'
 import { SRD_CLASS_KITS } from './classKits'
 import { ARMOR_AC, WEAPON_STATS } from './equipment'
 import { SRD_RACES } from './races'
+import { subclassLevelOf } from '../tables'
 import type { Grant, PickList } from './types'
 
 /**
@@ -616,5 +617,97 @@ describe('progression spot checks', () => {
         k.name,
       ).toBe(true)
     }
+  })
+})
+
+describe('subclasses', () => {
+  // Written before the content, per this folder's standing rule: a
+  // transcription error here is silent — a feature at the wrong level just
+  // arrives at the wrong level, and nothing complains.
+  const all = SRD_CLASS_KITS.flatMap((kit) =>
+    kit.subclasses.map((sub) => ({ kit, sub })),
+  )
+
+  it('every subclass has an id and a name', () => {
+    for (const { kit, sub } of all) {
+      expect(sub.id, kit.name).not.toBe('')
+      expect(sub.name.trim(), kit.name).not.toBe('')
+    }
+  })
+
+  it('subclass ids are unique within their class', () => {
+    for (const kit of SRD_CLASS_KITS) {
+      const ids = kit.subclasses.map((sub) => sub.id)
+      expect(new Set(ids).size, kit.name).toBe(ids.length)
+    }
+  })
+
+  it('subclass names are unique within their class', () => {
+    for (const kit of SRD_CLASS_KITS) {
+      const names = kit.subclasses.map((sub) => sub.name.toLowerCase())
+      expect(new Set(names).size, kit.name).toBe(names.length)
+    }
+  })
+
+  it('every subclass feature sits at a real character level', () => {
+    for (const { kit, sub } of all) {
+      for (const feature of sub.features) {
+        expect(Number.isInteger(feature.level), `${kit.name}/${sub.name}`).toBe(
+          true,
+        )
+        expect(feature.level, `${kit.name}/${sub.name}/${feature.name}`)
+          .toBeGreaterThanOrEqual(1)
+        expect(feature.level, `${kit.name}/${sub.name}/${feature.name}`)
+          .toBeLessThanOrEqual(20)
+        expect(feature.name.trim(), `${kit.name}/${sub.name}`).not.toBe('')
+      }
+    }
+  })
+
+  it('no subclass grants a feature before its class picks one', () => {
+    // A feature earlier than the choice itself can never be granted, so it
+    // would silently never appear.
+    for (const kit of SRD_CLASS_KITS) {
+      const at = subclassLevelOf(kit)
+      for (const sub of kit.subclasses) {
+        for (const feature of sub.features) {
+          expect(feature.level, `${kit.name}/${sub.name}/${feature.name}`)
+            .toBeGreaterThanOrEqual(at)
+        }
+      }
+    }
+  })
+
+  it('every bonus spell row is a real spell level', () => {
+    for (const { kit, sub } of all) {
+      for (const row of sub.spells ?? []) {
+        expect(row.level, `${kit.name}/${sub.name}`).toBeGreaterThanOrEqual(1)
+        expect(row.level, `${kit.name}/${sub.name}`).toBeLessThanOrEqual(9)
+        expect(row.grantedAt, `${kit.name}/${sub.name}`).toBeGreaterThanOrEqual(1)
+        expect(row.grantedAt, `${kit.name}/${sub.name}`).toBeLessThanOrEqual(20)
+        expect(row.names.length, `${kit.name}/${sub.name}`).toBeGreaterThan(0)
+      }
+    }
+  })
+
+  it('only spellcasting classes grant bonus spells', () => {
+    for (const kit of SRD_CLASS_KITS) {
+      const grants = kit.subclasses.some((sub) => (sub.spells ?? []).length > 0)
+      if (grants) expect(kit.spellcasting, kit.name).toBeDefined()
+    }
+  })
+
+  it('every class picks its subclass at a sane level', () => {
+    for (const kit of SRD_CLASS_KITS) {
+      const at = subclassLevelOf(kit)
+      expect(at, kit.name).toBeGreaterThanOrEqual(1)
+      expect(at, kit.name).toBeLessThanOrEqual(20)
+    }
+  })
+
+  it('a wizard picks their school at 2', () => {
+    // The off-by-one the boolean could not express.
+    const wizard = SRD_CLASS_KITS.find((kit) => kit.name === 'Wizard')
+    expect(subclassLevelOf(wizard)).toBe(2)
   })
 })

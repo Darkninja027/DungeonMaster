@@ -38,7 +38,14 @@ import {
   racialAsi,
 } from './characterDraft'
 import type { CharacterDraft } from './characterDraft'
-import { SHIELD_AC_BONUS, armorEntry, isShield, weaponEntry } from './srd'
+import {
+  SHIELD_AC_BONUS,
+  armorEntry,
+  featuresUpToLevel,
+  isShield,
+  weaponCategory,
+  weaponEntry,
+} from './srd'
 import type { Grant, GrantItem } from './srd'
 
 /** Ability scores after racial increases, clamped to the parser's 1-30 range. */
@@ -125,6 +132,17 @@ function applyGrant(c: Character, grant: Grant) {
   }
 }
 
+/**
+ * Whether a weapon proficiency is already implied by a category the character
+ * has. A weapon `WEAPON_CATEGORY_OF` doesn't know is never covered, so homebrew
+ * still gets named individually.
+ */
+function coveredByCategory(c: Character, weapon: string): boolean {
+  const category = weaponCategory(weapon)
+  if (!category) return false
+  return c.weapons.some((w) => w.trim().toLowerCase() === category)
+}
+
 /** Merge the player's resolved pick lists into the right character fields. */
 function applyPicks(c: Character, draft: CharacterDraft) {
   for (const pick of draftPickLists(draft)) {
@@ -141,8 +159,15 @@ function applyPicks(c: Character, draft: CharacterDraft) {
         mergeList(c.languages, values)
         break
       case 'weapon':
-        // A granted weapon is both a proficiency and a thing you carry.
-        mergeList(c.weapons, values)
+        // A granted weapon is a thing you carry, and *sometimes* also a
+        // proficiency. Listing "Battleaxe" beside the "martial" category a
+        // paladin already has is noise, not information — the category
+        // already covers it. So only name a weapon individually when no
+        // category the character has would include it.
+        mergeList(
+          c.weapons,
+          values.filter((v) => !coveredByCategory(c, v)),
+        )
         for (const value of values) {
           const existing = c.inventory.find(
             (i) => i.text.toLowerCase() === value.toLowerCase(),
@@ -310,11 +335,17 @@ export function buildCharacter(draft: CharacterDraft): {
     for (const save of kit.saves) {
       if (!c.saves.includes(save)) c.saves.push(save)
     }
-    c.features = kit.features.map((f): ClassFeature => ({
-      level: 1,
-      name: f.name,
-      ...(f.text ? { text: f.text } : {}),
-    }))
+    // Level 1 only. The kit carries the whole 1-20 progression for the
+    // level-up wizard, so an unfiltered copy put Extra Attack and Aura of
+    // Protection on a brand-new paladin — and stamped level 1 on them, which
+    // then stopped `featuresGained` from ever granting them properly.
+    c.features = featuresUpToLevel(kit.features, 1).map(
+      (f): ClassFeature => ({
+        level: f.level,
+        name: f.name,
+        ...(f.text ? { text: f.text } : {}),
+      }),
+    )
     const sc = kit.spellcasting
     if (sc) {
       c.spellAbility = sc.ability

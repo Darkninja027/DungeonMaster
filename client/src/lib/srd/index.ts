@@ -45,8 +45,26 @@ export {
   WEAPON_STATS,
   armorEntry,
   isShield,
+  weaponCategory,
   weaponEntry,
 } from './equipment'
+
+/**
+ * The features a class has at a given level — everything granted at or below
+ * it, in level order.
+ *
+ * `ClassKit.features` holds the whole 1-20 progression, so anything showing
+ * "what you have now" has to filter. Forgetting to shipped a level 1 paladin
+ * with Extra Attack and Aura of Protection on their sheet.
+ */
+export function featuresUpToLevel(
+  features: Array<{ level: number; name: string; text?: string }>,
+  level: number,
+): Array<{ level: number; name: string; text?: string }> {
+  return features
+    .filter((f) => f.level <= level)
+    .sort((a, b) => a.level - b.level || a.name.localeCompare(b.name))
+}
 
 /** Case- and whitespace-insensitive name match, as `findClass` does it. */
 function sameName(a: string, b: string): boolean {

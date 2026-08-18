@@ -28,9 +28,17 @@ import type {
   PickKind,
   PickList,
   RaceInfo,
+  SubclassInfo,
+  SubclassSpells,
   SubraceInfo,
 } from './srd'
-import { ABILITIES } from './character'
+import {
+  ABILITIES,
+  ARMOR_PROFICIENCIES,
+  CONDITIONS,
+  DAMAGE_TYPES,
+  WEAPON_CATEGORIES,
+} from './character'
 import type { Ability } from './character'
 
 export const HOMEBREW_VERSION = 1
@@ -223,6 +231,24 @@ function parseCurrency(raw: unknown): Grant['currency'] {
   return Object.keys(out).length > 0 ? out : undefined
 }
 
+/**
+ * A known token's id, or the value unchanged.
+ *
+ * The sheet stores these lowercase ids and matches them exactly, but every
+ * editor here is a free-text token field — so "Cold", "cold" and "COLD" all
+ * have to land on `cold` while a homebrew "Void" passes straight through.
+ */
+function tokenId(
+  table: Array<{ id: string; name: string }>,
+  value: string,
+): string {
+  const key = value.trim().toLowerCase()
+  const hit = table.find(
+    (t) => t.id === key || t.name.toLowerCase() === key,
+  )
+  return hit ? hit.id : value
+}
+
 function parseGrant(raw: unknown, ownerId: string): Grant {
   if (typeof raw !== 'object' || raw === null) return {}
   const r = raw as Record<string, unknown>
@@ -239,6 +265,25 @@ function parseGrant(raw: unknown, ownerId: string): Grant {
   for (const key of lists) {
     const values = cleanList(strList(r[key]))
     if (values.length > 0) grant[key] = values
+  }
+  // Damage types and conditions are matched by *id* on the sheet
+  // (`damageStance` does an exact `includes`), so a hand-typed "Cold" has to
+  // become "cold" here or the resistance parses fine, saves fine, and then
+  // silently fails to show up in Defences. Anything unrecognised is left
+  // exactly as typed — homebrew damage types are still free text.
+  if (grant.resistances) {
+    grant.resistances = grant.resistances.map((v) => tokenId(DAMAGE_TYPES, v))
+  }
+  if (grant.conditionImmunities) {
+    grant.conditionImmunities = grant.conditionImmunities.map((v) =>
+      tokenId(CONDITIONS, v),
+    )
+  }
+  if (grant.armor) {
+    grant.armor = grant.armor.map((v) => tokenId(ARMOR_PROFICIENCIES, v))
+  }
+  if (grant.weapons) {
+    grant.weapons = grant.weapons.map((v) => tokenId(WEAPON_CATEGORIES, v))
   }
   const saves = strList(r.saves)
     .map((s) => s.trim().toLowerCase())
@@ -415,6 +460,139 @@ function parseEquipment(raw: unknown, ownerId: string): ClassKit['equipment'] {
   })
 }
 
+/**
+ * Features by level, tolerant row by row.
+ *
+ * Shared by classes and subclasses because they are the same shape and the
+ * same rules — a second copy is how the three `parseClass` variants happened.
+ */
+export function parseFeatures(
+  raw: unknown,
+): Array<{ level: number; name: string; text?: string }> {
+  if (!Array.isArray(raw)) return []
+  return raw.flatMap(
+    (entry): Array<{ level: number; name: string; text?: string }> => {
+      if (typeof entry !== 'object' || entry === null) return []
+      const f = entry as Record<string, unknown>
+      const fname = str(f.name).trim()
+      if (fname === '') return []
+      const text = str(f.text).trim()
+      // Defaults to 1: a file written before features had levels, or a
+      // homebrew author who didn't say, means "you have it from the start".
+      const level = int(f.level, 1, 1, 20)
+      return [text ? { level, name: fname, text } : { level, name: fname }]
+    },
+  )
+}
+
+/** A subclass's always-prepared spell rows. */
+function parseSubclassSpells(raw: unknown): Array<SubclassSpells> {
+  if (!Array.isArray(raw)) return []
+  return raw.flatMap((entry): Array<SubclassSpells> => {
+    if (typeof entry !== 'object' || entry === null) return []
+    const row = entry as Record<string, unknown>
+    const names = cleanList(strList(row.names))
+    // A row with no spells left after cleaning is an empty header, not data.
+    if (names.length === 0) return []
+    return [
+      {
+        grantedAt: int(row.grantedAt, 1, 1, 20),
+        // Spell levels, not character levels — 1-9, not 1-20.
+        level: int(row.level, 1, 1, 9),
+        names,
+      },
+    ]
+  })
+}
+
+/**
+ * Subclasses, from either shape on disk.
+ *
+ * **This is the compatibility boundary.** Every file written before subclasses
+ * carried features holds a bare string array, and a world file is never
+ * rewritten just because it was opened, so both shapes have to be read forever.
+ * The union dies here: everything downstream sees `SubclassInfo`.
+ *
+ * Tolerance follows the rest of this file — a bad row costs you that row and
+ * nothing more. A malformed feature drops while its subclass survives; a
+ * nameless subclass drops entirely, because it cannot be picked, keyed or
+ * looked up; `features: "Improved Critical"` yields no features rather than
+ * throwing.
+ */
+export function parseSubclasses(
+  raw: unknown,
+  ownerId: string,
+): Array<SubclassInfo> {
+  if (!Array.isArray(raw)) return []
+  const seen = new Set<string>()
+  return raw.flatMap((entry): Array<SubclassInfo> => {
+    // The legacy shape, and still what most entries are: just a name.
+    if (typeof entry === 'string') {
+      const name = entry.trim()
+      if (name === '') return []
+      const key = name.toLowerCase()
+      if (seen.has(key)) return []
+      seen.add(key)
+      return [{ id: homebrewId(name), name, features: [] }]
+    }
+    if (typeof entry !== 'object' || entry === null) return []
+    const r = entry as Record<string, unknown>
+    const name = str(r.name).trim()
+    if (name === '') return []
+    const key = name.toLowerCase()
+    if (seen.has(key)) return []
+    seen.add(key)
+
+    const id = homebrewId(name)
+    const sub: SubclassInfo = { id, name, features: parseFeatures(r.features) }
+    const summary = str(r.summary).trim()
+    if (summary !== '') sub.summary = summary
+    const spells = parseSubclassSpells(r.spells)
+    if (spells.length > 0) sub.spells = spells
+    if (r.grant !== undefined) {
+      // Namespaced by owner: two classes can both have a "Hunter" subclass, and
+      // `parsePickList` builds globally-unique pick ids from this.
+      sub.grant = parseGrant(r.grant, `${ownerId}-${id}`)
+    }
+    return [sub]
+  })
+}
+
+/** A grant without its pick ids, which are derived rather than stored. */
+function stripPicks(grant: Grant): unknown {
+  const { picks, ...rest } = grant
+  return {
+    ...rest,
+    ...(picks && {
+      picks: picks.map(({ id: _id, ...pick }) => pick),
+    }),
+  }
+}
+
+/**
+ * On-disk shape for a subclass: a bare string when that is all it is, an object
+ * only when there is more to say.
+ *
+ * The string form is what an older build knows how to read — its `strList`
+ * drops anything that isn't one — so writing an object for a name-only subclass
+ * would make it silently vanish there. Every subclass on disk today is
+ * name-only, so this keeps existing files byte-identical until someone actually
+ * authors a feature. A subclass that genuinely carries one can't be a string,
+ * and an old build loses that entry from its dropdown and nothing else: the
+ * character who took it is unaffected, because `Character.subclass` is free
+ * text.
+ */
+export function serializeSubclass(sub: SubclassInfo): unknown {
+  const bare =
+    sub.features.length === 0 &&
+    sub.summary === undefined &&
+    sub.spells === undefined &&
+    sub.grant === undefined
+  if (bare) return sub.name
+  const { id: _id, grant, ...rest } = sub
+  return grant ? { ...rest, grant: stripPicks(grant) } : rest
+}
+
 export function parseKit(raw: unknown): ClassKit | null {
   if (typeof raw !== 'object' || raw === null) return null
   const r = raw as Record<string, unknown>
@@ -435,21 +613,7 @@ export function parseKit(raw: unknown): ClassKit | null {
     open: true,
   }
 
-  const features = Array.isArray(r.features)
-    ? r.features.flatMap(
-        (entry): Array<{ level: number; name: string; text?: string }> => {
-          if (typeof entry !== 'object' || entry === null) return []
-          const f = entry as Record<string, unknown>
-          const fname = str(f.name).trim()
-          if (fname === '') return []
-          const text = str(f.text).trim()
-          // Defaults to 1: a file written before features had levels, or a
-          // homebrew author who didn't say, means "you have it from the start".
-          const level = int(f.level, 1, 1, 20)
-          return [text ? { level, name: fname, text } : { level, name: fname }]
-        },
-      )
-    : []
+  const features = parseFeatures(r.features)
 
   const priority = strList(r.abilityPriority)
     .map((a) => a.trim().toLowerCase())
@@ -469,7 +633,7 @@ export function parseKit(raw: unknown): ClassKit | null {
     // here, where the user has defined the class and a d7 class is their call.
     hitDie: int(r.hitDie, 8, 2, 100),
     subclassLabel: str(r.subclassLabel).trim() || 'Subclass',
-    subclasses: cleanList(strList(r.subclasses)),
+    subclasses: parseSubclasses(r.subclasses, id),
     saves: [...new Set(saves)],
     skillChoices: { ...skillChoices, kind: 'skill' },
     grant: parseGrant(r.grant, id),
@@ -568,15 +732,6 @@ export function parseHomebrew(raw: unknown): Homebrew {
  * that a hand-edit could contradict.
  */
 export function serializeHomebrew(homebrew: Homebrew): unknown {
-  const stripPicks = (grant: Grant): unknown => {
-    const { picks, ...rest } = grant
-    return {
-      ...rest,
-      ...(picks && {
-        picks: picks.map(({ id: _id, ...pick }) => pick),
-      }),
-    }
-  }
   return {
     version: homebrew.version,
     _comment: HOMEBREW_COMMENT,
@@ -595,8 +750,11 @@ export function serializeHomebrew(homebrew: Homebrew): unknown {
       grant: stripPicks(grant),
     })),
     kits: homebrew.kits.map(
-      ({ id: _id, grant, equipment, skillChoices, ...kit }) => ({
+      ({ id: _id, grant, equipment, skillChoices, subclasses, ...kit }) => ({
         ...kit,
+        // Downgraded to bare strings wherever a subclass is just a name, so an
+        // older build's `strList` still reads them instead of dropping the lot.
+        subclasses: subclasses.map(serializeSubclass),
         skillChoices: (({ id: _pickId, ...rest }) => rest)(skillChoices),
         grant: stripPicks(grant),
         equipment: equipment.map(({ id: _eqId, options, ...choice }) => ({

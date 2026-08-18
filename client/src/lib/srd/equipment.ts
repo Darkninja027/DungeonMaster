@@ -88,6 +88,57 @@ export const WEAPON_STATS: Record<
   longbow: { damage: '1d8', ranged: true },
 }
 
+/**
+ * Which category each weapon belongs to.
+ *
+ * The groupings were only comments in `WEAPON_STATS` above, which meant nothing
+ * could ask "is a battleaxe covered by martial?" — so a paladin who picked one
+ * from their starting gear got "Battleaxe" listed as a proficiency next to the
+ * "martial" they already had. Keys match `WEAPON_STATS` exactly; a weapon
+ * absent from both is homebrew and is named individually.
+ */
+export const WEAPON_CATEGORY_OF: Record<string, 'simple' | 'martial'> = {
+  // Simple melee
+  club: 'simple',
+  dagger: 'simple',
+  greatclub: 'simple',
+  handaxe: 'simple',
+  javelin: 'simple',
+  'light hammer': 'simple',
+  mace: 'simple',
+  quarterstaff: 'simple',
+  sickle: 'simple',
+  spear: 'simple',
+  // Simple ranged
+  'light crossbow': 'simple',
+  dart: 'simple',
+  shortbow: 'simple',
+  sling: 'simple',
+  // Martial melee
+  battleaxe: 'martial',
+  flail: 'martial',
+  glaive: 'martial',
+  greataxe: 'martial',
+  greatsword: 'martial',
+  halberd: 'martial',
+  lance: 'martial',
+  longsword: 'martial',
+  maul: 'martial',
+  morningstar: 'martial',
+  pike: 'martial',
+  rapier: 'martial',
+  scimitar: 'martial',
+  shortsword: 'martial',
+  trident: 'martial',
+  'war pick': 'martial',
+  warhammer: 'martial',
+  whip: 'martial',
+  // Martial ranged
+  'hand crossbow': 'martial',
+  'heavy crossbow': 'martial',
+  longbow: 'martial',
+}
+
 /** Item weights in pounds, for the rows the kits grant. */
 export const ITEM_WEIGHTS: Record<string, number> = {
   'chain mail': 55,
@@ -251,6 +302,22 @@ export function armorEntry(
 /** Whether an inventory row is a shield. */
 export function isShield(text: string): boolean {
   return /\bshield\b/i.test(text)
+}
+
+/**
+ * Which category a weapon belongs to, or null when the table doesn't know it.
+ *
+ * Same matching rules as `weaponEntry` — word boundaries, longest key wins —
+ * because it is asked about the same free-text rows.
+ */
+export function weaponCategory(text: string): 'simple' | 'martial' | null {
+  const clean = text.toLowerCase()
+  let best: { key: string; category: 'simple' | 'martial' } | null = null
+  for (const [key, category] of Object.entries(WEAPON_CATEGORY_OF)) {
+    if (!new RegExp(`\\b${key}\\b`).test(clean)) continue
+    if (!best || key.length > best.key.length) best = { key, category }
+  }
+  return best ? best.category : null
 }
 
 /**

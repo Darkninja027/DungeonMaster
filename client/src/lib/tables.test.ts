@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { PHB_CLASSES } from './classes'
 import { EMPTY_HOMEBREW, parseHomebrew } from './homebrew'
+import { parseWorldSettings } from './worldSettings'
 import {
   SRD_TABLES,
   classesFrom,
@@ -9,6 +10,8 @@ import {
   findRace,
   findSubrace,
   mergeTables,
+  reconcileSubclasses,
+  subclassLevelOf,
   subraceIndex,
   subracesFor,
 } from './tables'
@@ -116,7 +119,9 @@ describe('mergeTables', () => {
     }
     const kit = findKit(mergeTables(EMPTY_HOMEBREW, world).kits, 'Blood Hunter')
     expect(kit?.hitDie).toBe(10)
-    expect(kit?.subclasses).toEqual(['Order of the Ghostslayer'])
+    expect(kit?.subclasses.map((sub) => sub.name)).toEqual([
+      'Order of the Ghostslayer',
+    ])
     expect(kit?.saves).toEqual([])
     expect(kit?.equipment).toEqual([])
     expect(kit?.features).toEqual([])
@@ -146,6 +151,140 @@ describe('mergeTables', () => {
       expect(kit?.features.length, srd.name).toBe(srd.features.length)
       expect(kit?.asiLevels, srd.name).toEqual(srd.asiLevels)
     }
+  })
+
+  it('a seeded legacy list leaves every SRD subclass intact', () => {
+    // The same bug one level down, and the reason the test above wasn't
+    // enough: it asserts on the kit, so it stayed green while the overlay
+    // replaced every rich subclass with a name-only one.
+    const world = { classes: PHB_CLASSES }
+    const tables = mergeTables(EMPTY_HOMEBREW, world)
+    for (const srd of SRD_CLASS_KITS) {
+      const kit = findKit(tables.kits, srd.name)
+      expect(kit?.subclasses.map((sub) => sub.name), srd.name).toEqual(
+        srd.subclasses.map((sub) => sub.name),
+      )
+      for (const expected of srd.subclasses) {
+        const sub = kit?.subclasses.find((s) => s.name === expected.name)
+        expect(sub?.features.length, `${srd.name}/${expected.name}`).toBe(
+          expected.features.length,
+        )
+      }
+    }
+  })
+
+  it('a bare-string legacy list keeps the subclass features it never had', () => {
+    // Starts from the shape that is actually on disk — strings — rather than
+    // from PHB_CLASSES, which is a constant and could pass for the wrong
+    // reason. This is the test that would have caught the original bug.
+    const world = parseWorldSettings({
+      version: 4,
+      classes: [
+        {
+          name: 'Fighter',
+          hitDie: 10,
+          subclassLabel: 'Martial Archetype',
+          subclasses: ['Champion', 'Battle Master', 'Eldritch Knight'],
+        },
+      ],
+    })
+    const kit = findKit(mergeTables(EMPTY_HOMEBREW, world).kits, 'Fighter')
+    const champion = kit?.subclasses.find((sub) => sub.name === 'Champion')
+    expect(champion?.features.length).toBe(
+      SRD_CLASS_KITS.find((k) => k.name === 'Fighter')?.subclasses.find(
+        (sub) => sub.name === 'Champion',
+      )?.features.length,
+    )
+  })
+
+  it('a legacy subclass list neither reorders nor truncates the rich one', () => {
+    const world = {
+      classes: [
+        {
+          id: 'fighter',
+          name: 'Fighter',
+          hitDie: 10,
+          subclassLabel: 'Martial Archetype',
+          // Mentions one, omits two, adds one of its own.
+          subclasses: ['Eldritch Knight', 'Homebrew Knight'],
+        },
+      ],
+    }
+    const kit = findKit(mergeTables(EMPTY_HOMEBREW, world).kits, 'Fighter')
+    expect(kit?.subclasses.map((sub) => sub.name)).toEqual([
+      'Champion',
+      'Battle Master',
+      'Eldritch Knight',
+      'Homebrew Knight',
+    ])
+    // The mentioned one keeps whatever the SRD kit gave it rather than being
+    // flattened to a bare name by the legacy overlay.
+    const srdEk = SRD_CLASS_KITS.find((k) => k.name === 'Fighter')?.subclasses.find(
+      (sub) => sub.name === 'Eldritch Knight',
+    )
+    const ek = kit?.subclasses.find((sub) => sub.name === 'Eldritch Knight')
+    expect(ek?.features.length).toBe(srdEk?.features.length)
+  })
+
+  it('classesFrom hands the sheet plain names, never entries', () => {
+    // ClassInfo is the sheet-facing shape; an object here renders as
+    // "[object Object]" in the subclass datalist.
+    for (const info of classesFrom(SRD_TABLES)) {
+      for (const name of info.subclasses) {
+        expect(typeof name, info.name).toBe('string')
+      }
+    }
+  })
+
+  it('a homebrew subclass appends without displacing the built-ins', () => {
+    const wizard = SRD_CLASS_KITS.find((k) => k.name === 'Wizard')!
+    const global = {
+      ...EMPTY_HOMEBREW,
+      kits: [
+        {
+          ...wizard,
+          subclasses: [
+            { id: 'school-of-tea', name: 'School of Tea', features: [] },
+          ],
+        },
+      ],
+    }
+    const kit = findKit(mergeTables(global).kits, 'Wizard')
+    // A kit-tier override replaces the list outright — that is what editing a
+    // kit means, unlike the legacy overlay above.
+    expect(kit?.subclasses.map((sub) => sub.name)).toEqual(['School of Tea'])
+  })
+
+  it('resolves the subclass level from either field', () => {
+    const wizard = SRD_CLASS_KITS.find((k) => k.name === 'Wizard')
+    const cleric = SRD_CLASS_KITS.find((k) => k.name === 'Cleric')
+    const fighter = SRD_CLASS_KITS.find((k) => k.name === 'Fighter')
+    // The whole reason the number exists: the boolean couldn't say "2".
+    expect(subclassLevelOf(wizard)).toBe(2)
+    expect(subclassLevelOf(cleric)).toBe(1)
+    expect(subclassLevelOf(fighter)).toBe(3)
+    // A file written by an older build has only the boolean.
+    expect(
+      subclassLevelOf({ ...fighter!, subclassLevel: undefined, subclassAtLevel1: true }),
+    ).toBe(1)
+    expect(subclassLevelOf(undefined)).toBe(3)
+  })
+
+  it('reconciling an edited name list keeps authored features', () => {
+    // The editor binds a token field to the names; without reconciliation a
+    // retype would silently discard whatever the user just wrote.
+    const existing = [
+      {
+        id: 'oak',
+        name: 'Oak',
+        features: [{ level: 3, name: 'Bark Skin' }],
+      },
+      { id: 'ash', name: 'Ash', features: [] },
+    ]
+    const next = reconcileSubclasses(existing, ['Oak', 'Elm'])
+    expect(next.map((sub) => sub.name)).toEqual(['Oak', 'Elm'])
+    expect(next[0].features).toEqual([{ level: 3, name: 'Bark Skin' }])
+    expect(next[1].features).toEqual([])
   })
 
   it('classesFrom exposes only what the sheet needs', () => {
@@ -287,7 +426,9 @@ describe('kits carry the class fields the sheet needs', () => {
       expect(kit, cl.name).toBeDefined()
       expect(kit?.hitDie, cl.name).toBe(cl.hitDie)
       expect(kit?.subclassLabel, cl.name).toBe(cl.subclassLabel)
-      expect(kit?.subclasses, cl.name).toEqual(cl.subclasses)
+      expect(kit?.subclasses.map((sub) => sub.name), cl.name).toEqual(
+        cl.subclasses,
+      )
     }
   })
 
@@ -297,8 +438,8 @@ describe('kits carry the class fields the sheet needs', () => {
     })
     const kit = findKit(mergeTables(global).kits, 'Fighter')
     expect(kit?.hitDie).toBe(6)
-    expect(kit?.subclasses).toEqual(['Duellist'])
+    expect(kit?.subclasses.map((sub) => sub.name)).toEqual(['Duellist'])
     // Replacement, not a merge — the SRD subclasses are gone.
-    expect(kit?.subclasses).not.toContain('Champion')
+    expect(kit?.subclasses.map((sub) => sub.name)).not.toContain('Champion')
   })
 })

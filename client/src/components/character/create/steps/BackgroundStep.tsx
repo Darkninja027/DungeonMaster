@@ -4,8 +4,6 @@ import { SKILLS } from '#/lib/character'
 import type { CharacterDraft } from '#/lib/characterDraft'
 import { draftBackground } from '#/lib/characterDraft'
 import type { BackgroundInfo } from '#/lib/srd'
-import { Input } from '#/components/ui/input'
-import { Label } from '#/components/ui/label'
 import { OptionCard } from '../OptionCard'
 import { HomebrewDialog } from '../HomebrewDialog'
 
@@ -90,17 +88,7 @@ export function BackgroundStep({
         onCreated={(created) => adoptCreated(created as BackgroundInfo)}
       />
 
-      <div className="grid max-w-sm gap-2">
-        <Label htmlFor="wizard-background-other">Or type your own</Label>
-        <Input
-          id="wizard-background-other"
-          value={draft.backgroundName}
-          placeholder="Homebrew background"
-          onChange={(e) =>
-            onChange({ ...draft, backgroundName: e.target.value })
-          }
-        />
-      </div>
+      
 
       {background && (
         <div className="text-muted-foreground space-y-1 text-sm">

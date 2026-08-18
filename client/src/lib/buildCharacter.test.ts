@@ -6,6 +6,7 @@ import {
   serializeCharacter,
   ABILITIES,
 } from './character'
+import { WEAPON_STATS, featuresUpToLevel, weaponCategory } from './srd'
 import { PHB_CLASSES } from './classes'
 import type { ClassInfo } from './classes'
 import { buildCharacter, computeAc, finalScores } from './buildCharacter'
@@ -457,7 +458,10 @@ describe('the fighter kit', () => {
     expect(character.abilities.str).toBe(17)
     const sword = character.attacks.find((a) => /longsword/i.test(a.name))
     expect(sword?.bonus).toBe(2 + abilityMod(17))
-    expect(character.weapons).toContain('Longsword')
+    // NOT listed as its own proficiency: a fighter already has "martial", and
+    // repeating the specific weapon beside the category is noise. The attack
+    // row and the inventory row above are what carry the longsword.
+    expect(character.weapons).toEqual(['simple', 'martial'])
   })
 })
 
@@ -625,5 +629,73 @@ describe('homebrew races and backgrounds', () => {
     expect(character.speed).toBe(20)
     // d10 fighter + CON 15 (+2) + 2 per level.
     expect(character.hp.max).toBe(10 + 2 + 2)
+  })
+})
+
+describe('a picked weapon is not re-listed as a proficiency', () => {
+  it('knows every WEAPON_STATS weapon by category', () => {
+    // The two tables have to agree, or a weapon silently falls through to
+    // "not covered" and gets listed individually again.
+    for (const name of Object.keys(WEAPON_STATS)) {
+      expect(weaponCategory(name), name).not.toBeNull()
+    }
+  })
+
+  it('categorises the weapons the bug was reported against', () => {
+    expect(weaponCategory('Battleaxe')).toBe('martial')
+    expect(weaponCategory('Spear')).toBe('simple')
+  })
+
+  it('matches inside a free-text equipment row', () => {
+    expect(weaponCategory('a battleaxe and a shield')).toBe('martial')
+  })
+
+  it('leaves a homebrew weapon uncategorised so it is still named', () => {
+    expect(weaponCategory('Moonglaive of Nine Sorrows')).toBeNull()
+  })
+})
+
+describe('a new character gets level 1 features only', () => {
+  it('a paladin starts with two features, not thirteen', () => {
+    // The bug: ClassKit.features carries the whole 1-20 progression for the
+    // level-up wizard, and buildCharacter copied all of it — so a brand-new
+    // paladin's sheet listed Extra Attack, Aura of Protection and Cleansing
+    // Touch, all stamped level 1.
+    let draft = emptyDraft(SRD_TABLES)
+    draft = { ...draft, name: 'Sir Test', className: 'Paladin' }
+    const { character } = buildCharacter(draft)
+    const names = character.features.map((f) => f.name)
+    expect(names).toContain('Divine Sense')
+    expect(names).toContain('Lay on Hands')
+    expect(names).not.toContain('Extra Attack')
+    expect(names).not.toContain('Aura of Protection')
+    expect(names).not.toContain('Divine Smite')
+  })
+
+  it('every SRD class gets exactly its level 1 features', () => {
+    for (const kit of SRD_TABLES.kits) {
+      let draft = emptyDraft(SRD_TABLES)
+      draft = { ...draft, name: 'T', className: kit.name }
+      const { character } = buildCharacter(draft)
+      const expected = kit.features.filter((f) => f.level === 1).length
+      expect(character.features.length, kit.name).toBe(expected)
+      for (const feature of character.features) {
+        expect(feature.level, `${kit.name}/${feature.name}`).toBe(1)
+      }
+    }
+  })
+
+  it('featuresUpToLevel keeps each feature at its own level', () => {
+    // Not all stamped 1: featuresGained dedupes on `level:name`, so a wrong
+    // level here would stop the level-up wizard granting it later.
+    const features = [
+      { level: 1, name: 'A' },
+      { level: 5, name: 'B' },
+      { level: 3, name: 'C' },
+    ]
+    expect(featuresUpToLevel(features, 3)).toEqual([
+      { level: 1, name: 'A' },
+      { level: 3, name: 'C' },
+    ])
   })
 })

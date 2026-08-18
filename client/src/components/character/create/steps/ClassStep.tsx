@@ -1,8 +1,13 @@
+import { useState } from 'react'
+import { Sparkles } from 'lucide-react'
+import type { ClassKit } from '#/lib/srd'
+import { featuresUpToLevel } from '#/lib/srd'
 import type { CharacterDraft } from '#/lib/characterDraft'
 import { draftClassInfo, draftKit } from '#/lib/characterDraft'
 import { Input } from '#/components/ui/input'
 import { Label } from '#/components/ui/label'
 import { OptionCard } from '../OptionCard'
+import { HomebrewDialog } from '../HomebrewDialog'
 
 export function ClassStep({
   draft,
@@ -11,6 +16,7 @@ export function ClassStep({
   draft: CharacterDraft
   onChange: (next: CharacterDraft) => void
 }) {
+  const [creating, setCreating] = useState(false)
   const kit = draftKit(draft)
   const classInfo = draftClassInfo(draft)
   const subclasses = classInfo?.subclasses ?? []
@@ -25,6 +31,31 @@ export function ClassStep({
       kit.features.length > 0 ||
       kit.skillChoices.options.length > 0),
   )
+
+  /**
+   * A class created inline: fold it into the draft's captured kits and select
+   * it. The capture is a snapshot on purpose, so without this the new class
+   * wouldn't appear until the wizard was reopened.
+   */
+  const adoptCreated = (created: ClassKit) => {
+    const kits = [
+      ...draft.kits.filter(
+        (k) =>
+          k.name.trim().toLowerCase() !== created.name.trim().toLowerCase(),
+      ),
+      created,
+    ]
+    onChange({
+      ...draft,
+      kits,
+      className: created.name,
+      subclassName: '',
+      picks: {},
+      equipment: {},
+      cantrips: [],
+      spells: [],
+    })
+  }
 
   const chooseClass = (name: string) => {
     // Class-scoped choices belong to the class being replaced.
@@ -66,18 +97,22 @@ export function ClassStep({
               onSelect={() => chooseClass(option.name)}
             />
           ))}
+          <button
+            type="button"
+            onClick={() => setCreating(true)}
+            className="hover:bg-accent/50 flex items-center justify-center gap-1.5 rounded-md border border-dashed p-2 text-sm transition-colors"
+          >
+            <Sparkles className="size-3.5" /> Create a class
+          </button>
         </div>
       </div>
 
-      <div className="grid max-w-sm gap-2">
-        <Label htmlFor="wizard-class-other">Or type your own</Label>
-        <Input
-          id="wizard-class-other"
-          value={draft.className}
-          placeholder="Homebrew class"
-          onChange={(e) => onChange({ ...draft, className: e.target.value })}
-        />
-      </div>
+      <HomebrewDialog
+        kind="kit"
+        open={creating}
+        onClose={() => setCreating(false)}
+        onCreated={(created) => adoptCreated(created as ClassKit)}
+      />
 
       {/*
         A class with no starting gear — a legacy per-world class, or one typed
@@ -138,7 +173,7 @@ export function ClassStep({
             <span className="text-foreground font-medium">Saving throws.</span>{' '}
             {kit.saves.map((s) => s.toUpperCase()).join(' and ')}
           </p>
-          {kit.features.map((feature) => (
+          {featuresUpToLevel(kit.features, 1).map((feature) => (
             <p key={feature.name}>
               <span className="text-foreground font-medium">
                 {feature.name}.

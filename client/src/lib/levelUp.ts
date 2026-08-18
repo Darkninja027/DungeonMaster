@@ -20,6 +20,7 @@
 import { ABILITIES, abilityMod, proficiencyBonus, setLevel } from './character'
 import type { Ability, Character, ClassFeature } from './character'
 import type { ClassKit } from './srd'
+import { DEFAULT_SUBCLASS_LEVEL, subclassLevelOf } from './tables'
 
 /** How the player wants to gain hit points for the levels being taken. */
 export type HpMethod = 'roll' | 'average' | 'manual'
@@ -174,11 +175,12 @@ export function asiLevelsCrossed(
  * Whether this level-up crosses the level at which the class picks a subclass,
  * and the character hasn't already got one.
  *
- * The kit says *whether* the choice happens at level 1; for everything else 5e
- * puts it at 3, which is what `SUBCLASS_LEVEL` encodes. A homebrew class that
- * disagrees can still type a subclass on the sheet at any time.
+ * The level itself comes from `subclassLevelOf`, which resolves the kit's
+ * `subclassLevel`, then the older `subclassAtLevel1` boolean, then the 5e
+ * default of 3. A homebrew class that disagrees can still type a subclass on
+ * the sheet at any time.
  */
-export const SUBCLASS_LEVEL = 3
+export const SUBCLASS_LEVEL = DEFAULT_SUBCLASS_LEVEL
 
 export function needsSubclass(
   c: Character,
@@ -187,7 +189,7 @@ export function needsSubclass(
   kit: ClassKit | undefined,
 ): boolean {
   if (!kit || c.subclass.trim() !== '') return false
-  const at = kit.subclassAtLevel1 === true ? 1 : SUBCLASS_LEVEL
+  const at = subclassLevelOf(kit)
   return at > from && at <= to
 }
 

@@ -238,12 +238,13 @@ export function SubclassStep({
         A {character.class} chooses their {label.toLowerCase()} at this level.
       </p>
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-        {options.map((name) => (
+        {options.map((sub) => (
           <OptionCard
-            key={name}
-            title={name}
-            selected={draft.subclassName === name}
-            onSelect={() => onChange({ ...draft, subclassName: name })}
+            key={sub.id}
+            title={sub.name}
+            description={sub.summary}
+            selected={draft.subclassName === sub.name}
+            onSelect={() => onChange({ ...draft, subclassName: sub.name })}
           />
         ))}
       </div>

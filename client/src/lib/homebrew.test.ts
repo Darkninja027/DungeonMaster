@@ -388,3 +388,195 @@ describe('round trip', () => {
     expect(parseHomebrew(serializeHomebrew(emptied)).races).toEqual([])
   })
 })
+
+describe('subclasses', () => {
+  it('reads the legacy bare-string shape', () => {
+    // What every file on disk holds today, and will keep holding until
+    // somebody authors a feature.
+    const kit = parseKit({
+      name: 'Warden',
+      subclasses: ['Oak', 'Ash'],
+    })
+    expect(kit?.subclasses.map((sub) => sub.name)).toEqual(['Oak', 'Ash'])
+    expect(kit?.subclasses[0].features).toEqual([])
+  })
+
+  it('reads both shapes in one list', () => {
+    const kit = parseKit({
+      name: 'Warden',
+      subclasses: [
+        'Oak',
+        { name: 'Ash', features: [{ level: 3, name: 'Bark Skin' }] },
+      ],
+    })
+    expect(kit?.subclasses.map((sub) => sub.name)).toEqual(['Oak', 'Ash'])
+    expect(kit?.subclasses[1].features).toEqual([
+      { level: 3, name: 'Bark Skin' },
+    ])
+  })
+
+  it('a bad row costs that row and nothing more', () => {
+    const kit = parseKit({
+      name: 'Warden',
+      subclasses: [
+        'Oak',
+        {
+          name: 'Ash',
+          features: [
+            { level: 3, name: 'Bark Skin' },
+            { level: 7 },
+            null,
+            'nope',
+          ],
+        },
+        { features: [{ level: 1, name: 'orphan' }] },
+        { name: '   ' },
+        42,
+      ],
+    })
+    expect(kit?.subclasses.map((sub) => sub.name)).toEqual(['Oak', 'Ash'])
+    expect(kit?.subclasses[1].features).toEqual([
+      { level: 3, name: 'Bark Skin' },
+    ])
+  })
+
+  it('a feature with no level starts at 1, like a class feature', () => {
+    const kit = parseKit({
+      name: 'Warden',
+      subclasses: [{ name: 'Oak', features: [{ name: 'Sapling' }] }],
+    })
+    expect(kit?.subclasses[0].features).toEqual([{ level: 1, name: 'Sapling' }])
+  })
+
+  it('features of the wrong type yield none rather than throwing', () => {
+    const kit = parseKit({
+      name: 'Warden',
+      subclasses: [{ name: 'Oak', features: 'Bark Skin' }],
+    })
+    expect(kit?.subclasses[0].features).toEqual([])
+  })
+
+  it('drops duplicate names, first wins', () => {
+    const kit = parseKit({
+      name: 'Warden',
+      subclasses: ['Oak', { name: 'oak', features: [{ level: 3, name: 'x' }] }],
+    })
+    expect(kit?.subclasses).toHaveLength(1)
+    expect(kit?.subclasses[0].features).toEqual([])
+  })
+
+  it('clamps bonus spell levels to 1-9, not 1-20', () => {
+    // Spell levels, not character levels — an easy copy-paste error.
+    const kit = parseKit({
+      name: 'Warden',
+      subclasses: [
+        {
+          name: 'Oak',
+          spells: [{ grantedAt: 3, level: 14, names: ['Entangle'] }],
+        },
+      ],
+    })
+    expect(kit?.subclasses[0].spells?.[0].level).toBe(9)
+  })
+
+  it('drops a spell row that has no spells left', () => {
+    const kit = parseKit({
+      name: 'Warden',
+      subclasses: [
+        { name: 'Oak', spells: [{ grantedAt: 3, level: 1, names: ['  ', ''] }] },
+      ],
+    })
+    expect(kit?.subclasses[0].spells).toBeUndefined()
+  })
+
+  it('writes a name-only subclass back as a bare string', () => {
+    // The forward-compatibility guarantee, as an executable assertion: an
+    // older build reads subclasses with `strList`, which drops anything that
+    // isn't a string. Writing objects here would empty its dropdown silently.
+    const parsed = parseHomebrew({
+      version: 1,
+      kits: [{ name: 'Warden', subclasses: ['Oak'] }],
+    })
+    const out = serializeHomebrew(parsed) as {
+      kits: Array<{ subclasses: Array<unknown> }>
+    }
+    expect(out.kits[0].subclasses).toEqual(['Oak'])
+  })
+
+  it('writes an object only when there is more to say', () => {
+    const parsed = parseHomebrew({
+      version: 1,
+      kits: [
+        {
+          name: 'Warden',
+          subclasses: [
+            'Oak',
+            { name: 'Ash', features: [{ level: 3, name: 'Bark Skin' }] },
+          ],
+        },
+      ],
+    })
+    const out = serializeHomebrew(parsed) as {
+      kits: Array<{ subclasses: Array<unknown> }>
+    }
+    expect(out.kits[0].subclasses[0]).toBe('Oak')
+    expect(out.kits[0].subclasses[1]).toMatchObject({ name: 'Ash' })
+  })
+
+  it('round-trips a mixed list unchanged', () => {
+    const raw = {
+      version: 1,
+      kits: [
+        {
+          name: 'Warden',
+          subclasses: [
+            'Oak',
+            { name: 'Ash', features: [{ level: 3, name: 'Bark Skin' }] },
+          ],
+        },
+      ],
+    }
+    const once = serializeHomebrew(parseHomebrew(raw))
+    expect(serializeHomebrew(parseHomebrew(once))).toEqual(once)
+  })
+})
+
+describe('grant tokens are normalised to ids', () => {
+  it('a typed "Cold" resistance becomes the id the sheet matches', () => {
+    // The bug: the editor is a free-text token field, but `damageStance` does
+    // an exact `includes` against DAMAGE_TYPES ids. "Cold" saved fine and then
+    // silently never showed up under Defences.
+    const race = parseRace({
+      name: 'Goliath',
+      grant: { resistances: ['Cold'] },
+    })
+    expect(race?.grant.resistances).toEqual(['cold'])
+  })
+
+  it('accepts any casing', () => {
+    const race = parseRace({
+      name: 'Goliath',
+      grant: { resistances: ['COLD', 'fire', 'Poison'] },
+    })
+    expect(race?.grant.resistances).toEqual(['cold', 'fire', 'poison'])
+  })
+
+  it('leaves a homebrew damage type exactly as typed', () => {
+    const race = parseRace({ name: 'Voidkin', grant: { resistances: ['Void'] } })
+    expect(race?.grant.resistances).toEqual(['Void'])
+  })
+
+  it('normalises condition immunities, armor and weapon categories too', () => {
+    const race = parseRace({
+      name: 'Construct',
+      grant: {
+        conditionImmunities: ['Charmed'],
+        armor: ['Light armor'],
+        weapons: ['Simple weapons'],
+      },
+    })
+    expect(race?.grant.conditionImmunities).toEqual(['charmed'])
+    expect(race?.grant.armor).toEqual(['light'])
+    expect(race?.grant.weapons).toEqual(['simple'])
+  })
+})

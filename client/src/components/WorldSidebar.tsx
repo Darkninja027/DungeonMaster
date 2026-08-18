@@ -539,6 +539,23 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
                   <DropdownMenuItem onClick={() => reveal(`${ch.id}.md`)}>
                     <FolderOpen /> {REVEAL_LABEL}
                   </DropdownMenuItem>
+                  <DropdownMenuItem
+                    variant="destructive"
+                    onClick={() => {
+                      if (
+                        confirm(
+                          `Delete "${ch.title}"? It goes to the Recycle Bin.`,
+                        )
+                      ) {
+                        // A character is an article on disk, so this is the
+                        // same mutation the content tree uses — including the
+                        // navigate-away when the open one is the one deleted.
+                        deleteArticle.mutate(ch.id)
+                      }
+                    }}
+                  >
+                    <Trash2 /> Delete
+                  </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>

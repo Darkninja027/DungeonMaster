@@ -141,28 +141,7 @@ export function RaceStep({
         onCreated={(created) => adoptCreated(created as RaceInfo)}
       />
 
-      <div className="grid max-w-sm gap-2">
-        <Label htmlFor="wizard-race-other">Or type your own</Label>
-        <Input
-          id="wizard-race-other"
-          value={draft.raceName}
-          placeholder="Homebrew race"
-          onChange={(e) =>
-            onChange({
-              ...draft,
-              raceName: e.target.value,
-              subraceName: '',
-              flexibleAsi: {},
-            })
-          }
-        />
-        {draft.raceName && !race && (
-          <p className="text-muted-foreground text-xs">
-            Not an SRD race — the name is kept as-is and you fill in the traits
-            on the sheet.
-          </p>
-        )}
-      </div>
+      
 
       {race?.subraces && race.subraces.length > 0 && (
         <div>

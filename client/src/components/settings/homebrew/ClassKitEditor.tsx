@@ -2,6 +2,7 @@ import { Plus, X } from 'lucide-react'
 import { ABILITIES, HIT_DIE_SIZES } from '#/lib/character'
 import type { Ability } from '#/lib/character'
 import type { ClassKit, EquipmentChoice } from '#/lib/srd'
+import { reconcileSubclasses } from '#/lib/tables'
 import { homebrewId } from '#/lib/homebrew'
 import { Input } from '#/components/ui/input'
 import { Textarea } from '#/components/ui/textarea'
@@ -117,8 +118,10 @@ export function ClassKitEditor({
       <TokenField
         label="Subclasses"
         placeholder="Champion"
-        values={kit.subclasses}
-        onChange={(subclasses) => patch({ subclasses })}
+        values={kit.subclasses.map((sub) => sub.name)}
+        onChange={(names) =>
+          patch({ subclasses: reconcileSubclasses(kit.subclasses, names) })
+        }
       />
 
       <Field label="Skill choice" hint="The class's own skill list">
