@@ -9,6 +9,8 @@ import {
   parseRace,
   serializeHomebrew,
 } from './homebrew'
+import type { RaceInfo } from './srd'
+import { upsert } from '#/components/character/create/HomebrewDialog'
 
 describe('homebrewId', () => {
   it('slugifies the way the SRD tables are keyed', () => {
@@ -16,6 +18,55 @@ describe('homebrewId', () => {
     expect(homebrewId('  Thri-kreen  ')).toBe('thri-kreen')
     expect(homebrewId('Dark Elf (Drow)')).toBe('dark-elf-drow')
     expect(homebrewId('Sha’ir')).toBe('shair')
+  })
+})
+
+describe('upsert', () => {
+  const race = (name: string, speed: number): RaceInfo => ({
+    id: homebrewId(name),
+    name,
+    summary: '',
+    asi: {},
+    speed,
+    grant: {},
+  })
+
+  it('appends a genuinely new name', () => {
+    const next = upsert([race('Thri-kreen', 35)], race('Warforged', 30))
+    expect(next.map((r) => r.name)).toEqual(['Thri-kreen', 'Warforged'])
+  })
+
+  it('replaces a same-named entry rather than appending', () => {
+    const next = upsert([race('Thri-kreen', 35)], race('Thri-kreen', 20))
+    expect(next).toHaveLength(1)
+    expect(next[0].speed).toBe(20)
+  })
+
+  it('matches case-insensitively and keeps the original position', () => {
+    const next = upsert(
+      [race('Thri-kreen', 35), race('Warforged', 30)],
+      race('thri-kreen', 20),
+    )
+    expect(next.map((r) => r.name)).toEqual(['thri-kreen', 'Warforged'])
+    expect(next[0].speed).toBe(20)
+  })
+
+  /**
+   * The regression this exists for. Appending a same-named entry used to look
+   * like it worked — the wizard even selected it — and then the parser dropped
+   * it on the next load, keeping the *old* one. Assert against the parser, not
+   * just the array, because that is where the data was actually lost.
+   */
+  it('survives a round-trip through the parser, new values winning', () => {
+    const appended = [race('Thri-kreen', 35), race('Thri-kreen', 20)]
+    const lost = parseHomebrew({ races: appended })
+    expect(lost.races).toHaveLength(1)
+    expect(lost.races[0].speed).toBe(35) // the edit vanished
+
+    const upserted = upsert([race('Thri-kreen', 35)], race('Thri-kreen', 20))
+    const kept = parseHomebrew({ races: upserted })
+    expect(kept.races).toHaveLength(1)
+    expect(kept.races[0].speed).toBe(20) // the edit stuck
   })
 })
 

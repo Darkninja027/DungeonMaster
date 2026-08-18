@@ -1,5 +1,6 @@
 import type { BackgroundInfo } from '#/lib/srd'
 import { homebrewId } from '#/lib/homebrew'
+import { SRD_TABLES, nameKey } from '#/lib/tables'
 import { Input } from '#/components/ui/input'
 import { Textarea } from '#/components/ui/textarea'
 import { Field, GrantEditor } from './GrantEditor'
@@ -24,6 +25,11 @@ export function BackgroundEditor({
   const patch = (changes: Partial<BackgroundInfo>) =>
     onChange({ ...background, ...changes })
 
+  // Same hint as the other two editors — see RaceEditor.
+  const overrides = SRD_TABLES.backgrounds.some(
+    (b) => nameKey(b.name) === nameKey(background.name),
+  )
+
   return (
     <div className="space-y-3">
       <Field label="Name">
@@ -35,6 +41,11 @@ export function BackgroundEditor({
             patch({ name: e.target.value, id: homebrewId(e.target.value) })
           }
         />
+        {overrides && (
+          <p className="text-muted-foreground text-xs">
+            Overrides the built-in {background.name.trim()}.
+          </p>
+        )}
       </Field>
 
       <Field label="Summary" hint="One line, shown on the option card">

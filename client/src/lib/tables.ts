@@ -123,8 +123,14 @@ export function reconcileSubclasses(
   })
 }
 
-/** Whether a subclass carries anything beyond its name. */
-function isBareSubclass(sub: SubclassInfo): boolean {
+/**
+ * Whether a subclass carries anything beyond its name.
+ *
+ * Exported for the kit editor, which warns only when there is something to
+ * lose. Same predicate `serializeSubclass` uses to decide whether an entry can
+ * be written back as a bare string — keep them in step.
+ */
+export function isBareSubclass(sub: SubclassInfo): boolean {
   return (
     sub.features.length === 0 &&
     sub.summary === undefined &&
@@ -170,7 +176,15 @@ function layerSubclasses(
   })
 }
 
-function nameKey(name: string): string {
+/**
+ * The key every layer here matches on: trimmed, lowercased name.
+ *
+ * Exported because the settings UI has to ask the same question this file does —
+ * "is this built-in shadowed by something the user wrote?" — and answering it
+ * with `homebrewId` instead would be subtly wrong: the slug strips apostrophes,
+ * so a homebrew "Sha'ir" would not appear to shadow the built-in of that name.
+ */
+export function nameKey(name: string): string {
   return name.trim().toLowerCase()
 }
 

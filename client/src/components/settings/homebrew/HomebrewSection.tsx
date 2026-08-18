@@ -1,15 +1,40 @@
 import { useEffect, useRef, useState } from 'react'
 import { Plus, Save, Trash2 } from 'lucide-react'
 import type { Homebrew } from '#/lib/homebrew'
+import { homebrewId } from '#/lib/homebrew'
 import { useHomebrew, useSaveHomebrew, useTables } from '#/lib/useHomebrew'
-import { SRD_TABLES } from '#/lib/tables'
+import { SRD_TABLES, nameKey } from '#/lib/tables'
+import type { BackgroundInfo, ClassKit, RaceInfo } from '#/lib/srd'
 import { Button } from '#/components/ui/button'
 import { cn } from '#/lib/utils'
 import { BackgroundEditor, blankBackground } from './BackgroundEditor'
+import { BuiltInPreview } from './BuiltInPreview'
 import { ClassKitEditor, blankKit } from './ClassKitEditor'
+import { DuplicateDialog } from './DuplicateDialog'
 import { RaceEditor, blankRace } from './RaceEditor'
 
 type Tab = 'races' | 'backgrounds' | 'kits'
+
+type Entry = RaceInfo | BackgroundInfo | ClassKit
+
+/**
+ * Which row the detail pane is showing.
+ *
+ * A bare index used to be enough, when the list was only ever the user's own
+ * entries. Now that built-ins are listed too, the index alone is ambiguous —
+ * and `replace`/`remove` both key off it, so a built-in selection reaching them
+ * would edit or delete an unrelated homebrew entry.
+ */
+type Selection =
+  | { source: 'homebrew'; index: number }
+  | { source: 'srd'; index: number }
+
+/** Singular noun for a tab, for prose. */
+const KIND_LABEL: Record<Tab, string> = {
+  races: 'race',
+  backgrounds: 'background',
+  kits: 'class',
+}
 
 const TABS: Array<{ id: Tab; label: string; blurb: string }> = [
   {
@@ -47,7 +72,11 @@ export function HomebrewSection({ worldId }: { worldId: string }) {
 
   const [tab, setTab] = useState<Tab>('races')
   const [draft, setDraft] = useState<Homebrew | null>(null)
-  const [selected, setSelected] = useState(0)
+  const [selected, setSelected] = useState<Selection>({
+    source: 'homebrew',
+    index: 0,
+  })
+  const [duplicating, setDuplicating] = useState<Entry | null>(null)
 
   // Adopt the file's contents whenever a *different* one arrives — first load,
   // and every later external edit. Keyed on the last value adopted rather than
@@ -67,10 +96,18 @@ export function HomebrewSection({ worldId }: { worldId: string }) {
   if (!homebrew) return null
 
   const list = homebrew[tab]
-  const current = list.at(selected)
-  // How many built-ins this tab sits on top of, so the empty state can say
-  // that overriding one is a thing you can do at all.
-  const srdCount = SRD_TABLES[tab].length
+  const builtIns = SRD_TABLES[tab]
+  const srdCount = builtIns.length
+
+  const current =
+    selected.source === 'homebrew' ? list.at(selected.index) : undefined
+  const currentBuiltIn =
+    selected.source === 'srd' ? builtIns.at(selected.index) : undefined
+
+  // Which built-ins the user has already overridden, by name. Built once per
+  // render rather than per row: the lists are small, but a `some()` inside the
+  // row map is the kind of thing that quietly becomes O(n²).
+  const homebrewNames = new Set(list.map((e) => nameKey(e.name)))
 
   const patchList = (next: Array<unknown>) => {
     setDraft({ ...homebrew, [tab]: next })
@@ -84,16 +121,48 @@ export function HomebrewSection({ worldId }: { worldId: string }) {
           ? blankBackground()
           : blankKit()
     patchList([...list, blank])
-    setSelected(list.length)
+    setSelected({ source: 'homebrew', index: list.length })
   }
 
   const remove = (i: number) => {
     patchList(list.filter((_, j) => j !== i))
-    setSelected((s) => (s >= i && s > 0 ? s - 1 : s))
+    setSelected((s) =>
+      s.source === 'homebrew' && s.index >= i && s.index > 0
+        ? { source: 'homebrew', index: s.index - 1 }
+        : s,
+    )
   }
 
+  // Guarded: an editor only ever renders for a homebrew selection, but the
+  // built-ins are read-only and nothing should be able to write through them.
   const replace = (entry: unknown) => {
-    patchList(list.map((e, j) => (j === selected ? entry : e)))
+    if (selected.source !== 'homebrew') return
+    patchList(list.map((e, j) => (j === selected.index ? entry : e)))
+  }
+
+  /**
+   * Fork a built-in into the draft under `name`.
+   *
+   * Deep-cloned because `grant`, `subraces`, `equipment` and `subclasses` are
+   * all nested — a shallow copy would leave the new entry sharing structure
+   * with the frozen SRD constant. The id is re-derived from the new name rather
+   * than copied: an SRD id must never reach disk.
+   *
+   * Replaces a same-named homebrew entry instead of appending one, for the same
+   * reason `HomebrewDialog` does — the parser drops the later of two entries
+   * sharing a name, so appending would discard this copy on the next load.
+   */
+  const duplicate = (source: Entry, name: string) => {
+    const copy = { ...structuredClone(source), name, id: homebrewId(name) }
+    const at = list.findIndex((e) => nameKey(e.name) === nameKey(name))
+    if (at === -1) {
+      patchList([...list, copy])
+      setSelected({ source: 'homebrew', index: list.length })
+    } else {
+      patchList(list.map((e, j) => (j === at ? copy : e)))
+      setSelected({ source: 'homebrew', index: at })
+    }
+    setDuplicating(null)
   }
 
   return (
@@ -136,7 +205,7 @@ export function HomebrewSection({ worldId }: { worldId: string }) {
             title={entry.blurb}
             onClick={() => {
               setTab(entry.id)
-              setSelected(0)
+              setSelected({ source: 'homebrew', index: 0 })
             }}
             className={cn(
               'rounded-md px-2.5 py-1 text-sm transition-colors',
@@ -160,9 +229,11 @@ export function HomebrewSection({ worldId }: { worldId: string }) {
                 type="button"
                 className={cn(
                   'group flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm',
-                  i === selected ? 'bg-accent' : 'hover:bg-accent/50',
+                  selected.source === 'homebrew' && i === selected.index
+                    ? 'bg-accent'
+                    : 'hover:bg-accent/50',
                 )}
-                onClick={() => setSelected(i)}
+                onClick={() => setSelected({ source: 'homebrew', index: i })}
               >
                 <span className="min-w-0 flex-1 truncate">
                   {entry.name || (
@@ -182,12 +253,46 @@ export function HomebrewSection({ worldId }: { worldId: string }) {
             ))}
             {list.length === 0 && (
               <p className="text-muted-foreground p-2 text-xs">
-                Nothing yet. The {srdCount} built-in{' '}
-                {tab === 'kits' ? 'classes' : tab} are always offered — add one
-                here to invent your own, or give it an existing name to override
-                it.
+                Nothing of your own yet — add one, or duplicate a built-in below
+                to start from it.
               </p>
             )}
+
+            <div className="text-muted-foreground mt-3 mb-1 px-2 text-[10px] font-medium tracking-wide uppercase">
+              Built-in ({srdCount})
+            </div>
+            {builtIns.map((entry, i) => {
+              const shadowed = homebrewNames.has(nameKey(entry.name))
+              return (
+                <button
+                  key={entry.id}
+                  type="button"
+                  title={
+                    shadowed
+                      ? `Overridden by your ${entry.name}`
+                      : `Built-in ${KIND_LABEL[tab]}`
+                  }
+                  className={cn(
+                    'flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm',
+                    selected.source === 'srd' && i === selected.index
+                      ? 'bg-accent'
+                      : 'hover:bg-accent/50',
+                  )}
+                  onClick={() => setSelected({ source: 'srd', index: i })}
+                >
+                  <span
+                    className={cn(
+                      'min-w-0 flex-1 truncate',
+                      shadowed
+                        ? 'text-muted-foreground line-through'
+                        : 'text-muted-foreground',
+                    )}
+                  >
+                    {entry.name}
+                  </span>
+                </button>
+              )
+            })}
           </div>
           <Button
             variant="outline"
@@ -200,26 +305,48 @@ export function HomebrewSection({ worldId }: { worldId: string }) {
         </div>
 
         <div className="min-h-0 overflow-y-auto pr-1">
-          {!current ? (
+          {currentBuiltIn ? (
+            <BuiltInPreview
+              entry={currentBuiltIn}
+              kind={tab}
+              shadowedBy={
+                list.find((e) => nameKey(e.name) === nameKey(currentBuiltIn.name))
+                  ?.name
+              }
+              onDuplicate={() => setDuplicating(currentBuiltIn)}
+            />
+          ) : !current ? (
             <p className="text-muted-foreground p-2 text-xs">
               Select something on the left, or add one.
             </p>
           ) : tab === 'races' ? (
-            <RaceEditor race={homebrew.races[selected]} onChange={replace} />
+            <RaceEditor
+              race={homebrew.races[selected.index]}
+              onChange={replace}
+            />
           ) : tab === 'backgrounds' ? (
             <BackgroundEditor
-              background={homebrew.backgrounds[selected]}
+              background={homebrew.backgrounds[selected.index]}
               onChange={replace}
             />
           ) : (
             <ClassKitEditor
-              kit={homebrew.kits[selected]}
+              kit={homebrew.kits[selected.index]}
               classNames={tables.kits.map((k) => k.name)}
               onChange={replace}
             />
           )}
         </div>
       </div>
+
+      <DuplicateDialog
+        open={duplicating !== null}
+        sourceName={duplicating?.name ?? ''}
+        kindLabel={KIND_LABEL[tab]}
+        existingNames={list.map((e) => e.name)}
+        onCancel={() => setDuplicating(null)}
+        onConfirm={(name) => duplicating && duplicate(duplicating, name)}
+      />
     </div>
   )
 }

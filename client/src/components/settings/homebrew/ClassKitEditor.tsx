@@ -2,7 +2,7 @@ import { Plus, X } from 'lucide-react'
 import { ABILITIES, HIT_DIE_SIZES } from '#/lib/character'
 import type { Ability } from '#/lib/character'
 import type { ClassKit, EquipmentChoice } from '#/lib/srd'
-import { reconcileSubclasses } from '#/lib/tables'
+import { isBareSubclass, reconcileSubclasses } from '#/lib/tables'
 import { homebrewId } from '#/lib/homebrew'
 import { Input } from '#/components/ui/input'
 import { Textarea } from '#/components/ui/textarea'
@@ -123,6 +123,19 @@ export function ClassKitEditor({
           patch({ subclasses: reconcileSubclasses(kit.subclasses, names) })
         }
       />
+      {/*
+        Only shown when there is actually something at stake. A subclass can
+        carry features, bonus spells and a grant, none of which this field can
+        show — `reconcileSubclasses` keeps them across an edit, but only by
+        matching on the name, so renaming one drops what it was carrying.
+      */}
+      {kit.subclasses.some((sub) => !isBareSubclass(sub)) && (
+        <p className="text-muted-foreground -mt-1 text-xs">
+          Some of these carry features or bonus spells that can&rsquo;t be
+          edited here yet. They&rsquo;re kept as you edit — but renaming one
+          discards them.
+        </p>
+      )}
 
       <Field label="Skill choice" hint="The class's own skill list">
         <div className="flex items-center gap-1.5">

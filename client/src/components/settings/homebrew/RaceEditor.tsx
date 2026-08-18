@@ -3,6 +3,7 @@ import { ABILITIES, ABILITY_NAMES } from '#/lib/character'
 import type { Ability } from '#/lib/character'
 import type { RaceInfo, SubraceInfo } from '#/lib/srd'
 import { homebrewId } from '#/lib/homebrew'
+import { SRD_TABLES, nameKey } from '#/lib/tables'
 import { Input } from '#/components/ui/input'
 import { Textarea } from '#/components/ui/textarea'
 import { Button } from '#/components/ui/button'
@@ -92,6 +93,13 @@ export function RaceEditor({
   const patch = (changes: Partial<RaceInfo>) =>
     onChange({ ...race, ...changes })
 
+  // Matches the hint ClassKitEditor has always shown. Now that built-ins are
+  // listed beside your own, a name landing on one should say it overrides it
+  // rather than looking like a coincidence.
+  const overrides = SRD_TABLES.races.some(
+    (r) => nameKey(r.name) === nameKey(race.name),
+  )
+
   const patchSubrace = (i: number, changes: Partial<SubraceInfo>) => {
     const subraces = (race.subraces ?? []).map((s, j) =>
       j === i ? { ...s, ...changes } : s,
@@ -112,6 +120,11 @@ export function RaceEditor({
             patch({ name: e.target.value, id: homebrewId(e.target.value) })
           }
         />
+        {overrides && (
+          <p className="text-muted-foreground text-xs">
+            Overrides the built-in {race.name.trim()}.
+          </p>
+        )}
       </Field>
 
       <Field label="Summary" hint="One line, shown on the option card">
