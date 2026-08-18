@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { articleTemplates, newArticleContent } from './templates'
 import { splitFrontmatter } from './formatMarkdown'
 import { parse as parseYaml } from 'yaml'
+import { parseCharacter, serializeCharacter } from './character'
 
 const byId = (id: string) => articleTemplates.find((t) => t.id === id)!
 
@@ -33,5 +34,39 @@ describe('newArticleContent', () => {
       expect(frontmatter, `${t.id} should have frontmatter`).not.toBeNull()
       expect(() => parseYaml(frontmatter!)).not.toThrow()
     }
+  })
+})
+
+describe('the character template', () => {
+  it('is a blank sheet, not a pre-statted example', () => {
+    // Regression guard. It used to ship a level 1 Human Fighter/Champion with
+    // a full stat spread and a longsword, so every character in every world
+    // started as somebody else's fighter that had to be deleted first. This is
+    // now what the creation wizard's "Skip setup" produces, and skipping must
+    // mean an empty sheet.
+    const { character } = parseCharacter(byId('character').body)
+    expect(character.class).toBe('')
+    expect(character.subclass).toBe('')
+    expect(character.race).toBe('')
+    expect(character.background).toBe('')
+    expect(character.abilities).toEqual({
+      str: 10,
+      dex: 10,
+      con: 10,
+      int: 10,
+      wis: 10,
+      cha: 10,
+    })
+    expect(character.skills).toEqual([])
+    expect(character.inventory).toEqual([])
+    expect(character.attacks).toEqual([])
+    expect(character.features).toEqual([])
+  })
+
+  it('round-trips through the sheet parser unchanged', () => {
+    const { character, body } = parseCharacter(byId('character').body)
+    expect(parseCharacter(serializeCharacter(character, body)).character).toEqual(
+      character,
+    )
   })
 })

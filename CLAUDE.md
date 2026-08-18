@@ -65,6 +65,56 @@ Components go through the typed `api` object in `client/src/lib/api.ts`, which
 mirrors the IPC channels. Add methods there — don't scatter raw `invoke` calls
 through components.
 
+### SRD tables are an affordance, never a schema
+
+`client/src/lib/srd/` holds SRD 5.1 races, backgrounds, class starting kits and
+equipment tables (TypeScript constants, matching `classes.ts`). They exist so
+the character creation wizard can offer choices — nothing more.
+
+The rule that governs the whole folder: **`class`, `subclass`, `race` and
+`background` are free text on disk.** A lookup is `name in, undefined out`,
+mirroring `findClass`. An id in these tables is for React keys only and must
+never reach a `.md` file: the wizard writes `race: Hill Dwarf`, never
+`race: hill-dwarf`. A race, class or background the tables don't know
+contributes its name and nothing else, and the sheet is still perfectly valid —
+that is what keeps homebrew and Obsidian hand-edits round-tripping.
+
+It is deliberately **not a rules engine**, and level 1 only. No per-level
+feature tables, no slot progression, no multiclassing. `SubraceInfo.hpPerLevel`
+is the single derived-number exception (Hill Dwarf), and it is a field rather
+than a mechanism on purpose. `srd.test.ts` asserts data integrity — every skill
+id real, every `PickList.id` globally unique — because a transcription error
+here is silent: a mistyped skill just vanishes when the sheet parses it back.
+
+Since v1.4.x the tables are **user-extensible**. `lib/homebrew.ts` parses
+`homebrew.json` from the app's userData folder (global — shared by every world,
+written by `electron/main/homebrew.ts`), and `worldSettings.json` gained
+optional `races`/`backgrounds`/`kits` beside `classes` (per-world, and the only
+tier that travels with a world folder). `lib/tables.ts` merges the three:
+**world > global > SRD**, matched case-insensitively on name, so overriding a
+built-in replaces it in place rather than duplicating it.
+
+The one genuinely dangerous spot is `findSubrace`. `Character.race` stores only
+the full subrace name ("Hill Dwarf"), so the parent race is recovered by
+searching every race — and with homebrew merged in, two parents can offer the
+same subrace name. Picking the wrong one silently yields the wrong speed and HP
+rather than an error, which is why `subraceIndex` is built once over the merged
+list and covered directly by `tables.test.ts`.
+
+Editors live in `components/settings/homebrew/` (a Homebrew settings section,
+app-wide like Library) and `components/character/create/HomebrewDialog.tsx`
+(inline creation from the wizard). The inline path is the **only** sanctioned
+refresh of the draft's captured tables — see the ref in `CreateCharacterDialog`,
+which exists so a background refetch can't wipe work in progress.
+
+The wizard's pure layer lives beside it and is fully unit-tested without React:
+`abilityMethods.ts` (five score methods, including the 3×3 grid), `characterDraft.ts`
+(wizard state and step gating — the draft **carries its own merged tables**, so
+every derived helper stays a pure function of the draft) and `buildCharacter.ts`
+(draft → `Character` +
+markdown body). `buildCharacter` must stay **total** — the live summary panel
+calls it on every keystroke against a half-filled draft.
+
 ### Ids are path strings (not DB keys)
 
 - **World id** = hex of the absolute folder path.

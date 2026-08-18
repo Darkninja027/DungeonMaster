@@ -54,6 +54,7 @@ import {
   seedWorldSettings,
   writeWorldSettings,
 } from './worldSettings'
+import { readHomebrew, writeHomebrew } from './homebrew'
 import { noteSelfWrite, startWatching, stopWatching } from './watcher'
 import {
   buildIndex,
@@ -628,6 +629,16 @@ export function registerIpcHandlers() {
     'worldSettings:set',
     (_e, { worldId, state }: { worldId: string; state: unknown }) =>
       writeWorldSettings(worldId, state),
+  )
+
+  // Global homebrew -----------------------------------------------------------
+  // App-level rather than per-world: a race you invent once is offered in every
+  // world. Same split as world settings — the renderer owns the tolerant parse,
+  // so these move raw JSON.
+  ipcMain.handle('homebrew:get', () => readHomebrew())
+
+  ipcMain.handle('homebrew:set', (_e, { state }: { state: unknown }) =>
+    writeHomebrew(state),
   )
 
   // Global library ------------------------------------------------------------

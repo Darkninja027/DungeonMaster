@@ -1,5 +1,13 @@
 import { PHB_CLASSES } from './classes'
 import type { ClassInfo } from './classes'
+import {
+  EMPTY_HOMEBREW,
+  parseBackground,
+  parseKit,
+  parseRace,
+  serializeHomebrew,
+} from './homebrew'
+import type { BackgroundInfo, ClassKit, RaceInfo } from './srd'
 
 /**
  * Per-world settings, stored as `worldSettings.json` at the world root — the
@@ -24,7 +32,7 @@ export const SETTINGS_COMMENT =
   'are free text, so this list only supplies dropdown suggestions and hit ' +
   'dice, and a class missing from here still works on a sheet.'
 
-export const SETTINGS_VERSION = 3
+export const SETTINGS_VERSION = 4
 
 /**
  * How the article editor picks its editing surface.
@@ -57,6 +65,17 @@ export interface WorldSettings {
   description?: string
   createdAt?: string
   classes: Array<ClassInfo>
+  /**
+   * Homebrew this world adds on top of the global store (see lib/homebrew.ts).
+   * Optional because most worlds have none, and because a file written before
+   * version 4 simply has no key — that absence is the whole migration.
+   *
+   * These travel with the world folder, which global homebrew does not. Define
+   * a race here when you want it to reach someone you send the world to.
+   */
+  races?: Array<RaceInfo>
+  backgrounds?: Array<BackgroundInfo>
+  kits?: Array<ClassKit>
 }
 
 /** What a world gets before it has a file of its own. */
@@ -169,6 +188,25 @@ export function parseWorldSettings(raw: unknown): WorldSettings {
     if (typeof r[key] === 'string') meta[key] = r[key]
   }
 
+  // Absent in a version 3 file, which is exactly what "no world homebrew"
+  // means — so the migration is doing nothing at all.
+  const homebrewList = <T extends { id: string }>(
+    value: unknown,
+    parse: (entry: unknown) => T | null,
+  ): Array<T> | undefined => {
+    if (!Array.isArray(value)) return undefined
+    const ids = new Set<string>()
+    return value.flatMap((entry): Array<T> => {
+      const parsed = parse(entry)
+      if (!parsed || parsed.id === '' || ids.has(parsed.id)) return []
+      ids.add(parsed.id)
+      return [parsed]
+    })
+  }
+  const races = homebrewList(r.races, parseRace)
+  const backgrounds = homebrewList(r.backgrounds, parseBackground)
+  const kits = homebrewList(r.kits, parseKit)
+
   return {
     version:
       typeof r.version === 'number' && Number.isFinite(r.version)
@@ -177,6 +215,9 @@ export function parseWorldSettings(raw: unknown): WorldSettings {
     liveEdit,
     ...meta,
     classes,
+    ...(races && { races }),
+    ...(backgrounds && { backgrounds }),
+    ...(kits && { kits }),
   }
 }
 
@@ -206,5 +247,32 @@ export function serializeWorldSettings(settings: WorldSettings): unknown {
       subclassLabel: cl.subclassLabel,
       subclasses: cl.subclasses,
     })),
+    // Written back through the same serializer the global store uses, so the
+    // two files hold identical shapes and a race can be moved between them by
+    // copy-paste. Keys stay absent when the world has none, rather than
+    // littering every world's file with three empty arrays.
+    ...(settings.races && {
+      races: (
+        serializeHomebrew({
+          ...EMPTY_HOMEBREW,
+          races: settings.races,
+        }) as { races: unknown }
+      ).races,
+    }),
+    ...(settings.backgrounds && {
+      backgrounds: (
+        serializeHomebrew({
+          ...EMPTY_HOMEBREW,
+          backgrounds: settings.backgrounds,
+        }) as { backgrounds: unknown }
+      ).backgrounds,
+    }),
+    ...(settings.kits && {
+      kits: (
+        serializeHomebrew({ ...EMPTY_HOMEBREW, kits: settings.kits }) as {
+          kits: unknown
+        }
+      ).kits,
+    }),
   }
 }

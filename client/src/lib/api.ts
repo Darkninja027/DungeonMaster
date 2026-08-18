@@ -388,6 +388,15 @@ export const api = {
     set: (worldId: string, state: unknown) =>
       invoke<void>('worldSettings:set', { worldId, state }),
   },
+  homebrew: {
+    /**
+     * Raw homebrew.json — `unknown` for the same reason as worldSettings: the
+     * file is hand-editable and lib/homebrew.ts owns the tolerant parse. null
+     * means missing or unparseable, which reads as "no homebrew yet".
+     */
+    get: () => invoke<unknown>('homebrew:get'),
+    set: (state: unknown) => invoke<void>('homebrew:set', { state }),
+  },
   library: {
     /** The configured global library, or null if the user hasn't chosen one. */
     get: () => invoke<LibraryInfo | null>('library:get'),

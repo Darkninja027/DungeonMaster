@@ -27,6 +27,7 @@ import { REVEAL_LABEL, revealer } from '#/lib/reveal'
 import { articleTemplates, newArticleContent } from '#/lib/templates'
 import { cn } from '#/lib/utils'
 import { SmartViews } from '#/components/SmartViews'
+import { CreateCharacterDialog } from '#/components/character/create/CreateCharacterDialog'
 import { Button } from '#/components/ui/button'
 import {
   Dialog,
@@ -45,12 +46,7 @@ import { Input } from '#/components/ui/input'
 import { ScrollArea } from '#/components/ui/scroll-area'
 
 interface NameDialogState {
-  mode:
-    | 'new-folder'
-    | 'rename-folder'
-    | 'new-article'
-    | 'rename-article'
-    | 'new-character'
+  mode: 'new-folder' | 'rename-folder' | 'new-article' | 'rename-article'
   parentFolderId: string | null
   folderId?: string
   articleId?: string
@@ -103,11 +99,18 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
   // Subscribed once: openDialog is re-created each render but only touches
   // setState, so a stale closure would still open the right dialog.
   const openDialogRef = useRef<(state: NameDialogState) => void>(undefined)
+  const openWizardRef = useRef<() => void>(undefined)
   useEffect(
     () =>
-      onPaletteAction((action) =>
-        openDialogRef.current?.({ mode: action.kind, parentFolderId: null }),
-      ),
+      onPaletteAction((action) => {
+        // Character creation is a wizard rather than a name dialog, so it can't
+        // ride the mode pass-through the other kinds use.
+        if (action.kind === 'new-character') {
+          openWizardRef.current?.()
+          return
+        }
+        openDialogRef.current?.({ mode: action.kind, parentFolderId: null })
+      }),
     [],
   )
 
@@ -217,36 +220,13 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
     },
   })
 
-  const createCharacter = useMutation({
-    mutationFn: async (characterName: string) => {
-      // Characters live in a top-level Characters/ folder by convention.
-      try {
-        await api.folders.create({
-          worldId,
-          parentFolderId: null,
-          name: 'Characters',
-        })
-      } catch {
-        // already exists
-      }
-      const template = articleTemplates.find((t) => t.id === 'character')
-      return api.articles.create({
-        worldId,
-        folderId: 'Characters',
-        title: characterName,
-        content: template?.body ?? '',
-      })
-    },
-    onSuccess: (article) => {
-      invalidateTree()
-      setDialog(null)
-      navigate({
-        to: '/worlds/$worldId/characters/$articleId',
-        params: { worldId, articleId: article.id },
-      })
-    },
-    onError: (error) => alert(error.message),
-  })
+  const [wizardOpen, setWizardOpen] = useState(false)
+  /**
+   * Deferred for the same reason as openDialog below: a DropdownMenu closing
+   * into a Dialog opening can leave pointer-events:none stuck on <body>.
+   */
+  const openWizard = () => requestAnimationFrame(() => setWizardOpen(true))
+  openWizardRef.current = openWizard
 
   const submitDialog = () => {
     if (!dialog || !name.trim()) return
@@ -260,8 +240,6 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
       renameFolder.mutate({ id: dialog.folderId, name })
     } else if (dialog.mode === 'rename-article' && dialog.articleId != null) {
       renameArticle.mutate({ id: dialog.articleId, title: name })
-    } else if (dialog.mode === 'new-character') {
-      createCharacter.mutate(name)
     } else if (dialog.mode === 'new-article') {
       const template = articleTemplates.find((t) => t.id === templateId)
       createArticle.mutate({
@@ -520,9 +498,7 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
             size="icon"
             className="size-7"
             title="New character"
-            onClick={() =>
-              openDialog({ mode: 'new-character', parentFolderId: null })
-            }
+            onClick={openWizard}
           >
             <UserPlus className="size-4" />
           </Button>
@@ -701,19 +677,16 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
               {dialog?.mode === 'rename-folder' && 'Rename folder'}
               {dialog?.mode === 'new-article' && 'New article'}
               {dialog?.mode === 'rename-article' && 'Rename article'}
-              {dialog?.mode === 'new-character' && 'New character'}
             </DialogTitle>
           </DialogHeader>
           <Input
             autoFocus
             value={name}
             placeholder={
-              dialog?.mode === 'new-character'
-                ? 'Character name'
-                : dialog?.mode === 'new-article' ||
-                    dialog?.mode === 'rename-article'
-                  ? 'Article title'
-                  : 'Folder name'
+              dialog?.mode === 'new-article' ||
+              dialog?.mode === 'rename-article'
+                ? 'Article title'
+                : 'Folder name'
             }
             onChange={(e) => setName(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && submitDialog()}
@@ -762,6 +735,12 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <CreateCharacterDialog
+        worldId={worldId}
+        open={wizardOpen}
+        onClose={() => setWizardOpen(false)}
+      />
     </div>
   )
 }
