@@ -13,7 +13,7 @@ import { emptyDraft } from './characterDraft'
 import type { CharacterDraft } from './characterDraft'
 import { assign, emptyAbilityDraft } from './abilityMethods'
 import { parseHomebrew } from './homebrew'
-import { mergeTables } from './tables'
+import { SRD_TABLES, mergeTables } from './tables'
 import type { Ability } from './character'
 
 /** A draft with directly-set ability scores, bypassing the assignment UI. */
@@ -29,7 +29,7 @@ function withScores(
 
 /** The Hill Dwarf Cleric / Acolyte the plan calls for, fully specified. */
 function hillDwarfCleric(): CharacterDraft {
-  let draft = emptyDraft(PHB_CLASSES)
+  let draft = emptyDraft(SRD_TABLES)
   draft = {
     ...draft,
     name: 'Thrain Stonebrook',
@@ -237,7 +237,7 @@ describe('homebrew degradation', () => {
   })
 
   it('an unknown race passes through with no increases', () => {
-    let draft = emptyDraft(PHB_CLASSES)
+    let draft = emptyDraft(SRD_TABLES)
     draft = { ...draft, name: 'Kk’tk', raceName: 'Thri-kreen' }
     const { character } = buildCharacter(
       withScores(draft, {
@@ -262,7 +262,7 @@ describe('totality', () => {
   it('builds a valid character from a completely empty draft', () => {
     // The property the live summary panel depends on: this runs on every
     // keystroke against a half-filled draft and must never throw.
-    const { character, body } = buildCharacter(emptyDraft(PHB_CLASSES))
+    const { character, body } = buildCharacter(emptyDraft(SRD_TABLES))
     expect(character.level).toBe(1)
     expect(character.race).toBe('')
     expect(character.class).toBe('')
@@ -272,13 +272,13 @@ describe('totality', () => {
   })
 
   it('survives a round trip from an empty draft', () => {
-    const { character, body } = buildCharacter(emptyDraft(PHB_CLASSES))
+    const { character, body } = buildCharacter(emptyDraft(SRD_TABLES))
     const round = parseCharacter(serializeCharacter(character, body))
     expect(round.character).toEqual(character)
   })
 
   it('builds with a race chosen but nothing else', () => {
-    const draft = { ...emptyDraft(PHB_CLASSES), raceName: 'Elf' }
+    const draft = { ...emptyDraft(SRD_TABLES), raceName: 'Elf' }
     const { character } = buildCharacter(draft)
     expect(character.race).toBe('Elf')
     expect(character.abilities.dex).toBe(12)
@@ -293,7 +293,7 @@ describe('totality', () => {
 
 describe('flexible ability increases', () => {
   it('applies Variant Human two +1s', () => {
-    let draft = emptyDraft(PHB_CLASSES)
+    let draft = emptyDraft(SRD_TABLES)
     draft = {
       ...draft,
       name: 'Aldric',
@@ -321,7 +321,7 @@ describe('flexible ability increases', () => {
 
   it('clamps a raised score to 30', () => {
     const draft: CharacterDraft = {
-      ...emptyDraft(PHB_CLASSES),
+      ...emptyDraft(SRD_TABLES),
       raceName: 'Dwarf',
       abilities: {
         ...emptyAbilityDraft(),
@@ -334,7 +334,7 @@ describe('flexible ability increases', () => {
 })
 
 describe('computeAc', () => {
-  const base = buildCharacter(emptyDraft(PHB_CLASSES)).character
+  const base = buildCharacter(emptyDraft(SRD_TABLES)).character
 
   it('is 10 + DEX unarmored', () => {
     const c = {
@@ -417,7 +417,7 @@ describe('computeAc', () => {
 
 describe('the fighter kit', () => {
   it('resolves a martial weapon pick into inventory and attacks', () => {
-    let draft = emptyDraft(PHB_CLASSES)
+    let draft = emptyDraft(SRD_TABLES)
     draft = {
       ...draft,
       name: 'Berrin',
@@ -469,7 +469,7 @@ describe('assignment-driven scores', () => {
       abilities = assign(abilities, ability, i)
     })
     const draft: CharacterDraft = {
-      ...emptyDraft(PHB_CLASSES),
+      ...emptyDraft(SRD_TABLES),
       name: 'Test',
       abilities,
     }

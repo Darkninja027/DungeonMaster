@@ -19,6 +19,7 @@ import {
   findKit,
   findRace,
   findSubrace,
+  kitFromClassInfo,
   SRD_TABLES,
 } from './tables'
 import type { Tables } from './tables'
@@ -39,12 +40,10 @@ export interface CharacterDraft {
    * wizard opened, so a background refetch can't reshuffle the option grids
    * mid-build; creating homebrew inline is the one sanctioned refresh.
    *
-   * `classes` remains the authority on which classes exist and what hit die
-   * each has. The other three are the same idea for races, backgrounds and
-   * starting kits, and they are held here rather than looked up globally so
-   * every derived helper below stays a pure function of the draft.
+   * `kits` is the class list: a kit is the whole definition of a class, hit die
+   * included. They are held here rather than looked up globally so every
+   * derived helper below stays a pure function of the draft.
    */
-  classes: Array<ClassInfo>
   races: Array<RaceInfo>
   backgrounds: Array<BackgroundInfo>
   kits: Array<ClassKit>
@@ -89,14 +88,14 @@ export interface CharacterDraft {
 export function emptyDraft(
   classesOrTables: Array<ClassInfo> | Tables = SRD_TABLES,
 ): CharacterDraft {
-  // Accepts a bare class list for the callers that predate the other three
-  // tables; everything else passes the merged Tables object.
+  // Still accepts a bare class list, which is what a legacy world and most of
+  // the tests hand over; those classes become kits with no starting gear, which
+  // is precisely what they meant.
   const tables: Tables = Array.isArray(classesOrTables)
-    ? { ...SRD_TABLES, classes: classesOrTables }
+    ? { ...SRD_TABLES, kits: classesOrTables.map(kitFromClassInfo) }
     : classesOrTables
   return {
     name: '',
-    classes: tables.classes,
     races: tables.races,
     backgrounds: tables.backgrounds,
     kits: tables.kits,
@@ -151,11 +150,22 @@ export function draftKit(draft: CharacterDraft) {
   return findKit(draft.kits, draft.className)
 }
 
-/** The class as the *world* defines it — the authority on hit die. */
+/**
+ * The chosen class in the shape the sheet-facing code wants. Derived from the
+ * kit, which *is* the class now — kept as its own helper because callers only
+ * want the hit die and the subclass label, and shouldn't have to know a kit
+ * carries a whole starting inventory too.
+ */
 export function draftClassInfo(draft: CharacterDraft): ClassInfo | undefined {
-  const name = draft.className.trim().toLowerCase()
-  if (!name) return undefined
-  return draft.classes.find((c) => c.name.trim().toLowerCase() === name)
+  const kit = draftKit(draft)
+  if (!kit) return undefined
+  return {
+    id: kit.id,
+    name: kit.name,
+    hitDie: kit.hitDie,
+    subclassLabel: kit.subclassLabel,
+    subclasses: kit.subclasses,
+  }
 }
 
 /**

@@ -2,11 +2,13 @@
  * Level 1 starting kits for the twelve SRD 5.1 classes (CC BY 4.0 — see
  * ./index.ts).
  *
- * A kit is keyed by *name* against the world's own class list, never the other
- * way round: `useClasses(worldId)` decides which classes exist and what hit die
- * each has, and this file only fills in a starting kit for the names it
- * recognises. A homebrew class gets no kit, and the wizard says so plainly
- * rather than pretending.
+ * A kit is the *whole* definition of a class — hit die and subclasses for the
+ * character sheet, starting gear and features for the creation wizard. These
+ * were two separate tables once, joined by name; they are one now, so a class
+ * is edited in one place and travels as one thing.
+ *
+ * A class the tables don't know still works: `Character.class` is free text,
+ * and the sheet falls back to a d8 with a generic subclass label.
  *
  * Level 1 only, by design. No per-level feature tables, no slot progression —
  * see the header of lib/classes.ts. Features listed here are the ones gained at
@@ -45,6 +47,9 @@ export const SRD_CLASS_KITS: Array<ClassKit> = [
   {
     id: 'barbarian',
     name: 'Barbarian',
+    hitDie: 12,
+    subclassLabel: 'Primal Path',
+    subclasses: ['Path of the Berserker', 'Path of the Totem Warrior'],
     saves: ['str', 'con'],
     unarmoredDefense: 'con',
     abilityPriority: ['str', 'con', 'dex', 'wis', 'cha', 'int'],
@@ -154,6 +159,9 @@ export const SRD_CLASS_KITS: Array<ClassKit> = [
   {
     id: 'bard',
     name: 'Bard',
+    hitDie: 8,
+    subclassLabel: 'Bard College',
+    subclasses: ['College of Lore', 'College of Valor'],
     saves: ['dex', 'cha'],
     subclassAtLevel1: false,
     abilityPriority: ['cha', 'dex', 'con', 'wis', 'int', 'str'],
@@ -257,6 +265,17 @@ export const SRD_CLASS_KITS: Array<ClassKit> = [
   {
     id: 'cleric',
     name: 'Cleric',
+    hitDie: 8,
+    subclassLabel: 'Divine Domain',
+    subclasses: [
+      'Knowledge Domain',
+      'Life Domain',
+      'Light Domain',
+      'Nature Domain',
+      'Tempest Domain',
+      'Trickery Domain',
+      'War Domain',
+    ],
     saves: ['wis', 'cha'],
     subclassAtLevel1: true,
     abilityPriority: ['wis', 'con', 'str', 'cha', 'dex', 'int'],
@@ -366,6 +385,9 @@ export const SRD_CLASS_KITS: Array<ClassKit> = [
   {
     id: 'druid',
     name: 'Druid',
+    hitDie: 8,
+    subclassLabel: 'Druid Circle',
+    subclasses: ['Circle of the Land', 'Circle of the Moon'],
     saves: ['int', 'wis'],
     abilityPriority: ['wis', 'con', 'dex', 'int', 'cha', 'str'],
     skillChoices: {
@@ -479,6 +501,9 @@ export const SRD_CLASS_KITS: Array<ClassKit> = [
   {
     id: 'fighter',
     name: 'Fighter',
+    hitDie: 10,
+    subclassLabel: 'Martial Archetype',
+    subclasses: ['Champion', 'Battle Master', 'Eldritch Knight'],
     saves: ['str', 'con'],
     abilityPriority: ['str', 'con', 'dex', 'wis', 'cha', 'int'],
     skillChoices: {
@@ -621,6 +646,13 @@ export const SRD_CLASS_KITS: Array<ClassKit> = [
   {
     id: 'monk',
     name: 'Monk',
+    hitDie: 8,
+    subclassLabel: 'Monastic Tradition',
+    subclasses: [
+      'Way of the Open Hand',
+      'Way of Shadow',
+      'Way of the Four Elements',
+    ],
     saves: ['str', 'dex'],
     unarmoredDefense: 'wis',
     abilityPriority: ['dex', 'wis', 'con', 'str', 'cha', 'int'],
@@ -715,6 +747,13 @@ export const SRD_CLASS_KITS: Array<ClassKit> = [
   {
     id: 'paladin',
     name: 'Paladin',
+    hitDie: 10,
+    subclassLabel: 'Sacred Oath',
+    subclasses: [
+      'Oath of Devotion',
+      'Oath of the Ancients',
+      'Oath of Vengeance',
+    ],
     saves: ['wis', 'cha'],
     abilityPriority: ['str', 'cha', 'con', 'wis', 'dex', 'int'],
     skillChoices: {
@@ -837,6 +876,9 @@ export const SRD_CLASS_KITS: Array<ClassKit> = [
   {
     id: 'ranger',
     name: 'Ranger',
+    hitDie: 10,
+    subclassLabel: 'Ranger Archetype',
+    subclasses: ['Hunter', 'Beast Master'],
     saves: ['str', 'dex'],
     abilityPriority: ['dex', 'wis', 'con', 'str', 'int', 'cha'],
     skillChoices: {
@@ -936,6 +978,9 @@ export const SRD_CLASS_KITS: Array<ClassKit> = [
   {
     id: 'rogue',
     name: 'Rogue',
+    hitDie: 8,
+    subclassLabel: 'Roguish Archetype',
+    subclasses: ['Thief', 'Assassin', 'Arcane Trickster'],
     saves: ['dex', 'int'],
     abilityPriority: ['dex', 'con', 'wis', 'cha', 'int', 'str'],
     skillChoices: {
@@ -1032,6 +1077,9 @@ export const SRD_CLASS_KITS: Array<ClassKit> = [
   {
     id: 'sorcerer',
     name: 'Sorcerer',
+    hitDie: 6,
+    subclassLabel: 'Sorcerous Origin',
+    subclasses: ['Draconic Bloodline', 'Wild Magic'],
     saves: ['con', 'cha'],
     subclassAtLevel1: true,
     abilityPriority: ['cha', 'con', 'dex', 'wis', 'int', 'str'],
@@ -1132,6 +1180,9 @@ export const SRD_CLASS_KITS: Array<ClassKit> = [
   {
     id: 'warlock',
     name: 'Warlock',
+    hitDie: 8,
+    subclassLabel: 'Otherworldly Patron',
+    subclasses: ['The Archfey', 'The Fiend', 'The Great Old One'],
     saves: ['wis', 'cha'],
     subclassAtLevel1: true,
     abilityPriority: ['cha', 'con', 'dex', 'wis', 'int', 'str'],
@@ -1239,6 +1290,18 @@ export const SRD_CLASS_KITS: Array<ClassKit> = [
   {
     id: 'wizard',
     name: 'Wizard',
+    hitDie: 6,
+    subclassLabel: 'Arcane Tradition',
+    subclasses: [
+      'School of Abjuration',
+      'School of Conjuration',
+      'School of Divination',
+      'School of Enchantment',
+      'School of Evocation',
+      'School of Illusion',
+      'School of Necromancy',
+      'School of Transmutation',
+    ],
     saves: ['int', 'wis'],
     abilityPriority: ['int', 'con', 'dex', 'wis', 'cha', 'str'],
     skillChoices: {

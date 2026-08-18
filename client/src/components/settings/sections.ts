@@ -1,5 +1,4 @@
-import { BookOpen, Library, Pencil, Sparkles } from 'lucide-react'
-import { ClassesSection } from './ClassesSection'
+import { Library, Pencil, Sparkles } from 'lucide-react'
 import { EditorSection } from './EditorSection'
 import { LibrarySection } from './LibrarySection'
 import { HomebrewSection } from './homebrew/HomebrewSection'
@@ -32,20 +31,13 @@ export const SETTINGS_SECTIONS: Array<SettingsSection> = [
     blurb: 'How articles open for editing.',
     Component: EditorSection,
   },
-  {
-    id: 'classes',
-    label: 'Classes',
-    icon: BookOpen,
-    blurb: 'Homebrew classes offered on character sheets.',
-    Component: ClassesSection,
-  },
   // These last two are the odd ones out: app-wide rather than per-world, so
   // they don't belong among the settings this world saves for itself.
   {
     id: 'homebrew',
     label: 'Homebrew',
     icon: Sparkles,
-    blurb: 'Races, backgrounds and class kits, shared by every world.',
+    blurb: 'Races, classes and backgrounds, shared by every world.',
     Component: HomebrewSection,
   },
   {

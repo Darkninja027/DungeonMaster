@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Plus, Save, Trash2 } from 'lucide-react'
 import type { Homebrew } from '#/lib/homebrew'
 import { useHomebrew, useSaveHomebrew, useTables } from '#/lib/useHomebrew'
+import { SRD_TABLES } from '#/lib/tables'
 import { Button } from '#/components/ui/button'
 import { cn } from '#/lib/utils'
 import { BackgroundEditor, blankBackground } from './BackgroundEditor'
@@ -17,14 +18,14 @@ const TABS: Array<{ id: Tab; label: string; blurb: string }> = [
     blurb: 'Ability increases, speed, traits and subraces.',
   },
   {
+    id: 'kits',
+    label: 'Classes',
+    blurb: 'Hit die, subclasses, and what the class starts with.',
+  },
+  {
     id: 'backgrounds',
     label: 'Backgrounds',
     blurb: 'Skills, equipment and a feature.',
-  },
-  {
-    id: 'kits',
-    label: 'Class kits',
-    blurb: 'What a class starts with at 1st level.',
   },
 ]
 
@@ -67,6 +68,9 @@ export function HomebrewSection({ worldId }: { worldId: string }) {
 
   const list = homebrew[tab]
   const current = list.at(selected)
+  // How many built-ins this tab sits on top of, so the empty state can say
+  // that overriding one is a thing you can do at all.
+  const srdCount = SRD_TABLES[tab].length
 
   const patchList = (next: Array<unknown>) => {
     setDraft({ ...homebrew, [tab]: next })
@@ -178,7 +182,10 @@ export function HomebrewSection({ worldId }: { worldId: string }) {
             ))}
             {list.length === 0 && (
               <p className="text-muted-foreground p-2 text-xs">
-                Nothing yet. The SRD entries are always offered regardless.
+                Nothing yet. The {srdCount} built-in{' '}
+                {tab === 'kits' ? 'classes' : tab} are always offered — add one
+                here to invent your own, or give it an existing name to override
+                it.
               </p>
             )}
           </div>
@@ -207,7 +214,7 @@ export function HomebrewSection({ worldId }: { worldId: string }) {
           ) : (
             <ClassKitEditor
               kit={homebrew.kits[selected]}
-              classNames={tables.classes.map((c) => c.name)}
+              classNames={tables.kits.map((k) => k.name)}
               onChange={replace}
             />
           )}

@@ -236,15 +236,31 @@ export interface SpellcastingInfo {
 }
 
 /**
- * A class's level 1 starting kit. Keyed by name against the *world's* class
- * list, not the other way around: `useClasses(worldId)` decides which classes
- * exist and what hit die they have, and this only fills in a kit for the ones
- * it recognises. A homebrew class simply has no kit.
+ * A class: what it is, and what it starts with.
+ *
+ * This is the *whole* definition. It used to be split in two — a per-world
+ * `ClassInfo` (name, hit die, subclasses) that the character sheet read, and a
+ * global kit that only the creation wizard read — which meant a homebrew class
+ * travelled with a world folder while its starting gear did not, and you edited
+ * one class in two places. They were always joined by name anyway.
+ *
+ * `hitDie` / `subclassLabel` / `subclasses` are the three fields the sheet
+ * needs; everything else is creation-time. A class the tables don't know still
+ * works on a sheet — `Character.class` is free text, and always was.
  */
 export interface ClassKit {
   id: string
-  /** Must match a `PHB_CLASSES` name so the shipped defaults line up. */
   name: string
+  /** Hit die size, e.g. 10 for a d10. Read by the sheet, not just the wizard. */
+  hitDie: number
+  /**
+   * What this class calls its subclass choice — "Sacred Oath" for a paladin,
+   * "Otherworldly Patron" for a warlock. Used as the subclass field's
+   * placeholder so the prompt matches the class you picked.
+   */
+  subclassLabel: string
+  /** Subclass names, no rules text. Offered as suggestions, never enforced. */
+  subclasses: Array<string>
   saves: Array<Ability>
   /** The class's skill list and how many to choose from it. */
   skillChoices: PickList

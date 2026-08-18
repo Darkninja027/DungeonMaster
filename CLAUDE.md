@@ -86,11 +86,21 @@ than a mechanism on purpose. `srd.test.ts` asserts data integrity — every skil
 id real, every `PickList.id` globally unique — because a transcription error
 here is silent: a mistyped skill just vanishes when the sheet parses it back.
 
+A `ClassKit` is the **whole definition of a class** — hit die and subclasses for
+the character sheet, starting gear and features for the wizard. These were two
+tables once (`ClassInfo` per-world, kits global, joined by name); they were
+merged so a class is edited in one place and travels as one thing. `ClassInfo`
+survives only as the shape `classesFrom(tables)` hands the sheet, and as the
+legacy `worldSettings.classes` key, which `mergeTables` folds into kits at read
+time. **A world file is never rewritten just because it was opened**, so an old
+world keeps its `classes` key and an older build opening the same folder still
+finds what it expects.
+
 Since v1.4.x the tables are **user-extensible**. `lib/homebrew.ts` parses
 `homebrew.json` from the app's userData folder (global — shared by every world,
 written by `electron/main/homebrew.ts`), and `worldSettings.json` gained
-optional `races`/`backgrounds`/`kits` beside `classes` (per-world, and the only
-tier that travels with a world folder). `lib/tables.ts` merges the three:
+optional `races`/`backgrounds`/`kits` beside the legacy `classes` (per-world,
+and the only tier that travels with a world folder). `lib/tables.ts` merges the three:
 **world > global > SRD**, matched case-insensitively on name, so overriding a
 built-in replaces it in place rather than duplicating it.
 

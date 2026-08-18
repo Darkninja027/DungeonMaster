@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { PHB_CLASSES } from './classes'
+import { SRD_TABLES } from './tables'
 import type { ClassInfo } from './classes'
 import {
   canAdvance,
@@ -36,11 +37,13 @@ function manual(
 }
 
 describe('emptyDraft', () => {
-  it('starts blank with the world class list attached', () => {
+  it('starts blank with the class list attached as kits', () => {
     const draft = emptyDraft(PHB_CLASSES)
     expect(draft.name).toBe('')
     expect(draft.raceName).toBe('')
-    expect(draft.classes).toBe(PHB_CLASSES)
+    expect(draft.kits.map((k) => k.name)).toEqual(
+      PHB_CLASSES.map((c) => c.name),
+    )
     expect(draft.picks).toEqual({})
     expect(draft.equipment).toEqual({})
   })
@@ -173,12 +176,12 @@ describe('grantedSkills', () => {
 
 describe('draftPickLists', () => {
   it('includes the class skill choice', () => {
-    const draft = { ...emptyDraft(PHB_CLASSES), className: 'Cleric' }
+    const draft = { ...emptyDraft(SRD_TABLES), className: 'Cleric' }
     expect(draftPickLists(draft).map((p) => p.id)).toContain('cleric-skills')
   })
 
   it('adds picks nested inside a chosen equipment option', () => {
-    const base = { ...emptyDraft(PHB_CLASSES), className: 'Barbarian' }
+    const base = { ...emptyDraft(SRD_TABLES), className: 'Barbarian' }
     // Option 0 is a fixed greataxe — no nested pick.
     const fixed = { ...base, equipment: { 'barbarian-weapon-1': 0 } }
     expect(draftPickLists(fixed).map((p) => p.id)).not.toContain(
@@ -195,7 +198,7 @@ describe('draftPickLists', () => {
 describe('pickSatisfied', () => {
   it('requires exactly the requested count', () => {
     const draft = {
-      ...emptyDraft(PHB_CLASSES),
+      ...emptyDraft(SRD_TABLES),
       className: 'Cleric',
       picks: { 'cleric-skills': ['medicine'] },
     }
@@ -211,12 +214,12 @@ describe('pickSatisfied', () => {
 
 describe('stepsFor', () => {
   it('omits the spells step for a non-caster', () => {
-    const draft = { ...emptyDraft(PHB_CLASSES), className: 'Fighter' }
+    const draft = { ...emptyDraft(SRD_TABLES), className: 'Fighter' }
     expect(stepsFor(draft)).not.toContain('spells')
   })
 
   it('includes the spells step for a caster', () => {
-    const draft = { ...emptyDraft(PHB_CLASSES), className: 'Wizard' }
+    const draft = { ...emptyDraft(SRD_TABLES), className: 'Wizard' }
     expect(stepsFor(draft)).toContain('spells')
   })
 
@@ -271,7 +274,7 @@ describe('canAdvance', () => {
 
   it('gates skills on every non-weapon pick being satisfied', () => {
     const base = manual({
-      ...emptyDraft(PHB_CLASSES),
+      ...emptyDraft(SRD_TABLES),
       className: 'Cleric',
       backgroundName: 'Acolyte',
       raceName: 'Half-Orc',
@@ -289,7 +292,7 @@ describe('canAdvance', () => {
 
   it('gates equipment on every choice and weapon pick', () => {
     const base = manual({
-      ...emptyDraft(PHB_CLASSES),
+      ...emptyDraft(SRD_TABLES),
       className: 'Barbarian',
     })
     expect(canAdvance(base, 'equipment')).toBe(false)
@@ -317,7 +320,7 @@ describe('canAdvance', () => {
   })
 
   it('gates spells on the exact known counts', () => {
-    const base = { ...emptyDraft(PHB_CLASSES), className: 'Wizard' }
+    const base = { ...emptyDraft(SRD_TABLES), className: 'Wizard' }
     expect(canAdvance(base, 'spells')).toBe(false)
     const filled = {
       ...base,

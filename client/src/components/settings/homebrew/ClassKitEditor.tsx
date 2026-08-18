@@ -1,5 +1,5 @@
 import { Plus, X } from 'lucide-react'
-import { ABILITIES } from '#/lib/character'
+import { ABILITIES, HIT_DIE_SIZES } from '#/lib/character'
 import type { Ability } from '#/lib/character'
 import type { ClassKit, EquipmentChoice } from '#/lib/srd'
 import { homebrewId } from '#/lib/homebrew'
@@ -12,6 +12,9 @@ export function blankKit(): ClassKit {
   return {
     id: '',
     name: '',
+    hitDie: 8,
+    subclassLabel: 'Subclass',
+    subclasses: [],
     saves: [],
     skillChoices: {
       id: '',
@@ -47,7 +50,7 @@ export function ClassKitEditor({
   onChange: (next: ClassKit) => void
 }) {
   const patch = (changes: Partial<ClassKit>) => onChange({ ...kit, ...changes })
-  const matchesClass = classNames.some(
+  const overrides = classNames.some(
     (n) => n.trim().toLowerCase() === kit.name.trim().toLowerCase(),
   )
 
@@ -60,7 +63,7 @@ export function ClassKitEditor({
 
   return (
     <div className="space-y-3">
-      <Field label="Class name" hint="Must match a class in the list">
+      <Field label="Class name">
         <Input
           value={kit.name}
           list="homebrew-kit-classes"
@@ -70,18 +73,53 @@ export function ClassKitEditor({
             patch({ name: e.target.value, id: homebrewId(e.target.value) })
           }
         />
+        {/*
+          Existing names as suggestions, so typing one deliberately overrides
+          it rather than creating a confusing near-duplicate.
+        */}
         <datalist id="homebrew-kit-classes">
           {classNames.map((name) => (
             <option key={name} value={name} />
           ))}
         </datalist>
-        {kit.name.trim() !== '' && !matchesClass && (
-          <p className="text-xs text-amber-600 dark:text-amber-500">
-            No class called &ldquo;{kit.name}&rdquo; — add it under Classes, or
-            this kit will never be used.
+        {overrides && (
+          <p className="text-muted-foreground text-xs">
+            Overrides the existing {kit.name.trim()}.
           </p>
         )}
       </Field>
+
+      <div className="flex flex-wrap gap-3">
+        <Field label="Hit die">
+          <select
+            value={String(kit.hitDie)}
+            className="border-input bg-background h-8 rounded-md border px-2 text-sm"
+            onChange={(e) => patch({ hitDie: Number(e.target.value) })}
+          >
+            {HIT_DIE_SIZES.map((size) => (
+              <option key={size} value={size}>
+                d{size}
+              </option>
+            ))}
+          </select>
+        </Field>
+
+        <Field label="Subclass label" hint="What this class calls its subclass">
+          <Input
+            value={kit.subclassLabel}
+            placeholder="Martial Archetype"
+            className="h-8 w-48"
+            onChange={(e) => patch({ subclassLabel: e.target.value })}
+          />
+        </Field>
+      </div>
+
+      <TokenField
+        label="Subclasses"
+        placeholder="Champion"
+        values={kit.subclasses}
+        onChange={(subclasses) => patch({ subclasses })}
+      />
 
       <Field label="Skill choice" hint="The class's own skill list">
         <div className="flex items-center gap-1.5">

@@ -1,6 +1,5 @@
 import type { CharacterDraft } from '#/lib/characterDraft'
 import { draftClassInfo, draftKit } from '#/lib/characterDraft'
-import { subclassesFor } from '#/lib/classes'
 import { Input } from '#/components/ui/input'
 import { Label } from '#/components/ui/label'
 import { OptionCard } from '../OptionCard'
@@ -14,7 +13,18 @@ export function ClassStep({
 }) {
   const kit = draftKit(draft)
   const classInfo = draftClassInfo(draft)
-  const subclasses = subclassesFor(draft.classes, draft.className)
+  const subclasses = classInfo?.subclasses ?? []
+  /**
+   * Whether the class brings anything to creation beyond a hit die. A legacy
+   * class carries only the three sheet fields, so its kit is otherwise empty.
+   */
+  const hasStartingKit = Boolean(
+    kit &&
+    (kit.saves.length > 0 ||
+      kit.equipment.length > 0 ||
+      kit.features.length > 0 ||
+      kit.skillChoices.options.length > 0),
+  )
 
   const chooseClass = (name: string) => {
     // Class-scoped choices belong to the class being replaced.
@@ -44,7 +54,7 @@ export function ClassStep({
       <div>
         <h3 className="mb-2 text-sm font-medium">Class</h3>
         <div className="grid grid-cols-2 gap-2 lg:grid-cols-3">
-          {draft.classes.map((option) => (
+          {draft.kits.map((option) => (
             <OptionCard
               key={option.id}
               title={option.name}
@@ -69,14 +79,20 @@ export function ClassStep({
         />
       </div>
 
-      {draft.className && !kit && (
+      {/*
+        A class with no starting gear — a legacy per-world class, or one typed
+        by hand. Tested on the kit's *contents*, not on the kit existing: since
+        classes and kits merged, a legacy class does have a kit, just an empty
+        one, and gating on `!kit` silently showed nothing at all.
+      */}
+      {draft.className && !hasStartingKit && (
         <p className="text-muted-foreground rounded-md border border-dashed p-3 text-sm">
           <strong className="text-foreground">
             No starting kit for {draft.className}.
           </strong>{' '}
-          {classInfo
-            ? `Its d${classInfo.hitDie} hit die is used, but you'll pick saving throws, proficiencies and equipment on the sheet.`
-            : 'It isn’t in this world’s class list either, so it gets a d8 hit die. Add it in world settings to change that.'}
+          {kit
+            ? `Its d${kit.hitDie} hit die is used, but you'll pick saving throws, proficiencies and equipment on the sheet.`
+            : 'It isn’t in the class list either, so it gets a d8 hit die. Add it under Settings → Homebrew → Classes to change that.'}
         </p>
       )}
 
@@ -106,14 +122,14 @@ export function ClassStep({
         </div>
       )}
 
-      {kit && kit.subclassAtLevel1 !== true && (
+      {hasStartingKit && kit && kit.subclassAtLevel1 !== true && (
         <p className="text-muted-foreground text-sm">
           A {kit.name} chooses their{' '}
           {classInfo?.subclassLabel.toLowerCase() ?? 'subclass'} at 3rd level.
         </p>
       )}
 
-      {kit && (
+      {hasStartingKit && kit && (
         <div className="text-muted-foreground space-y-1 text-sm">
           <h4 className="text-foreground text-sm font-medium">
             What a {kit.name} starts with

@@ -1,6 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from './api'
-import type { ClassInfo } from './classes'
 import {
   DEFAULT_SETTINGS,
   SETTINGS_VERSION,
@@ -31,19 +30,6 @@ export function useWorldSettings(worldId: string) {
     // would suppress the fetch on remount.
     placeholderData: DEFAULT_SETTINGS,
   })
-}
-
-/**
- * The world's class list, falling back to the built-in PHB list while the file
- * loads or when it can't be read.
- *
- * The fallback isn't cosmetic. Picking a class sets the character's hit die from
- * this list, so an empty list mid-flight would silently leave the die wrong —
- * defaulting to the built-ins makes the pre-load behaviour identical to having
- * no world settings at all.
- */
-export function useClasses(worldId: string): Array<ClassInfo> {
-  return useWorldSettings(worldId).data?.classes ?? DEFAULT_SETTINGS.classes
 }
 
 /**
@@ -100,5 +86,10 @@ export function useWorldSettingsSection(worldId: string) {
     )
   }
 
-  return { settings: loaded, patch, isPending: save.isPending, error: save.error }
+  return {
+    settings: loaded,
+    patch,
+    isPending: save.isPending,
+    error: save.error,
+  }
 }

@@ -46,8 +46,15 @@ export interface Homebrew {
   version: number
   races: Array<RaceInfo>
   backgrounds: Array<BackgroundInfo>
+  /** Classes. A kit is the whole definition — hit die and subclasses included. */
   kits: Array<ClassKit>
-  classes: Array<ClassInfo>
+  /**
+   * Legacy class list, from files written while classes and kits were separate
+   * tables. Still read and re-written so an older build opening the same file
+   * finds what it expects, and folded into `kits` by `mergeTables`. Nothing
+   * writes new entries here.
+   */
+  classes?: Array<ClassInfo>
 }
 
 export const EMPTY_HOMEBREW: Homebrew = {
@@ -55,7 +62,6 @@ export const EMPTY_HOMEBREW: Homebrew = {
   races: [],
   backgrounds: [],
   kits: [],
-  classes: [],
 }
 
 // --- shared coercion (same shapes as worldSettings.ts) ----------------------
@@ -415,6 +421,13 @@ export function parseKit(raw: unknown): ClassKit | null {
   const kit: ClassKit = {
     id,
     name,
+    // A kit is the whole class now, so it carries the three fields the sheet
+    // reads. Deliberately *not* clampHitDie: that snaps to the nearest real die,
+    // which is right for a character sheet field (a d7 is a typo) but wrong
+    // here, where the user has defined the class and a d7 class is their call.
+    hitDie: int(r.hitDie, 8, 2, 100),
+    subclassLabel: str(r.subclassLabel).trim() || 'Subclass',
+    subclasses: cleanList(strList(r.subclasses)),
     saves: [...new Set(saves)],
     skillChoices: { ...skillChoices, kind: 'skill' },
     grant: parseGrant(r.grant, id),
@@ -488,7 +501,8 @@ export function parseHomebrew(raw: unknown): Homebrew {
     races: list(r.races, parseRace),
     backgrounds: list(r.backgrounds, parseBackground),
     kits: list(r.kits, parseKit),
-    classes: list(r.classes, parseClass),
+    // Only carried when the file has one; nothing writes a new legacy list.
+    ...(Array.isArray(r.classes) && { classes: list(r.classes, parseClass) }),
   }
 }
 
@@ -538,6 +552,8 @@ export function serializeHomebrew(homebrew: Homebrew): unknown {
         })),
       }),
     ),
-    classes: homebrew.classes.map(({ id: _id, ...cl }) => cl),
+    ...(homebrew.classes && {
+      classes: homebrew.classes.map(({ id: _id, ...cl }) => cl),
+    }),
   }
 }

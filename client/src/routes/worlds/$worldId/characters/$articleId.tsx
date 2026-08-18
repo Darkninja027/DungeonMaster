@@ -15,7 +15,8 @@ import { REVEAL_LABEL, revealer } from '#/lib/reveal'
 import { parseCharacter, serializeCharacter, setLevel } from '#/lib/character'
 import type { Character } from '#/lib/character'
 import { findClass, subclassLabelFor, subclassesFor } from '#/lib/classes'
-import { useClasses } from '#/lib/useWorldSettings'
+import { classesFrom } from '#/lib/tables'
+import { useTables } from '#/lib/useHomebrew'
 import { exportPdf } from '#/lib/exportPdf'
 import { useShortcut } from '#/lib/useShortcut'
 import { useArticleEditorSave } from '#/lib/useArticleEditorSave'
@@ -57,7 +58,10 @@ function CharacterPage() {
   })
   // This world's own class list, from its worldSettings.json — homebrew included.
   // Must stay above the early return below: hook order can't be conditional.
-  const classes = useClasses(worldId)
+  // Classes come from the merged tables now: SRD kits, plus global homebrew,
+  // plus this world's own. The sheet only wants a hit die and the subclass
+  // suggestions, which is exactly what classesFrom hands back.
+  const classes = classesFrom(useTables(worldId))
 
   const [title, setTitle] = useState('')
   const [character, setCharacter] = useState<Character | null>(null)

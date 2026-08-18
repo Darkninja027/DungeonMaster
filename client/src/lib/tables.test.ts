@@ -3,6 +3,7 @@ import { PHB_CLASSES } from './classes'
 import { EMPTY_HOMEBREW, parseHomebrew } from './homebrew'
 import {
   SRD_TABLES,
+  classesFrom,
   findBackground,
   findKit,
   findRace,
@@ -25,8 +26,9 @@ describe('mergeTables', () => {
     expect(tables.kits.map((k) => k.name)).toEqual(
       SRD_CLASS_KITS.map((k) => k.name),
     )
-    expect(tables.classes.map((c) => c.name)).toEqual(
-      PHB_CLASSES.map((c) => c.name),
+    // Kits are the class list now, so every PHB class must be present as one.
+    expect(classesFrom(tables).map((c) => c.name)).toEqual(
+      SRD_CLASS_KITS.map((k) => k.name),
     )
   })
 
@@ -86,16 +88,60 @@ describe('mergeTables', () => {
     expect(findBackground(tables.backgrounds, 'Acolyte')?.summary).toBe('Mine')
     expect(tables.backgrounds).toHaveLength(SRD_BACKGROUNDS.length + 1)
     expect(findKit(tables.kits, 'Warden')).toBeDefined()
-    expect(tables.classes.at(-1)?.name).toBe('Blood Hunter')
-    expect(tables.classes.at(-1)?.hitDie).toBe(10)
+    expect(tables.kits.at(-1)?.name).toBe('Blood Hunter')
+    expect(tables.kits.at(-1)?.hitDie).toBe(10)
   })
 
-  it('a world class list still works exactly as it did before homebrew', () => {
-    // Regression guard: worldSettings.classes predates all of this.
+  it('a legacy world class list still overrides, exactly as it did before', () => {
+    // Regression guard: worldSettings.classes predates kits, and a world file
+    // written by an older build must keep working without being rewritten.
     const world = { classes: [{ ...PHB_CLASSES[0], hitDie: 6 }] }
     const tables = mergeTables(EMPTY_HOMEBREW, world)
-    expect(tables.classes).toHaveLength(PHB_CLASSES.length)
-    expect(tables.classes[0].hitDie).toBe(6)
+    expect(tables.kits).toHaveLength(SRD_CLASS_KITS.length)
+    expect(findKit(tables.kits, PHB_CLASSES[0].name)?.hitDie).toBe(6)
+  })
+
+  it('a legacy class becomes a kit with no starting gear', () => {
+    // Which is exactly what it meant: it never carried any.
+    const world = {
+      classes: [
+        {
+          id: 'blood-hunter',
+          name: 'Blood Hunter',
+          hitDie: 10,
+          subclassLabel: 'Order',
+          subclasses: ['Order of the Ghostslayer'],
+        },
+      ],
+    }
+    const kit = findKit(mergeTables(EMPTY_HOMEBREW, world).kits, 'Blood Hunter')
+    expect(kit?.hitDie).toBe(10)
+    expect(kit?.subclasses).toEqual(['Order of the Ghostslayer'])
+    expect(kit?.saves).toEqual([])
+    expect(kit?.equipment).toEqual([])
+    expect(kit?.features).toEqual([])
+  })
+
+  it('a world kit beats a legacy world class of the same name', () => {
+    // Both are the world's own, so the richer definition has to win or you
+    // could never upgrade a legacy class in place.
+    const world = {
+      classes: [{ ...PHB_CLASSES[0], hitDie: 6 }],
+      kits: [{ ...SRD_CLASS_KITS[0], hitDie: 12 }],
+    }
+    const tables = mergeTables(EMPTY_HOMEBREW, world)
+    expect(findKit(tables.kits, PHB_CLASSES[0].name)?.hitDie).toBe(12)
+  })
+
+  it('classesFrom exposes only what the sheet needs', () => {
+    const cl = classesFrom(SRD_TABLES).find((c) => c.name === 'Fighter')
+    expect(cl).toEqual({
+      id: 'fighter',
+      name: 'Fighter',
+      hitDie: 10,
+      subclassLabel: 'Martial Archetype',
+      subclasses: ['Champion', 'Battle Master', 'Eldritch Knight'],
+    })
   })
 
   it('ignores entries with a blank name', () => {
@@ -207,5 +253,37 @@ describe('subrace resolution — the shadowing hazard', () => {
 
   it('is keyed case-insensitively', () => {
     expect(findSubrace(SRD_TABLES.races, 'HILL DWARF')?.race.name).toBe('Dwarf')
+  })
+})
+
+describe('kits carry the class fields the sheet needs', () => {
+  it('every SRD kit has a hit die and a subclass label', () => {
+    for (const kit of SRD_CLASS_KITS) {
+      expect(kit.hitDie, kit.name).toBeGreaterThan(0)
+      expect(kit.subclassLabel.length, kit.name).toBeGreaterThan(0)
+    }
+  })
+
+  it('the SRD kits match the PHB class list they absorbed', () => {
+    // Guards the one-off merge: the hit die and subclasses moved from
+    // PHB_CLASSES into the kits, and a transcription slip would be silent.
+    for (const cl of PHB_CLASSES) {
+      const kit = findKit(SRD_CLASS_KITS, cl.name)
+      expect(kit, cl.name).toBeDefined()
+      expect(kit?.hitDie, cl.name).toBe(cl.hitDie)
+      expect(kit?.subclassLabel, cl.name).toBe(cl.subclassLabel)
+      expect(kit?.subclasses, cl.name).toEqual(cl.subclasses)
+    }
+  })
+
+  it('a homebrew class overriding an SRD one replaces its hit die', () => {
+    const global = parseHomebrew({
+      kits: [{ name: 'Fighter', hitDie: 6, subclasses: ['Duellist'] }],
+    })
+    const kit = findKit(mergeTables(global).kits, 'Fighter')
+    expect(kit?.hitDie).toBe(6)
+    expect(kit?.subclasses).toEqual(['Duellist'])
+    // Replacement, not a merge — the SRD subclasses are gone.
+    expect(kit?.subclasses).not.toContain('Champion')
   })
 })
