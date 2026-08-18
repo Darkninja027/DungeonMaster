@@ -61,14 +61,29 @@ export interface LevelUpDraft {
 }
 
 export interface AsiChoice {
-  kind: 'abilities' | 'feat'
-  /** Ability -> points added. Two points total by RAW. */
+  /**
+   * `abilities` and `feat` are the two RAW options. `both` is the common house
+   * rule — one ability point *and* a feat — offered because plenty of tables
+   * play it that way and the alternative is doing it by hand on the sheet
+   * afterwards.
+   */
+  kind: 'abilities' | 'feat' | 'both'
+  /** Ability -> points added. */
   abilities: Partial<Record<Ability, number>>
   featName: string
 }
 
-/** Points an Ability Score Improvement grants. */
+/** Points a by-the-book Ability Score Improvement grants. */
 export const ASI_POINTS = 2
+
+/** Points the house-rule "+1 and a feat" grants alongside the feat. */
+export const ASI_HYBRID_POINTS = 1
+
+/** How many ability points a given choice expects to place. */
+export function asiPointsFor(kind: AsiChoice['kind']): number {
+  if (kind === 'feat') return 0
+  return kind === 'both' ? ASI_HYBRID_POINTS : ASI_POINTS
+}
 
 /** The average roll a hit die is taken as, when not rolling: half, round up. */
 export function averageHitDie(size: number): number {
@@ -285,7 +300,8 @@ export function mergedAsi(
 ): Partial<Record<Ability, number>> {
   const out: Partial<Record<Ability, number>> = {}
   for (const choice of Object.values(draft.asi)) {
-    if (choice.kind !== 'abilities') continue
+    // `both` raises an ability as well as granting a feat.
+    if (choice.kind === 'feat') continue
     for (const ability of ABILITIES) {
       const points = choice.abilities[ability]
       if (!points) continue
@@ -298,7 +314,7 @@ export function mergedAsi(
 /** Feat names taken via ASI in this level-up, blanks dropped. */
 export function featsTaken(draft: LevelUpDraft): Array<string> {
   return Object.values(draft.asi)
-    .filter((choice) => choice.kind === 'feat')
+    .filter((choice) => choice.kind !== 'abilities')
     .map((choice) => choice.featName.trim())
     .filter(Boolean)
 }
@@ -469,12 +485,13 @@ export function levelUpSteps(draft: LevelUpDraft): Array<LevelUpStepId> {
 
 /** Whether an ASI choice is complete: two points placed, or a feat named. */
 export function asiComplete(choice: AsiChoice): boolean {
-  if (choice.kind === 'feat') return choice.featName.trim() !== ''
+  const needsFeat = choice.kind !== 'abilities'
+  if (needsFeat && choice.featName.trim() === '') return false
   const placed = Object.values(choice.abilities).reduce<number>(
     (sum, n) => sum + n,
     0,
   )
-  return placed === ASI_POINTS
+  return placed === asiPointsFor(choice.kind)
 }
 
 /**

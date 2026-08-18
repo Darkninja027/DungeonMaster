@@ -3,7 +3,9 @@ import { ABILITIES, ABILITY_NAMES, abilityMod } from '#/lib/character'
 import type { Ability, Character } from '#/lib/character'
 import type { AsiChoice, LevelUpDraft } from '#/lib/levelUp'
 import {
+  ASI_HYBRID_POINTS,
   ASI_POINTS,
+  asiPointsFor,
   asiLevelsCrossed,
   averageHitDie,
   cantripsAtLevel,
@@ -272,6 +274,30 @@ export function AsiStep({
 }) {
   const levels = asiLevelsCrossed(draft.from, draft.to, draft.kit)
 
+  /**
+   * Switching kind re-budgets the points already placed. Going from two points
+   * to the house rule's one has to drop something, and silently keeping both
+   * would leave the step gated on a total it no longer accepts — so trim from
+   * the end and let the player re-place.
+   */
+  const setKind = (level: number, kind: AsiChoice['kind']) => {
+    const current = draft.asi[level] ?? {
+      kind: 'abilities' as const,
+      abilities: {},
+      featName: '',
+    }
+    const budget = asiPointsFor(kind)
+    const abilities: Partial<Record<Ability, number>> = {}
+    let spent = 0
+    for (const [ability, points] of Object.entries(current.abilities)) {
+      const room = Math.min(points, budget - spent)
+      if (room <= 0) continue
+      abilities[ability as Ability] = room
+      spent += room
+    }
+    patch(level, { kind, abilities })
+  }
+
   const patch = (level: number, changes: Partial<AsiChoice>) =>
     onChange({
       ...draft,
@@ -313,35 +339,41 @@ export function AsiStep({
               <h3 className="text-sm font-medium">
                 Level {level} — Ability Score Improvement
               </h3>
-              {choice.kind === 'abilities' && (
+              {choice.kind !== 'feat' && (
                 <span
                   className={
-                    placed === ASI_POINTS
+                    placed === asiPointsFor(choice.kind)
                       ? 'text-muted-foreground text-xs'
                       : 'text-xs font-medium text-amber-600 dark:text-amber-500'
                   }
                 >
-                  {placed} / {ASI_POINTS}
+                  {placed} / {asiPointsFor(choice.kind)}
                 </span>
               )}
             </div>
 
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
               <OptionCard
                 title="Raise ability scores"
                 description={`Add ${ASI_POINTS} points, split as you like.`}
                 selected={choice.kind === 'abilities'}
-                onSelect={() => patch(level, { kind: 'abilities' })}
+                onSelect={() => setKind(level, 'abilities')}
               />
               <OptionCard
                 title="Take a feat"
                 description="Type its name; note the details on the sheet."
                 selected={choice.kind === 'feat'}
-                onSelect={() => patch(level, { kind: 'feat' })}
+                onSelect={() => setKind(level, 'feat')}
+              />
+              <OptionCard
+                title={`+${ASI_HYBRID_POINTS} and a feat`}
+                description="A common house rule — one point and a feat."
+                selected={choice.kind === 'both'}
+                onSelect={() => setKind(level, 'both')}
               />
             </div>
 
-            {choice.kind === 'abilities' ? (
+            {choice.kind !== 'feat' && (
               <div className="flex flex-wrap gap-2">
                 {ABILITIES.map((ability) => {
                   const points = choice.abilities[ability] ?? 0
@@ -380,7 +412,7 @@ export function AsiStep({
                       <button
                         type="button"
                         aria-label={`Raise ${ABILITY_NAMES[ability]}`}
-                        disabled={placed >= ASI_POINTS || capped}
+                        disabled={placed >= asiPointsFor(choice.kind) || capped}
                         title={capped ? 'Already at 20' : undefined}
                         onClick={() => step(ability, 1)}
                         className="hover:bg-accent flex size-5 items-center justify-center rounded border disabled:opacity-30"
@@ -391,7 +423,9 @@ export function AsiStep({
                   )
                 })}
               </div>
-            ) : (
+            )}
+
+            {choice.kind !== 'abilities' && (
               <Input
                 value={choice.featName}
                 placeholder="e.g. Sharpshooter"

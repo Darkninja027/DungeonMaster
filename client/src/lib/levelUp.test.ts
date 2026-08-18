@@ -10,7 +10,9 @@ import type { Character } from './character'
 import { SRD_TABLES, findKit } from './tables'
 import type { ClassKit } from './srd'
 import {
+  ASI_HYBRID_POINTS,
   ASI_POINTS,
+  asiPointsFor,
   applyLevelUp,
   asiComplete,
   asiLevelsCrossed,
@@ -605,5 +607,107 @@ describe('the draft is a snapshot', () => {
     const twice = applyLevelUp(once, { ...draft, base: once })
     expect(once.level).toBe(3)
     expect(twice.level).toBe(3)
+  })
+})
+
+describe('the "+1 and a feat" house rule', () => {
+  it('budgets one ability point, not two', () => {
+    expect(asiPointsFor('abilities')).toBe(ASI_POINTS)
+    expect(asiPointsFor('both')).toBe(ASI_HYBRID_POINTS)
+    expect(asiPointsFor('feat')).toBe(0)
+  })
+
+  it('needs both the point and the feat name to be complete', () => {
+    const bare = { kind: 'both' as const, abilities: {}, featName: '' }
+    expect(asiComplete(bare)).toBe(false)
+    expect(asiComplete({ ...bare, featName: 'Alert' })).toBe(false)
+    expect(asiComplete({ ...bare, abilities: { str: 1 } })).toBe(false)
+    expect(
+      asiComplete({ ...bare, abilities: { str: 1 }, featName: 'Alert' }),
+    ).toBe(true)
+  })
+
+  it('rejects two points — that is the by-the-book option', () => {
+    expect(
+      asiComplete({
+        kind: 'both',
+        abilities: { str: 2 },
+        featName: 'Alert',
+      }),
+    ).toBe(false)
+  })
+
+  it('applies the ability point and the feat together', () => {
+    const c = characterAt(3, 'Fighter')
+    const after = applyLevelUp(
+      c,
+      draftFor(c, 4, {
+        asi: {
+          4: {
+            kind: 'both',
+            abilities: { con: 1 },
+            featName: 'Tough',
+          },
+        },
+      }),
+    )
+    expect(after.abilities.con).toBe(c.abilities.con + 1)
+    expect(after.feats.map((f) => f.name)).toContain('Tough')
+  })
+
+  it('shows both in the plan', () => {
+    const c = characterAt(3, 'Fighter')
+    const plan = levelUpPlan(
+      c,
+      draftFor(c, 4, {
+        asi: {
+          4: { kind: 'both', abilities: { dex: 1 }, featName: 'Alert' },
+        },
+      }),
+    )
+    expect(plan.abilityIncreases).toEqual({ dex: 1 })
+    expect(plan.featsTaken).toEqual(['Alert'])
+  })
+
+  it('gates the ASI step until both halves are answered', () => {
+    const c = characterAt(3, 'Fighter')
+    const half = draftFor(c, 4, {
+      asi: { 4: { kind: 'both', abilities: { str: 1 }, featName: '' } },
+    })
+    expect(canAdvance(half, 'asi')).toBe(false)
+    const done = draftFor(c, 4, {
+      asi: { 4: { kind: 'both', abilities: { str: 1 }, featName: 'Alert' } },
+    })
+    expect(canAdvance(done, 'asi')).toBe(true)
+  })
+
+  it('still caps the raised ability at 20', () => {
+    const c: Character = {
+      ...characterAt(3, 'Fighter'),
+      abilities: { ...characterAt(3, 'Fighter').abilities, str: 20 },
+    }
+    const after = applyLevelUp(
+      c,
+      draftFor(c, 4, {
+        asi: { 4: { kind: 'both', abilities: { str: 1 }, featName: 'Alert' } },
+      }),
+    )
+    expect(after.abilities.str).toBe(20)
+  })
+
+  it('mixes with a by-the-book ASI across a multi-level jump', () => {
+    const c = characterAt(3, 'Fighter') // ASIs at 4 and 6
+    const after = applyLevelUp(
+      c,
+      draftFor(c, 6, {
+        asi: {
+          4: { kind: 'abilities', abilities: { str: 2 }, featName: '' },
+          6: { kind: 'both', abilities: { con: 1 }, featName: 'Tough' },
+        },
+      }),
+    )
+    expect(after.abilities.str).toBe(c.abilities.str + 2)
+    expect(after.abilities.con).toBe(c.abilities.con + 1)
+    expect(after.feats.map((f) => f.name)).toContain('Tough')
   })
 })
