@@ -370,3 +370,251 @@ function slug(name: string): string {
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
 }
+
+describe('per-level progression', () => {
+  it('every feature is gained at a level between 1 and 20', () => {
+    for (const kit of SRD_CLASS_KITS) {
+      for (const feature of kit.features) {
+        expect(
+          Number.isInteger(feature.level),
+          `${kit.name}: ${feature.name} level ${feature.level}`,
+        ).toBe(true)
+        expect(
+          feature.level,
+          `${kit.name}: ${feature.name}`,
+        ).toBeGreaterThanOrEqual(1)
+        expect(
+          feature.level,
+          `${kit.name}: ${feature.name}`,
+        ).toBeLessThanOrEqual(20)
+      }
+    }
+  })
+
+  it('every class gains something at level 1', () => {
+    // A class that grants nothing at first level is almost certainly a
+    // transcription slip rather than a design choice.
+    for (const kit of SRD_CLASS_KITS) {
+      expect(
+        kit.features.some((f) => f.level === 1),
+        kit.name,
+      ).toBe(true)
+    }
+  })
+
+  it('no class lists the same feature twice at the same level', () => {
+    for (const kit of SRD_CLASS_KITS) {
+      const seen = new Set<string>()
+      for (const f of kit.features) {
+        const key = `${f.level}:${f.name.toLowerCase()}`
+        expect(
+          seen.has(key),
+          `${kit.name}: duplicate ${f.name} at ${f.level}`,
+        ).toBe(false)
+        seen.add(key)
+      }
+    }
+  })
+
+  it('ASI levels are in range, sorted and unique', () => {
+    for (const kit of SRD_CLASS_KITS) {
+      const levels = kit.asiLevels
+      if (!levels) continue
+      expect(new Set(levels).size, kit.name).toBe(levels.length)
+      expect(
+        [...levels].sort((a, b) => a - b),
+        kit.name,
+      ).toEqual(levels)
+      for (const level of levels) {
+        expect(level, kit.name).toBeGreaterThanOrEqual(1)
+        expect(level, kit.name).toBeLessThanOrEqual(20)
+      }
+    }
+  })
+
+  it('every class takes an ASI at 4, 8, 12, 16 and 19', () => {
+    // Universal in 5e. Fighter and Rogue get extras on top, which the previous
+    // test allows for — this one just pins the floor.
+    for (const kit of SRD_CLASS_KITS) {
+      for (const level of [4, 8, 12, 16, 19]) {
+        expect(kit.asiLevels, `${kit.name} missing ASI at ${level}`).toContain(
+          level,
+        )
+      }
+    }
+  })
+
+  it('spell slot tables are well formed', () => {
+    for (const kit of SRD_CLASS_KITS) {
+      const slots = kit.spellcasting?.slotsByLevel
+      if (!slots) continue
+      for (const [key, row] of Object.entries(slots)) {
+        const level = Number(key)
+        expect(Number.isInteger(level), `${kit.name}: key "${key}"`).toBe(true)
+        expect(level, kit.name).toBeGreaterThanOrEqual(1)
+        expect(level, kit.name).toBeLessThanOrEqual(20)
+        // A row is slots per spell level, so at most 9 entries and never more
+        // slots than 5e ever grants at one level.
+        expect(row.length, `${kit.name} level ${level}`).toBeLessThanOrEqual(9)
+        for (const n of row) {
+          expect(n, `${kit.name} level ${level}`).toBeGreaterThanOrEqual(0)
+          expect(n, `${kit.name} level ${level}`).toBeLessThanOrEqual(9)
+        }
+        // A trailing zero means the row claims a spell level it can't cast.
+        expect(row.at(-1), `${kit.name} level ${level} ends in 0`).not.toBe(0)
+      }
+    }
+  })
+
+  it('a caster with a slot table defines level 1 and agrees with slotsAtLevel1', () => {
+    for (const kit of SRD_CLASS_KITS) {
+      const sc = kit.spellcasting
+      if (!sc?.slotsByLevel) continue
+      const first = sc.slotsByLevel[1]
+      expect(first, `${kit.name} has no level 1 row`).toBeDefined()
+      // Two sources for the same number would drift; this is the guard.
+      expect(first[0], `${kit.name} level 1 slots`).toBe(sc.slotsAtLevel1)
+    }
+  })
+
+  it('slot progression never goes backwards', () => {
+    // Total slots are monotonic in 5e for every full and half caster. A row
+    // that drops is a typo, and one that silently reduces a character's slots
+    // would be worse than useless.
+    for (const kit of SRD_CLASS_KITS) {
+      const slots = kit.spellcasting?.slotsByLevel
+      if (!slots) continue
+      const levels = Object.keys(slots)
+        .map(Number)
+        .sort((a, b) => a - b)
+      let previous = 0
+      for (const level of levels) {
+        const total = slots[level].reduce((sum, n) => sum + n, 0)
+        expect(
+          total,
+          `${kit.name}: level ${level} has fewer slots than the level before`,
+        ).toBeGreaterThanOrEqual(previous)
+        previous = total
+      }
+    }
+  })
+
+  it('every caster has a progression table', () => {
+    // Without one the level-up wizard leaves slots alone, which is correct
+    // behaviour but wrong for a class we ship.
+    for (const kit of SRD_CLASS_KITS) {
+      if (!kit.spellcasting) continue
+      expect(kit.spellcasting.slotsByLevel, `${kit.name}`).toBeDefined()
+    }
+  })
+
+  it('cantrip tables only ever increase', () => {
+    for (const kit of SRD_CLASS_KITS) {
+      const table = kit.spellcasting?.cantripsByLevel
+      if (!table) continue
+      const levels = Object.keys(table)
+        .map(Number)
+        .sort((a, b) => a - b)
+      let previous = -1
+      for (const level of levels) {
+        expect(table[level], `${kit.name} level ${level}`).toBeGreaterThan(
+          previous,
+        )
+        previous = table[level]
+      }
+    }
+  })
+})
+
+describe('progression spot checks', () => {
+  const kit = (name: string) => SRD_CLASS_KITS.find((k) => k.name === name)!
+
+  it('a Fighter gets Action Surge at 2 and Extra Attack at 5', () => {
+    const fighter = kit('Fighter')
+    const at = (n: number) =>
+      fighter.features.filter((f) => f.level === n).map((f) => f.name)
+    expect(at(2)).toContain('Action Surge')
+    expect(at(3)).toContain('Martial Archetype')
+    expect(at(5)).toContain('Extra Attack')
+    // Fighter is one of the two classes with extra ASIs.
+    expect(fighter.asiLevels).toContain(6)
+    expect(fighter.asiLevels).toContain(14)
+  })
+
+  it('a Rogue gets Cunning Action at 2 and an extra ASI at 10', () => {
+    const rogue = kit('Rogue')
+    expect(rogue.features.find((f) => f.name === 'Cunning Action')?.level).toBe(
+      2,
+    )
+    expect(rogue.features.find((f) => f.name === 'Evasion')?.level).toBe(7)
+    expect(rogue.asiLevels).toContain(10)
+    expect(rogue.asiLevels).not.toContain(6)
+  })
+
+  it('a full caster follows the SRD slot table', () => {
+    const wizard = kit('Wizard')
+    const slots = wizard.spellcasting!.slotsByLevel!
+    expect(slots[1]).toEqual([2])
+    expect(slots[3]).toEqual([4, 2])
+    expect(slots[5]).toEqual([4, 3, 2])
+    // 9th-level slots arrive at character level 17.
+    expect(slots[17]).toEqual([4, 3, 3, 3, 2, 1, 1, 1, 1])
+    expect(slots[20]).toEqual([4, 3, 3, 3, 3, 2, 2, 1, 1])
+  })
+
+  it('every full caster shares one table', () => {
+    // They genuinely do in 5e; a divergence here would be a typo.
+    const tables = ['Bard', 'Cleric', 'Druid', 'Sorcerer', 'Wizard'].map(
+      (n) => kit(n).spellcasting!.slotsByLevel!,
+    )
+    for (const table of tables.slice(1)) {
+      expect(table).toEqual(tables[0])
+    }
+  })
+
+  it('a Warlock has Pact Magic, not the full caster table', () => {
+    // Few slots, always at the highest level available — a different shape
+    // from every other caster, which is why it has its own table.
+    const pact = kit('Warlock').spellcasting!.slotsByLevel!
+    expect(pact[1]).toEqual([1])
+    expect(pact[2]).toEqual([2])
+    // At level 5 both slots are 3rd level, and there are no lower ones.
+    expect(pact[5]).toEqual([0, 0, 2])
+    expect(pact[17]).toEqual([0, 0, 0, 0, 4])
+    expect(pact).not.toEqual(kit('Wizard').spellcasting!.slotsByLevel)
+  })
+
+  it('cantrips grow at 4 and 10', () => {
+    expect(kit('Wizard').spellcasting!.cantripsByLevel).toEqual({
+      1: 3,
+      4: 4,
+      10: 5,
+    })
+    expect(kit('Bard').spellcasting!.cantripsByLevel).toEqual({
+      1: 2,
+      4: 3,
+      10: 4,
+    })
+  })
+
+  it('the half casters gain spellcasting at level 2, not 1', () => {
+    // Paladin and Ranger correctly have no level-1 spellcasting block, so the
+    // creation wizard skips their spells step — the feature lands at 2.
+    for (const name of ['Paladin', 'Ranger']) {
+      expect(kit(name).spellcasting, name).toBeUndefined()
+      expect(
+        kit(name).features.find((f) => f.name === 'Spellcasting')?.level,
+        name,
+      ).toBe(2)
+    }
+  })
+
+  it('every class has features beyond level 1', () => {
+    for (const k of SRD_CLASS_KITS) {
+      expect(
+        k.features.some((f) => f.level > 1),
+        k.name,
+      ).toBe(true)
+    }
+  })
+})

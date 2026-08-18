@@ -344,7 +344,7 @@ function parseSpellcasting(raw: unknown): ClassKit['spellcasting'] {
   const r = raw as Record<string, unknown>
   const ability = str(r.ability).trim().toLowerCase()
   if (!ABILITIES.includes(ability as Ability)) return undefined
-  return {
+  const out: NonNullable<ClassKit['spellcasting']> = {
     ability: ability as Ability,
     slotsAtLevel1: int(r.slotsAtLevel1, 2, 0, 20),
     cantripsKnown: int(r.cantripsKnown, 0, 0, 20),
@@ -352,6 +352,43 @@ function parseSpellcasting(raw: unknown): ClassKit['spellcasting'] {
     prepares: r.prepares === true,
     listLabel: str(r.listLabel).trim() || 'Spells',
   }
+  const slots = parseLevelTable(r.slotsByLevel, (v) =>
+    Array.isArray(v)
+      ? v
+          .filter(
+            (n): n is number => typeof n === 'number' && Number.isFinite(n),
+          )
+          .map((n) => Math.max(0, Math.round(n)))
+      : null,
+  )
+  if (slots) out.slotsByLevel = slots
+  const cantrips = parseLevelTable(r.cantripsByLevel, (v) =>
+    typeof v === 'number' && Number.isFinite(v)
+      ? Math.max(0, Math.round(v))
+      : null,
+  )
+  if (cantrips) out.cantripsByLevel = cantrips
+  return out
+}
+
+/**
+ * A `Record<characterLevel, T>` from hand-written JSON. Keys outside 1-20 and
+ * values the coercer rejects are dropped rather than defaulted — a malformed
+ * row in a progression table should vanish, not silently become zero slots.
+ */
+function parseLevelTable<T>(
+  raw: unknown,
+  coerce: (value: unknown) => T | null,
+): Record<number, T> | undefined {
+  if (typeof raw !== 'object' || raw === null) return undefined
+  const out: Record<number, T> = {}
+  for (const [key, value] of Object.entries(raw)) {
+    const level = Number(key)
+    if (!Number.isInteger(level) || level < 1 || level > 20) continue
+    const parsed = coerce(value)
+    if (parsed !== null) out[level] = parsed
+  }
+  return Object.keys(out).length > 0 ? out : undefined
 }
 
 function parseEquipment(raw: unknown, ownerId: string): ClassKit['equipment'] {
@@ -399,14 +436,19 @@ export function parseKit(raw: unknown): ClassKit | null {
   }
 
   const features = Array.isArray(r.features)
-    ? r.features.flatMap((entry): Array<{ name: string; text?: string }> => {
-        if (typeof entry !== 'object' || entry === null) return []
-        const f = entry as Record<string, unknown>
-        const fname = str(f.name).trim()
-        if (fname === '') return []
-        const text = str(f.text).trim()
-        return [text ? { name: fname, text } : { name: fname }]
-      })
+    ? r.features.flatMap(
+        (entry): Array<{ level: number; name: string; text?: string }> => {
+          if (typeof entry !== 'object' || entry === null) return []
+          const f = entry as Record<string, unknown>
+          const fname = str(f.name).trim()
+          if (fname === '') return []
+          const text = str(f.text).trim()
+          // Defaults to 1: a file written before features had levels, or a
+          // homebrew author who didn't say, means "you have it from the start".
+          const level = int(f.level, 1, 1, 20)
+          return [text ? { level, name: fname, text } : { level, name: fname }]
+        },
+      )
     : []
 
   const priority = strList(r.abilityPriority)
@@ -435,6 +477,20 @@ export function parseKit(raw: unknown): ClassKit | null {
     features,
     abilityPriority,
   }
+  const asiLevels = Array.isArray(r.asiLevels)
+    ? [
+        ...new Set(
+          r.asiLevels
+            .filter(
+              (v): v is number => typeof v === 'number' && Number.isFinite(v),
+            )
+            .map((v) => Math.round(v))
+            .filter((v) => v >= 1 && v <= 20),
+        ),
+      ].sort((a, b) => a - b)
+    : []
+  if (asiLevels.length > 0) kit.asiLevels = asiLevels
+
   const spellcasting = parseSpellcasting(r.spellcasting)
   if (spellcasting) kit.spellcasting = spellcasting
   if (r.unarmoredDefense === 'con' || r.unarmoredDefense === 'wis') {

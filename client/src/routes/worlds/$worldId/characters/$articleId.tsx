@@ -30,6 +30,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '#/components/ui/tabs'
 import { Textarea } from '#/components/ui/textarea'
 import { cn } from '#/lib/utils'
 import { NumField } from '#/components/character/NumField'
+import { LevelUpDialog } from '#/components/character/levelup/LevelUpDialog'
 import { SheetTab } from '#/components/character/SheetTab'
 import { InventoryTab } from '#/components/character/InventoryTab'
 import { EquipmentTab } from '#/components/character/EquipmentTab'
@@ -162,6 +163,14 @@ function CharacterPage() {
     },
   })
 
+  /**
+   * The level being levelled to while the wizard is open; null when closed.
+   * Declared up here with the other hooks — the early returns below mean a
+   * useState placed after them renders a different number of hooks depending
+   * on load state, which React refuses outright.
+   */
+  const [levelUpTo, setLevelUpTo] = useState<number | null>(null)
+
   if (article.isLoading || !character) {
     return <p className="text-muted-foreground p-6">Loading character…</p>
   }
@@ -263,9 +272,16 @@ function CharacterPage() {
             min={1}
             max={20}
             className="w-10"
-            // setLevel, not a bare assignment: hit dice follow the level unless
-            // the sheet has pinned them.
-            onCommit={(v) => update(setLevel(character, v))}
+            /*
+              A rise opens the level-up wizard; anything else is a correction
+              and behaves as it always did. Safe to hang off the spinner
+              because NumField commits on blur or Enter only — typing "12" when
+              you meant 1 then 2 can't fire a nine-level wizard mid-keystroke.
+            */
+            onCommit={(v) => {
+              if (v > character.level) setLevelUpTo(v)
+              else update(setLevel(character, v))
+            }}
           />
         </label>
         <Input
@@ -481,6 +497,14 @@ function CharacterPage() {
         worldId={worldId}
         title={missingTitle}
         onClose={() => setMissingTitle(null)}
+      />
+
+      <LevelUpDialog
+        worldId={worldId}
+        character={character}
+        toLevel={levelUpTo}
+        onClose={() => setLevelUpTo(null)}
+        onApply={update}
       />
     </div>
   )

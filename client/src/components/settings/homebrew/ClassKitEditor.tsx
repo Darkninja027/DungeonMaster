@@ -285,12 +285,14 @@ export function ClassKitEditor({
 
       <div className="space-y-2 border-t pt-3">
         <div className="flex items-center justify-between">
-          <span className="text-xs font-medium">Level 1 features</span>
+          <span className="text-xs font-medium">Features by level</span>
           <Button
             variant="outline"
             size="sm"
             className="h-7 text-xs"
-            onClick={() => patch({ features: [...kit.features, { name: '' }] })}
+            onClick={() =>
+              patch({ features: [...kit.features, { level: 1, name: '' }] })
+            }
           >
             <Plus className="size-3" /> Add feature
           </Button>
@@ -298,18 +300,47 @@ export function ClassKitEditor({
         {kit.features.map((feature, i) => (
           <div key={i} className="flex items-start gap-1.5">
             <div className="min-w-0 flex-1 space-y-1">
-              <Input
-                value={feature.name}
-                placeholder="Rage"
-                className="h-7 text-sm"
-                onChange={(e) =>
-                  patch({
-                    features: kit.features.map((f, j) =>
-                      j === i ? { ...f, name: e.target.value } : f,
-                    ),
-                  })
-                }
-              />
+              <div className="flex items-center gap-1.5">
+                <label
+                  className="text-muted-foreground flex shrink-0 items-center gap-1 text-xs"
+                  title="Character level this feature is gained at"
+                >
+                  Lv
+                  <Input
+                    value={String(feature.level)}
+                    inputMode="numeric"
+                    className="h-7 w-12 text-center text-sm"
+                    onChange={(e) => {
+                      const n = Number(e.target.value)
+                      patch({
+                        features: kit.features.map((f, j) =>
+                          j === i
+                            ? {
+                                ...f,
+                                level:
+                                  Number.isFinite(n) && n >= 1 && n <= 20
+                                    ? Math.round(n)
+                                    : 1,
+                              }
+                            : f,
+                        ),
+                      })
+                    }}
+                  />
+                </label>
+                <Input
+                  value={feature.name}
+                  placeholder="Rage"
+                  className="h-7 min-w-0 flex-1 text-sm"
+                  onChange={(e) =>
+                    patch({
+                      features: kit.features.map((f, j) =>
+                        j === i ? { ...f, name: e.target.value } : f,
+                      ),
+                    })
+                  }
+                />
+              </div>
               <Textarea
                 value={feature.text ?? ''}
                 rows={2}

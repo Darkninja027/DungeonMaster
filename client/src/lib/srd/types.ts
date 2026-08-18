@@ -12,10 +12,18 @@
  * name and nothing else, and the character is still perfectly valid. Homebrew
  * must survive a round trip untouched.
  *
- * Deliberately not a rules engine. There are no per-level tables here: the
- * wizard builds a level 1 character and the sheet takes it from there. The one
- * derived-number exception is `SubraceInfo.hpPerLevel`, which exists for exactly
- * one subrace — see its doc comment before adding a second.
+ * There ARE per-level tables here, and there is a line. What a class gains as it
+ * levels — features, spell slots, the levels at which it takes an Ability Score
+ * Improvement — is in, because the level-up wizard needs it and the alternative
+ * is every player looking it up in a book. Static tables, levels 1-20.
+ *
+ * What stays out: multiclassing, feat catalogues and their prerequisites,
+ * encumbrance rules, conditions, and anything that computes *during play*. The
+ * wizard never enforces any of this either — it offers what the table says and
+ * the player takes it or ignores it, because the sheet is hand-editable and
+ * every value on it is free text.
+ *
+ * `SubraceInfo.hpPerLevel` remains a one-off; see its doc comment.
  */
 
 import type { Ability, EquipSlot } from '../character'
@@ -233,6 +241,21 @@ export interface SpellcastingInfo {
   prepares: boolean
   /** Label for the spell list, e.g. "Cleric spells". Shown on the step. */
   listLabel: string
+  /**
+   * Spell slots by character level: `slotsByLevel[3] = [4, 2]` means four 1st
+   * and two 2nd level slots at character level 3. Only levels where the row
+   * changes need an entry — `slotsAtLevel(kit, n)` walks back to the highest
+   * defined level at or below `n`.
+   *
+   * Absent means this class has no progression table, and the level-up wizard
+   * leaves its slots alone rather than guessing.
+   */
+  slotsByLevel?: Record<number, Array<number>>
+  /**
+   * Cantrips known, at the levels where the number changes. Same lookup rule as
+   * `slotsByLevel`; absent means it never changes.
+   */
+  cantripsByLevel?: Record<number, number>
 }
 
 /**
@@ -266,8 +289,19 @@ export interface ClassKit {
   skillChoices: PickList
   grant: Grant
   equipment: Array<EquipmentChoice>
-  /** Features gained at level 1. */
-  features: Array<{ name: string; text?: string }>
+  /**
+   * Features by the character level they are gained at, 1-20. Sorted by level
+   * for display; `buildCharacter` takes the level 1 ones and the level-up
+   * wizard takes the rest.
+   */
+  features: Array<{ level: number; name: string; text?: string }>
+  /**
+   * Levels at which this class gains an Ability Score Improvement — [4, 8, 12,
+   * 16, 19] for most, with Fighter and Rogue getting extras. Absent means the
+   * wizard never offers one, which is right for a homebrew class that hasn't
+   * said.
+   */
+  asiLevels?: Array<number>
   spellcasting?: SpellcastingInfo
   /**
    * Barbarian and Monk compute AC from ability scores rather than armor.

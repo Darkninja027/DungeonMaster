@@ -86,6 +86,19 @@ than a mechanism on purpose. `srd.test.ts` asserts data integrity — every skil
 id real, every `PickList.id` globally unique — because a transcription error
 here is silent: a mistyped skill just vanishes when the sheet parses it back.
 
+`lib/srd/` carries **per-level progression** — features by level, spell slot
+tables, ASI levels — and there is a line. What a class gains as it levels is in,
+because the level-up wizard needs it. Multiclassing, feat catalogues, encumbrance
+rules and anything computed *during play* stay out, and nothing here is ever
+enforced: the wizard offers what the table says and the player takes it or
+ignores it.
+
+`lib/levelUp.ts` is the level-up wizard's pure layer, and its invariant is the
+thing to preserve: **`applyLevelUp` only appends to arrays and raises numbers.**
+It never rewrites `hp.current`, never edits an existing feature, never lowers a
+slot total. A character is somebody's work. The draft carries its own `base`
+snapshot so the step list can't change shape while the dialog is open.
+
 A `ClassKit` is the **whole definition of a class** — hit die and subclasses for
 the character sheet, starting gear and features for the wizard. These were two
 tables once (`ClassInfo` per-world, kits global, joined by name); they were

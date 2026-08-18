@@ -121,17 +121,53 @@ export function mergeTables(
       global.backgrounds,
       world.backgrounds ?? [],
     ),
-    // A legacy per-world class list layers in *below* that world's own kits but
-    // above global ones, keeping the precedence it had: your world's Blood
-    // Hunter still beats the shared one. Its three fields are all it ever had.
-    kits: layer(
-      SRD_CLASS_KITS,
-      global.kits,
-      (global.classes ?? []).map(kitFromClassInfo),
-      (world.classes ?? []).map(kitFromClassInfo),
-      world.kits ?? [],
-    ),
+    kits: layerClasses(global, world),
   }
+}
+
+/**
+ * The class list, with legacy `classes` entries folded in.
+ *
+ * The subtlety that matters: **a legacy entry only carries three fields**
+ * (name, hit die, subclasses) because that is all `ClassInfo` ever had. Every
+ * world is auto-seeded with the twelve PHB classes in that shape, so treating
+ * a legacy entry as a full replacement silently stripped the features, saves
+ * and equipment off every SRD class in every world — the level-up wizard then
+ * had nothing to grant.
+ *
+ * So a legacy entry *overlays* its three fields onto whatever richer kit is
+ * already there, and only becomes a kit in its own right when nothing else
+ * defines that name. Precedence is otherwise unchanged: world beats global
+ * beats SRD.
+ */
+function layerClasses(global: Homebrew, world: WorldTables): Array<ClassKit> {
+  const kits = layer(SRD_CLASS_KITS, global.kits, world.kits ?? [])
+  const byName = new Map(kits.map((kit) => [nameKey(kit.name), kit]))
+  const order = kits.map((kit) => nameKey(kit.name))
+
+  for (const legacy of [...(global.classes ?? []), ...(world.classes ?? [])]) {
+    const key = nameKey(legacy.name)
+    if (key === '') continue
+    const existing = byName.get(key)
+    if (existing) {
+      // Overlay, don't replace: keep the features and equipment the richer
+      // definition brought, and take the three fields the legacy list owns.
+      byName.set(key, {
+        ...existing,
+        hitDie: legacy.hitDie,
+        subclassLabel: legacy.subclassLabel,
+        subclasses: legacy.subclasses,
+      })
+    } else {
+      byName.set(key, kitFromClassInfo(legacy))
+      order.push(key)
+    }
+  }
+
+  return order.flatMap((key) => {
+    const kit = byName.get(key)
+    return kit ? [kit] : []
+  })
 }
 
 /**

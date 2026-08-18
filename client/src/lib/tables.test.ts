@@ -122,15 +122,30 @@ describe('mergeTables', () => {
     expect(kit?.features).toEqual([])
   })
 
-  it('a world kit beats a legacy world class of the same name', () => {
-    // Both are the world's own, so the richer definition has to win or you
-    // could never upgrade a legacy class in place.
-    const world = {
-      classes: [{ ...PHB_CLASSES[0], hitDie: 6 }],
-      kits: [{ ...SRD_CLASS_KITS[0], hitDie: 12 }],
-    }
+  it('a legacy class overlays its three fields onto a richer kit', () => {
+    // The bug this pins: every world is auto-seeded with the twelve PHB
+    // classes as a legacy `classes` list. Treating those as full replacements
+    // stripped the features, saves and equipment off every SRD class in every
+    // world, leaving the level-up wizard with nothing to grant.
+    const world = { classes: [{ ...PHB_CLASSES[0], hitDie: 6 }] }
+    const kit = findKit(mergeTables(EMPTY_HOMEBREW, world).kits, PHB_CLASSES[0].name)
+    // The legacy list owns the hit die...
+    expect(kit?.hitDie).toBe(6)
+    // ...but everything it never carried survives.
+    expect(kit?.features.length).toBeGreaterThan(0)
+    expect(kit?.saves.length).toBe(2)
+    expect(kit?.equipment.length).toBeGreaterThan(0)
+  })
+
+  it('a seeded legacy list leaves every SRD class intact', () => {
+    // The exact shape a real world file has after the app scaffolds it.
+    const world = { classes: PHB_CLASSES }
     const tables = mergeTables(EMPTY_HOMEBREW, world)
-    expect(findKit(tables.kits, PHB_CLASSES[0].name)?.hitDie).toBe(12)
+    for (const srd of SRD_CLASS_KITS) {
+      const kit = findKit(tables.kits, srd.name)
+      expect(kit?.features.length, srd.name).toBe(srd.features.length)
+      expect(kit?.asiLevels, srd.name).toEqual(srd.asiLevels)
+    }
   })
 
   it('classesFrom exposes only what the sheet needs', () => {
