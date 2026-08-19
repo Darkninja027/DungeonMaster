@@ -14,6 +14,7 @@ import {
   levelsGained,
   slotsAtLevel,
 } from '#/lib/levelUp'
+import { findFeat } from '#/lib/tables'
 import { Button } from '#/components/ui/button'
 import { Input } from '#/components/ui/input'
 import { cn } from '#/lib/utils'
@@ -427,12 +428,32 @@ export function AsiStep({
             )}
 
             {choice.kind !== 'abilities' && (
-              <Input
-                value={choice.featName}
-                placeholder="e.g. Sharpshooter"
-                className="h-8 max-w-sm"
-                onChange={(e) => patch(level, { featName: e.target.value })}
-              />
+              <>
+                <Input
+                  value={choice.featName}
+                  list="levelup-feat-options"
+                  placeholder="e.g. Sharpshooter"
+                  className="h-8 max-w-sm"
+                  onChange={(e) => patch(level, { featName: e.target.value })}
+                />
+                {/* Suggestions only; any name is still accepted. */}
+                <datalist id="levelup-feat-options">
+                  {draft.feats.map((f) => (
+                    <option key={f.id} value={f.name} />
+                  ))}
+                </datalist>
+                {(() => {
+                  const feat = findFeat(draft.feats, choice.featName)
+                  if (!feat) return null
+                  return (
+                    <p className="text-muted-foreground text-xs">
+                      {feat.summary || `Grants what ${feat.name} grants.`}
+                      {feat.prerequisite !== undefined &&
+                        ` · Prerequisite: ${feat.prerequisite}`}
+                    </p>
+                  )
+                })()}
+              </>
             )}
           </div>
         )

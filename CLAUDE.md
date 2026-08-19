@@ -88,10 +88,19 @@ here is silent: a mistyped skill just vanishes when the sheet parses it back.
 
 `lib/srd/` carries **per-level progression** — features by level, spell slot
 tables, ASI levels — and there is a line. What a class gains as it levels is in,
-because the level-up wizard needs it. Multiclassing, feat catalogues, encumbrance
-rules and anything computed *during play* stay out, and nothing here is ever
-enforced: the wizard offers what the table says and the player takes it or
-ignores it.
+because the level-up wizard needs it. Multiclassing, encumbrance rules and
+anything computed *during play* stay out, and nothing here is ever enforced: the
+wizard offers what the table says and the player takes it or ignores it.
+
+**Feats** are the one place that line moved, and only halfway. `FeatInfo` lives
+here and `SRD_FEATS` is deliberately **empty** — SRD 5.1 has no feat list, so
+every feat is authored as homebrew (Settings › Homebrew › Feats) or by a world.
+A feat is built on `Grant`, the same bundle races and backgrounds use, so taking
+one grants its skills and proficiencies through `applyGrant` rather than any new
+mechanism; a half-feat's `+1` rides `racialAsi` at creation and `mergedAsi` at
+level-up. `prerequisite` is free text that is **shown and never checked**. So
+feat *definitions* are in; feat *content and enforcement* remain out, exactly as
+the paragraph above still requires.
 
 `lib/levelUp.ts` is the level-up wizard's pure layer, and its invariant is the
 thing to preserve: **`applyLevelUp` only appends to arrays and raises numbers.**

@@ -6,6 +6,7 @@ import {
   SRD_TABLES,
   classesFrom,
   findBackground,
+  findFeat,
   findKit,
   findRace,
   findSubrace,
@@ -16,6 +17,42 @@ import {
   subracesFor,
 } from './tables'
 import { SRD_BACKGROUNDS, SRD_CLASS_KITS, SRD_RACES } from './srd'
+
+describe('feats', () => {
+  it('has no built-ins — SRD 5.1 has no feat list', () => {
+    expect(mergeTables().feats).toEqual([])
+  })
+
+  it('layers world over global, matched case-insensitively on name', () => {
+    const global = parseHomebrew({
+      feats: [
+        { name: 'Alert', summary: 'global' },
+        { name: 'Tough', summary: 'global' },
+      ],
+    })
+    // Note the `classes` key: `parseWorldSettings` returns early without one
+    // and drops every world-homebrew list, feats included.
+    const world = parseWorldSettings({
+      classes: [],
+      feats: [{ name: 'alert', summary: 'world' }],
+    })
+    const tables = mergeTables(global, { feats: world.feats })
+
+    // Overridden in place, not appended — same rule as races. The world's entry
+    // replaces the global one wholesale, so its casing is what survives.
+    expect(tables.feats.map((f) => f.name)).toEqual(['alert', 'Tough'])
+    expect(findFeat(tables.feats, 'Alert')?.summary).toBe('world')
+  })
+
+  it('findFeat is name-in, undefined-out', () => {
+    const tables = mergeTables(parseHomebrew({ feats: [{ name: 'Alert' }] }))
+    expect(findFeat(tables.feats, 'alert')?.name).toBe('Alert')
+    expect(findFeat(tables.feats, '  Alert  ')?.name).toBe('Alert')
+    // A feat nobody authored: the sheet still keeps the typed name.
+    expect(findFeat(tables.feats, 'Sharpshooter')).toBeUndefined()
+    expect(findFeat(tables.feats, '')).toBeUndefined()
+  })
+})
 
 describe('mergeTables', () => {
   it('with no homebrew returns exactly the SRD tables', () => {

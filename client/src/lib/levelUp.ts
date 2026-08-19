@@ -19,8 +19,8 @@
 
 import { ABILITIES, abilityMod, proficiencyBonus, setLevel } from './character'
 import type { Ability, Character, ClassFeature } from './character'
-import type { ClassKit } from './srd'
-import { DEFAULT_SUBCLASS_LEVEL, subclassLevelOf } from './tables'
+import type { ClassKit, FeatInfo, Grant } from './srd'
+import { DEFAULT_SUBCLASS_LEVEL, findFeat, subclassLevelOf } from './tables'
 
 /** How the player wants to gain hit points for the levels being taken. */
 export type HpMethod = 'roll' | 'average' | 'manual'
@@ -46,6 +46,12 @@ export interface LevelUpDraft {
    * supported case, not an error.
    */
   kit: ClassKit | undefined
+  /**
+   * Feats offered by the datalist, captured with the kit and for the same
+   * reason. Empty is a normal state — feats are homebrew-only, so a user who
+   * has authored none simply types a name free-hand, exactly as before.
+   */
+  feats: Array<FeatInfo>
   hp: {
     method: HpMethod
     /** Rolled totals, one per level gained. Null entries are unrolled. */
@@ -99,6 +105,8 @@ export function emptyLevelUpDraft(
   c: Character,
   to: number,
   kit: ClassKit | undefined,
+  /** Defaulted: a caller with no feat table just gets the free-text behaviour. */
+  feats: Array<FeatInfo> = [],
 ): LevelUpDraft {
   const from = c.level
   const gained = Math.max(0, to - from)
@@ -107,6 +115,7 @@ export function emptyLevelUpDraft(
     to,
     base: c,
     kit,
+    feats,
     hp: {
       method: 'average',
       rolls: Array<number | null>(gained).fill(null),
@@ -301,7 +310,28 @@ export function mergedAsi(
   draft: LevelUpDraft,
 ): Partial<Record<Ability, number>> {
   const out: Partial<Record<Ability, number>> = {}
+  // Feats the character already had when the wizard opened. Re-taking one is a
+  // no-op, so its half-feat bump must not apply either — otherwise the ability
+  // would rise while the grant (correctly) did nothing, and the two halves of
+  // one feat would disagree.
+  const already = new Set(
+    draft.base.feats.map((f) => f.name.trim().toLowerCase()),
+  )
   for (const choice of Object.values(draft.asi)) {
+    // A half-feat's own +1 counts however the ASI was spent — including for a
+    // pure `feat` choice, where the points come from the feat rather than the
+    // improvement. Resolved against the draft's captured feats, so an unknown
+    // name contributes nothing, exactly as it does everywhere else.
+    const feat = already.has(choice.featName.trim().toLowerCase())
+      ? undefined
+      : findFeat(draft.feats, choice.featName)
+    if (choice.kind !== 'abilities' && feat?.asi) {
+      for (const ability of ABILITIES) {
+        const points = feat.asi[ability]
+        if (!points) continue
+        out[ability] = (out[ability] ?? 0) + points
+      }
+    }
     // `both` raises an ability as well as granting a feat.
     if (choice.kind === 'feat') continue
     for (const ability of ABILITIES) {
@@ -393,6 +423,56 @@ export function levelUpPlan(c: Character, draft: LevelUpDraft): LevelUpPlan {
  * set, that is the invariant telling you to make it a separate, explicit
  * action instead.
  */
+/** Append strings, skipping blanks and case-insensitive duplicates. */
+function addTo(into: Array<string>, from: Array<string> | undefined) {
+  const out = [...into]
+  for (const value of from ?? []) {
+    const trimmed = value.trim()
+    if (!trimmed) continue
+    if (out.some((v) => v.trim().toLowerCase() === trimmed.toLowerCase())) {
+      continue
+    }
+    out.push(trimmed)
+  }
+  return out
+}
+
+/**
+ * What a feat taken at level-up grants.
+ *
+ * Every field here **adds**; nothing is removed, replaced or lowered, which is
+ * `applyLevelUp`'s whole contract. Two things are deliberately left out:
+ *
+ * - `picks` — an unresolved choice needs a UI to resolve it, and the level-up
+ *   ASI step has no pick control. A feat whose grant is entirely a pick still
+ *   lands on the sheet by name for the player to fill in by hand.
+ * - `traits` — those go to `Character.traits`, which the sheet labels "Racial".
+ *   A feat's rules text belongs with the feat, and the feat is already there.
+ */
+function applyFeatGrants(c: Character, grants: Array<Grant>): Character {
+  let next = c
+  for (const grant of grants) {
+    next = {
+      ...next,
+      skills: addTo(next.skills, grant.skills),
+      armor: addTo(next.armor, grant.armor),
+      weapons: addTo(next.weapons, grant.weapons),
+      tools: addTo(next.tools, grant.tools),
+      languages: addTo(next.languages, grant.languages),
+      resistances: addTo(next.resistances, grant.resistances),
+      conditionImmunities: addTo(
+        next.conditionImmunities,
+        grant.conditionImmunities,
+      ),
+      saves: [
+        ...next.saves,
+        ...(grant.saves ?? []).filter((s) => !next.saves.includes(s)),
+      ],
+    }
+  }
+  return next
+}
+
 export function applyLevelUp(c: Character, draft: LevelUpDraft): Character {
   if (draft.to <= draft.from) return c
   const plan = levelUpPlan(c, draft)
@@ -433,6 +513,17 @@ export function applyLevelUp(c: Character, draft: LevelUpDraft): Character {
       .filter((name) => !have.has(name.toLowerCase()))
       .map((name) => ({ name }))
     if (added.length > 0) next = { ...next, feats: [...next.feats, ...added] }
+
+    // What the newly-taken feats grant. Only the ones actually added, so
+    // re-taking a feat the character already has can't apply its grant twice.
+    //
+    // Append-only by construction: `addTo` and `addNamed` below never remove or
+    // overwrite, which is the invariant this whole function is built on. A feat
+    // the tables don't know contributes nothing, and that is not an error.
+    const grants = added
+      .map((f) => findFeat(draft.feats, f.name)?.grant)
+      .filter((g): g is NonNullable<typeof g> => g !== undefined)
+    if (grants.length > 0) next = applyFeatGrants(next, grants)
   }
 
   if (plan.slots.length > 0) {

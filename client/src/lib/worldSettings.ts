@@ -3,11 +3,12 @@ import type { ClassInfo } from './classes'
 import {
   EMPTY_HOMEBREW,
   parseBackground,
+  parseFeat,
   parseKit,
   parseRace,
   serializeHomebrew,
 } from './homebrew'
-import type { BackgroundInfo, ClassKit, RaceInfo } from './srd'
+import type { BackgroundInfo, ClassKit, FeatInfo, RaceInfo } from './srd'
 
 /**
  * Per-world settings, stored as `worldSettings.json` at the world root — the
@@ -76,6 +77,7 @@ export interface WorldSettings {
   races?: Array<RaceInfo>
   backgrounds?: Array<BackgroundInfo>
   kits?: Array<ClassKit>
+  feats?: Array<FeatInfo>
 }
 
 /** What a world gets before it has a file of its own. */
@@ -206,6 +208,7 @@ export function parseWorldSettings(raw: unknown): WorldSettings {
   const races = homebrewList(r.races, parseRace)
   const backgrounds = homebrewList(r.backgrounds, parseBackground)
   const kits = homebrewList(r.kits, parseKit)
+  const feats = homebrewList(r.feats, parseFeat)
 
   return {
     version:
@@ -218,6 +221,7 @@ export function parseWorldSettings(raw: unknown): WorldSettings {
     ...(races && { races }),
     ...(backgrounds && { backgrounds }),
     ...(kits && { kits }),
+    ...(feats && { feats }),
   }
 }
 
@@ -273,6 +277,13 @@ export function serializeWorldSettings(settings: WorldSettings): unknown {
           kits: unknown
         }
       ).kits,
+    }),
+    ...(settings.feats && {
+      feats: (
+        serializeHomebrew({ ...EMPTY_HOMEBREW, feats: settings.feats }) as {
+          feats: unknown
+        }
+      ).feats,
     }),
   }
 }

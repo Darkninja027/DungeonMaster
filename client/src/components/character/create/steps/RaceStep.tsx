@@ -4,12 +4,13 @@ import { ABILITIES, ABILITY_NAMES } from '#/lib/character'
 import type { Ability } from '#/lib/character'
 import type { CharacterDraft } from '#/lib/characterDraft'
 import {
+  draftFeat,
   draftRace,
   draftSubrace,
   flexibleAsiSpec,
   picked,
 } from '#/lib/characterDraft'
-import type { RaceInfo, SubraceInfo } from '#/lib/srd'
+import type { FeatInfo, RaceInfo, SubraceInfo } from '#/lib/srd'
 import { Input } from '#/components/ui/input'
 import { Label } from '#/components/ui/label'
 import { cn } from '#/lib/utils'
@@ -43,9 +44,27 @@ export function RaceStep({
   onChange: (next: CharacterDraft) => void
 }) {
   const race = draftRace(draft)
+  const feat = draftFeat(draft)
   const subrace = draftSubrace(draft)
   const flexible = flexibleAsiSpec(draft)
   const [creating, setCreating] = useState(false)
+  const [creatingFeat, setCreatingFeat] = useState(false)
+
+  /**
+   * Same snapshot reasoning as `adoptCreated` below: the draft holds its own
+   * copy of the feat table, so a feat invented here has to be added to it or it
+   * won't appear in the datalist until the wizard is reopened.
+   */
+  const adoptCreatedFeat = (created: FeatInfo) => {
+    const feats = [
+      ...draft.feats.filter(
+        (f) =>
+          f.name.trim().toLowerCase() !== created.name.trim().toLowerCase(),
+      ),
+      created,
+    ]
+    onChange({ ...draft, feats, featName: created.name })
+  }
 
   /**
    * A race created inline is added to the draft's captured table as well as to
@@ -141,6 +160,13 @@ export function RaceStep({
         onCreated={(created) => adoptCreated(created as RaceInfo)}
       />
 
+      <HomebrewDialog
+        kind="feat"
+        open={creatingFeat}
+        onClose={() => setCreatingFeat(false)}
+        onCreated={(created) => adoptCreatedFeat(created as FeatInfo)}
+      />
+
       
 
       {race?.subraces && race.subraces.length > 0 && (
@@ -217,12 +243,45 @@ export function RaceStep({
           <Input
             id="wizard-feat"
             value={draft.featName}
+            list="wizard-feat-options"
             placeholder="e.g. Alert, Lucky, Sharpshooter"
             onChange={(e) => onChange({ ...draft, featName: e.target.value })}
           />
+          {/*
+            Suggestions only — a name that matches nothing is still accepted and
+            still reaches the sheet, exactly as it did before there was a list.
+          */}
+          <datalist id="wizard-feat-options">
+            {draft.feats.map((f) => (
+              <option key={f.id} value={f.name} />
+            ))}
+          </datalist>
+          <button
+            type="button"
+            onClick={() => setCreatingFeat(true)}
+            className="hover:bg-accent/50 flex items-center justify-center gap-1.5 self-start rounded-md border border-dashed px-2 py-1 text-xs transition-colors"
+          >
+            <Sparkles className="size-3.5" /> Create a feat
+          </button>
           <p className="text-muted-foreground text-xs">
-            Feats aren&rsquo;t in the SRD, so type the name and note the details
-            on the sheet.
+            {feat ? (
+              <>
+                {feat.summary || `Grants what ${feat.name} grants.`}
+                {feat.prerequisite !== undefined &&
+                  ` · Prerequisite: ${feat.prerequisite}`}
+              </>
+            ) : draft.feats.length === 0 ? (
+              <>
+                Feats aren&rsquo;t in the SRD. Type a name and note the details
+                on the sheet, or add feats in Settings &rsaquo; Homebrew to pick
+                them here.
+              </>
+            ) : (
+              <>
+                Pick one of yours, or type any name — an unknown feat still
+                lands on the sheet.
+              </>
+            )}
           </p>
         </div>
       )}

@@ -7,6 +7,7 @@ import {
   ABILITIES,
 } from './character'
 import { WEAPON_STATS, featuresUpToLevel, weaponCategory } from './srd'
+import type { FeatInfo } from './srd'
 import { PHB_CLASSES } from './classes'
 import type { ClassInfo } from './classes'
 import { buildCharacter, computeAc, finalScores } from './buildCharacter'
@@ -289,6 +290,71 @@ describe('totality', () => {
   it('builds with an empty class list', () => {
     const { character } = buildCharacter(emptyDraft([]))
     expect(character.hitDice.size).toBe(8)
+  })
+})
+
+describe('feats at creation', () => {
+  const RESILIENT: FeatInfo = {
+    id: 'resilient',
+    name: 'Resilient',
+    summary: 'Tougher than you look.',
+    asi: { con: 1 },
+    grant: { saves: ['con'], skills: ['athletics'] },
+  }
+
+  const variantHuman = (featName: string, feats: Array<FeatInfo>) => {
+    const base = emptyDraft({ ...SRD_TABLES, feats })
+    return withScores(
+      {
+        ...base,
+        name: 'Aldric',
+        raceName: 'Variant Human',
+        flexibleAsi: { str: 1, dex: 1 },
+        featName,
+      },
+      { str: 15, dex: 12, con: 14, int: 10, wis: 10, cha: 8 },
+    )
+  }
+
+  it('applies a known feat’s grant and half-feat bump', () => {
+    const { character } = buildCharacter(
+      variantHuman('Resilient', [RESILIENT]),
+    )
+    expect(character.feats.map((f) => f.name)).toEqual(['Resilient'])
+    expect(character.saves).toContain('con')
+    expect(character.skills).toContain('athletics')
+    // 14 base + 1 from the half-feat; the flexible +1s went to str and dex.
+    expect(character.abilities.con).toBe(15)
+  })
+
+  it('keeps an unknown feat as a bare name and grants nothing', () => {
+    const { character } = buildCharacter(
+      variantHuman('Sharpshooter', [RESILIENT]),
+    )
+    expect(character.feats.map((f) => f.name)).toEqual(['Sharpshooter'])
+    expect(character.saves).not.toContain('con')
+    expect(character.abilities.con).toBe(14)
+  })
+
+  it('ignores a feat name when the race does not grant one', () => {
+    const base = emptyDraft({ ...SRD_TABLES, feats: [RESILIENT] })
+    const { character } = buildCharacter(
+      withScores(
+        { ...base, name: 'Dain', raceName: 'Dwarf', featName: 'Resilient' },
+        { str: 15, dex: 12, con: 14, int: 10, wis: 10, cha: 8 },
+      ),
+    )
+    expect(character.feats).toEqual([])
+    expect(character.saves).not.toContain('con')
+  })
+
+  it('matches the feat name case-insensitively', () => {
+    const { character } = buildCharacter(
+      variantHuman('  resilient  ', [RESILIENT]),
+    )
+    // The typed spelling is what reaches the sheet; the grant still resolves.
+    expect(character.feats.map((f) => f.name)).toEqual(['resilient'])
+    expect(character.saves).toContain('con')
   })
 })
 

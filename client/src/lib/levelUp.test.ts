@@ -8,7 +8,7 @@ import {
 } from './character'
 import type { Character } from './character'
 import { SRD_TABLES, findKit } from './tables'
-import type { ClassKit } from './srd'
+import type { ClassKit, FeatInfo } from './srd'
 import {
   ASI_HYBRID_POINTS,
   ASI_POINTS,
@@ -53,6 +53,81 @@ function draftFor(
 ): LevelUpDraft {
   return { ...emptyLevelUpDraft(c, to, kitFor(c.class)), ...patch }
 }
+
+describe('feats taken at level-up', () => {
+  const RESILIENT: FeatInfo = {
+    id: 'resilient',
+    name: 'Resilient',
+    summary: 'Tougher than you look.',
+    asi: { con: 1 },
+    grant: { saves: ['con'], skills: ['athletics'] },
+  }
+
+  const takingFeat = (c: Character, to: number, featName: string) => {
+    const draft = draftFor(c, to, { feats: [RESILIENT] })
+    const level = Object.keys(draft.asi)[0]
+    return {
+      ...draft,
+      asi: { [Number(level)]: { kind: 'feat' as const, abilities: {}, featName } },
+    }
+  }
+
+  it('applies the feat grant and its half-feat +1', () => {
+    const before = characterAt(3, 'Fighter')
+    const after = applyLevelUp(before, takingFeat(before, 4, 'Resilient'))
+
+    expect(after.feats.map((f) => f.name)).toContain('Resilient')
+    expect(after.saves).toContain('con')
+    expect(after.skills).toContain('athletics')
+    // 14 + 1 from the half-feat.
+    expect(after.abilities.con).toBe(15)
+  })
+
+  it('leaves an unknown feat as a bare name, granting nothing', () => {
+    const before = characterAt(3, 'Fighter')
+    const after = applyLevelUp(before, takingFeat(before, 4, 'Sharpshooter'))
+
+    expect(after.feats.map((f) => f.name)).toContain('Sharpshooter')
+    expect(after.saves).toEqual(before.saves)
+    expect(after.skills).toEqual(before.skills)
+    expect(after.abilities.con).toBe(before.abilities.con)
+  })
+
+  it('does not re-apply a grant for a feat already on the sheet', () => {
+    const before: Character = {
+      ...characterAt(3, 'Fighter'),
+      feats: [{ name: 'Resilient' }],
+    }
+    const after = applyLevelUp(before, takingFeat(before, 4, 'Resilient'))
+
+    // Listed once...
+    expect(after.feats.filter((f) => f.name === 'Resilient')).toHaveLength(1)
+    // ...and the half-feat bump doesn't stack on a re-take.
+    expect(after.saves).toEqual(before.saves)
+    expect(after.abilities.con).toBe(before.abilities.con)
+  })
+
+  it('respects the 20 cap on a half-feat bump', () => {
+    const before: Character = {
+      ...characterAt(3, 'Fighter'),
+      abilities: { str: 12, dex: 12, con: 20, int: 12, wis: 12, cha: 12 },
+    }
+    const after = applyLevelUp(before, takingFeat(before, 4, 'Resilient'))
+    expect(after.abilities.con).toBe(20)
+  })
+
+  it('never lowers or removes anything when a feat grants', () => {
+    const before: Character = {
+      ...characterAt(3, 'Fighter'),
+      saves: ['str'],
+      skills: ['stealth'],
+    }
+    const after = applyLevelUp(before, takingFeat(before, 4, 'Resilient'))
+
+    expect(after.saves).toEqual(expect.arrayContaining(['str', 'con']))
+    expect(after.skills).toEqual(expect.arrayContaining(['stealth', 'athletics']))
+  })
+})
 
 describe('the additive invariant', () => {
   /**

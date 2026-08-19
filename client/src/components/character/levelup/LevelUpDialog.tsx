@@ -94,35 +94,46 @@ export function LevelUpDialog({
    * are read through a ref, and the draft then holds the character as its own
    * `base` so nothing downstream reads the live one.
    */
-  const seedRef = useRef({ character, kit })
-  seedRef.current = { character, kit }
+  const seedRef = useRef({ character, kit, feats: tables.feats })
+  seedRef.current = { character, kit, feats: tables.feats }
 
   useEffect(() => {
     if (toLevel === null) return
-    const { character: c, kit: k } = seedRef.current
-    setDraft(emptyLevelUpDraft(c, toLevel, k))
+    const { character: c, kit: k, feats } = seedRef.current
+    setDraft(emptyLevelUpDraft(c, toLevel, k, feats))
     setStep('hp')
   }, [toLevel])
 
   /**
-   * Adopt the kit if it arrives after the dialog opened.
+   * Adopt the tables if they arrive after the dialog opened.
    *
    * `useTables` merges homebrew with world settings, and either query can still
    * be in flight on the first render — seeding then gives a draft with no kit,
    * which silently means no features, no ASI and no subclass step. Reseeding
-   * once the kit resolves is the difference between "this class grants nothing"
+   * once they resolve is the difference between "this class grants nothing"
    * and "we asked too early".
    *
-   * Guarded on the draft having no kit yet, so it can only ever fill a gap and
-   * never discard choices already made.
+   * Guarded on the draft still *missing* what arrived, so this can only ever
+   * fill a gap and never discard choices already made. Note it checks the kit
+   * and the feats independently: a guard that only asked about the kit would
+   * leave the feat datalist permanently empty whenever the kit happened to
+   * resolve first, which is exactly the shape of bug this comment exists for.
    */
   useEffect(() => {
-    if (toLevel === null || !kit) return
+    if (toLevel === null) return
     setDraft((current) => {
-      if (!current || current.kit) return current
-      return emptyLevelUpDraft(current.base, current.to, kit)
+      if (!current) return current
+      const needsKit = !current.kit && kit !== undefined
+      const needsFeats = current.feats.length === 0 && tables.feats.length > 0
+      if (!needsKit && !needsFeats) return current
+      return emptyLevelUpDraft(
+        current.base,
+        current.to,
+        current.kit ?? kit,
+        current.feats.length > 0 ? current.feats : tables.feats,
+      )
     })
-  }, [toLevel, kit])
+  }, [toLevel, kit, tables.feats])
 
   const steps = useMemo(() => (draft ? levelUpSteps(draft) : []), [draft])
   const index = steps.indexOf(step)

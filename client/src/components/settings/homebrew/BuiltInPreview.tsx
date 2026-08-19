@@ -4,6 +4,7 @@ import type { Ability } from '#/lib/character'
 import type {
   BackgroundInfo,
   ClassKit,
+  FeatInfo,
   Grant,
   RaceInfo,
   SubraceInfo,
@@ -31,8 +32,8 @@ export function BuiltInPreview({
   shadowedBy,
   onDuplicate,
 }: {
-  entry: RaceInfo | BackgroundInfo | ClassKit
-  kind: 'races' | 'backgrounds' | 'kits'
+  entry: RaceInfo | BackgroundInfo | ClassKit | FeatInfo
+  kind: 'races' | 'backgrounds' | 'kits' | 'feats'
   /** Name of the homebrew entry overriding this one, when there is one. */
   shadowedBy?: string
   onDuplicate: () => void
@@ -75,6 +76,30 @@ export function BuiltInPreview({
         <BackgroundPreview background={entry as BackgroundInfo} />
       )}
       {kind === 'kits' && <KitPreview kit={entry as ClassKit} />}
+      {kind === 'feats' && <FeatPreview feat={entry as FeatInfo} />}
+    </div>
+  )
+}
+
+/**
+ * Unreachable today — `SRD_FEATS` is empty — but present so the pane isn't
+ * blank the day a built-in feat exists, and so a world-supplied feat viewed
+ * through this component renders properly.
+ */
+function FeatPreview({ feat }: { feat: FeatInfo }) {
+  return (
+    <div className="space-y-3">
+      {feat.prerequisite !== undefined && (
+        <Row label="Prerequisite">
+          <Plain>{feat.prerequisite}</Plain>
+        </Row>
+      )}
+      {feat.asi && (
+        <Row label="Ability increase">
+          <AsiChips asi={feat.asi} />
+        </Row>
+      )}
+      <GrantPreview grant={feat.grant} />
     </div>
   )
 }

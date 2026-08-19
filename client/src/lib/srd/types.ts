@@ -17,11 +17,19 @@
  * Improvement — is in, because the level-up wizard needs it and the alternative
  * is every player looking it up in a book. Static tables, levels 1-20.
  *
- * What stays out: multiclassing, feat catalogues and their prerequisites,
- * encumbrance rules, conditions, and anything that computes *during play*. The
- * wizard never enforces any of this either — it offers what the table says and
- * the player takes it or ignores it, because the sheet is hand-editable and
- * every value on it is free text.
+ * What stays out: multiclassing, encumbrance rules, conditions, and anything
+ * that computes *during play*. The wizard never enforces any of this either —
+ * it offers what the table says and the player takes it or ignores it, because
+ * the sheet is hand-editable and every value on it is free text.
+ *
+ * **Feats:** the *definition* is in (`FeatInfo`), the *content* is not. This
+ * line used to read "feat catalogues and their prerequisites" stay out, and the
+ * reasoning behind it survives intact: SRD 5.1 has no feat list, so `SRD_FEATS`
+ * ships **empty** and every feat is authored as homebrew. A prerequisite is
+ * free text that is displayed and never checked, and nothing here computes
+ * during play — so the sentence above still governs feats exactly as written.
+ * What changed is only that a feat now has a shape to be authored *into*,
+ * instead of being a bare name the sheet could do nothing with.
  *
  * `SubraceInfo.hpPerLevel` remains a one-off; see its doc comment.
  */
@@ -204,6 +212,36 @@ export interface BackgroundInfo {
     bonds?: Array<string>
     flaws?: Array<string>
   }
+}
+
+/**
+ * A feat — Alert, Sharpshooter, Resilient.
+ *
+ * Homebrew-authored in practice: `SRD_FEATS` is empty because SRD 5.1 has no
+ * feat list, and the built-in tier exists only so a world (or a future
+ * SRD-safe entry) can supply one without changing the merge layer.
+ *
+ * Deliberately built on `Grant` rather than a bespoke shape, so taking a feat
+ * runs through the same `applyGrant` every race, background and kit already
+ * uses. That is what makes a feat grant skills and proficiencies for real
+ * instead of being a decorative name on the sheet.
+ */
+export interface FeatInfo {
+  id: string
+  /** What lands in `Character.feats`. */
+  name: string
+  summary: string
+  /**
+   * Shown to the player, **never checked**. Prerequisites are the part of feats
+   * this app deliberately does not model: the table offers, the player decides.
+   */
+  prerequisite?: string
+  /**
+   * The half-feat ability bump ("+1 Constitution, and…"), applied like a racial
+   * increase rather than merged like a list. Absent for a full feat.
+   */
+  asi?: AbilityScoreIncrease
+  grant: Grant
 }
 
 /**

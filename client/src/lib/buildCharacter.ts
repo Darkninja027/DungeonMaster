@@ -370,8 +370,16 @@ export function buildCharacter(draft: CharacterDraft): {
     }
   }
 
+  // Appended rather than assigned: nothing else populates `feats` at build time
+  // today, but assigning makes this the only writer forever, and a second source
+  // would silently clobber whatever came first. `mergeNamed` also gives us the
+  // case-insensitive de-dupe for free.
+  //
+  // The feat's *grant* is applied by `draftGrants` and its half-feat `asi` by
+  // `racialAsi`, so all this has to do is put the name on the sheet — including
+  // for a feat the tables have never heard of.
   if (race?.grantsFeat && draft.featName.trim()) {
-    c.feats = [{ name: draft.featName.trim() }]
+    mergeNamed(c.feats, [{ name: draft.featName.trim() }])
   }
 
   for (const text of draft.extraItems) {

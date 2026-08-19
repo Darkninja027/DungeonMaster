@@ -17,13 +17,21 @@ import type { ClassInfo } from './classes'
 import {
   findBackground,
   findKit,
+  findFeat,
   findRace,
   findSubrace,
   kitFromClassInfo,
   SRD_TABLES,
 } from './tables'
 import type { Tables } from './tables'
-import type { BackgroundInfo, ClassKit, Grant, PickList, RaceInfo } from './srd'
+import type {
+  BackgroundInfo,
+  ClassKit,
+  FeatInfo,
+  Grant,
+  PickList,
+  RaceInfo,
+} from './srd'
 
 export interface PersonalityDraft {
   trait: string
@@ -47,6 +55,8 @@ export interface CharacterDraft {
   races: Array<RaceInfo>
   backgrounds: Array<BackgroundInfo>
   kits: Array<ClassKit>
+  /** Feats offered for the Variant Human pick. Homebrew-only; see lib/srd/feats.ts. */
+  feats: Array<FeatInfo>
 
   raceName: string
   subraceName: string
@@ -99,6 +109,7 @@ export function emptyDraft(
     races: tables.races,
     backgrounds: tables.backgrounds,
     kits: tables.kits,
+    feats: tables.feats,
     raceName: '',
     subraceName: '',
     className: '',
@@ -123,6 +134,17 @@ export function emptyDraft(
 /** The race entry backing this draft, if its tables know the name. */
 export function draftRace(draft: CharacterDraft) {
   return findRace(draft.races, draft.raceName)
+}
+
+/**
+ * The feat entry backing the Variant Human pick, if the tables know the name.
+ *
+ * Undefined for a feat nobody has authored, which is a supported case: the name
+ * still reaches the sheet, it simply grants nothing.
+ */
+export function draftFeat(draft: CharacterDraft) {
+  if (!draftRace(draft)?.grantsFeat) return undefined
+  return findFeat(draft.feats, draft.featName)
 }
 
 /** The subrace entry, if any. */
@@ -183,6 +205,10 @@ export function draftGrants(draft: CharacterDraft): Array<Grant> {
   if (subrace) out.push(subrace.grant)
   const background = draftBackground(draft)
   if (background) out.push(background.grant)
+  // A feat grants through the same channel as everything else, so a feat that
+  // hands out a skill or a save needs no special case at commit.
+  const feat = draftFeat(draft)
+  if (feat) out.push(feat.grant)
   const kit = draftKit(draft)
   if (kit) {
     out.push(kit.grant)
@@ -257,6 +283,10 @@ export function racialAsi(
   bump(draftRace(draft)?.asi)
   bump(draftSubrace(draft)?.asi)
   bump(draft.flexibleAsi)
+  // A half-feat's +1 lands here rather than in buildCharacter, so it flows
+  // through `finalScores` with the racial increases and gets the same 1-30
+  // clamp. Only ever set for a race that grants a feat at all.
+  bump(draftFeat(draft)?.asi)
   return out
 }
 

@@ -4,18 +4,19 @@ import type { Homebrew } from '#/lib/homebrew'
 import { homebrewId } from '#/lib/homebrew'
 import { useHomebrew, useSaveHomebrew, useTables } from '#/lib/useHomebrew'
 import { SRD_TABLES, nameKey } from '#/lib/tables'
-import type { BackgroundInfo, ClassKit, RaceInfo } from '#/lib/srd'
+import type { BackgroundInfo, ClassKit, FeatInfo, RaceInfo } from '#/lib/srd'
 import { Button } from '#/components/ui/button'
 import { cn } from '#/lib/utils'
 import { BackgroundEditor, blankBackground } from './BackgroundEditor'
 import { BuiltInPreview } from './BuiltInPreview'
 import { ClassKitEditor, blankKit } from './ClassKitEditor'
 import { DuplicateDialog } from './DuplicateDialog'
+import { FeatEditor, blankFeat } from './FeatEditor'
 import { RaceEditor, blankRace } from './RaceEditor'
 
-type Tab = 'races' | 'backgrounds' | 'kits'
+type Tab = 'races' | 'backgrounds' | 'kits' | 'feats'
 
-type Entry = RaceInfo | BackgroundInfo | ClassKit
+type Entry = RaceInfo | BackgroundInfo | ClassKit | FeatInfo
 
 /**
  * Which row the detail pane is showing.
@@ -34,6 +35,7 @@ const KIND_LABEL: Record<Tab, string> = {
   races: 'race',
   backgrounds: 'background',
   kits: 'class',
+  feats: 'feat',
 }
 
 const TABS: Array<{ id: Tab; label: string; blurb: string }> = [
@@ -51,6 +53,11 @@ const TABS: Array<{ id: Tab; label: string; blurb: string }> = [
     id: 'backgrounds',
     label: 'Backgrounds',
     blurb: 'Skills, equipment and a feature.',
+  },
+  {
+    id: 'feats',
+    label: 'Feats',
+    blurb: 'Not in the SRD — everything here is yours.',
   },
 ]
 
@@ -119,7 +126,9 @@ export function HomebrewSection({ worldId }: { worldId: string }) {
         ? blankRace()
         : tab === 'backgrounds'
           ? blankBackground()
-          : blankKit()
+          : tab === 'feats'
+            ? blankFeat()
+            : blankKit()
     patchList([...list, blank])
     setSelected({ source: 'homebrew', index: list.length })
   }
@@ -253,14 +262,19 @@ export function HomebrewSection({ worldId }: { worldId: string }) {
             ))}
             {list.length === 0 && (
               <p className="text-muted-foreground p-2 text-xs">
-                Nothing of your own yet — add one, or duplicate a built-in below
-                to start from it.
+                {srdCount === 0
+                  ? 'Nothing yet. Feats aren’t in the SRD, so every feat the character wizards offer comes from here.'
+                  : 'Nothing of your own yet — add one, or duplicate a built-in below to start from it.'}
               </p>
             )}
 
-            <div className="text-muted-foreground mt-3 mb-1 px-2 text-[10px] font-medium tracking-wide uppercase">
-              Built-in ({srdCount})
-            </div>
+            {/* No divider when there is nothing under it — an empty "Built-in
+                (0)" heading reads as a list that failed to load. */}
+            {srdCount > 0 && (
+              <div className="text-muted-foreground mt-3 mb-1 px-2 text-[10px] font-medium tracking-wide uppercase">
+                Built-in ({srdCount})
+              </div>
+            )}
             {builtIns.map((entry, i) => {
               const shadowed = homebrewNames.has(nameKey(entry.name))
               return (
@@ -329,6 +343,8 @@ export function HomebrewSection({ worldId }: { worldId: string }) {
               background={homebrew.backgrounds[selected.index]}
               onChange={replace}
             />
+          ) : tab === 'feats' ? (
+            <FeatEditor feat={homebrew.feats[selected.index]} onChange={replace} />
           ) : (
             <ClassKitEditor
               kit={homebrew.kits[selected.index]}

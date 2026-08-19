@@ -31,6 +31,7 @@ export * from './types'
 export { SRD_RACES } from './races'
 export { SRD_BACKGROUNDS } from './backgrounds'
 export { SRD_CLASS_KITS } from './classKits'
+export { SRD_FEATS } from './feats'
 export {
   ALL_LANGUAGES,
   ARMOR_AC,
@@ -54,8 +55,10 @@ export {
  * it, in level order.
  *
  * `ClassKit.features` holds the whole 1-20 progression, so anything showing
- * "what you have now" has to filter. Forgetting to shipped a level 1 paladin
- * with Extra Attack and Aura of Protection on their sheet.
+ * "what you have now" has to filter. Forgetting to filter is what shipped a
+ * level 1 paladin with Extra Attack and Aura of Protection on their sheet —
+ * which is why both the wizard and commit go through this one helper rather
+ * than each filtering for themselves.
  */
 export function featuresUpToLevel(
   features: Array<{ level: number; name: string; text?: string }>,

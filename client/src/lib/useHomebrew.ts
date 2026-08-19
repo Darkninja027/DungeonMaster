@@ -79,6 +79,7 @@ export function useTables(worldId: string): Tables {
       races: world?.races,
       backgrounds: world?.backgrounds,
       kits: world?.kits,
+      feats: world?.feats,
     }
     return mergeTables(global ?? EMPTY_HOMEBREW, worldTables)
   }, [global, world])

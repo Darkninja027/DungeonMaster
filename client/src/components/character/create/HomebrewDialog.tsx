@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Sparkles } from 'lucide-react'
-import type { BackgroundInfo, ClassKit, RaceInfo } from '#/lib/srd'
+import type { BackgroundInfo, ClassKit, FeatInfo, RaceInfo } from '#/lib/srd'
 import type { Homebrew } from '#/lib/homebrew'
 import { homebrewId, parseHomebrew, serializeHomebrew } from '#/lib/homebrew'
 import { useHomebrew, useSaveHomebrew } from '#/lib/useHomebrew'
@@ -12,6 +12,10 @@ import {
   ClassKitEditor,
   blankKit,
 } from '#/components/settings/homebrew/ClassKitEditor'
+import {
+  FeatEditor,
+  blankFeat,
+} from '#/components/settings/homebrew/FeatEditor'
 import {
   RaceEditor,
   blankRace,
@@ -27,7 +31,7 @@ import {
 } from '#/components/ui/dialog'
 import { ScrollArea } from '#/components/ui/scroll-area'
 
-export type HomebrewKind = 'race' | 'background' | 'kit'
+export type HomebrewKind = 'race' | 'background' | 'kit' | 'feat'
 
 /**
  * Add an entry, or replace the one that already has its name.
@@ -73,29 +77,40 @@ export function HomebrewDialog({
   kind: HomebrewKind
   open: boolean
   onClose: () => void
-  onCreated: (entry: RaceInfo | BackgroundInfo | ClassKit) => void
+  onCreated: (entry: RaceInfo | BackgroundInfo | ClassKit | FeatInfo) => void
 }) {
   const { data: stored } = useHomebrew()
   const save = useSaveHomebrew()
   const [race, setRace] = useState<RaceInfo>(blankRace)
   const [background, setBackground] = useState<BackgroundInfo>(blankBackground)
   const [kit, setKit] = useState<ClassKit>(blankKit)
+  const [feat, setFeat] = useState<FeatInfo>(blankFeat)
 
   useEffect(() => {
     if (!open) return
     setRace(blankRace())
     setBackground(blankBackground())
     setKit(blankKit())
+    setFeat(blankFeat())
   }, [open, kind])
 
-  const entry = kind === 'race' ? race : kind === 'kit' ? kit : background
+  const entry =
+    kind === 'race'
+      ? race
+      : kind === 'kit'
+        ? kit
+        : kind === 'feat'
+          ? feat
+          : background
   const name = entry.name.trim()
   const existing =
     kind === 'race'
       ? (stored?.races ?? [])
       : kind === 'kit'
         ? (stored?.kits ?? [])
-        : (stored?.backgrounds ?? [])
+        : kind === 'feat'
+          ? (stored?.feats ?? [])
+          : (stored?.backgrounds ?? [])
   const clash =
     name !== '' &&
     existing.some((e) => e.name.trim().toLowerCase() === name.toLowerCase())
@@ -108,25 +123,29 @@ export function HomebrewDialog({
         ? { ...stored, races: upsert(stored.races, withId as RaceInfo) }
         : kind === 'kit'
           ? { ...stored, kits: upsert(stored.kits, withId as ClassKit) }
-          : {
-              ...stored,
-              backgrounds: upsert(
-                stored.backgrounds,
-                withId as BackgroundInfo,
-              ),
-            }
+          : kind === 'feat'
+            ? { ...stored, feats: upsert(stored.feats, withId as FeatInfo) }
+            : {
+                ...stored,
+                backgrounds: upsert(
+                  stored.backgrounds,
+                  withId as BackgroundInfo,
+                ),
+              }
     save.mutate(next, {
       onSuccess: (saved) => {
         // Hand back the *parsed* entry, not the draft: the parser is what
         // normalises ids and drops unusable rows, so this is what actually
         // landed on disk.
         const normalised = parseHomebrew(serializeHomebrew(saved))
-        const list =
+        const list: Array<RaceInfo | BackgroundInfo | ClassKit | FeatInfo> =
           kind === 'race'
             ? normalised.races
             : kind === 'kit'
               ? normalised.kits
-              : normalised.backgrounds
+              : kind === 'feat'
+                ? normalised.feats
+                : normalised.backgrounds
         const created = list.find(
           (e) => e.name.trim().toLowerCase() === name.toLowerCase(),
         )
@@ -158,6 +177,8 @@ export function HomebrewDialog({
                 classNames={existing.map((e) => e.name)}
                 onChange={setKit}
               />
+            ) : kind === 'feat' ? (
+              <FeatEditor feat={feat} onChange={setFeat} />
             ) : (
               <BackgroundEditor
                 background={background}

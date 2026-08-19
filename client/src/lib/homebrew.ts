@@ -22,6 +22,7 @@ import { classId } from './worldSettings'
 import type {
   BackgroundInfo,
   ClassKit,
+  FeatInfo,
   Grant,
   GrantItem,
   GrantTrait,
@@ -44,11 +45,12 @@ import type { Ability } from './character'
 export const HOMEBREW_VERSION = 1
 
 export const HOMEBREW_COMMENT =
-  'Homebrew shared by every world. Races, backgrounds, classes and class kits ' +
-  'here are offered alongside the built-in SRD ones. Everything a character ' +
-  'sheet stores is free text, so deleting an entry never breaks a character ' +
-  'that used it — the name simply stays as typed. A world can override any of ' +
-  'these by defining the same name in its own worldSettings.json.'
+  'Homebrew shared by every world. Races, backgrounds, classes and feats here ' +
+  'are offered alongside the built-in SRD ones — feats have no built-ins, ' +
+  'since SRD 5.1 has no feat list. Everything a character sheet stores is free ' +
+  'text, so deleting an entry never breaks a character that used it — the name ' +
+  'simply stays as typed. A world can override any of these by defining the ' +
+  'same name in its own worldSettings.json.'
 
 export interface Homebrew {
   version: number
@@ -56,6 +58,12 @@ export interface Homebrew {
   backgrounds: Array<BackgroundInfo>
   /** Classes. A kit is the whole definition — hit die and subclasses included. */
   kits: Array<ClassKit>
+  /**
+   * Feats. Unlike the others this tier has no SRD layer beneath it — 5.1 has no
+   * feat list — so in practice every feat a character can pick comes from here
+   * or from a world's own settings.
+   */
+  feats: Array<FeatInfo>
   /**
    * Legacy class list, from files written while classes and kits were separate
    * tables. Still read and re-written so an older build opening the same file
@@ -70,6 +78,7 @@ export const EMPTY_HOMEBREW: Homebrew = {
   races: [],
   backgrounds: [],
   kits: [],
+  feats: [],
 }
 
 // --- shared coercion (same shapes as worldSettings.ts) ----------------------
@@ -382,6 +391,34 @@ export function parseBackground(raw: unknown): BackgroundInfo | null {
     },
     grant: parseGrant(r.grant, id),
   }
+}
+
+/**
+ * A feat. Same conventions as every other entry here: name required, `id`
+ * derived and never stored, grant through `parseGrant` so token normalisation
+ * and pick-id namespacing come free.
+ *
+ * `asi` is omitted entirely when empty rather than written as `{}` — a feat with
+ * no ability bump is a full feat, and `parseAsi` already drops zero and negative
+ * increases, so an empty object and an absent key mean the same thing.
+ */
+export function parseFeat(raw: unknown): FeatInfo | null {
+  if (typeof raw !== 'object' || raw === null) return null
+  const r = raw as Record<string, unknown>
+  const name = str(r.name).trim()
+  if (name === '') return null
+  const id = homebrewId(name)
+  const feat: FeatInfo = {
+    id,
+    name,
+    summary: str(r.summary).trim(),
+    grant: parseGrant(r.grant, id),
+  }
+  const prerequisite = str(r.prerequisite).trim()
+  if (prerequisite !== '') feat.prerequisite = prerequisite
+  const asi = parseAsi(r.asi)
+  if (Object.keys(asi).length > 0) feat.asi = asi
+  return feat
 }
 
 function parseSpellcasting(raw: unknown): ClassKit['spellcasting'] {
@@ -721,6 +758,7 @@ export function parseHomebrew(raw: unknown): Homebrew {
     races: list(r.races, parseRace),
     backgrounds: list(r.backgrounds, parseBackground),
     kits: list(r.kits, parseKit),
+    feats: list(r.feats, parseFeat),
     // Only carried when the file has one; nothing writes a new legacy list.
     ...(Array.isArray(r.classes) && { classes: list(r.classes, parseClass) }),
   }
@@ -747,6 +785,10 @@ export function serializeHomebrew(homebrew: Homebrew): unknown {
     })),
     backgrounds: homebrew.backgrounds.map(({ id: _id, grant, ...bg }) => ({
       ...bg,
+      grant: stripPicks(grant),
+    })),
+    feats: homebrew.feats.map(({ id: _id, grant, ...feat }) => ({
+      ...feat,
       grant: stripPicks(grant),
     })),
     kits: homebrew.kits.map(

@@ -4,6 +4,7 @@ import {
   HOMEBREW_VERSION,
   homebrewId,
   parseBackground,
+  parseFeat,
   parseHomebrew,
   parseKit,
   parseRace,
@@ -253,6 +254,79 @@ describe('parseRace', () => {
       grant: { saves: ['str', 'nope', 'WIS'] },
     })
     expect(race!.grant.saves).toEqual(['str', 'wis'])
+  })
+})
+
+describe('parseFeat', () => {
+  it('drops a nameless feat', () => {
+    expect(parseFeat({ summary: 'x' })).toBeNull()
+    expect(parseFeat({ name: '   ' })).toBeNull()
+  })
+
+  it('derives the id from the name', () => {
+    expect(parseFeat({ name: 'Great Weapon Master' })!.id).toBe(
+      'great-weapon-master',
+    )
+  })
+
+  it('reads the grant through the shared parser, normalising tokens', () => {
+    const feat = parseFeat({
+      name: 'Resilient',
+      summary: 'Tougher than you look.',
+      grant: {
+        saves: ['con'],
+        // Capitalised on purpose: tokenId should normalise it to the id.
+        resistances: ['Cold'],
+        skills: ['athletics'],
+      },
+    })
+    expect(feat!.grant.saves).toEqual(['con'])
+    expect(feat!.grant.resistances).toEqual(['cold'])
+    expect(feat!.grant.skills).toEqual(['athletics'])
+  })
+
+  it('keeps a half-feat ability bump and omits an empty one', () => {
+    expect(parseFeat({ name: 'Resilient', asi: { con: 1 } })!.asi).toEqual({
+      con: 1,
+    })
+    // A full feat has no `asi` key at all rather than an empty object.
+    expect(parseFeat({ name: 'Alert' })).not.toHaveProperty('asi')
+    expect(parseFeat({ name: 'Alert', asi: { con: 0 } })).not.toHaveProperty(
+      'asi',
+    )
+  })
+
+  it('keeps a prerequisite as free text, and omits a blank one', () => {
+    expect(
+      parseFeat({ name: 'Grappler', prerequisite: 'Strength 13 or higher' })!
+        .prerequisite,
+    ).toBe('Strength 13 or higher')
+    expect(parseFeat({ name: 'Alert', prerequisite: '  ' })).not.toHaveProperty(
+      'prerequisite',
+    )
+  })
+
+  it('round-trips through serialize without the id', () => {
+    const feat = parseFeat({
+      name: 'Resilient',
+      summary: 'Tougher.',
+      prerequisite: 'None',
+      asi: { con: 1 },
+      grant: { saves: ['con'] },
+    })!
+    const written = serializeHomebrew({ ...EMPTY_HOMEBREW, feats: [feat] }) as {
+      feats: Array<Record<string, unknown>>
+    }
+    expect(written.feats[0]).not.toHaveProperty('id')
+    expect(written.feats[0].name).toBe('Resilient')
+
+    const back = parseHomebrew(written)
+    expect(back.feats).toHaveLength(1)
+    expect(back.feats[0]).toEqual(feat)
+  })
+
+  it('treats a file with no feats key as having none', () => {
+    expect(parseHomebrew({ races: [] }).feats).toEqual([])
   })
 })
 

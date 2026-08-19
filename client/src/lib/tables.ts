@@ -16,10 +16,11 @@
 import type { ClassInfo } from './classes'
 import type { Homebrew } from './homebrew'
 import { EMPTY_HOMEBREW } from './homebrew'
-import { SRD_BACKGROUNDS, SRD_CLASS_KITS, SRD_RACES } from './srd'
+import { SRD_BACKGROUNDS, SRD_CLASS_KITS, SRD_FEATS, SRD_RACES } from './srd'
 import type {
   BackgroundInfo,
   ClassKit,
+  FeatInfo,
   RaceInfo,
   SubclassInfo,
   SubraceInfo,
@@ -34,6 +35,11 @@ export interface Tables {
    * so there is no separate class table any more.
    */
   kits: Array<ClassKit>
+  /**
+   * Feats. The one table whose SRD layer is empty by design, so this list is
+   * whatever the user and the world have authored and nothing more.
+   */
+  feats: Array<FeatInfo>
 }
 
 /** What a world contributes on top of the global store. */
@@ -41,6 +47,7 @@ export interface WorldTables {
   races?: Array<RaceInfo>
   backgrounds?: Array<BackgroundInfo>
   kits?: Array<ClassKit>
+  feats?: Array<FeatInfo>
   /**
    * Legacy per-world class list, from files written before kits absorbed it.
    * Upgraded in place rather than migrated on disk: a world folder is the
@@ -56,6 +63,7 @@ export const SRD_TABLES: Tables = {
   races: SRD_RACES,
   backgrounds: SRD_BACKGROUNDS,
   kits: SRD_CLASS_KITS,
+  feats: SRD_FEATS,
 }
 
 /**
@@ -225,6 +233,7 @@ export function mergeTables(
       world.backgrounds ?? [],
     ),
     kits: layerClasses(global, world),
+    feats: layer(SRD_FEATS, global.feats, world.feats ?? []),
   }
 }
 
@@ -328,6 +337,21 @@ export function findKit(
   const key = nameKey(name)
   if (key === '') return undefined
   return kits.find((k) => nameKey(k.name) === key)
+}
+
+/**
+ * Feat lookup. Name in, undefined out — a feat nobody has authored still lands
+ * on the sheet as the name the player typed, it simply grants nothing. That is
+ * the same contract as every other lookup here, and it is what keeps a feat
+ * hand-written in Obsidian working.
+ */
+export function findFeat(
+  feats: Array<FeatInfo>,
+  name: string,
+): FeatInfo | undefined {
+  const key = nameKey(name)
+  if (key === '') return undefined
+  return feats.find((f) => nameKey(f.name) === key)
 }
 
 /**
