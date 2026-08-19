@@ -2,6 +2,13 @@ import { describe, expect, it } from 'vitest'
 import { ABILITIES, CONDITIONS, DAMAGE_TYPES, SKILLS } from '../character'
 import type { Ability } from '../character'
 import { PHB_CLASSES, findClass } from '../classes'
+// Reaches *out* of srd/ on purpose. The published feats are not SRD content —
+// that is why they live in lib/feats/ — but their picks share one global id
+// keyspace with every race, background and kit pick here, so they have to be
+// checked by the same walkers. Duplicating them into a second test file would
+// let a collision between the two tiers slip through, which is the exact class
+// of silent bug this file exists to catch.
+import { PUBLISHED_FEATS } from '../feats'
 import { SRD_BACKGROUNDS } from './backgrounds'
 import { SRD_CLASS_KITS } from './classKits'
 import { ARMOR_AC, WEAPON_STATS } from './equipment'
@@ -48,6 +55,9 @@ function allGrants(): Array<{ where: string; grant: Grant }> {
         })
       }
     }
+  }
+  for (const feat of PUBLISHED_FEATS) {
+    out.push({ where: `feat ${feat.name}`, grant: feat.grant })
   }
   return out
 }
@@ -372,6 +382,73 @@ function slug(name: string): string {
     .replace(/^-+|-+$/g, '')
 }
 
+describe('published feats', () => {
+  it('every id is unique and matches the slugified name', () => {
+    const seen = new Set<string>()
+    for (const feat of PUBLISHED_FEATS) {
+      expect(feat.id, `feat ${feat.name}`).toBe(slug(feat.name))
+      expect(seen.has(feat.id), `duplicate feat id "${feat.id}"`).toBe(false)
+      seen.add(feat.id)
+    }
+  })
+
+  it('every name is unique, case-insensitively', () => {
+    // `layer()` keys on the lowercased name, so two feats differing only in
+    // case would silently collapse into one at merge time.
+    const seen = new Set<string>()
+    for (const feat of PUBLISHED_FEATS) {
+      const key = feat.name.trim().toLowerCase()
+      expect(seen.has(key), `duplicate feat name "${feat.name}"`).toBe(false)
+      seen.add(key)
+    }
+  })
+
+  it('every feat has a summary — it is the only thing the list shows', () => {
+    for (const feat of PUBLISHED_FEATS) {
+      expect(feat.summary.trim(), `feat ${feat.name}`).not.toBe('')
+    }
+  })
+
+  it('a stated prerequisite is never blank', () => {
+    for (const feat of PUBLISHED_FEATS) {
+      if (feat.prerequisite === undefined) continue
+      expect(feat.prerequisite.trim(), `feat ${feat.name}`).not.toBe('')
+    }
+  })
+
+  it('half-feat increases are positive and target real abilities', () => {
+    for (const feat of PUBLISHED_FEATS) {
+      for (const [ability, amount] of Object.entries(feat.asi ?? {})) {
+        expect(ABILITY_IDS.has(ability), `feat ${feat.name}: ${ability}`).toBe(
+          true,
+        )
+        expect(amount, `feat ${feat.name}: ${ability}`).toBeGreaterThan(0)
+      }
+    }
+  })
+
+  it('grants no traits, items or currency — level-up drops all three', () => {
+    // `applyFeatGrants` in lib/levelUp.ts deliberately ignores these, so a feat
+    // carrying them would apply at level 1 and vanish at every level-up. Better
+    // never to author them than to ship that inconsistency.
+    for (const feat of PUBLISHED_FEATS) {
+      expect(feat.grant.traits, `feat ${feat.name}`).toBeUndefined()
+      expect(feat.grant.items, `feat ${feat.name}`).toBeUndefined()
+      expect(feat.grant.currency, `feat ${feat.name}`).toBeUndefined()
+    }
+  })
+
+  it('pick ids are prefixed with the feat id that owns them', () => {
+    for (const feat of PUBLISHED_FEATS) {
+      for (const pick of feat.grant.picks ?? []) {
+        expect(pick.id.startsWith(`${feat.id}-`), `feat ${feat.name}`).toBe(
+          true,
+        )
+      }
+    }
+  })
+})
+
 describe('per-level progression', () => {
   it('every feature is gained at a level between 1 and 20', () => {
     for (const kit of SRD_CLASS_KITS) {
@@ -655,10 +732,14 @@ describe('subclasses', () => {
         expect(Number.isInteger(feature.level), `${kit.name}/${sub.name}`).toBe(
           true,
         )
-        expect(feature.level, `${kit.name}/${sub.name}/${feature.name}`)
-          .toBeGreaterThanOrEqual(1)
-        expect(feature.level, `${kit.name}/${sub.name}/${feature.name}`)
-          .toBeLessThanOrEqual(20)
+        expect(
+          feature.level,
+          `${kit.name}/${sub.name}/${feature.name}`,
+        ).toBeGreaterThanOrEqual(1)
+        expect(
+          feature.level,
+          `${kit.name}/${sub.name}/${feature.name}`,
+        ).toBeLessThanOrEqual(20)
         expect(feature.name.trim(), `${kit.name}/${sub.name}`).not.toBe('')
       }
     }
@@ -671,8 +752,10 @@ describe('subclasses', () => {
       const at = subclassLevelOf(kit)
       for (const sub of kit.subclasses) {
         for (const feature of sub.features) {
-          expect(feature.level, `${kit.name}/${sub.name}/${feature.name}`)
-            .toBeGreaterThanOrEqual(at)
+          expect(
+            feature.level,
+            `${kit.name}/${sub.name}/${feature.name}`,
+          ).toBeGreaterThanOrEqual(at)
         }
       }
     }
@@ -683,7 +766,9 @@ describe('subclasses', () => {
       for (const row of sub.spells ?? []) {
         expect(row.level, `${kit.name}/${sub.name}`).toBeGreaterThanOrEqual(1)
         expect(row.level, `${kit.name}/${sub.name}`).toBeLessThanOrEqual(9)
-        expect(row.grantedAt, `${kit.name}/${sub.name}`).toBeGreaterThanOrEqual(1)
+        expect(row.grantedAt, `${kit.name}/${sub.name}`).toBeGreaterThanOrEqual(
+          1,
+        )
         expect(row.grantedAt, `${kit.name}/${sub.name}`).toBeLessThanOrEqual(20)
         expect(row.names.length, `${kit.name}/${sub.name}`).toBeGreaterThan(0)
       }

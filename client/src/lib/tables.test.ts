@@ -16,18 +16,31 @@ import {
   subraceIndex,
   subracesFor,
 } from './tables'
-import { SRD_BACKGROUNDS, SRD_CLASS_KITS, SRD_RACES } from './srd'
+import { PUBLISHED_FEATS } from './feats'
+import { SRD_BACKGROUNDS, SRD_CLASS_KITS, SRD_FEATS, SRD_RACES } from './srd'
 
 describe('feats', () => {
-  it('has no built-ins — SRD 5.1 has no feat list', () => {
-    expect(mergeTables().feats).toEqual([])
+  it('has no SRD built-ins — SRD 5.1 has no feat list', () => {
+    // The reason this tier is empty has not changed; the built-ins now come
+    // from lib/feats/, which sits outside srd/ precisely because the published
+    // feats are not SRD content.
+    expect(SRD_FEATS).toEqual([])
   })
 
-  it('layers world over global, matched case-insensitively on name', () => {
+  it('ships the published feats as built-ins', () => {
+    const names = mergeTables().feats.map((f) => f.name)
+    expect(names).toContain('Alert')
+    expect(names).toContain('Great Weapon Master')
+    expect(names).toContain('Sharpshooter')
+    expect(names).toEqual(PUBLISHED_FEATS.map((f) => f.name))
+  })
+
+  it('layers world over global over built-in, matched case-insensitively', () => {
     const global = parseHomebrew({
       feats: [
         { name: 'Alert', summary: 'global' },
         { name: 'Tough', summary: 'global' },
+        { name: 'Bespoke', summary: 'global' },
       ],
     })
     // Note the `classes` key: `parseWorldSettings` returns early without one
@@ -38,18 +51,25 @@ describe('feats', () => {
     })
     const tables = mergeTables(global, { feats: world.feats })
 
-    // Overridden in place, not appended — same rule as races. The world's entry
-    // replaces the global one wholesale, so its casing is what survives.
-    expect(tables.feats.map((f) => f.name)).toEqual(['alert', 'Tough'])
+    // Overridden in place, not appended — same rule as races. Alert and Tough
+    // are both built-ins, so neither homebrew entry lengthens the list; only
+    // the genuinely new one does, and it lands at the end.
+    expect(tables.feats).toHaveLength(PUBLISHED_FEATS.length + 1)
+    expect(tables.feats.at(-1)?.name).toBe('Bespoke')
+
+    // The built-in keeps its position; the world's casing is what survives.
+    const builtInIndex = PUBLISHED_FEATS.findIndex((f) => f.name === 'Alert')
+    expect(tables.feats[builtInIndex]?.name).toBe('alert')
     expect(findFeat(tables.feats, 'Alert')?.summary).toBe('world')
+    expect(findFeat(tables.feats, 'Tough')?.summary).toBe('global')
   })
 
   it('findFeat is name-in, undefined-out', () => {
-    const tables = mergeTables(parseHomebrew({ feats: [{ name: 'Alert' }] }))
+    const tables = mergeTables()
     expect(findFeat(tables.feats, 'alert')?.name).toBe('Alert')
     expect(findFeat(tables.feats, '  Alert  ')?.name).toBe('Alert')
     // A feat nobody authored: the sheet still keeps the typed name.
-    expect(findFeat(tables.feats, 'Sharpshooter')).toBeUndefined()
+    expect(findFeat(tables.feats, 'Ancestral Whatsit')).toBeUndefined()
     expect(findFeat(tables.feats, '')).toBeUndefined()
   })
 })
@@ -170,7 +190,10 @@ describe('mergeTables', () => {
     // stripped the features, saves and equipment off every SRD class in every
     // world, leaving the level-up wizard with nothing to grant.
     const world = { classes: [{ ...PHB_CLASSES[0], hitDie: 6 }] }
-    const kit = findKit(mergeTables(EMPTY_HOMEBREW, world).kits, PHB_CLASSES[0].name)
+    const kit = findKit(
+      mergeTables(EMPTY_HOMEBREW, world).kits,
+      PHB_CLASSES[0].name,
+    )
     // The legacy list owns the hit die...
     expect(kit?.hitDie).toBe(6)
     // ...but everything it never carried survives.
@@ -198,9 +221,10 @@ describe('mergeTables', () => {
     const tables = mergeTables(EMPTY_HOMEBREW, world)
     for (const srd of SRD_CLASS_KITS) {
       const kit = findKit(tables.kits, srd.name)
-      expect(kit?.subclasses.map((sub) => sub.name), srd.name).toEqual(
-        srd.subclasses.map((sub) => sub.name),
-      )
+      expect(
+        kit?.subclasses.map((sub) => sub.name),
+        srd.name,
+      ).toEqual(srd.subclasses.map((sub) => sub.name))
       for (const expected of srd.subclasses) {
         const sub = kit?.subclasses.find((s) => s.name === expected.name)
         expect(sub?.features.length, `${srd.name}/${expected.name}`).toBe(
@@ -256,9 +280,9 @@ describe('mergeTables', () => {
     ])
     // The mentioned one keeps whatever the SRD kit gave it rather than being
     // flattened to a bare name by the legacy overlay.
-    const srdEk = SRD_CLASS_KITS.find((k) => k.name === 'Fighter')?.subclasses.find(
-      (sub) => sub.name === 'Eldritch Knight',
-    )
+    const srdEk = SRD_CLASS_KITS.find(
+      (k) => k.name === 'Fighter',
+    )?.subclasses.find((sub) => sub.name === 'Eldritch Knight')
     const ek = kit?.subclasses.find((sub) => sub.name === 'Eldritch Knight')
     expect(ek?.features.length).toBe(srdEk?.features.length)
   })
@@ -302,7 +326,11 @@ describe('mergeTables', () => {
     expect(subclassLevelOf(fighter)).toBe(3)
     // A file written by an older build has only the boolean.
     expect(
-      subclassLevelOf({ ...fighter!, subclassLevel: undefined, subclassAtLevel1: true }),
+      subclassLevelOf({
+        ...fighter!,
+        subclassLevel: undefined,
+        subclassAtLevel1: true,
+      }),
     ).toBe(1)
     expect(subclassLevelOf(undefined)).toBe(3)
   })
@@ -463,9 +491,10 @@ describe('kits carry the class fields the sheet needs', () => {
       expect(kit, cl.name).toBeDefined()
       expect(kit?.hitDie, cl.name).toBe(cl.hitDie)
       expect(kit?.subclassLabel, cl.name).toBe(cl.subclassLabel)
-      expect(kit?.subclasses.map((sub) => sub.name), cl.name).toEqual(
-        cl.subclasses,
-      )
+      expect(
+        kit?.subclasses.map((sub) => sub.name),
+        cl.name,
+      ).toEqual(cl.subclasses)
     }
   })
 

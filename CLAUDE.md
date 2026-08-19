@@ -93,14 +93,34 @@ anything computed *during play* stay out, and nothing here is ever enforced: the
 wizard offers what the table says and the player takes it or ignores it.
 
 **Feats** are the one place that line moved, and only halfway. `FeatInfo` lives
-here and `SRD_FEATS` is deliberately **empty** — SRD 5.1 has no feat list, so
-every feat is authored as homebrew (Settings › Homebrew › Feats) or by a world.
+here but `SRD_FEATS` is deliberately **empty** and stays that way — SRD 5.1 has
+no feat list. The ~85 built-in feats live in **`lib/feats/publishedFeats.ts`**,
+outside `lib/srd/` on purpose: PHB, Xanathar's, Tasha's, Fizban's and Bigby's
+feats are not SRD content and cannot sit under that folder's CC BY 4.0
+attribution. `mergeTables` layers them between the empty SRD tier and the user's
+homebrew, so precedence reads **world > global > published > SRD**. `SRD_TABLES`
+carries them too — it is what every "is this a built-in?" check in the settings
+UI reads, and updating only `mergeTables` leaves the Homebrew tab showing none.
+
+What that tier ships is **names and mechanical grants, never rules text**: a
+`summary` is a one-line reminder in our own words, and a feat whose effect is a
+combat rule this app doesn't model (Lucky, Sentinel, Great Weapon Master) carries
+`grant: {}`, which is correct rather than incomplete. `traits`, `items` and
+`currency` are never authored on a feat because `applyFeatGrants` drops all
+three — they would apply at level 1 and vanish at every level-up. `srd.test.ts`
+enforces all of this, and its `allGrants()` walker deliberately reaches out of
+`srd/` into `lib/feats/` so feat picks are checked against the same global pick-id
+keyspace as every race and background.
+
 A feat is built on `Grant`, the same bundle races and backgrounds use, so taking
 one grants its skills and proficiencies through `applyGrant` rather than any new
 mechanism; a half-feat's `+1` rides `racialAsi` at creation and `mergedAsi` at
-level-up. `prerequisite` is free text that is **shown and never checked**. So
-feat *definitions* are in; feat *content and enforcement* remain out, exactly as
-the paragraph above still requires.
+level-up. `asi` is a fixed record, so a feat offering a *choice* of ability
+(Resilient, Skill Expert) picks the usual one and says "of your choice" in its
+summary — the sheet is hand-editable, and adding a `flexibleAsi` mechanism for it
+was considered and rejected. `prerequisite` is free text that is **shown and
+never checked**. So feat *definitions* and their grants are in; feat *rules text
+and enforcement* remain out, exactly as the paragraph above still requires.
 
 `lib/levelUp.ts` is the level-up wizard's pure layer, and its invariant is the
 thing to preserve: **`applyLevelUp` only appends to arrays and raises numbers.**

@@ -46,8 +46,8 @@ export const HOMEBREW_VERSION = 1
 
 export const HOMEBREW_COMMENT =
   'Homebrew shared by every world. Races, backgrounds, classes and feats here ' +
-  'are offered alongside the built-in SRD ones — feats have no built-ins, ' +
-  'since SRD 5.1 has no feat list. Everything a character sheet stores is free ' +
+  'are offered alongside the built-in ones, and an entry sharing a built-in’s ' +
+  'name replaces it. Everything a character sheet stores is free ' +
   'text, so deleting an entry never breaks a character that used it — the name ' +
   'simply stays as typed. A world can override any of these by defining the ' +
   'same name in its own worldSettings.json.'

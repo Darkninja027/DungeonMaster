@@ -82,9 +82,9 @@ export function BuiltInPreview({
 }
 
 /**
- * Unreachable today — `SRD_FEATS` is empty — but present so the pane isn't
- * blank the day a built-in feat exists, and so a world-supplied feat viewed
- * through this component renders properly.
+ * The published feats in `lib/feats/` render through here, as does a
+ * world-supplied one viewed via this component. Written before either existed,
+ * back when `SRD_FEATS` was the only feat tier and empty.
  */
 function FeatPreview({ feat }: { feat: FeatInfo }) {
   return (

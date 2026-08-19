@@ -22,14 +22,20 @@
  * it offers what the table says and the player takes it or ignores it, because
  * the sheet is hand-editable and every value on it is free text.
  *
- * **Feats:** the *definition* is in (`FeatInfo`), the *content* is not. This
- * line used to read "feat catalogues and their prerequisites" stay out, and the
- * reasoning behind it survives intact: SRD 5.1 has no feat list, so `SRD_FEATS`
- * ships **empty** and every feat is authored as homebrew. A prerequisite is
- * free text that is displayed and never checked, and nothing here computes
- * during play — so the sentence above still governs feats exactly as written.
- * What changed is only that a feat now has a shape to be authored *into*,
- * instead of being a bare name the sheet could do nothing with.
+ * **Feats:** the *definition* is in (`FeatInfo`), the *content* is not — not
+ * in this folder, at least. SRD 5.1 has no feat list, so `SRD_FEATS` ships
+ * **empty** and always will; the published catalogue lives in `lib/feats/`,
+ * outside `srd/`, because PHB, Xanathar's and Tasha's feats are not ours to put
+ * under the CC BY 4.0 attribution in ./index.ts.
+ *
+ * The rule that kept feats out still holds where it counts. What that tier
+ * ships is names and mechanical grants — the same strings a player would type —
+ * and not rules text. A prerequisite is free text that is displayed and never
+ * checked, nothing computes during play, and a feat whose effect is a combat
+ * rule this app does not model carries an empty grant. So the sentence above
+ * governs feats exactly as written; what changed is only that a feat now has a
+ * shape to be authored *into*, instead of being a bare name the sheet could do
+ * nothing with.
  *
  * `SubraceInfo.hpPerLevel` remains a one-off; see its doc comment.
  */

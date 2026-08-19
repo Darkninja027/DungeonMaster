@@ -14,6 +14,7 @@
  */
 
 import type { ClassInfo } from './classes'
+import { PUBLISHED_FEATS } from './feats'
 import type { Homebrew } from './homebrew'
 import { EMPTY_HOMEBREW } from './homebrew'
 import { SRD_BACKGROUNDS, SRD_CLASS_KITS, SRD_FEATS, SRD_RACES } from './srd'
@@ -36,8 +37,10 @@ export interface Tables {
    */
   kits: Array<ClassKit>
   /**
-   * Feats. The one table whose SRD layer is empty by design, so this list is
-   * whatever the user and the world have authored and nothing more.
+   * Feats. The one table whose *SRD* layer is empty by design — SRD 5.1 has no
+   * feat list — so the built-ins come from `lib/feats/` instead, which sits
+   * outside `lib/srd/` precisely because they are not SRD content. On top of
+   * those sit whatever the user and the world have authored.
    */
   feats: Array<FeatInfo>
 }
@@ -58,12 +61,20 @@ export interface WorldTables {
   classes?: Array<ClassInfo>
 }
 
-/** The built-ins alone — the fallback while homebrew is still loading. */
+/**
+ * The built-ins alone — the fallback while homebrew is still loading, and the
+ * list every "is this a built-in?" check in the settings UI reads.
+ *
+ * The name is now slightly narrower than the contents: feats come from
+ * `lib/feats/`, which is deliberately *not* SRD 5.1. It stays `SRD_TABLES`
+ * because "the built-in tier" is what every call site means by it, and renaming
+ * would churn six components to no benefit.
+ */
 export const SRD_TABLES: Tables = {
   races: SRD_RACES,
   backgrounds: SRD_BACKGROUNDS,
   kits: SRD_CLASS_KITS,
-  feats: SRD_FEATS,
+  feats: [...SRD_FEATS, ...PUBLISHED_FEATS],
 }
 
 /**
@@ -233,7 +244,7 @@ export function mergeTables(
       world.backgrounds ?? [],
     ),
     kits: layerClasses(global, world),
-    feats: layer(SRD_FEATS, global.feats, world.feats ?? []),
+    feats: layer(SRD_FEATS, PUBLISHED_FEATS, global.feats, world.feats ?? []),
   }
 }
 
