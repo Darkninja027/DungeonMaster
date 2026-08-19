@@ -337,11 +337,21 @@ describe('feats at creation', () => {
     expect(character.speed).toBe(40)
   })
 
+  it('carries the feat’s summary onto the sheet as its description', () => {
+    const { character } = buildCharacter(variantHuman('Resilient', [RESILIENT]))
+    // Without this the Features tab lists the feat as "No description yet."
+    expect(character.feats).toEqual([
+      { name: 'Resilient', text: 'Tougher than you look.' },
+    ])
+  })
+
   it('keeps an unknown feat as a bare name and grants nothing', () => {
     const { character } = buildCharacter(
       variantHuman('Sharpshooter', [RESILIENT]),
     )
     expect(character.feats.map((f) => f.name)).toEqual(['Sharpshooter'])
+    // Nothing to describe, so no text key at all rather than an empty one.
+    expect(character.feats[0].text).toBeUndefined()
     expect(character.saves).not.toContain('con')
     expect(character.abilities.con).toBe(14)
   })

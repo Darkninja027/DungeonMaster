@@ -147,6 +147,25 @@ export function WizardSummary({ draft }: { draft: CharacterDraft }) {
         </Section>
       )}
 
+      {/*
+        Feats get their own section rather than joining the run-on list below.
+        A feat is something the player deliberately picked — seeing it confirmed
+        here is the point of the panel — where traits and features are things
+        the race and class handed over.
+      */}
+      {character.feats.length > 0 && (
+        <Section title={character.feats.length === 1 ? 'Feat' : 'Feats'}>
+          {character.feats.map((feat) => (
+            <div key={feat.name}>
+              <p className="text-xs font-medium">{feat.name}</p>
+              {feat.text && (
+                <p className="text-muted-foreground text-xs">{feat.text}</p>
+              )}
+            </div>
+          ))}
+        </Section>
+      )}
+
       {(character.traits.length > 0 || character.features.length > 0) && (
         <Section title="Traits & features">
           <p className="text-muted-foreground text-xs">

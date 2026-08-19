@@ -62,8 +62,17 @@ export function SpellsStep({
   // A homebrew class nobody's spells mention would filter everything away, so
   // only narrow by class when the kit is one the tables know.
   const className = kit?.name
-  const names = (level: number) =>
-    filterSpells(entries, { level, className }).map((e) => e.title)
+  // Memoised per level rather than computed inline: a fresh array on every
+  // render re-runs the Combobox's own filtering for a list that only changes
+  // when the world's spells or the class do.
+  const cantripNames = useMemo(
+    () => filterSpells(entries, { level: 0, className }).map((e) => e.title),
+    [entries, className],
+  )
+  const spellNames = useMemo(
+    () => filterSpells(entries, { level: 1, className }).map((e) => e.title),
+    [entries, className],
+  )
 
   if (!sc) {
     return (
@@ -86,7 +95,7 @@ export function SpellsStep({
         label="Cantrips"
         count={sc.cantripsKnown}
         values={draft.cantrips}
-        suggestions={names(0)}
+        suggestions={cantripNames}
         onChange={(cantrips) => onChange({ ...draft, cantrips })}
       />
 
@@ -95,7 +104,7 @@ export function SpellsStep({
           label={sc.prepares ? 'Spells in your book' : 'Spells known'}
           count={sc.spellsKnown}
           values={draft.spells}
-          suggestions={names(1)}
+          suggestions={spellNames}
           onChange={(spells) => onChange({ ...draft, spells })}
         />
       )}

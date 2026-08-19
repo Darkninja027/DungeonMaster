@@ -3,6 +3,7 @@ import { XIcon } from 'lucide-react'
 import { Dialog as DialogPrimitive } from 'radix-ui'
 
 import { cn } from '#/lib/utils'
+import { isComboboxListOpen } from '#/components/ui/combobox'
 import { Button } from '#/components/ui/button'
 
 function Dialog({
@@ -49,6 +50,7 @@ function DialogContent({
   className,
   children,
   showCloseButton = true,
+  onEscapeKeyDown,
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
   showCloseButton?: boolean
@@ -63,6 +65,19 @@ function DialogContent({
           className,
         )}
         {...props}
+        onEscapeKeyDown={(e) => {
+          // Escape belongs to the innermost thing that's open. A `Combobox`
+          // with its suggestion list up is one of those, but it can't say so
+          // through the event: Radix binds Escape on the document in the
+          // capture phase when this dialog mounts, so it reads the key before
+          // any handler nearer the input can mark it handled. The combobox
+          // therefore reports out-of-band, and we check here.
+          //
+          // Without this, dismissing a suggestion list also closes the wizard
+          // and throws away the character being built.
+          if (isComboboxListOpen()) e.preventDefault()
+          onEscapeKeyDown?.(e)
+        }}
       >
         {children}
         {showCloseButton && (

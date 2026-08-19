@@ -109,11 +109,25 @@ describe('feats taken at level-up', () => {
     expect(after.speed).toBe(before.speed)
   })
 
+  it('carries the feat’s summary onto the sheet as its description', () => {
+    const before = characterAt(3, 'Fighter')
+    const after = applyLevelUp(before, takingFeat(before, 4, 'Resilient'))
+
+    // Without this the Features tab lists the feat as "No description yet."
+    expect(after.feats).toContainEqual({
+      name: 'Resilient',
+      text: 'Tougher than you look.',
+    })
+  })
+
   it('leaves an unknown feat as a bare name, granting nothing', () => {
     const before = characterAt(3, 'Fighter')
     const after = applyLevelUp(before, takingFeat(before, 4, 'Sharpshooter'))
 
     expect(after.feats.map((f) => f.name)).toContain('Sharpshooter')
+    expect(
+      after.feats.find((f) => f.name === 'Sharpshooter')?.text,
+    ).toBeUndefined()
     expect(after.saves).toEqual(before.saves)
     expect(after.skills).toEqual(before.skills)
     expect(after.abilities.con).toBe(before.abilities.con)

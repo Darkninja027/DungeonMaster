@@ -29,6 +29,7 @@ import { baseScores } from './abilityMethods'
 import {
   draftBackground,
   draftClassInfo,
+  draftFeat,
   draftGrants,
   draftKit,
   draftPickLists,
@@ -380,10 +381,17 @@ export function buildCharacter(draft: CharacterDraft): {
   // case-insensitive de-dupe for free.
   //
   // The feat's *grant* is applied by `draftGrants` and its half-feat `asi` by
-  // `racialAsi`, so all this has to do is put the name on the sheet — including
-  // for a feat the tables have never heard of.
+  // `racialAsi`, so what's left is the name — plus the one-line `summary`, so
+  // the sheet can say what the feat actually does instead of showing an empty
+  // Features row. A feat the tables have never heard of still writes its name
+  // and simply carries no text, which is the same shape a hand-typed one has.
   if (race?.grantsFeat && draft.featName.trim()) {
-    mergeNamed(c.feats, [{ name: draft.featName.trim() }])
+    const summary = draftFeat(draft)?.summary.trim()
+    mergeNamed(c.feats, [
+      summary
+        ? { name: draft.featName.trim(), text: summary }
+        : { name: draft.featName.trim() },
+    ])
   }
 
   for (const text of draft.extraItems) {

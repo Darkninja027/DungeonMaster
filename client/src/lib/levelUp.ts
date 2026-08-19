@@ -512,9 +512,16 @@ export function applyLevelUp(c: Character, draft: LevelUpDraft): Character {
 
   if (plan.featsTaken.length > 0) {
     const have = new Set(next.feats.map((f) => f.name.trim().toLowerCase()))
+    // Carry the feat's one-line summary onto the sheet alongside its name, the
+    // same as the creation wizard does — without it the Features tab lists the
+    // feat with "No description yet." A feat the tables don't know contributes
+    // its name and nothing else.
     const added = plan.featsTaken
       .filter((name) => !have.has(name.toLowerCase()))
-      .map((name) => ({ name }))
+      .map((name) => {
+        const summary = findFeat(draft.feats, name)?.summary.trim()
+        return summary ? { name, text: summary } : { name }
+      })
     if (added.length > 0) next = { ...next, feats: [...next.feats, ...added] }
 
     // What the newly-taken feats grant. Only the ones actually added, so
