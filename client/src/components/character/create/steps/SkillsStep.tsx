@@ -1,12 +1,20 @@
+import { useMemo } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { SKILLS } from '#/lib/character'
+import { api } from '#/lib/api'
+import { collectSpells, filterSpells, mergeEntries } from '#/lib/bestiary'
+import { useLibraryEntries } from '#/lib/useGlobalLibrary'
 import type { CharacterDraft } from '#/lib/characterDraft'
 import { draftPickLists, grantedSkills, picked } from '#/lib/characterDraft'
+import type { PickList } from '#/lib/srd'
 import { PickListGroup } from '../PickListGroup'
 
 export function SkillsStep({
+  worldId,
   draft,
   onChange,
 }: {
+  worldId: string
   draft: CharacterDraft
   onChange: (next: CharacterDraft) => void
 }) {
@@ -14,6 +22,53 @@ export function SkillsStep({
   // Weapon picks belong to the equipment step, where the option that created
   // them lives.
   const picks = draftPickLists(draft).filter((p) => p.kind !== 'weapon')
+
+  // Spell and cantrip picks — High Elf's wizard cantrip, Magic Initiate's two —
+  // ship no options, because no table here holds a spell list. Their
+  // suggestions come from the world's articles and the shared library, the same
+  // two sources the spells step uses.
+  const wantsSpells = picks.some(
+    (p) => p.kind === 'cantrip' || p.kind === 'spell',
+  )
+  const tree = useQuery({
+    queryKey: ['worlds', worldId, 'tree'],
+    queryFn: () => api.worlds.tree(worldId),
+    enabled: wantsSpells,
+  })
+  const typed = useQuery({
+    queryKey: ['worlds', worldId, 'query', { type: 'spell' }],
+    queryFn: () => api.worlds.query(worldId, { type: 'spell' }),
+    enabled: wantsSpells,
+  })
+  const library = useLibraryEntries('Spells')
+  const spells = useMemo(
+    () =>
+      wantsSpells
+        ? mergeEntries(
+            collectSpells(worldId, tree.data, typed.data, { folder: 'Spells' }),
+            library.entries,
+          )
+        : [],
+    [wantsSpells, worldId, tree.data, typed.data, library.entries],
+  )
+
+  /**
+   * Suggestions for one pick, or undefined to leave it with its own options.
+   *
+   * The class to narrow by is read out of the pick's own label — "Wizard
+   * cantrip", "One druid cantrip" — because a `PickList` has nowhere to say it.
+   * That is a small heuristic on hand-authored strings, and it fails safe: no
+   * class matched means no class filter, which offers more rather than less.
+   */
+  const suggestionsFor = (pick: PickList): Array<string> | undefined => {
+    if (pick.kind !== 'cantrip' && pick.kind !== 'spell') return undefined
+    const label = pick.label.toLowerCase()
+    const className = SPELL_CLASSES.find((c) => label.includes(c.toLowerCase()))
+    return filterSpells(spells, {
+      level: pick.kind === 'cantrip' ? 0 : 1,
+      className,
+    }).map((e) => e.title)
+  }
 
   return (
     <div className="space-y-4">
@@ -47,6 +102,7 @@ export function SkillsStep({
             pick={pick}
             chosen={picked(draft, pick.id)}
             alreadyGranted={pick.kind === 'skill' ? granted : undefined}
+            suggestions={suggestionsFor(pick)}
             onChange={(values) =>
               onChange({
                 ...draft,
@@ -59,3 +115,20 @@ export function SkillsStep({
     </div>
   )
 }
+
+/**
+ * Class names as the spell frontmatter spells them, for reading a class out of
+ * a pick's label. A label naming two classes matches whichever comes first
+ * here, which is arbitrary but harmless — every published pick names one.
+ */
+const SPELL_CLASSES = [
+  'Artificer',
+  'Bard',
+  'Cleric',
+  'Druid',
+  'Paladin',
+  'Ranger',
+  'Sorcerer',
+  'Warlock',
+  'Wizard',
+]

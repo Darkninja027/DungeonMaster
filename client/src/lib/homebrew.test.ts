@@ -263,6 +263,24 @@ describe('parseFeat', () => {
     expect(parseFeat({ name: '   ' })).toBeNull()
   })
 
+  it('keeps a positive speed bonus and drops a useless one', () => {
+    expect(
+      parseFeat({ name: 'Fleet', grant: { speedBonus: 10 } })?.grant.speedBonus,
+    ).toBe(10)
+    // Additive only — a grant that took speed away would be the one thing here
+    // that subtracts, and zero is just noise.
+    expect(
+      parseFeat({ name: 'Fleet', grant: { speedBonus: -10 } })?.grant
+        .speedBonus,
+    ).toBeUndefined()
+    expect(
+      parseFeat({ name: 'Fleet', grant: { speedBonus: 0 } })?.grant.speedBonus,
+    ).toBeUndefined()
+    expect(
+      parseFeat({ name: 'Fleet', grant: {} })?.grant.speedBonus,
+    ).toBeUndefined()
+  })
+
   it('derives the id from the name', () => {
     expect(parseFeat({ name: 'Great Weapon Master' })!.id).toBe(
       'great-weapon-master',
@@ -608,7 +626,10 @@ describe('subclasses', () => {
     const kit = parseKit({
       name: 'Warden',
       subclasses: [
-        { name: 'Oak', spells: [{ grantedAt: 3, level: 1, names: ['  ', ''] }] },
+        {
+          name: 'Oak',
+          spells: [{ grantedAt: 3, level: 1, names: ['  ', ''] }],
+        },
       ],
     })
     expect(kit?.subclasses[0].spells).toBeUndefined()
@@ -687,7 +708,10 @@ describe('grant tokens are normalised to ids', () => {
   })
 
   it('leaves a homebrew damage type exactly as typed', () => {
-    const race = parseRace({ name: 'Voidkin', grant: { resistances: ['Void'] } })
+    const race = parseRace({
+      name: 'Voidkin',
+      grant: { resistances: ['Void'] },
+    })
     expect(race?.grant.resistances).toEqual(['Void'])
   })
 

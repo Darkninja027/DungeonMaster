@@ -112,6 +112,15 @@ export interface ArticleRef {
    */
   cr: string | null
   xp: number | null
+  /**
+   * Frontmatter `level` / `school` / `classes`, carried for the same reason as
+   * `cr`/`xp`: the spell pickers filter on them without reading every article.
+   * `classes` accepts a YAML array or a comma-separated scalar. Null when the
+   * article doesn't declare them — which is what any non-spell looks like.
+   */
+  level: number | null
+  school: string | null
+  classes: Array<string> | null
 }
 
 /** A saved Smart View: a named frontmatter query, persisted to .dm/views.json. */

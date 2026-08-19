@@ -285,6 +285,11 @@ function GrantPreview({ grant, dense }: { grant: Grant; dense?: boolean }) {
 
   return (
     <div className={dense ? 'mt-1 space-y-1' : 'space-y-2'}>
+      {grant.speedBonus !== undefined && (
+        <Row label="Speed">
+          <Plain>+{grant.speedBonus} ft</Plain>
+        </Row>
+      )}
       {lists.map(([label, values]) =>
         values && values.length > 0 ? (
           <Row key={label} label={label}>

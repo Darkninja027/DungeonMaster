@@ -11,7 +11,7 @@ import {
   picked,
 } from '#/lib/characterDraft'
 import type { FeatInfo, RaceInfo, SubraceInfo } from '#/lib/srd'
-import { Input } from '#/components/ui/input'
+import { Combobox } from '#/components/ui/combobox'
 import { Label } from '#/components/ui/label'
 import { cn } from '#/lib/utils'
 import { OptionCard } from '../OptionCard'
@@ -167,8 +167,6 @@ export function RaceStep({
         onCreated={(created) => adoptCreatedFeat(created as FeatInfo)}
       />
 
-      
-
       {race?.subraces && race.subraces.length > 0 && (
         <div>
           <h3 className="mb-2 text-sm font-medium">
@@ -240,22 +238,19 @@ export function RaceStep({
       {race?.grantsFeat && (
         <div className="grid max-w-sm gap-2">
           <Label htmlFor="wizard-feat">Feat</Label>
-          <Input
-            id="wizard-feat"
-            value={draft.featName}
-            list="wizard-feat-options"
-            placeholder="e.g. Alert, Lucky, Sharpshooter"
-            onChange={(e) => onChange({ ...draft, featName: e.target.value })}
-          />
           {/*
             Suggestions only — a name that matches nothing is still accepted and
             still reaches the sheet, exactly as it did before there was a list.
+            A combobox rather than a datalist because there are ~85 built-in
+            feats now, well past where the native popup stops scrolling.
           */}
-          <datalist id="wizard-feat-options">
-            {draft.feats.map((f) => (
-              <option key={f.id} value={f.name} />
-            ))}
-          </datalist>
+          <Combobox
+            id="wizard-feat"
+            value={draft.featName}
+            options={draft.feats.map((f) => f.name)}
+            onCommit={(featName) => onChange({ ...draft, featName })}
+            placeholder="e.g. Alert, Lucky, Sharpshooter"
+          />
           <button
             type="button"
             onClick={() => setCreatingFeat(true)}

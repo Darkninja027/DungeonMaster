@@ -210,7 +210,11 @@ export function CreateCharacterDialog({
                 <BackgroundStep draft={draft} onChange={setDraft} />
               )}
               {step === 'skills' && (
-                <SkillsStep draft={draft} onChange={setDraft} />
+                <SkillsStep
+                  worldId={worldId}
+                  draft={draft}
+                  onChange={setDraft}
+                />
               )}
               {step === 'spells' && (
                 <SpellsStep

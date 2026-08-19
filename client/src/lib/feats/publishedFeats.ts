@@ -292,7 +292,7 @@ export const PUBLISHED_FEATS: Array<FeatInfo> = [
     name: 'Mobile',
     summary:
       '+10 feet of speed, difficult terrain costs nothing when you Dash, and melee attacks provoke no opportunity attack from that target.',
-    grant: {},
+    grant: { speedBonus: 10 },
   },
   {
     id: 'moderately-armored',
@@ -928,6 +928,7 @@ export const PUBLISHED_FEATS: Array<FeatInfo> = [
     prerequisite: 'Dwarf or a Small race',
     asi: { str: 1 },
     grant: {
+      speedBonus: 5,
       picks: [
         {
           id: 'squat-nimbleness-skill',

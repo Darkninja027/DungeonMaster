@@ -4,6 +4,7 @@ import {
   collectSpells,
   entryKey,
   filterEntries,
+  filterSpells,
   mergeEntries,
 } from './bestiary'
 import type { LibraryEntry } from './bestiary'
@@ -34,6 +35,9 @@ const ref = (
   title,
   cr: null,
   xp: null,
+  level: null,
+  school: null,
+  classes: null,
   ...extra,
 })
 
@@ -206,6 +210,91 @@ describe('collectSpells', () => {
       ref('Homebrew/Chromatic Orb', 'Chromatic Orb'),
     ])
     expect(entries.map((e) => e.articleId)).toEqual(['Homebrew/Chromatic Orb'])
+  })
+})
+
+describe('collectSpells frontmatter', () => {
+  it('carries level, school and classes off the typed refs', () => {
+    const entries = collectSpells(WORLD, undefined, [
+      ref('Spells/Fire Bolt', 'Fire Bolt', {
+        level: 0,
+        school: 'evocation',
+        classes: ['Sorcerer', 'Wizard'],
+      }),
+    ])
+    expect(entries[0].level).toBe(0)
+    expect(entries[0].school).toBe('evocation')
+    expect(entries[0].classes).toEqual(['Sorcerer', 'Wizard'])
+  })
+
+  it('prefers the typed record over the folder walk’s bare title', () => {
+    // Both sources see the same article; only the query knows its level, so the
+    // richer record has to be the one that survives or the filters go blind.
+    const entries = collectSpells(
+      WORLD,
+      tree([
+        { id: 'Spells/Fire Bolt', folderId: 'Spells', title: 'Fire Bolt' },
+      ]),
+      [ref('Spells/Fire Bolt', 'Fire Bolt', { level: 0 })],
+    )
+    expect(entries).toHaveLength(1)
+    expect(entries[0].level).toBe(0)
+  })
+})
+
+describe('filterSpells', () => {
+  const spell = (
+    title: string,
+    level: number | null,
+    classes: Array<string> | null = null,
+  ): LibraryEntry => ({
+    worldId: WORLD,
+    articleId: `Spells/${title}`,
+    title,
+    global: false,
+    queryable: true,
+    level,
+    classes,
+  })
+
+  const FIRE_BOLT = spell('Fire Bolt', 0, ['Sorcerer', 'Wizard'])
+  const GUIDANCE = spell('Guidance', 0, ['Cleric', 'Druid'])
+  const MAGIC_MISSILE = spell('Magic Missile', 1, ['Sorcerer', 'Wizard'])
+  const HOMEBREW = spell('Grelling’s Gambit', null)
+  const ALL = [FIRE_BOLT, GUIDANCE, MAGIC_MISSILE, HOMEBREW]
+
+  it('narrows to one spell level', () => {
+    expect(filterSpells(ALL, { level: 0 }).map((e) => e.title)).toEqual([
+      'Fire Bolt',
+      'Guidance',
+      'Grelling’s Gambit',
+    ])
+  })
+
+  it('narrows to a class list, case-insensitively', () => {
+    expect(
+      filterSpells(ALL, { level: 0, className: 'wizard' }).map((e) => e.title),
+    ).toEqual(['Fire Bolt', 'Grelling’s Gambit'])
+  })
+
+  it('keeps a spell that declares nothing', () => {
+    // The point of this: a homebrew spell with no frontmatter must stay
+    // offerable. A picker that silently hides the user's own content is worse
+    // than one that offers a little too much.
+    expect(
+      filterSpells([HOMEBREW], { level: 9, className: 'Bard' }),
+    ).toHaveLength(1)
+  })
+
+  it('returns everything when asked for nothing', () => {
+    expect(filterSpells(ALL)).toHaveLength(ALL.length)
+  })
+
+  it('does not confuse a class name with a substring of another', () => {
+    const bard = spell('Vicious Mockery', 0, ['Bard'])
+    expect(
+      filterSpells([bard], { level: 0, className: 'Barbarian' }),
+    ).toHaveLength(0)
   })
 })
 

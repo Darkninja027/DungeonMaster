@@ -30,6 +30,16 @@ export interface LibraryEntry {
    */
   cr?: string | null
   xp?: number | null
+  /**
+   * Spell level, school and class list from frontmatter, when the query
+   * supplied them. Same bargain as `cr`/`xp` above: carried so the spell
+   * pickers can filter to "cantrips only" or "wizard spells" without reading
+   * hundreds of articles. Undefined for folder-only entries, which is why the
+   * filters treat "unknown" as "show it" rather than hiding the row.
+   */
+  level?: number | null
+  school?: string | null
+  classes?: Array<string> | null
 }
 
 /** Stable React key. A bare articleId collides — two worlds both have Monsters/Goblin. */
@@ -136,6 +146,12 @@ export function collectSpells(
       title: a.title,
       global,
       queryable: true,
+      // The query knows the spell's level, school and list; the folder walk
+      // above does not. Setting them last means a spell found both ways keeps
+      // the richer record, which is what the pickers filter on.
+      level: a.level,
+      school: a.school,
+      classes: a.classes,
     })
   }
   return [...byId.values()].sort(byTitle)
@@ -164,4 +180,35 @@ export function filterEntries(
   const needle = filter.trim().toLowerCase()
   if (!needle) return entries
   return entries.filter((e) => e.title.toLowerCase().includes(needle))
+}
+
+/**
+ * Spells narrowed to a level and, optionally, a class list.
+ *
+ * **An entry that doesn't say is kept.** A spell article with no `level`
+ * frontmatter — someone's homebrew, or a hand-written note — has to stay
+ * offerable, because the alternative is a picker that silently hides the user's
+ * own content. The shipped spells all declare level, school and classes, so in
+ * practice this filters exactly what it should and lets everything unknown
+ * through.
+ *
+ * `className` matches the frontmatter `classes` list case-insensitively. A
+ * spell that names no classes is likewise kept.
+ */
+export function filterSpells(
+  entries: Array<LibraryEntry>,
+  options: { level?: number; className?: string } = {},
+): Array<LibraryEntry> {
+  const { level, className } = options
+  const wantClass = className?.trim().toLowerCase()
+  return entries.filter((e) => {
+    if (level !== undefined && e.level != null && e.level !== level) {
+      return false
+    }
+    if (wantClass && e.classes && e.classes.length > 0) {
+      const has = e.classes.some((c) => c.trim().toLowerCase() === wantClass)
+      if (!has) return false
+    }
+    return true
+  })
 }

@@ -468,6 +468,9 @@ function applyFeatGrants(c: Character, grants: Array<Grant>): Character {
         ...next.saves,
         ...(grant.saves ?? []).filter((s) => !next.saves.includes(s)),
       ],
+      // Additive, like every other field here — `applyLevelUp` only ever raises
+      // numbers, so a feat can add feet but nothing can take them away.
+      speed: next.speed + (grant.speedBonus ?? 0),
     }
   }
   return next

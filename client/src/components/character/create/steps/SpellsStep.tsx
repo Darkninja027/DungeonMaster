@@ -2,11 +2,11 @@ import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { X } from 'lucide-react'
 import { api } from '#/lib/api'
-import { collectSpells, mergeEntries } from '#/lib/bestiary'
+import { collectSpells, filterSpells, mergeEntries } from '#/lib/bestiary'
 import { useLibraryEntries } from '#/lib/useGlobalLibrary'
 import type { CharacterDraft } from '#/lib/characterDraft'
 import { draftKit } from '#/lib/characterDraft'
-import { Input } from '#/components/ui/input'
+import { Combobox } from '#/components/ui/combobox'
 
 /**
  * Cantrips and level 1 spells, as free text with suggestions drawn from the
@@ -15,7 +15,15 @@ import { Input } from '#/components/ui/input'
  *
  * Free text rather than a picker because a spell on the sheet is just a name:
  * it may be a `[[wiki link]]` to an article that exists, a homebrew spell, or
- * something the DM invented at the table.
+ * something the DM invented at the table. The `Combobox` suggests without ever
+ * constraining, which is why it replaced the `<datalist>` this used to use —
+ * that popup is a native Chromium widget and stops scrolling somewhere well
+ * short of six hundred spells.
+ *
+ * The two lists are filtered to the level they're asking for, and to the class
+ * whose list you're casting from, using the `level`/`classes` frontmatter every
+ * shipped spell article carries. A spell that declares neither still shows:
+ * see `filterSpells`.
  */
 export function SpellsStep({
   worldId,
@@ -33,15 +41,29 @@ export function SpellsStep({
     queryKey: ['worlds', worldId, 'tree'],
     queryFn: () => api.worlds.tree(worldId),
   })
+  // The folder walk alone knows only titles. This query is what carries the
+  // level/school/classes frontmatter, and it is the same union the global
+  // library already does for its own entries.
+  const typed = useQuery({
+    queryKey: ['worlds', worldId, 'query', { type: 'spell' }],
+    queryFn: () => api.worlds.query(worldId, { type: 'spell' }),
+  })
   const library = useLibraryEntries('Spells')
-  const suggestions = useMemo(
+  const entries = useMemo(
     () =>
       mergeEntries(
-        collectSpells(worldId, tree.data, undefined, { folder: 'Spells' }),
+        collectSpells(worldId, tree.data, typed.data, { folder: 'Spells' }),
         library.entries,
-      ).map((entry) => entry.title),
-    [worldId, tree.data, library.entries],
+      ),
+    [worldId, tree.data, typed.data, library.entries],
   )
+
+  // The class name as the spell frontmatter spells it — "Wizard", "Cleric".
+  // A homebrew class nobody's spells mention would filter everything away, so
+  // only narrow by class when the kit is one the tables know.
+  const className = kit?.name
+  const names = (level: number) =>
+    filterSpells(entries, { level, className }).map((e) => e.title)
 
   if (!sc) {
     return (
@@ -64,7 +86,7 @@ export function SpellsStep({
         label="Cantrips"
         count={sc.cantripsKnown}
         values={draft.cantrips}
-        suggestions={suggestions}
+        suggestions={names(0)}
         onChange={(cantrips) => onChange({ ...draft, cantrips })}
       />
 
@@ -73,7 +95,7 @@ export function SpellsStep({
           label={sc.prepares ? 'Spells in your book' : 'Spells known'}
           count={sc.spellsKnown}
           values={draft.spells}
-          suggestions={suggestions}
+          suggestions={names(1)}
           onChange={(spells) => onChange({ ...draft, spells })}
         />
       )}
@@ -145,27 +167,14 @@ function SpellList({
         ))}
       </div>
       {!full && (
-        <Input
-          list={listId}
+        <Combobox
+          id={listId}
+          options={suggestions}
+          onCommit={add}
           placeholder="Type a spell name…"
           className="h-7 max-w-sm text-sm"
-          onKeyDown={(e) => {
-            if (e.key !== 'Enter') return
-            e.preventDefault()
-            add(e.currentTarget.value)
-            e.currentTarget.value = ''
-          }}
-          onBlur={(e) => {
-            add(e.currentTarget.value)
-            e.currentTarget.value = ''
-          }}
         />
       )}
-      <datalist id={listId}>
-        {suggestions.map((name) => (
-          <option key={name} value={name} />
-        ))}
-      </datalist>
     </div>
   )
 }

@@ -321,7 +321,13 @@ export function buildCharacter(draft: CharacterDraft): {
 
   if (background) mergeNamed(c.traits, [background.feature])
 
-  c.speed = subrace?.speed ?? race?.speed ?? 30
+  // Base from the race, then anything additive on top. The base is assigned
+  // here rather than inside `applyGrant` because a subrace *replaces* its
+  // parent's speed (Wood Elf's 35) while a feat *adds* to whatever you have —
+  // summing after the fact keeps those two from clobbering each other.
+  c.speed =
+    (subrace?.speed ?? race?.speed ?? 30) +
+    draftGrants(draft).reduce((sum, grant) => sum + (grant.speedBonus ?? 0), 0)
 
   const conMod = abilityMod(c.abilities.con)
   const hpMax = Math.max(1, hitDie + conMod + (subrace?.hpPerLevel ?? 0))
@@ -339,13 +345,11 @@ export function buildCharacter(draft: CharacterDraft): {
     // level-up wizard, so an unfiltered copy put Extra Attack and Aura of
     // Protection on a brand-new paladin — and stamped level 1 on them, which
     // then stopped `featuresGained` from ever granting them properly.
-    c.features = featuresUpToLevel(kit.features, 1).map(
-      (f): ClassFeature => ({
-        level: f.level,
-        name: f.name,
-        ...(f.text ? { text: f.text } : {}),
-      }),
-    )
+    c.features = featuresUpToLevel(kit.features, 1).map((f): ClassFeature => ({
+      level: f.level,
+      name: f.name,
+      ...(f.text ? { text: f.text } : {}),
+    }))
     const sc = kit.spellcasting
     if (sc) {
       c.spellAbility = sc.ability

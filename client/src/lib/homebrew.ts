@@ -252,9 +252,7 @@ function tokenId(
   value: string,
 ): string {
   const key = value.trim().toLowerCase()
-  const hit = table.find(
-    (t) => t.id === key || t.name.toLowerCase() === key,
-  )
+  const hit = table.find((t) => t.id === key || t.name.toLowerCase() === key)
   return hit ? hit.id : value
 }
 
@@ -298,6 +296,11 @@ function parseGrant(raw: unknown, ownerId: string): Grant {
     .map((s) => s.trim().toLowerCase())
     .filter((s): s is Ability => ABILITIES.includes(s as Ability))
   if (saves.length > 0) grant.saves = [...new Set(saves)]
+  // Whole feet only, and never negative: this is additive, and a grant that
+  // *reduced* speed would be the one thing here that takes something away.
+  // Capped well above any published feat so a typo can't produce a 900ft dwarf.
+  const speedBonus = int(r.speedBonus, 0, 0, 120)
+  if (speedBonus > 0) grant.speedBonus = speedBonus
   const traits = parseTraits(r.traits)
   if (traits.length > 0) grant.traits = traits
   const items = parseItems(r.items)

@@ -438,6 +438,24 @@ describe('published feats', () => {
     }
   })
 
+  it('a speed bonus is a positive whole number of feet', () => {
+    for (const feat of PUBLISHED_FEATS) {
+      const bonus = feat.grant.speedBonus
+      if (bonus === undefined) continue
+      expect(Number.isInteger(bonus), `feat ${feat.name}`).toBe(true)
+      expect(bonus, `feat ${feat.name}`).toBeGreaterThan(0)
+    }
+  })
+
+  it('every feat claiming speed in its summary actually grants it', () => {
+    // The bug this pins: Mobile shipped with `grant: {}` and its "+10 feet"
+    // living only in prose, so the feat visibly did nothing.
+    for (const feat of PUBLISHED_FEATS) {
+      if (!/\+\d+ feet of speed/.test(feat.summary)) continue
+      expect(feat.grant.speedBonus, `feat ${feat.name}`).toBeDefined()
+    }
+  })
+
   it('pick ids are prefixed with the feat id that owns them', () => {
     for (const feat of PUBLISHED_FEATS) {
       for (const pick of feat.grant.picks ?? []) {

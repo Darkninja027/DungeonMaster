@@ -63,12 +63,21 @@ describe('feats taken at level-up', () => {
     grant: { saves: ['con'], skills: ['athletics'] },
   }
 
+  const MOBILE: FeatInfo = {
+    id: 'mobile',
+    name: 'Mobile',
+    summary: 'Faster than you look.',
+    grant: { speedBonus: 10 },
+  }
+
   const takingFeat = (c: Character, to: number, featName: string) => {
-    const draft = draftFor(c, to, { feats: [RESILIENT] })
+    const draft = draftFor(c, to, { feats: [RESILIENT, MOBILE] })
     const level = Object.keys(draft.asi)[0]
     return {
       ...draft,
-      asi: { [Number(level)]: { kind: 'feat' as const, abilities: {}, featName } },
+      asi: {
+        [Number(level)]: { kind: 'feat' as const, abilities: {}, featName },
+      },
     }
   }
 
@@ -81,6 +90,23 @@ describe('feats taken at level-up', () => {
     expect(after.skills).toContain('athletics')
     // 14 + 1 from the half-feat.
     expect(after.abilities.con).toBe(15)
+  })
+
+  it('adds a feat’s speed bonus to the character’s speed', () => {
+    const before = characterAt(3, 'Fighter')
+    const after = applyLevelUp(before, takingFeat(before, 4, 'Mobile'))
+
+    expect(after.speed).toBe(before.speed + 10)
+  })
+
+  it('does not re-apply a speed bonus for a feat already on the sheet', () => {
+    const before: Character = {
+      ...characterAt(3, 'Fighter'),
+      feats: [{ name: 'Mobile' }],
+    }
+    const after = applyLevelUp(before, takingFeat(before, 4, 'Mobile'))
+
+    expect(after.speed).toBe(before.speed)
   })
 
   it('leaves an unknown feat as a bare name, granting nothing', () => {
@@ -125,7 +151,9 @@ describe('feats taken at level-up', () => {
     const after = applyLevelUp(before, takingFeat(before, 4, 'Resilient'))
 
     expect(after.saves).toEqual(expect.arrayContaining(['str', 'con']))
-    expect(after.skills).toEqual(expect.arrayContaining(['stealth', 'athletics']))
+    expect(after.skills).toEqual(
+      expect.arrayContaining(['stealth', 'athletics']),
+    )
   })
 })
 
@@ -540,11 +568,7 @@ describe('a class with no kit', () => {
 describe('steps', () => {
   it('adds a features step when the class grants any', () => {
     const c = characterAt(1, 'Fighter')
-    expect(levelUpSteps(draftFor(c, 2))).toEqual([
-      'hp',
-      'features',
-      'review',
-    ])
+    expect(levelUpSteps(draftFor(c, 2))).toEqual(['hp', 'features', 'review'])
   })
 
   it('adds subclass and ASI steps at the right levels', () => {

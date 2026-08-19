@@ -1,6 +1,6 @@
 import { SKILLS } from '#/lib/character'
 import type { PickList } from '#/lib/srd'
-import { Input } from '#/components/ui/input'
+import { Combobox } from '#/components/ui/combobox'
 import { Chip } from './OptionCard'
 
 /** A skill id rendered as its display name; anything else passes through. */
@@ -17,19 +17,32 @@ function optionLabel(pick: PickList, value: string): string {
  * They are greyed rather than hidden, with the source named, because a silently
  * missing option reads as the app having lost the choice.
  *
- * An `open` pick also gets a free-text input: "a language of your choice" must
- * accept a language this app has never heard of.
+ * An `open` pick also gets a free-text combobox: "a language of your choice"
+ * must accept a language this app has never heard of. It suggests from
+ * `suggestions` when given (spell picks, whose `options` are empty because no
+ * table here holds a spell list) and otherwise from the pick's own options.
  */
 export function PickListGroup({
   pick,
   chosen,
   alreadyGranted,
+  suggestions,
   onChange,
 }: {
   pick: PickList
   chosen: Array<string>
   /** value -> where it came from, for the disabled tooltip. */
   alreadyGranted?: Map<string, string>
+  /**
+   * Extra values for the free-text box that aren't chips.
+   *
+   * Spell and cantrip picks ship `options: []` on purpose — no table here
+   * knows the spell list, which lives in the user's articles — so without this
+   * a pick like Magic Initiate's "two cantrips" was an empty box you had to
+   * type into blind. These are offered as suggestions only; anything typed is
+   * still accepted.
+   */
+  suggestions?: Array<string>
   onChange: (values: Array<string>) => void
 }) {
   const full = chosen.length >= pick.count
@@ -90,28 +103,19 @@ export function PickListGroup({
         ))}
       </div>
       {pick.open && !full && (
-        <Input
-          list={`picklist-${pick.id}`}
-          placeholder="Or type your own…"
+        <Combobox
+          id={`picklist-${pick.id}`}
+          // Suggestions first: for a spell pick they're the only content, and
+          // for an open skill pick the options are already chips above.
+          options={suggestions ?? pick.options}
+          onCommit={addFreeText}
+          placeholder={
+            suggestions && suggestions.length > 0
+              ? 'Search, or type your own…'
+              : 'Or type your own…'
+          }
           className="h-7 text-sm"
-          onKeyDown={(e) => {
-            if (e.key !== 'Enter') return
-            e.preventDefault()
-            addFreeText(e.currentTarget.value)
-            e.currentTarget.value = ''
-          }}
-          onBlur={(e) => {
-            addFreeText(e.currentTarget.value)
-            e.currentTarget.value = ''
-          }}
         />
-      )}
-      {pick.open && (
-        <datalist id={`picklist-${pick.id}`}>
-          {pick.options.map((value) => (
-            <option key={value} value={value} />
-          ))}
-        </datalist>
       )}
     </div>
   )

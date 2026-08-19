@@ -317,14 +317,24 @@ describe('feats at creation', () => {
   }
 
   it('applies a known feat’s grant and half-feat bump', () => {
-    const { character } = buildCharacter(
-      variantHuman('Resilient', [RESILIENT]),
-    )
+    const { character } = buildCharacter(variantHuman('Resilient', [RESILIENT]))
     expect(character.feats.map((f) => f.name)).toEqual(['Resilient'])
     expect(character.saves).toContain('con')
     expect(character.skills).toContain('athletics')
     // 14 base + 1 from the half-feat; the flexible +1s went to str and dex.
     expect(character.abilities.con).toBe(15)
+  })
+
+  it('adds a feat’s speed bonus on top of the racial base', () => {
+    const MOBILE: FeatInfo = {
+      id: 'mobile',
+      name: 'Mobile',
+      summary: 'Faster than you look.',
+      grant: { speedBonus: 10 },
+    }
+    const { character } = buildCharacter(variantHuman('Mobile', [MOBILE]))
+    // Human's 30, plus the feat.
+    expect(character.speed).toBe(40)
   })
 
   it('keeps an unknown feat as a bare name and grants nothing', () => {

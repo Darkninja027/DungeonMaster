@@ -69,6 +69,16 @@ export interface Grant {
   resistances?: Array<string>
   /** Condition ids from `CONDITIONS`. */
   conditionImmunities?: Array<string>
+  /**
+   * Feet added to walking speed, e.g. Mobile's `+10`.
+   *
+   * Additive, and deliberately not the same thing as `RaceInfo.speed` /
+   * `SubraceInfo.speed`, which *set* the base. A race says what your speed is;
+   * this says what is added to it, so two sources stack rather than fighting
+   * over the same number. `buildCharacter` sums these after assigning the base,
+   * and `applyFeatGrants` adds them at level-up.
+   */
+  speedBonus?: number
   /** Named entries that land in `Character.traits`. */
   traits?: Array<GrantTrait>
   /** Inventory rows. */
