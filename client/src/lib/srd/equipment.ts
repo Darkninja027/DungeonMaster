@@ -278,6 +278,27 @@ export const MUSICAL_INSTRUMENTS = [
 ] as const
 
 /**
+ * Every tool a player might claim proficiency in, as one list.
+ *
+ * Exists so the `skillOrTool` picks and the wizard's suggestion box read from
+ * the same place — they were two separate lists once and drifting them means a
+ * tool you can type but never see suggested.
+ */
+export const TOOL_SUGGESTIONS: Array<string> = [
+  ...ARTISAN_TOOLS,
+  ...GAMING_SETS,
+  ...MUSICAL_INSTRUMENTS,
+  'Thieves’ tools',
+  'Disguise kit',
+  'Forgery kit',
+  'Herbalism kit',
+  'Navigator’s tools',
+  'Poisoner’s kit',
+  'Vehicles (land)',
+  'Vehicles (water)',
+]
+
+/**
  * Starting AC from worn armor. Returns null when nothing in the list is a
  * recognised armor, which the caller reads as "unarmored".
  *

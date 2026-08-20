@@ -70,8 +70,15 @@ describe('feats taken at level-up', () => {
     grant: { speedBonus: 10 },
   }
 
+  const ALERT: FeatInfo = {
+    id: 'alert',
+    name: 'Alert',
+    summary: '+5 to initiative.',
+    grant: { initiativeBonus: 5 },
+  }
+
   const takingFeat = (c: Character, to: number, featName: string) => {
-    const draft = draftFor(c, to, { feats: [RESILIENT, MOBILE] })
+    const draft = draftFor(c, to, { feats: [RESILIENT, MOBILE, ALERT] })
     const level = Object.keys(draft.asi)[0]
     return {
       ...draft,
@@ -118,6 +125,23 @@ describe('feats taken at level-up', () => {
       name: 'Resilient',
       text: 'Tougher than you look.',
     })
+  })
+
+  it('adds a feat’s initiative bonus to the sheet', () => {
+    const before = characterAt(3, 'Fighter')
+    const after = applyLevelUp(before, takingFeat(before, 4, 'Alert'))
+
+    expect(after.initiativeBonus).toBe(before.initiativeBonus + 5)
+  })
+
+  it('does not re-apply an initiative bonus for a feat already on the sheet', () => {
+    const before: Character = {
+      ...characterAt(3, 'Fighter'),
+      feats: [{ name: 'Alert' }],
+    }
+    const after = applyLevelUp(before, takingFeat(before, 4, 'Alert'))
+
+    expect(after.initiativeBonus).toBe(before.initiativeBonus)
   })
 
   it('leaves an unknown feat as a bare name, granting nothing', () => {

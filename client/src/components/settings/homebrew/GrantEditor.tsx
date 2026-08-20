@@ -377,13 +377,20 @@ function PicksField({
                   patch(i, { kind: e.target.value as PickList['kind'] })
                 }
               >
-                {['skill', 'tool', 'language', 'weapon', 'armor', 'other'].map(
-                  (kind) => (
-                    <option key={kind} value={kind}>
-                      {kind}
-                    </option>
-                  ),
-                )}
+                {[
+                  'skill',
+                  'skillOrTool',
+                  'expertise',
+                  'tool',
+                  'language',
+                  'weapon',
+                  'armor',
+                  'other',
+                ].map((kind) => (
+                  <option key={kind} value={kind}>
+                    {kind}
+                  </option>
+                ))}
               </select>
               <button
                 type="button"

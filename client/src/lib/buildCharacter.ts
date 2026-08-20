@@ -16,6 +16,7 @@ import {
   abilityMod,
   emptyCharacter,
   proficiencyBonus,
+  skillIdFor,
   SKILLS,
 } from './character'
 import type {
@@ -151,7 +152,34 @@ function applyPicks(c: Character, draft: CharacterDraft) {
     if (values.length === 0) continue
     switch (pick.kind) {
       case 'skill':
-        mergeList(c.skills, values)
+        // Through `skillIdFor` so a typed display name — "Animal Handling"
+        // rather than `animal-handling` — becomes the id the sheet stores.
+        // Without it the filter at the end of `buildCharacter` drops the value
+        // and the player silently loses a proficiency they chose. A value that
+        // is no skill at all is left as-is for that same filter to reject.
+        mergeList(
+          c.skills,
+          values.map((v) => skillIdFor(v) ?? v),
+        )
+        break
+      case 'skillOrTool':
+        // The one kind whose values do not share a destination, so it routes
+        // per value rather than per pick: a skill becomes its id, and anything
+        // else is a tool, stored verbatim because tools are free text.
+        for (const value of values) {
+          const id = skillIdFor(value)
+          if (id) mergeList(c.skills, [id])
+          else mergeList(c.tools, [value])
+        }
+        break
+      case 'expertise':
+        // Expertise, not proficiency: `skillBonus` doubles the bonus for these.
+        // Filing them in `c.skills` would quietly hand back a plain proficiency
+        // the character usually already has.
+        mergeList(
+          c.expertise,
+          values.map((v) => skillIdFor(v) ?? v),
+        )
         break
       case 'tool':
         mergeList(c.tools, values)
@@ -330,6 +358,14 @@ export function buildCharacter(draft: CharacterDraft): {
     (subrace?.speed ?? race?.speed ?? 30) +
     draftGrants(draft).reduce((sum, grant) => sum + (grant.speedBonus ?? 0), 0)
 
+  // Nothing else writes this at creation, so it is a plain sum rather than the
+  // base-plus-bonus dance speed needs above. Assigned, not `+=`: this function
+  // is total and the live summary panel re-runs it on every keystroke.
+  c.initiativeBonus = draftGrants(draft).reduce(
+    (sum, grant) => sum + (grant.initiativeBonus ?? 0),
+    0,
+  )
+
   const conMod = abilityMod(c.abilities.con)
   const hpMax = Math.max(1, hitDie + conMod + (subrace?.hpPerLevel ?? 0))
   c.hp = { current: hpMax, max: hpMax, temp: 0 }
@@ -411,6 +447,8 @@ export function buildCharacter(draft: CharacterDraft): {
   // are already deduped by mergeList; drop anything that isn't a real skill so
   // a stray free-text value can't sit in the list unrendered.
   c.skills = c.skills.filter((id) => SKILLS.some((s) => s.id === id))
+  // Same for expertise, which the parser filters identically on the way back in.
+  c.expertise = c.expertise.filter((id) => SKILLS.some((s) => s.id === id))
 
   return { character: c, body: buildBody(draft) }
 }

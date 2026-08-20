@@ -149,13 +149,39 @@ describe('pick lists', () => {
 
   it('skill picks offer only real skill ids', () => {
     for (const { where, pick } of allPickLists()) {
-      if (pick.kind !== 'skill') continue
+      // `expertise` picks are skill ids too; `skillOrTool` is checked below,
+      // where the options are deliberately mixed.
+      if (pick.kind !== 'skill' && pick.kind !== 'expertise') continue
       for (const id of pick.options) {
         expect(
           SKILL_IDS.has(id),
           `${where} pick ${pick.id}: bad skill "${id}"`,
         ).toBe(true)
       }
+    }
+  })
+
+  it('a skillOrTool pick offers skill ids as its chips', () => {
+    // The tools ride the combobox as suggestions, so everything authored in
+    // `options` is still a skill and still has to be a real id — switching
+    // Skilled to the new kind would otherwise silently drop it out of the
+    // check above.
+    for (const { where, pick } of allPickLists()) {
+      if (pick.kind !== 'skillOrTool') continue
+      for (const id of pick.options) {
+        expect(
+          SKILL_IDS.has(id),
+          `${where} pick ${pick.id}: bad skill "${id}"`,
+        ).toBe(true)
+      }
+    }
+  })
+
+  it('a skillOrTool pick is always open', () => {
+    // Half its answers are free-text tools, so a closed one cannot be answered.
+    for (const { where, pick } of allPickLists()) {
+      if (pick.kind !== 'skillOrTool') continue
+      expect(pick.open, `${where} pick ${pick.id}`).toBe(true)
     }
   })
 
@@ -453,6 +479,26 @@ describe('published feats', () => {
     for (const feat of PUBLISHED_FEATS) {
       if (!/\+\d+ feet of speed/.test(feat.summary)) continue
       expect(feat.grant.speedBonus, `feat ${feat.name}`).toBeDefined()
+    }
+  })
+
+  it('an initiative bonus is a whole number', () => {
+    for (const feat of PUBLISHED_FEATS) {
+      const bonus = feat.grant.initiativeBonus
+      if (bonus === undefined) continue
+      expect(Number.isInteger(bonus), `feat ${feat.name}`).toBe(true)
+      // Deliberately no positivity check, unlike speed: a penalty to initiative
+      // is a legitimate thing for a grant to carry.
+      expect(bonus, `feat ${feat.name}`).not.toBe(0)
+    }
+  })
+
+  it('every feat claiming initiative in its summary actually grants it', () => {
+    // The Mobile bug again, one field over: Alert shipped with `grant: {}` and
+    // its "+5 to initiative" living only in prose, so the feat did nothing.
+    for (const feat of PUBLISHED_FEATS) {
+      if (!/\+\d+ to initiative/.test(feat.summary)) continue
+      expect(feat.grant.initiativeBonus, `feat ${feat.name}`).toBeDefined()
     }
   })
 

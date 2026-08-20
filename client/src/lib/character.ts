@@ -43,6 +43,27 @@ export const SKILLS: Array<{ id: string; name: string; ability: Ability }> = [
 ]
 
 /**
+ * The skill id for something a player typed or a table authored, matched on id
+ * first and then on display name, both trimmed and case-insensitively.
+ * `undefined` for anything that is not one of the eighteen skills.
+ *
+ * Two jobs. It lets an open skill pick accept "Animal Handling" — what a person
+ * types — and still store `animal-handling`, which is the only spelling the
+ * sheet keeps; anything else is dropped by the filter in `buildCharacter` and
+ * again on parse, so without this a typed skill name is silently lost. And it
+ * is what makes a `skillOrTool` pick decidable: skills are a closed list and
+ * tools are free text, so "not a skill" is a complete answer.
+ *
+ * Deliberately exact rather than fuzzy — a near miss should become a tool, not
+ * quietly become the wrong skill.
+ */
+export function skillIdFor(value: string): string | undefined {
+  const key = value.trim().toLowerCase()
+  if (key === '') return undefined
+  return SKILLS.find((s) => s.id === key || s.name.toLowerCase() === key)?.id
+}
+
+/**
  * Armor and weapon proficiency is a closed set in 5e, so these drive quick
  * checkboxes in the editor. They are *not* a filter: classes and races also
  * grant individual weapons ("longsword"), and homebrew grants anything at all.

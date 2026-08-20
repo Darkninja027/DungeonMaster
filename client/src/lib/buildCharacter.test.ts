@@ -337,6 +337,22 @@ describe('feats at creation', () => {
     expect(character.speed).toBe(40)
   })
 
+  it('adds a feat’s initiative bonus to the misc initiative slot', () => {
+    const ALERT: FeatInfo = {
+      id: 'alert',
+      name: 'Alert',
+      summary: '+5 to initiative.',
+      grant: { initiativeBonus: 5 },
+    }
+    const { character } = buildCharacter(variantHuman('Alert', [ALERT]))
+    expect(character.initiativeBonus).toBe(5)
+  })
+
+  it('leaves the initiative slot at zero when no feat touches it', () => {
+    const { character } = buildCharacter(variantHuman('Resilient', [RESILIENT]))
+    expect(character.initiativeBonus).toBe(0)
+  })
+
   it('carries the feat’s summary onto the sheet as its description', () => {
     const { character } = buildCharacter(variantHuman('Resilient', [RESILIENT]))
     // Without this the Features tab lists the feat as "No description yet."
@@ -783,5 +799,88 @@ describe('a new character gets level 1 features only', () => {
       { level: 1, name: 'A' },
       { level: 3, name: 'C' },
     ])
+  })
+})
+
+describe('skill and tool picks', () => {
+  const withPicks = (
+    featName: string,
+    picks: Record<string, Array<string>>,
+  ) => {
+    const base = emptyDraft(SRD_TABLES)
+    return withScores(
+      {
+        ...base,
+        name: 'Aldric',
+        raceName: 'Variant Human',
+        flexibleAsi: { str: 1, dex: 1 },
+        featName,
+        picks,
+      },
+      { str: 15, dex: 12, con: 14, int: 10, wis: 10, cha: 8 },
+    )
+  }
+
+  it('Skilled routes each of the three picks to skills or tools', () => {
+    // The bug this pins: every value went through `kind: 'skill'`, so the tool
+    // and the display-name skill were both dropped by the scrub at the end of
+    // `buildCharacter` — the player spent three picks and kept one.
+    const { character } = buildCharacter(
+      withPicks('Skilled', {
+        'skilled-skills': ['stealth', 'Smith’s tools', 'Animal Handling'],
+      }),
+    )
+    expect(character.skills).toContain('stealth')
+    expect(character.skills).toContain('animal-handling')
+    expect(character.tools).toContain('Smith’s tools')
+    // The tool must not sit in the skills list under any spelling.
+    expect(character.skills).not.toContain('Smith’s tools')
+  })
+
+  it('keeps all three Skilled picks even when every one is a tool', () => {
+    const { character } = buildCharacter(
+      withPicks('Skilled', {
+        'skilled-skills': ['Smith’s tools', 'Dice set', 'Lute'],
+      }),
+    )
+    expect(character.tools).toEqual(
+      expect.arrayContaining(['Smith’s tools', 'Dice set', 'Lute']),
+    )
+  })
+
+  it('resolves a typed skill name to its id in a plain skill pick', () => {
+    // Not just the new kind: an open skill pick anywhere accepts what a person
+    // types, and "Animal Handling" is what a person types.
+    const { character } = buildCharacter(
+      withPicks('Prodigy', {
+        'prodigy-skill': ['Sleight of Hand'],
+        'prodigy-tool': ['Smith’s tools'],
+        'prodigy-language': ['Dwarvish'],
+        'prodigy-expertise': ['Sleight of Hand'],
+      }),
+    )
+    expect(character.skills).toContain('sleight-of-hand')
+  })
+
+  it('files an expertise pick as expertise, not as a plain proficiency', () => {
+    // `skillBonus` doubles proficiency for these; routing them into `skills`
+    // handed back a proficiency the character already had.
+    const { character } = buildCharacter(
+      withPicks('Skill Expert', {
+        'skill-expert-skill': ['stealth'],
+        'skill-expert-expertise': ['stealth'],
+      }),
+    )
+    expect(character.expertise).toContain('stealth')
+  })
+
+  it('never leaves a non-skill in the expertise list', () => {
+    const { character } = buildCharacter(
+      withPicks('Skill Expert', {
+        'skill-expert-skill': ['stealth'],
+        'skill-expert-expertise': ['Smith’s tools'],
+      }),
+    )
+    expect(character.expertise).not.toContain('Smith’s tools')
   })
 })

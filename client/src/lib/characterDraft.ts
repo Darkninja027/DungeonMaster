@@ -11,6 +11,7 @@
  */
 
 import type { Ability } from './character'
+import { skillIdFor } from './character'
 import { emptyAbilityDraft, abilitiesValid } from './abilityMethods'
 import type { AbilityDraft } from './abilityMethods'
 import type { ClassInfo } from './classes'
@@ -249,11 +250,29 @@ export function pickSatisfied(draft: CharacterDraft, pick: PickList): boolean {
 }
 
 /**
- * Skill ids already granted outright, with where each came from. The Skills
+ * Skill ids the character already has, with where each came from. The Skills
  * step greys these out rather than hiding them: 5e says pick something else,
  * and a silently missing option reads as a lost choice.
+ *
+ * Counts skills taken in *other pick lists* too, not just ones granted
+ * outright. Two lists can offer the same skill — Variant Human's one free
+ * skill, a class's two, and Skilled's three all draw from the full eighteen —
+ * and choosing it twice used to be allowed right up until `mergeList` deduped
+ * the pair at commit, quietly turning two picks into one. Greying it in the
+ * second list is the only place that can be said out loud.
+ *
+ * A pick never greys out its *own* choices: those are the chips the player is
+ * toggling, and disabling one would make it unclickable to undo.
  */
-export function grantedSkills(draft: CharacterDraft): Map<string, string> {
+export function grantedSkills(
+  draft: CharacterDraft,
+  /**
+   * When given, also count skills chosen in *other* pick lists, and exempt this
+   * one. Omit it for the plain "already yours" question — the step's summary
+   * line means skills the character was handed, not ones it just picked.
+   */
+  exceptPickId?: string,
+): Map<string, string> {
   const out = new Map<string, string>()
   const add = (skills: Array<string> | undefined, source: string) => {
     for (const id of skills ?? []) if (!out.has(id)) out.set(id, source)
@@ -266,6 +285,20 @@ export function grantedSkills(draft: CharacterDraft): Map<string, string> {
   if (background) add(background.grant.skills, background.name)
   const kit = draftKit(draft)
   if (kit) add(kit.grant.skills, kit.name)
+  if (exceptPickId === undefined) return out
+  for (const pick of draftPickLists(draft)) {
+    if (pick.id === exceptPickId) continue
+    // Only the skill-ish kinds: a tool or language sharing a name with a skill
+    // is not the same proficiency. Expertise is excluded on purpose — taking
+    // expertise in a skill does not spend the proficiency in it.
+    if (pick.kind !== 'skill' && pick.kind !== 'skillOrTool') continue
+    add(
+      picked(draft, pick.id)
+        .map((v) => skillIdFor(v))
+        .filter((id): id is string => id !== undefined),
+      pick.label,
+    )
+  }
   return out
 }
 

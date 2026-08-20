@@ -79,6 +79,16 @@ export interface Grant {
    * and `applyFeatGrants` adds them at level-up.
    */
   speedBonus?: number
+  /**
+   * Added to `Character.initiativeBonus`, e.g. Alert's `+5`.
+   *
+   * That field is the *misc* slot `initiativeBonus(c)` adds on top of the DEX
+   * modifier, not a derived total, so this stacks with whatever the player has
+   * typed there rather than replacing it. Signed on purpose: unlike
+   * `speedBonus`, a negative initiative modifier is a legitimate thing for a
+   * homebrew grant to carry.
+   */
+  initiativeBonus?: number
   /** Named entries that land in `Character.traits`. */
   traits?: Array<GrantTrait>
   /** Inventory rows. */
@@ -120,6 +130,28 @@ export interface GrantItem {
  */
 export type PickKind =
   | 'skill'
+  /**
+   * A skill *or* a tool, decided per value — Skilled's "any combination of
+   * three skills or tools". `applyPicks` routes each chosen value on its own:
+   * one that resolves through `skillIdFor` lands in `Character.skills` as that
+   * id, anything else lands verbatim in `Character.tools`. Decidable only
+   * because skills are a closed list and tools are free text, which is why
+   * this is a named kind rather than a general "two lists" mechanism.
+   *
+   * Always `open`: half the answers are free text, so a closed one is a
+   * contradiction. `options` carries the skill ids for the chips; tool names
+   * arrive as Combobox suggestions instead, because forty chips is a wall
+   * rather than a choice.
+   */
+  | 'skillOrTool'
+  /**
+   * A skill to double the proficiency bonus for, landing in
+   * `Character.expertise` rather than `Character.skills`. Distinct from
+   * `'skill'` because expertise presupposes the proficiency — Skill Expert
+   * grants one of each — and filing it as a plain proficiency silently
+   * downgrades the feat.
+   */
+  | 'expertise'
   | 'tool'
   | 'language'
   | 'weapon'

@@ -3,9 +3,20 @@ import type { PickList } from '#/lib/srd'
 import { Combobox } from '#/components/ui/combobox'
 import { Chip } from './OptionCard'
 
-/** A skill id rendered as its display name; anything else passes through. */
+/**
+ * A skill id rendered as its display name; anything else passes through.
+ *
+ * The fallthrough is what makes a `skillOrTool` pick read correctly with no
+ * extra branching: a tool name is not a skill id, so it prints as itself.
+ */
 function optionLabel(pick: PickList, value: string): string {
-  if (pick.kind !== 'skill') return value
+  if (
+    pick.kind !== 'skill' &&
+    pick.kind !== 'skillOrTool' &&
+    pick.kind !== 'expertise'
+  ) {
+    return value
+  }
   return SKILLS.find((s) => s.id === value)?.name ?? value
 }
 

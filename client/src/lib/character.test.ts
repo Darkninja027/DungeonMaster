@@ -65,6 +65,7 @@ import {
   updateFeatureEntry,
   wikiLinkTitle,
   withQty,
+  skillIdFor,
 } from './character'
 
 function sample() {
@@ -1618,5 +1619,34 @@ describe('unified feature view', () => {
     expect(addFeatureEntry(c, 'class', 'Evasion', '', 7).features).toEqual([
       { level: 7, name: 'Evasion' },
     ])
+  })
+})
+
+describe('skillIdFor', () => {
+  it('takes an id unchanged', () => {
+    expect(skillIdFor('animal-handling')).toBe('animal-handling')
+  })
+
+  it('resolves a display name, which is what a person types', () => {
+    expect(skillIdFor('Animal Handling')).toBe('animal-handling')
+    expect(skillIdFor('Sleight of Hand')).toBe('sleight-of-hand')
+  })
+
+  it('ignores case and surrounding space', () => {
+    expect(skillIdFor('  STEALTH  ')).toBe('stealth')
+    expect(skillIdFor('sleight of hand')).toBe('sleight-of-hand')
+  })
+
+  it('is undefined for anything that is not a skill', () => {
+    // What makes a skillOrTool pick decidable: not a skill means it's a tool.
+    expect(skillIdFor('Smith’s tools')).toBeUndefined()
+    expect(skillIdFor('')).toBeUndefined()
+    expect(skillIdFor('   ')).toBeUndefined()
+  })
+
+  it('does not guess at a near miss', () => {
+    // A typo should become a tool, not quietly become the wrong skill.
+    expect(skillIdFor('Acrobatic')).toBeUndefined()
+    expect(skillIdFor('animal handling!')).toBeUndefined()
   })
 })

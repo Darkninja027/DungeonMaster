@@ -156,6 +156,8 @@ function parseTraits(raw: unknown): Array<GrantTrait> {
 
 const PICK_KINDS: Array<PickKind> = [
   'skill',
+  'skillOrTool',
+  'expertise',
   'tool',
   'language',
   'weapon',
@@ -301,6 +303,11 @@ function parseGrant(raw: unknown, ownerId: string): Grant {
   // Capped well above any published feat so a typo can't produce a 900ft dwarf.
   const speedBonus = int(r.speedBonus, 0, 0, 120)
   if (speedBonus > 0) grant.speedBonus = speedBonus
+  // Signed, unlike speed: a penalty to initiative is a normal thing to write on
+  // a sheet, so the range spans zero and any non-zero value is kept. Bounded
+  // either side so a typo can't produce a +900 initiative.
+  const initiativeBonus = int(r.initiativeBonus, 0, -10, 20)
+  if (initiativeBonus !== 0) grant.initiativeBonus = initiativeBonus
   const traits = parseTraits(r.traits)
   if (traits.length > 0) grant.traits = traits
   const items = parseItems(r.items)

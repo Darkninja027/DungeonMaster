@@ -43,6 +43,7 @@ export {
   PACKS,
   SHIELD_AC_BONUS,
   STANDARD_LANGUAGES,
+  TOOL_SUGGESTIONS,
   WEAPON_STATS,
   armorEntry,
   isShield,

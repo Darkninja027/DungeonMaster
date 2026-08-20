@@ -359,3 +359,52 @@ describe('completedThrough', () => {
     expect(completedThrough(draft, 'class')).toBe(true)
   })
 })
+
+describe('grantedSkills across pick lists', () => {
+  const vhSkilled = (picks: Record<string, Array<string>>) => ({
+    ...emptyDraft(SRD_TABLES),
+    raceName: 'Variant Human',
+    className: 'Fighter',
+    backgroundName: 'Soldier',
+    featName: 'Skilled',
+    picks,
+  })
+
+  it('without a pick id, reports only skills granted outright', () => {
+    // The step's "Already yours" line means handed to you, not just chosen.
+    const draft = vhSkilled({ 'variant-human-skill': ['perception'] })
+    const granted = grantedSkills(draft)
+    expect(granted.has('athletics')).toBe(true) // Soldier
+    expect(granted.has('perception')).toBe(false) // merely picked
+  })
+
+  it('with a pick id, a skill taken in another list is off the table', () => {
+    // Two lists offering the same skill let the player spend two picks on one
+    // proficiency; mergeList deduped them at commit and the choice vanished.
+    const draft = vhSkilled({ 'variant-human-skill': ['perception'] })
+    expect(grantedSkills(draft, 'skilled-skills').has('perception')).toBe(true)
+  })
+
+  it('never greys out a pick\u2019s own choices', () => {
+    // They are the chips being toggled; disabling one makes it unclickable.
+    const draft = vhSkilled({ 'skilled-skills': ['stealth'] })
+    expect(grantedSkills(draft, 'skilled-skills').has('stealth')).toBe(false)
+    expect(grantedSkills(draft, 'variant-human-skill').has('stealth')).toBe(
+      true,
+    )
+  })
+
+  it('counts a skill typed by name into a skillOrTool pick', () => {
+    const draft = vhSkilled({ 'skilled-skills': ['Animal Handling'] })
+    expect(
+      grantedSkills(draft, 'variant-human-skill').has('animal-handling'),
+    ).toBe(true)
+  })
+
+  it('ignores tools in a skillOrTool pick', () => {
+    // A tool is not a skill, so it must not grey out anything.
+    const draft = vhSkilled({ 'skilled-skills': ['Smith\u2019s tools'] })
+    const granted = grantedSkills(draft, 'variant-human-skill')
+    expect([...granted.keys()]).not.toContain('Smith\u2019s tools')
+  })
+})

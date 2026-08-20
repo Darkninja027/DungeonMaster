@@ -281,6 +281,54 @@ describe('parseFeat', () => {
     ).toBeUndefined()
   })
 
+  it('keeps an initiative bonus either side of zero', () => {
+    expect(
+      parseFeat({ name: 'Alert', grant: { initiativeBonus: 5 } })?.grant
+        .initiativeBonus,
+    ).toBe(5)
+    // Unlike speed, a penalty here is legitimate and must survive the parse.
+    expect(
+      parseFeat({ name: 'Sluggish', grant: { initiativeBonus: -3 } })?.grant
+        .initiativeBonus,
+    ).toBe(-3)
+    // Zero is still just noise.
+    expect(
+      parseFeat({ name: 'Alert', grant: { initiativeBonus: 0 } })?.grant
+        .initiativeBonus,
+    ).toBeUndefined()
+    expect(
+      parseFeat({ name: 'Alert', grant: {} })?.grant.initiativeBonus,
+    ).toBeUndefined()
+  })
+
+  it('keeps the skillOrTool and expertise pick kinds', () => {
+    // An unknown kind degrades to 'other', which routes nowhere — so a kind
+    // missing from PICK_KINDS is a silent grant of nothing.
+    const feat = parseFeat({
+      name: 'Handy',
+      grant: {
+        picks: [
+          {
+            id: 'handy-any',
+            kind: 'skillOrTool',
+            label: 'Any three',
+            count: 3,
+            open: true,
+          },
+          {
+            id: 'handy-exp',
+            kind: 'expertise',
+            label: 'Expertise',
+            count: 1,
+            options: ['stealth'],
+          },
+        ],
+      },
+    })
+    expect(feat?.grant.picks?.[0].kind).toBe('skillOrTool')
+    expect(feat?.grant.picks?.[1].kind).toBe('expertise')
+  })
+
   it('derives the id from the name', () => {
     expect(parseFeat({ name: 'Great Weapon Master' })!.id).toBe(
       'great-weapon-master',

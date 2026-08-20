@@ -471,6 +471,9 @@ function applyFeatGrants(c: Character, grants: Array<Grant>): Character {
       // Additive, like every other field here — `applyLevelUp` only ever raises
       // numbers, so a feat can add feet but nothing can take them away.
       speed: next.speed + (grant.speedBonus ?? 0),
+      // Only feats not already on the sheet reach this, which is what stops a
+      // re-take stacking the bonus.
+      initiativeBonus: next.initiativeBonus + (grant.initiativeBonus ?? 0),
     }
   }
   return next

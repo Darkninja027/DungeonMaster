@@ -7,6 +7,7 @@ import { useLibraryEntries } from '#/lib/useGlobalLibrary'
 import type { CharacterDraft } from '#/lib/characterDraft'
 import { draftPickLists, grantedSkills, picked } from '#/lib/characterDraft'
 import type { PickList } from '#/lib/srd'
+import { TOOL_SUGGESTIONS } from '#/lib/srd'
 import { PickListGroup } from '../PickListGroup'
 
 export function SkillsStep({
@@ -61,6 +62,10 @@ export function SkillsStep({
    * class matched means no class filter, which offers more rather than less.
    */
   const suggestionsFor = (pick: PickList): Array<string> | undefined => {
+    // Half a `skillOrTool` pick's answers are tools, and tools are free text —
+    // they ride the combobox rather than the chip cloud, because every tool as
+    // a chip alongside every skill is a wall rather than a choice.
+    if (pick.kind === 'skillOrTool') return [...TOOL_SUGGESTIONS]
     if (pick.kind !== 'cantrip' && pick.kind !== 'spell') return undefined
     const label = pick.label.toLowerCase()
     const className = SPELL_CLASSES.find((c) => label.includes(c.toLowerCase()))
@@ -101,7 +106,11 @@ export function SkillsStep({
             key={pick.id}
             pick={pick}
             chosen={picked(draft, pick.id)}
-            alreadyGranted={pick.kind === 'skill' ? granted : undefined}
+            alreadyGranted={
+              pick.kind === 'skill' || pick.kind === 'skillOrTool'
+                ? grantedSkills(draft, pick.id)
+                : undefined
+            }
             suggestions={suggestionsFor(pick)}
             onChange={(values) =>
               onChange({

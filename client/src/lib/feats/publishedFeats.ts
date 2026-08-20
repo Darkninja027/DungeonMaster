@@ -43,7 +43,11 @@
  * sheet is hand-editable, which is the whole point of the free-text rule.
  */
 
-import { ALL_LANGUAGES, ARTISAN_TOOLS, GAMING_SETS } from '../srd/equipment'
+import {
+  ALL_LANGUAGES,
+  ARTISAN_TOOLS,
+  TOOL_SUGGESTIONS,
+} from '../srd/equipment'
 import type { FeatInfo } from '../srd/types'
 
 /** Every skill id, for the feats whose list is "any of your choice". */
@@ -68,8 +72,13 @@ const ALL_SKILLS = [
   'survival',
 ]
 
-/** Tool-ish options for the "a skill *or* a tool" feats. */
-const ALL_TOOLS = [...ARTISAN_TOOLS, ...GAMING_SETS, 'Thieves’ tools']
+/**
+ * Tool options for the feats that offer one.
+ *
+ * The shared list rather than a local spelling of it, so the chips here and the
+ * suggestions the wizard offers a `skillOrTool` pick can never drift apart.
+ */
+const ALL_TOOLS = TOOL_SUGGESTIONS
 
 export const PUBLISHED_FEATS: Array<FeatInfo> = [
   // ---------------------------------------------------------------------------
@@ -88,7 +97,9 @@ export const PUBLISHED_FEATS: Array<FeatInfo> = [
     name: 'Alert',
     summary:
       '+5 to initiative. You can’t be surprised while conscious, and hidden attackers gain no advantage against you.',
-    grant: {},
+    // Only the number is modelled. "Can't be surprised" and the advantage
+    // clause are rulings this app doesn't compute, and stay prose.
+    grant: { initiativeBonus: 5 },
   },
   {
     id: 'athlete',
@@ -384,19 +395,17 @@ export const PUBLISHED_FEATS: Array<FeatInfo> = [
     id: 'skilled',
     name: 'Skilled',
     summary:
-      'Proficiency in any three skills or tools of your choice — swap any of the three for a tool by typing it.',
+      'Proficiency in any combination of three skills or tools of your choice.',
     grant: {
-      // One skill pick, not a skill pick plus a tool pick. `applyPicks` routes
-      // by `kind`, so a mixed list would file "Smith’s tools" into
-      // `Character.skills`; but two picks would make `count` demand three
-      // skills *and* a tool, over-granting the feat. A `PickList` cannot say
-      // "three drawn from either list", so the pick is `open` and the summary
-      // tells the player to type a tool over one of the three.
+      // `skillOrTool` exists for this feat: three drawn from either list, routed
+      // per value at commit rather than per pick. `options` carries the skill
+      // ids for the chips; the tools arrive as combobox suggestions from the
+      // skills step, so the group stays a choice rather than a forty-chip wall.
       picks: [
         {
           id: 'skilled-skills',
-          kind: 'skill',
-          label: 'Choose three skills (or type a tool instead of one)',
+          kind: 'skillOrTool',
+          label: 'Choose any three skills or tools',
           count: 3,
           options: [...ALL_SKILLS],
           open: true,
@@ -629,7 +638,7 @@ export const PUBLISHED_FEATS: Array<FeatInfo> = [
         },
         {
           id: 'skill-expert-expertise',
-          kind: 'skill',
+          kind: 'expertise',
           label: 'Expertise in one skill you are proficient with',
           count: 1,
           options: [...ALL_SKILLS],
@@ -894,7 +903,7 @@ export const PUBLISHED_FEATS: Array<FeatInfo> = [
         },
         {
           id: 'prodigy-expertise',
-          kind: 'skill',
+          kind: 'expertise',
           label: 'Expertise in one skill you are proficient with',
           count: 1,
           options: [...ALL_SKILLS],

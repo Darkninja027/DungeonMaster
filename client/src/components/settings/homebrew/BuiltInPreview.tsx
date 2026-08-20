@@ -66,8 +66,8 @@ export function BuiltInPreview({
 
       {shadowedBy !== undefined && (
         <p className="rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-xs text-amber-700 dark:text-amber-500">
-          Your homebrew &ldquo;{shadowedBy}&rdquo; overrides this. Characters are
-          built against yours, not this one.
+          Your homebrew &ldquo;{shadowedBy}&rdquo; overrides this. Characters
+          are built against yours, not this one.
         </p>
       )}
 
@@ -288,6 +288,15 @@ function GrantPreview({ grant, dense }: { grant: Grant; dense?: boolean }) {
       {grant.speedBonus !== undefined && (
         <Row label="Speed">
           <Plain>+{grant.speedBonus} ft</Plain>
+        </Row>
+      )}
+      {grant.initiativeBonus !== undefined && (
+        <Row label="Initiative">
+          {/* Signed: this one can legitimately be negative. */}
+          <Plain>
+            {grant.initiativeBonus >= 0 ? '+' : ''}
+            {grant.initiativeBonus}
+          </Plain>
         </Row>
       )}
       {lists.map(([label, values]) =>
