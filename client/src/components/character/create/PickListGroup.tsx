@@ -99,7 +99,11 @@ export function PickListGroup({
               label={optionLabel(pick, value)}
               selected={selected}
               disabled={Boolean(source) || (full && !selected)}
-              title={source ? `Already granted by ${source}` : undefined}
+              // "from", not "granted by": the source may be a choice made in
+              // another pick — your Skilled skills, your race's free skill —
+              // rather than something handed over outright, and the player
+              // needs to know which of their own picks already spent it.
+              title={source ? `Already taken from ${source}` : undefined}
               onToggle={() => toggle(value)}
             />
           )

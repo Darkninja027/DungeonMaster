@@ -9,6 +9,7 @@ import {
   asiLevelsCrossed,
   averageHitDie,
   cantripsAtLevel,
+  featsAvailable,
   featuresGained,
   hpGained,
   levelsGained,
@@ -430,10 +431,18 @@ export function AsiStep({
 
             {choice.kind !== 'abilities' && (
               <>
-                {/* Suggestions only; any name is still accepted. */}
+                {/*
+                  Suggestions only; any name is still accepted. Feats the
+                  character already has, or has taken at another ASI level
+                  in this same level-up, are left out: feats are not
+                  repeatable, and `applyLevelUp` would drop the duplicate,
+                  spending the ASI on nothing.
+                */}
                 <Combobox
                   value={choice.featName}
-                  options={draft.feats.map((f) => f.name)}
+                  options={featsAvailable(character, draft, level).map(
+                    (f) => f.name,
+                  )}
                   onCommit={(featName) => patch(level, { featName })}
                   placeholder="e.g. Sharpshooter"
                   className="h-8 max-w-sm"

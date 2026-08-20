@@ -514,17 +514,23 @@ export function applyLevelUp(c: Character, draft: LevelUpDraft): Character {
   }
 
   if (plan.featsTaken.length > 0) {
+    // Grows as it goes, so a feat named at two ASI levels in the same
+    // level-up is added once. Feats are not repeatable, and a set built only
+    // from the starting sheet let three ASI slots all take Alert — three rows
+    // on the sheet and its bonus applied three times.
     const have = new Set(next.feats.map((f) => f.name.trim().toLowerCase()))
     // Carry the feat's one-line summary onto the sheet alongside its name, the
     // same as the creation wizard does — without it the Features tab lists the
     // feat with "No description yet." A feat the tables don't know contributes
     // its name and nothing else.
-    const added = plan.featsTaken
-      .filter((name) => !have.has(name.toLowerCase()))
-      .map((name) => {
-        const summary = findFeat(draft.feats, name)?.summary.trim()
-        return summary ? { name, text: summary } : { name }
-      })
+    const added: Array<{ name: string; text?: string }> = []
+    for (const name of plan.featsTaken) {
+      const key = name.trim().toLowerCase()
+      if (have.has(key)) continue
+      have.add(key)
+      const summary = findFeat(draft.feats, name)?.summary.trim()
+      added.push(summary ? { name, text: summary } : { name })
+    }
     if (added.length > 0) next = { ...next, feats: [...next.feats, ...added] }
 
     // What the newly-taken feats grant. Only the ones actually added, so
@@ -587,6 +593,35 @@ export function levelUpSteps(draft: LevelUpDraft): Array<LevelUpStepId> {
   }
   steps.push('review')
   return steps
+}
+
+/**
+ * Feats still available to take at one ASI level.
+ *
+ * 5e feats are not repeatable, so a feat already on the sheet — or already
+ * named at another ASI level in this same level-up — is not on offer. Both
+ * halves matter: `applyLevelUp` refuses to add a feat the character already
+ * has, so offering one meant the player could spend an ASI on nothing at all
+ * and never be told, and a 4 -> 8 level-up crosses three ASI levels whose
+ * choices are made independently.
+ *
+ * Free text is untouched, as everywhere else here: this narrows what the
+ * suggestion list *offers*, and a name typed by hand still reaches the sheet
+ * for a table playing it differently.
+ */
+export function featsAvailable(
+  c: Character,
+  draft: LevelUpDraft,
+  /** The ASI level being chosen for; its own pick stays available. */
+  atLevel: number,
+): Array<FeatInfo> {
+  const taken = new Set(c.feats.map((f) => f.name.trim().toLowerCase()))
+  for (const [level, choice] of Object.entries(draft.asi)) {
+    if (Number(level) === atLevel) continue
+    const name = choice.featName.trim().toLowerCase()
+    if (name !== '') taken.add(name)
+  }
+  return draft.feats.filter((f) => !taken.has(f.name.trim().toLowerCase()))
 }
 
 /** Whether an ASI choice is complete: two points placed, or a feat named. */

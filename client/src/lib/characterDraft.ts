@@ -230,12 +230,57 @@ export function draftGrants(draft: CharacterDraft): Array<Grant> {
  * picking "a greataxe" does not.
  */
 export function draftPickLists(draft: CharacterDraft): Array<PickList> {
-  const out: Array<PickList> = []
-  for (const grant of draftGrants(draft)) {
-    out.push(...(grant.picks ?? []))
+  return draftOwnedPickLists(draft).map((o) => o.pick)
+}
+
+/** A pick list beside the name of whatever handed it out. */
+export interface OwnedPickList {
+  pick: PickList
+  /**
+   * The race, background, feat or class the pick came from — "Skilled",
+   * "Soldier", "Fighter".
+   *
+   * A `PickList` has no room to say who owns it, and its own label is written
+   * from the player's side ("Choose two skills", "Skill proficiency"), so it
+   * cannot answer "where did this come from". Pairing the two here is what
+   * lets the Skills step say *Already granted by Skilled* rather than naming
+   * some other pick's generic label back at the player.
+   */
+  owner: string
+}
+
+/**
+ * Every pick list the draft offers, each paired with its owner's name.
+ *
+ * Mirrors `draftGrants` deliberately: same sources, same order, so the two
+ * cannot disagree about what a draft grants. `draftPickLists` is this with the
+ * owners dropped, kept because most callers only need the picks.
+ */
+export function draftOwnedPickLists(
+  draft: CharacterDraft,
+): Array<OwnedPickList> {
+  const out: Array<OwnedPickList> = []
+  const add = (grant: Grant | undefined, owner: string) => {
+    for (const pick of grant?.picks ?? []) out.push({ pick, owner })
   }
+  const race = draftRace(draft)
+  if (race) add(race.grant, race.name)
+  const subrace = draftSubrace(draft)
+  if (subrace) add(subrace.grant, subrace.name)
+  const background = draftBackground(draft)
+  if (background) add(background.grant, background.name)
+  const feat = draftFeat(draft)
+  if (feat) add(feat.grant, feat.name)
   const kit = draftKit(draft)
-  if (kit) out.push(kit.skillChoices)
+  if (kit) {
+    add(kit.grant, kit.name)
+    for (const choice of kit.equipment) {
+      const index = draft.equipment[choice.id] as number | undefined
+      const option = index === undefined ? undefined : choice.options[index]
+      if (option) add(option.grant, option.label)
+    }
+    out.push({ pick: kit.skillChoices, owner: kit.name })
+  }
   return out
 }
 
@@ -286,7 +331,7 @@ export function grantedSkills(
   const kit = draftKit(draft)
   if (kit) add(kit.grant.skills, kit.name)
   if (exceptPickId === undefined) return out
-  for (const pick of draftPickLists(draft)) {
+  for (const { pick, owner } of draftOwnedPickLists(draft)) {
     if (pick.id === exceptPickId) continue
     // Only the skill-ish kinds: a tool or language sharing a name with a skill
     // is not the same proficiency. Expertise is excluded on purpose — taking
@@ -296,7 +341,9 @@ export function grantedSkills(
       picked(draft, pick.id)
         .map((v) => skillIdFor(v))
         .filter((id): id is string => id !== undefined),
-      pick.label,
+      // The owner, not `pick.label` — "Skilled" says where the skill went,
+      // where "Skill proficiency" is just another pick's prompt.
+      owner,
     )
   }
   return out

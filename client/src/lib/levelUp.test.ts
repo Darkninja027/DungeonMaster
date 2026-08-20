@@ -17,6 +17,7 @@ import {
   asiComplete,
   asiLevelsCrossed,
   averageHitDie,
+  featsAvailable,
   cantripsAtLevel,
   canAdvance,
   emptyLevelUpDraft,
@@ -28,7 +29,7 @@ import {
   needsSubclass,
   slotsAtLevel,
 } from './levelUp'
-import type { LevelUpDraft } from './levelUp'
+import type { AsiChoice, LevelUpDraft } from './levelUp'
 
 const kitFor = (name: string): ClassKit | undefined =>
   findKit(SRD_TABLES.kits, name)
@@ -846,5 +847,94 @@ describe('the "+1 and a feat" house rule', () => {
     expect(after.abilities.str).toBe(c.abilities.str + 2)
     expect(after.abilities.con).toBe(c.abilities.con + 1)
     expect(after.feats.map((f) => f.name)).toContain('Tough')
+  })
+})
+
+describe('feats are not repeatable', () => {
+  const ALERT: FeatInfo = {
+    id: 'alert',
+    name: 'Alert',
+    summary: '+5 to initiative.',
+    grant: { initiativeBonus: 5 },
+  }
+  const MOBILE2: FeatInfo = {
+    id: 'mobile',
+    name: 'Mobile',
+    summary: '+10 feet of speed.',
+    grant: { speedBonus: 10 },
+  }
+
+  const fighterAt = (level: number, feats: Array<{ name: string }> = []) => ({
+    ...characterAt(level, 'Fighter'),
+    feats,
+  })
+
+  const draftTaking = (
+    c: Character,
+    to: number,
+    byLevel: Record<number, string>,
+  ) => {
+    const base = draftFor(c, to, { feats: [ALERT, MOBILE2] })
+    const asi: Record<number, AsiChoice> = {}
+    for (const [level, featName] of Object.entries(byLevel)) {
+      asi[Number(level)] = { kind: 'feat', abilities: {}, featName }
+    }
+    return { ...base, asi }
+  }
+
+  it('does not offer a feat the character already has', () => {
+    const c = fighterAt(3, [{ name: 'Alert' }])
+    const draft = draftFor(c, 4, { feats: [ALERT, MOBILE2] })
+    const offered = featsAvailable(c, draft, 4).map((f) => f.name)
+    expect(offered).not.toContain('Alert')
+    expect(offered).toContain('Mobile')
+  })
+
+  it('does not offer a feat already named at another ASI level', () => {
+    // 3 -> 8 as a Fighter crosses 4, 6 and 8, each chosen independently.
+    const c = fighterAt(3)
+    const draft = draftTaking(c, 8, { 4: 'Alert' })
+    expect(featsAvailable(c, draft, 6).map((f) => f.name)).not.toContain(
+      'Alert',
+    )
+  })
+
+  it('still offers the feat this very level already named', () => {
+    // Otherwise the value in the box vanishes from its own suggestion list.
+    const c = fighterAt(3)
+    const draft = draftTaking(c, 8, { 4: 'Alert' })
+    expect(featsAvailable(c, draft, 4).map((f) => f.name)).toContain('Alert')
+  })
+
+  it('matches case-insensitively, as the sheet is hand-editable', () => {
+    const c = fighterAt(3, [{ name: 'alert' }])
+    const draft = draftFor(c, 4, { feats: [ALERT, MOBILE2] })
+    expect(featsAvailable(c, draft, 4).map((f) => f.name)).not.toContain(
+      'Alert',
+    )
+  })
+
+  it('adds a feat once when named at several ASI levels at once', () => {
+    // The bug this pins: `have` was built from the starting sheet and never
+    // updated, so three ASI slots taking Alert wrote three rows and applied
+    // its bonus three times (+15 initiative).
+    const c = fighterAt(3)
+    const after = applyLevelUp(
+      c,
+      draftTaking(c, 8, { 4: 'Alert', 6: 'Alert', 8: 'Alert' }),
+    )
+    expect(after.feats.filter((f) => f.name === 'Alert')).toHaveLength(1)
+    expect(after.initiativeBonus).toBe(c.initiativeBonus + 5)
+  })
+
+  it('applies each distinct feat once when several are taken together', () => {
+    const c = fighterAt(3)
+    const after = applyLevelUp(
+      c,
+      draftTaking(c, 8, { 4: 'Alert', 6: 'Mobile', 8: 'Alert' }),
+    )
+    expect(after.feats.map((f) => f.name).sort()).toEqual(['Alert', 'Mobile'])
+    expect(after.initiativeBonus).toBe(c.initiativeBonus + 5)
+    expect(after.speed).toBe(c.speed + 10)
   })
 })

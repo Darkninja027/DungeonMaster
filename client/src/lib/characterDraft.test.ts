@@ -9,6 +9,7 @@ import {
   draftPickLists,
   emptyDraft,
   flexibleAsiComplete,
+  draftOwnedPickLists,
   grantedSkills,
   nameProblem,
   pickSatisfied,
@@ -406,5 +407,58 @@ describe('grantedSkills across pick lists', () => {
     const draft = vhSkilled({ 'skilled-skills': ['Smith\u2019s tools'] })
     const granted = grantedSkills(draft, 'variant-human-skill')
     expect([...granted.keys()]).not.toContain('Smith\u2019s tools')
+  })
+})
+
+describe('pick ownership', () => {
+  const vhSkilled = (picks: Record<string, Array<string>> = {}) => ({
+    ...emptyDraft(SRD_TABLES),
+    raceName: 'Variant Human',
+    className: 'Fighter',
+    backgroundName: 'Soldier',
+    featName: 'Skilled',
+    picks,
+  })
+
+  it('names the race, background, feat and class that own each pick', () => {
+    const owners = new Map(
+      draftOwnedPickLists(vhSkilled()).map((o) => [o.pick.id, o.owner]),
+    )
+    expect(owners.get('variant-human-skill')).toBe('Variant Human')
+    expect(owners.get('soldier-gaming-set')).toBe('Soldier')
+    expect(owners.get('skilled-skills')).toBe('Skilled')
+    expect(owners.get('fighter-skills')).toBe('Fighter')
+  })
+
+  it('offers the same picks as draftPickLists, in the same order', () => {
+    // The two must not drift: one is the other with the owners dropped.
+    const draft = vhSkilled()
+    expect(draftOwnedPickLists(draft).map((o) => o.pick.id)).toEqual(
+      draftPickLists(draft).map((p) => p.id),
+    )
+  })
+
+  it('blames the feat by name, not the other pick\u2019s prompt', () => {
+    // The bug this pins: the source was `pick.label`, so a skill taken with
+    // Skilled greyed out as "Skill proficiency" — another pick's wording,
+    // which tells the player nothing about where their choice went.
+    const draft = vhSkilled({ 'skilled-skills': ['stealth'] })
+    expect(grantedSkills(draft, 'variant-human-skill').get('stealth')).toBe(
+      'Skilled',
+    )
+  })
+
+  it('blames the race for the race\u2019s own free skill', () => {
+    const draft = vhSkilled({ 'variant-human-skill': ['perception'] })
+    expect(grantedSkills(draft, 'skilled-skills').get('perception')).toBe(
+      'Variant Human',
+    )
+  })
+
+  it('still blames a background for what it grants outright', () => {
+    const draft = vhSkilled()
+    expect(grantedSkills(draft, 'skilled-skills').get('athletics')).toBe(
+      'Soldier',
+    )
   })
 })
