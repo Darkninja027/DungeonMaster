@@ -7,9 +7,14 @@ import {
   completedThrough,
   draftClassInfo,
   draftPickLists,
+  eligibleExpertise,
   emptyDraft,
+  assignFlexibleSlot,
+  chosenFlexibleMode,
   flexibleAsiComplete,
+  flexibleSlotAbilities,
   draftOwnedPickLists,
+  refitFlexibleAsi,
   grantedSkills,
   nameProblem,
   pickSatisfied,
@@ -19,6 +24,7 @@ import {
 import type { CharacterDraft } from './characterDraft'
 import { emptyAbilityDraft } from './abilityMethods'
 import type { Ability } from './character'
+import type { RaceInfo } from './srd'
 
 function manual(
   draft: CharacterDraft,
@@ -291,6 +297,32 @@ describe('canAdvance', () => {
     expect(canAdvance(filled, 'skills')).toBe(true)
   })
 
+  it('gates a rogue on the expertise pick as well as the four skills', () => {
+    // Expertise is a pick like any other. A rogue allowed past with it unmade
+    // would commit a sheet whose Expertise feature text describes a choice
+    // nobody made.
+    const base = manual({
+      ...emptyDraft(SRD_TABLES),
+      className: 'Rogue',
+      raceName: 'Half-Orc',
+    })
+    const skillsOnly = {
+      ...base,
+      picks: {
+        'rogue-skills': ['stealth', 'perception', 'deception', 'insight'],
+      },
+    }
+    expect(canAdvance(skillsOnly, 'skills')).toBe(false)
+    const filled = {
+      ...skillsOnly,
+      picks: {
+        ...skillsOnly.picks,
+        'rogue-expertise': ['stealth', 'perception'],
+      },
+    }
+    expect(canAdvance(filled, 'skills')).toBe(true)
+  })
+
   it('gates equipment on every choice and weapon pick', () => {
     const base = manual({
       ...emptyDraft(SRD_TABLES),
@@ -438,6 +470,35 @@ describe('pick ownership', () => {
     )
   })
 
+  it('says what kind of thing owns each pick', () => {
+    // The name alone can't be classified after the fact \u2014 "Skilled" is a feat
+    // and "Soldier" is a background, and neither string says so. This is what
+    // lets the skills step print "From the Skilled feat" rather than a bare
+    // name that reads like it could be anything.
+    const kinds = new Map(
+      draftOwnedPickLists(vhSkilled()).map((o) => [o.pick.id, o.ownerKind]),
+    )
+    expect(kinds.get('skilled-skills')).toBe('feat')
+    expect(kinds.get('variant-human-skill')).toBe('race')
+    expect(kinds.get('soldier-gaming-set')).toBe('background')
+    expect(kinds.get('fighter-skills')).toBe('class')
+  })
+
+  it('calls a subrace\u2019s own pick a race pick', () => {
+    // Collapsed on purpose: "Hill Dwarf race" is what a player would call it,
+    // and a separate 'subrace' kind buys nothing they'd recognise.
+    const draft = {
+      ...emptyDraft(SRD_TABLES),
+      raceName: 'Elf',
+      subraceName: 'High Elf',
+    }
+    const owned = draftOwnedPickLists(draft).find(
+      (o) => o.pick.id === 'high-elf-language',
+    )
+    expect(owned?.ownerKind).toBe('race')
+    expect(owned?.owner).toBe('High Elf')
+  })
+
   it('blames the feat by name, not the other pick\u2019s prompt', () => {
     // The bug this pins: the source was `pick.label`, so a skill taken with
     // Skilled greyed out as "Skill proficiency" — another pick's wording,
@@ -460,5 +521,246 @@ describe('pick ownership', () => {
     expect(grantedSkills(draft, 'skilled-skills').get('athletics')).toBe(
       'Soldier',
     )
+  })
+
+  it('offers a rogue’s expertise pick after the skills it doubles', () => {
+    // `kit.grant.picks` is collected before `kit.skillChoices` is pushed, so in
+    // source order the rogue is asked which skills to double before being asked
+    // which skills it has.
+    const ids = draftOwnedPickLists({
+      ...emptyDraft(SRD_TABLES),
+      className: 'Rogue',
+    }).map((o) => o.pick.id)
+    expect(ids.indexOf('rogue-expertise')).toBeGreaterThan(
+      ids.indexOf('rogue-skills'),
+    )
+  })
+
+  it('keeps expertise last for a feat too, not just a class', () => {
+    // The ordering is a property of the kind, so it doesn't depend on how a
+    // feat's `picks` array happens to be authored.
+    const ids = draftOwnedPickLists({
+      ...emptyDraft(SRD_TABLES),
+      raceName: 'Variant Human',
+      featName: 'Skill Expert',
+    }).map((o) => o.pick.id)
+    expect(ids.indexOf('skill-expert-expertise')).toBeGreaterThan(
+      ids.indexOf('skill-expert-skill'),
+    )
+  })
+
+  it('leaves the non-expertise order alone', () => {
+    // A stable partition: everything that isn't expertise keeps the fixed
+    // race / background / feat / class order `draftGrants` mirrors.
+    const ids = draftOwnedPickLists(vhSkilled()).map((o) => o.pick.id)
+    expect(ids).toEqual([
+      'variant-human-language',
+      'variant-human-skill',
+      'soldier-gaming-set',
+      'skilled-skills',
+      'fighter-skills',
+    ])
+  })
+})
+
+describe('eligibleExpertise', () => {
+  const rogue = (picks: Record<string, Array<string>> = {}) => ({
+    ...emptyDraft(SRD_TABLES),
+    className: 'Rogue',
+    picks,
+  })
+  const expertisePick = () =>
+    draftOwnedPickLists(rogue()).find((o) => o.pick.id === 'rogue-expertise')!
+      .pick
+
+  it('offers nothing before the skills are chosen', () => {
+    // Empty rather than a throw: the step renders the shortfall as a hint, and
+    // filling the skill picks above resolves it.
+    expect(eligibleExpertise(rogue(), expertisePick())).toEqual([])
+  })
+
+  it('counts skills chosen in another pick, not just granted ones', () => {
+    const draft = rogue({
+      'rogue-skills': ['stealth', 'perception', 'deception', 'insight'],
+    })
+    expect(eligibleExpertise(draft, expertisePick()).sort()).toEqual(
+      ['deception', 'insight', 'perception', 'stealth'].sort(),
+    )
+  })
+
+  it('counts a skill granted outright by a background', () => {
+    // Athletics and Intimidation come from Soldier, not from any pick.
+    const draft = { ...rogue(), backgroundName: 'Soldier' }
+    expect(eligibleExpertise(draft, expertisePick())).toContain('athletics')
+    expect(eligibleExpertise(draft, expertisePick())).toContain('intimidation')
+  })
+
+  it('never widens past the pick’s authored options', () => {
+    // Soldier grants Athletics and Intimidation; a rogue offering neither in
+    // its own eleven would still not have them doubled here. Both happen to be
+    // in the rogue list, so use a background whose grant isn't: Acolyte gives
+    // Insight and Religion, and Religion is not a rogue skill.
+    const draft = { ...rogue(), backgroundName: 'Acolyte' }
+    const eligible = eligibleExpertise(draft, expertisePick())
+    expect(eligible).toContain('insight')
+    expect(eligible).not.toContain('religion')
+  })
+
+  it('does not count a skill only taken as expertise', () => {
+    // Expertise doubles a proficiency; it doesn't grant one. A value chosen in
+    // the expertise pick must not make itself eligible.
+    const draft = rogue({ 'rogue-expertise': ['stealth'] })
+    expect(eligibleExpertise(draft, expertisePick())).toEqual([])
+  })
+})
+
+describe('flexible ASI modes', () => {
+  /**
+   * A race whose whole increase is the player's, in one of two shapes — the
+   * case `{ count, amount }` could not express. Defined here rather than
+   * leaning on a built-in: this suite is testing the mechanism, and it should
+   * not start failing because a table changed.
+   */
+  const TWO_SHAPES: RaceInfo = {
+    id: 'two-shapes',
+    name: 'Two Shapes',
+    summary: 'Chooses between +2/+1 and three +1s.',
+    asi: {},
+    speed: 30,
+    flexibleAsi: [{ increases: [2, 1] }, { increases: [1, 1, 1] }],
+    grant: {},
+  }
+
+  function modal(
+    flexibleAsi: Partial<Record<Ability, number>> = {},
+    flexibleAsiMode = 0,
+  ): CharacterDraft {
+    const base = emptyDraft()
+    return {
+      ...base,
+      races: [...base.races, TWO_SHAPES],
+      raceName: TWO_SHAPES.name,
+      flexibleAsi,
+      flexibleAsiMode,
+    }
+  }
+
+  it('offers both shapes, and takes the first by default', () => {
+    const draft = modal()
+    expect(chosenFlexibleMode(draft)?.increases).toEqual([2, 1])
+    expect(
+      chosenFlexibleMode({ ...draft, flexibleAsiMode: 1 })?.increases,
+    ).toEqual([1, 1, 1])
+  })
+
+  it('completes "+2 and +1" only on that exact spread', () => {
+    expect(flexibleAsiComplete(modal({ str: 2, dex: 1 }))).toBe(true)
+    expect(flexibleAsiComplete(modal({ str: 1, dex: 1 }))).toBe(false)
+    // Both shapes total 3, so a sum check would have passed this. The amounts
+    // are a multiset, not a budget.
+    expect(flexibleAsiComplete(modal({ str: 3 }))).toBe(false)
+    expect(flexibleAsiComplete(modal({ str: 1, dex: 1, con: 1 }))).toBe(false)
+  })
+
+  it('completes "three +1s" only on that exact spread', () => {
+    const three = (asi: Partial<Record<Ability, number>>) =>
+      flexibleAsiComplete(modal(asi, 1))
+    expect(three({ str: 1, dex: 1, con: 1 })).toBe(true)
+    expect(three({ str: 2, dex: 1 })).toBe(false)
+  })
+
+  it('falls back to the first mode when the index is out of range', () => {
+    // The index is a plain number on a draft; a race swapped underneath it must
+    // not leave the wizard reading past the end of the list.
+    expect(chosenFlexibleMode(modal({}, 7))?.increases).toEqual([2, 1])
+  })
+
+  it('reaches the sheet as a plain racial increase', () => {
+    // The race has no fixed `asi` at all, so this is the whole of it — and it
+    // proves mixed sizes need nothing from `racialAsi`.
+    expect(racialAsi(modal({ str: 2, con: 1 }))).toEqual({ str: 2, con: 1 })
+  })
+
+  it('keeps the abilities you chose when you switch shapes', () => {
+    // Not cleared: the amounts were the mode's to dictate, the abilities were
+    // the player's.
+    expect(
+      refitFlexibleAsi({ str: 2, dex: 1 }, { increases: [1, 1, 1] }),
+    ).toEqual({ str: 1, dex: 1 })
+    expect(
+      refitFlexibleAsi({ str: 1, dex: 1, con: 1 }, { increases: [2, 1] }),
+    ).toEqual({ str: 2, dex: 1 })
+  })
+
+  it('leaves a race with no flexible increases alone', () => {
+    expect(flexibleAsiComplete({ ...emptyDraft(), raceName: 'Dwarf' })).toBe(
+      true,
+    )
+    expect(
+      chosenFlexibleMode({ ...emptyDraft(), raceName: 'Dwarf' }),
+    ).toBeUndefined()
+  })
+})
+
+describe('flexible ASI slots', () => {
+  const MIXED = { increases: [2, 1] }
+  const THREE = { increases: [1, 1, 1] }
+
+  it('shows which ability sits in each slot', () => {
+    expect(flexibleSlotAbilities({ str: 2, dex: 1 }, MIXED)).toEqual([
+      'str',
+      'dex',
+    ])
+    expect(flexibleSlotAbilities({ dex: 1, str: 2 }, MIXED)).toEqual([
+      'str',
+      'dex',
+    ])
+    expect(flexibleSlotAbilities({ str: 2 }, MIXED)).toEqual(['str', undefined])
+    expect(flexibleSlotAbilities({}, MIXED)).toEqual([undefined, undefined])
+  })
+
+  it('never puts one ability in two same-sized slots', () => {
+    // The draft is keyed by ability, so three +1s look alike; the slot view has
+    // to hand each its own or the UI would show Str three times.
+    expect(flexibleSlotAbilities({ str: 1, dex: 1 }, THREE)).toEqual([
+      'str',
+      'dex',
+      undefined,
+    ])
+  })
+
+  it('assigns an ability to a slot', () => {
+    expect(assignFlexibleSlot({}, MIXED, 0, 'str')).toEqual({ str: 2 })
+    expect(assignFlexibleSlot({ str: 2 }, MIXED, 1, 'dex')).toEqual({
+      str: 2,
+      dex: 1,
+    })
+  })
+
+  it('moves an ability rather than duplicating it', () => {
+    // Picking Str for the +1 when it already holds the +2 has to vacate the +2,
+    // because one ability cannot be raised twice.
+    expect(assignFlexibleSlot({ str: 2, dex: 1 }, MIXED, 1, 'str')).toEqual({
+      str: 1,
+    })
+  })
+
+  it('clears a slot', () => {
+    expect(assignFlexibleSlot({ str: 2, dex: 1 }, MIXED, 0, undefined)).toEqual(
+      {
+        dex: 1,
+      },
+    )
+  })
+
+  it('round-trips through the slot view', () => {
+    const placed = assignFlexibleSlot(
+      assignFlexibleSlot({}, MIXED, 0, 'cha'),
+      MIXED,
+      1,
+      'wis',
+    )
+    expect(placed).toEqual({ cha: 2, wis: 1 })
+    expect(flexibleSlotAbilities(placed, MIXED)).toEqual(['cha', 'wis'])
   })
 })

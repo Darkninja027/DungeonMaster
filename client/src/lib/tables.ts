@@ -5,7 +5,9 @@
  * One place answers "what races exist right now", because the alternative is
  * every call site merging for itself and disagreeing about precedence.
  *
- * **Precedence is world > global > SRD**, matched case-insensitively on name.
+ * **Precedence is world > global > published > SRD**, matched case-insensitively
+ * on name. "Published" is the built-in tier that is not SRD 5.1 — see
+ * `lib/feats/` and `lib/races/`.
  * A world can deliberately shadow a global entry, and a global entry can shadow
  * an SRD one — that is the point, it is how you fix a built-in you disagree
  * with. Nothing is ever dropped from a character sheet by shadowing: the sheet
@@ -15,6 +17,7 @@
 
 import type { ClassInfo } from './classes'
 import { PUBLISHED_FEATS } from './feats'
+import { PUBLISHED_RACES } from './races'
 import type { Homebrew } from './homebrew'
 import { EMPTY_HOMEBREW } from './homebrew'
 import { SRD_BACKGROUNDS, SRD_CLASS_KITS, SRD_FEATS, SRD_RACES } from './srd'
@@ -28,6 +31,11 @@ import type {
 } from './srd'
 
 export interface Tables {
+  /**
+   * The race list. Two tiers of built-in: the SRD nine, plus `lib/races/`,
+   * which sits outside `lib/srd/` for races that are not SRD 5.1 content and
+   * is currently empty. On top of those sit the user's and the world's own.
+   */
   races: Array<RaceInfo>
   backgrounds: Array<BackgroundInfo>
   /**
@@ -37,10 +45,10 @@ export interface Tables {
    */
   kits: Array<ClassKit>
   /**
-   * Feats. The one table whose *SRD* layer is empty by design — SRD 5.1 has no
-   * feat list — so the built-ins come from `lib/feats/` instead, which sits
-   * outside `lib/srd/` precisely because they are not SRD content. On top of
-   * those sit whatever the user and the world have authored.
+   * Feats. The table whose *SRD* layer is empty by design — SRD 5.1 has no feat
+   * list — so the built-ins come from `lib/feats/` instead, which sits outside
+   * `lib/srd/` precisely because they are not SRD content. On top of those sit
+   * whatever the user and the world have authored.
    */
   feats: Array<FeatInfo>
 }
@@ -66,12 +74,17 @@ export interface WorldTables {
  * list every "is this a built-in?" check in the settings UI reads.
  *
  * The name is now slightly narrower than the contents: feats come from
- * `lib/feats/`, which is deliberately *not* SRD 5.1. It stays `SRD_TABLES`
- * because "the built-in tier" is what every call site means by it, and renaming
- * would churn six components to no benefit.
+ * `lib/feats/` and some races from `lib/races/`, both deliberately *not* SRD
+ * 5.1. It stays `SRD_TABLES` because "the built-in tier" is what every call
+ * site means by it, and renaming would churn six components to no benefit.
+ *
+ * The published tiers have to be here as well as in `mergeTables`: this is the
+ * list every "is this a built-in?" check in the settings UI reads, so updating
+ * only the merge leaves the Homebrew tab offering to create something the app
+ * already ships.
  */
 export const SRD_TABLES: Tables = {
-  races: SRD_RACES,
+  races: [...SRD_RACES, ...PUBLISHED_RACES],
   backgrounds: SRD_BACKGROUNDS,
   kits: SRD_CLASS_KITS,
   feats: [...SRD_FEATS, ...PUBLISHED_FEATS],
@@ -237,7 +250,7 @@ export function mergeTables(
   world: WorldTables = {},
 ): Tables {
   return {
-    races: layer(SRD_RACES, global.races, world.races ?? []),
+    races: layer(SRD_RACES, PUBLISHED_RACES, global.races, world.races ?? []),
     backgrounds: layer(
       SRD_BACKGROUNDS,
       global.backgrounds,

@@ -32,6 +32,7 @@ export { SRD_RACES } from './races'
 export { SRD_BACKGROUNDS } from './backgrounds'
 export { SRD_CLASS_KITS } from './classKits'
 export { SRD_FEATS } from './feats'
+export { describeFlexibleAsi, describeMode } from './flexibleAsi'
 export {
   ALL_LANGUAGES,
   ARMOR_AC,

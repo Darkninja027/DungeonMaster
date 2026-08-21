@@ -183,14 +183,47 @@ describe('parseRace', () => {
     expect(plain!.subraces![0].hpPerLevel).toBeUndefined()
   })
 
-  it('reads flexible increases and the feat flag', () => {
+  it('reads the legacy flexible-increase shape, and the feat flag', () => {
+    // `{ count, amount }` is what every file written before modes existed
+    // carries, and a world file is never rewritten just because it was opened —
+    // so this input has to keep parsing forever. Two +1s is exactly what it
+    // always meant.
     const race = parseRace({
       name: 'Adaptable',
       flexibleAsi: { count: 2, amount: 1 },
       grantsFeat: true,
     })
-    expect(race!.flexibleAsi).toEqual({ count: 2, amount: 1 })
+    expect(race!.flexibleAsi).toEqual([{ increases: [1, 1] }])
     expect(race!.grantsFeat).toBe(true)
+  })
+
+  it('reads modes, so a race can offer a choice of shapes', () => {
+    const race = parseRace({
+      name: 'Boulderkin',
+      flexibleAsi: [
+        { label: '+2 and +1', increases: [2, 1] },
+        { increases: [1, 1, 1] },
+      ],
+    })
+    expect(race!.flexibleAsi).toEqual([
+      { label: '+2 and +1', increases: [2, 1] },
+      { increases: [1, 1, 1] },
+    ])
+  })
+
+  it('drops flexible increases it cannot make sense of', () => {
+    const of = (flexibleAsi: unknown) =>
+      parseRace({ name: 'X', flexibleAsi })!.flexibleAsi
+    expect(of([])).toBeUndefined()
+    expect(of([{ increases: [] }])).toBeUndefined()
+    expect(of([{ increases: ['two'] }])).toBeUndefined()
+    expect(of('yes')).toBeUndefined()
+    // Clamped like every other number here: 1-10 per slot, and no more slots
+    // than there are abilities to put them in.
+    expect(of([{ increases: [99] }])).toEqual([{ increases: [10] }])
+    expect(of([{ increases: [1, 1, 1, 1, 1, 1, 1, 1] }])).toEqual([
+      { increases: [1, 1, 1, 1, 1, 1] },
+    ])
   })
 
   it('namespaces pick ids by owner so they cannot collide', () => {
@@ -327,6 +360,42 @@ describe('parseFeat', () => {
     })
     expect(feat?.grant.picks?.[0].kind).toBe('skillOrTool')
     expect(feat?.grant.picks?.[1].kind).toBe('expertise')
+  })
+
+  it('parses granted spells, defaulting a bare string to 1st level', () => {
+    // The shorthand exists because most homebrew means "a 1st-level spell", and
+    // writing `{ name, level }` for every one is a wall.
+    const feat = parseFeat({
+      name: 'Hexer',
+      grant: {
+        spells: ['Bane', { name: 'Misty Step', level: 2 }, { name: 'Light' }],
+      },
+    })
+    expect(feat?.grant.spells).toEqual([
+      { name: 'Bane', level: 1 },
+      { name: 'Misty Step', level: 2 },
+      { name: 'Light', level: 1 },
+    ])
+  })
+
+  it('drops a blank granted spell but keeps a name at two levels', () => {
+    // Same name at two levels is legitimate — Magic Initiate's cantrip and
+    // spell can share one — so dedup is on name *and* level.
+    const feat = parseFeat({
+      name: 'Hexer',
+      grant: {
+        spells: [
+          '  ',
+          { name: 'Guidance', level: 0 },
+          { name: 'Guidance', level: 1 },
+          { name: 'Guidance', level: 1 },
+        ],
+      },
+    })
+    expect(feat?.grant.spells).toEqual([
+      { name: 'Guidance', level: 0 },
+      { name: 'Guidance', level: 1 },
+    ])
   })
 
   it('derives the id from the name', () => {
@@ -577,6 +646,41 @@ describe('round trip', () => {
   it('an emptied list stays empty through a round trip', () => {
     const emptied = { ...homebrew, races: [] }
     expect(parseHomebrew(serializeHomebrew(emptied)).races).toEqual([])
+  })
+
+  it('writes a uniform single mode in the shape an older build can read', () => {
+    // A build predating modes reads an array as its defaults — two +1s — and is
+    // quietly wrong rather than broken. So anything the old shape can still say
+    // is written that way, exactly as `serializeSubclass` does.
+    const simple = parseHomebrew({
+      races: [{ name: 'Adaptable', flexibleAsi: [{ increases: [1, 1] }] }],
+    })
+    const raw = serializeHomebrew(simple) as {
+      races: Array<{ flexibleAsi: unknown }>
+    }
+    expect(raw.races[0].flexibleAsi).toEqual({ count: 2, amount: 1 })
+    expect(parseHomebrew(raw).races[0].flexibleAsi).toEqual([
+      { increases: [1, 1] },
+    ])
+  })
+
+  it('writes modes as modes once the old shape cannot say them', () => {
+    const modal = parseHomebrew({
+      races: [
+        {
+          name: 'Boulderkin',
+          flexibleAsi: [{ increases: [2, 1] }, { increases: [1, 1, 1] }],
+        },
+      ],
+    })
+    const raw = serializeHomebrew(modal) as {
+      races: Array<{ flexibleAsi: unknown }>
+    }
+    expect(raw.races[0].flexibleAsi).toEqual([
+      { increases: [2, 1] },
+      { increases: [1, 1, 1] },
+    ])
+    expect(parseHomebrew(raw)).toEqual(modal)
   })
 })
 

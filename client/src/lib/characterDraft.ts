@@ -29,6 +29,7 @@ import type {
   BackgroundInfo,
   ClassKit,
   FeatInfo,
+  FlexibleAsiMode,
   Grant,
   PickList,
   RaceInfo,
@@ -82,8 +83,24 @@ export interface CharacterDraft {
   cantrips: Array<string>
   spells: Array<string>
 
-  /** Variant Human and Half-Elf: flexible +1s, keyed by ability. */
+  /**
+   * Player-chosen racial increases, keyed by ability — Variant Human's and
+   * Half-Elf's two +1s, a Goliath's +2 and +1.
+   *
+   * A per-ability *amount* rather than a set of chosen abilities, which is what
+   * lets a mode with mixed sizes work without `racialAsi` changing at all.
+   */
   flexibleAsi: Partial<Record<Ability, number>>
+  /**
+   * Which of the race's `flexibleAsi` modes the player is taking, as an index.
+   *
+   * Only meaningful for a race offering more than one — a Goliath's "+2 and +1"
+   * versus "three +1s". It cannot be inferred from the placements above: an
+   * empty draft matches the start of every mode, so the wizard would not know
+   * whether to render two slots or three. 0 for a single-mode race, which is
+   * also the right default for a race the tables don't know.
+   */
+  flexibleAsiMode: number
   /** Variant Human only. */
   featName: string
 
@@ -124,6 +141,7 @@ export function emptyDraft(
     cantrips: [],
     spells: [],
     flexibleAsi: {},
+    flexibleAsiMode: 0,
     featName: '',
     personality: { trait: '', ideal: '', bond: '', flaw: '' },
     backstory: '',
@@ -233,6 +251,19 @@ export function draftPickLists(draft: CharacterDraft): Array<PickList> {
   return draftOwnedPickLists(draft).map((o) => o.pick)
 }
 
+/**
+ * What kind of thing owns a pick, so the UI can say "Skilled feat" rather than
+ * a bare "Skilled" that reads like it could be anything.
+ *
+ * Subrace collapses into `'race'`: "Hill Dwarf race" is what a player would
+ * call it, and the distinction buys nothing they'd recognise. `'equipment'` is
+ * the odd one — its owner is an option *label* ("a martial weapon and a
+ * shield") rather than the name of a thing with a kind, so a caller wanting
+ * prose should print that owner bare.
+ */
+export type PickOwnerKind =
+  'race' | 'background' | 'feat' | 'class' | 'equipment'
+
 /** A pick list beside the name of whatever handed it out. */
 export interface OwnedPickList {
   pick: PickList
@@ -247,6 +278,13 @@ export interface OwnedPickList {
    * some other pick's generic label back at the player.
    */
   owner: string
+  /**
+   * Which of the five kinds `owner` is. The name alone can't be classified
+   * after the fact — "Skilled" is a feat and "Soldier" is a background, and
+   * nothing about either string says so — but every call site below knows,
+   * so it is recorded here rather than guessed at later.
+   */
+  ownerKind: PickOwnerKind
 }
 
 /**
@@ -260,28 +298,99 @@ export function draftOwnedPickLists(
   draft: CharacterDraft,
 ): Array<OwnedPickList> {
   const out: Array<OwnedPickList> = []
-  const add = (grant: Grant | undefined, owner: string) => {
-    for (const pick of grant?.picks ?? []) out.push({ pick, owner })
+  const add = (
+    grant: Grant | undefined,
+    owner: string,
+    ownerKind: PickOwnerKind,
+  ) => {
+    for (const pick of grant?.picks ?? []) out.push({ pick, owner, ownerKind })
   }
   const race = draftRace(draft)
-  if (race) add(race.grant, race.name)
+  if (race) add(race.grant, race.name, 'race')
   const subrace = draftSubrace(draft)
-  if (subrace) add(subrace.grant, subrace.name)
+  if (subrace) add(subrace.grant, subrace.name, 'race')
   const background = draftBackground(draft)
-  if (background) add(background.grant, background.name)
+  if (background) add(background.grant, background.name, 'background')
   const feat = draftFeat(draft)
-  if (feat) add(feat.grant, feat.name)
+  if (feat) add(feat.grant, feat.name, 'feat')
   const kit = draftKit(draft)
   if (kit) {
-    add(kit.grant, kit.name)
+    add(kit.grant, kit.name, 'class')
     for (const choice of kit.equipment) {
       const index = draft.equipment[choice.id] as number | undefined
       const option = index === undefined ? undefined : choice.options[index]
-      if (option) add(option.grant, option.label)
+      if (option) add(option.grant, option.label, 'equipment')
     }
-    out.push({ pick: kit.skillChoices, owner: kit.name })
+    out.push({ pick: kit.skillChoices, owner: kit.name, ownerKind: 'class' })
   }
-  return out
+  // Expertise picks last, whatever handed them out. An expertise pick's answer
+  // is drawn from proficiencies the player may only just have chosen — the
+  // rogue's are the four from `skillChoices`, which is pushed above its own
+  // `grant.picks` — so leaving it in source order asks which skills to double
+  // before asking which skills you have. Ordering is a property of the *kind*,
+  // not the owner: Skill Expert's expertise belongs under its own skill pick
+  // for exactly the same reason, and currently manages it only by authoring
+  // accident.
+  //
+  // A stable partition, so everything else keeps the fixed race / subrace /
+  // background / feat / class order `draftGrants` mirrors. That mirror is about
+  // sources and their order, and grants have no expertise dimension, so sorting
+  // picks by kind can't put the two out of step about what a draft grants.
+  return [
+    ...out.filter((o) => o.pick.kind !== 'expertise'),
+    ...out.filter((o) => o.pick.kind === 'expertise'),
+  ]
+}
+
+/**
+ * Skill ids chosen in pick lists, as opposed to granted outright.
+ *
+ * Only the skill-ish kinds: a tool or language sharing a name with a skill is
+ * not the same proficiency. Expertise is excluded on purpose — taking expertise
+ * in a skill does not spend the proficiency in it, so an expertise pick neither
+ * greys a skill out elsewhere nor makes the character proficient.
+ */
+function pickedSkills(
+  draft: CharacterDraft,
+  /** A pick to leave out — its own choices are the chips being toggled. */
+  exceptPickId: string | undefined,
+  each: (skillId: string, owner: string) => void,
+): void {
+  for (const { pick, owner } of draftOwnedPickLists(draft)) {
+    if (pick.id === exceptPickId) continue
+    if (pick.kind !== 'skill' && pick.kind !== 'skillOrTool') continue
+    for (const value of picked(draft, pick.id)) {
+      const id = skillIdFor(value)
+      // The owner, not `pick.label` — "Skilled" says where the skill went,
+      // where "Skill proficiency" is just another pick's prompt.
+      if (id !== undefined) each(id, owner)
+    }
+  }
+}
+
+/**
+ * The skills an expertise pick can actually double: every proficiency the
+ * character holds, granted outright or chosen in another pick.
+ *
+ * "Two of *your* skill proficiencies" is a fact about the draft, not about the
+ * Rogue, so the narrowing happens here rather than in the table. `pick.options`
+ * stays authored data — srd.test.ts validates it, and rewriting it in place
+ * would make the table a lie the test still passes on — and this intersects
+ * with it rather than replacing it, so a pick meaning to offer a subset still
+ * does.
+ *
+ * Returns fewer than `pick.count` entries when the skills haven't been chosen
+ * yet, which is why expertise picks sort last: the Skills step renders the
+ * shortfall as a hint rather than an empty box, and filling the skill picks
+ * above resolves it.
+ */
+export function eligibleExpertise(
+  draft: CharacterDraft,
+  pick: PickList,
+): Array<string> {
+  const owned = new Set(grantedSkills(draft).keys())
+  pickedSkills(draft, undefined, (id) => owned.add(id))
+  return pick.options.filter((id) => owned.has(id))
 }
 
 /** The values chosen for one pick list. */
@@ -331,21 +440,7 @@ export function grantedSkills(
   const kit = draftKit(draft)
   if (kit) add(kit.grant.skills, kit.name)
   if (exceptPickId === undefined) return out
-  for (const { pick, owner } of draftOwnedPickLists(draft)) {
-    if (pick.id === exceptPickId) continue
-    // Only the skill-ish kinds: a tool or language sharing a name with a skill
-    // is not the same proficiency. Expertise is excluded on purpose — taking
-    // expertise in a skill does not spend the proficiency in it.
-    if (pick.kind !== 'skill' && pick.kind !== 'skillOrTool') continue
-    add(
-      picked(draft, pick.id)
-        .map((v) => skillIdFor(v))
-        .filter((id): id is string => id !== undefined),
-      // The owner, not `pick.label` — "Skilled" says where the skill went,
-      // where "Skill proficiency" is just another pick's prompt.
-      owner,
-    )
-  }
+  pickedSkills(draft, exceptPickId, (id, owner) => add([id], owner))
   return out
 }
 
@@ -371,21 +466,128 @@ export function racialAsi(
 }
 
 /**
- * How many flexible +1s this race offers, and how big each is. Variant Human
- * and Half-Elf both take two +1s; everyone else takes none.
+ * The shapes of player-chosen increase this race offers, or undefined for a
+ * race that fixes its own. Variant Human and Half-Elf offer one; a race in the
+ * Goliath mould offers two, and the player picks between them.
+ *
+ * An empty list reads as "none": a race whose only mode was dropped as garbage
+ * must not leave the player gated on a choice with nothing to choose.
  */
 export function flexibleAsiSpec(
   draft: CharacterDraft,
-): { count: number; amount: number } | undefined {
-  return draftRace(draft)?.flexibleAsi
+): Array<FlexibleAsiMode> | undefined {
+  const modes = draftRace(draft)?.flexibleAsi
+  return modes && modes.length > 0 ? modes : undefined
 }
 
-/** Whether the flexible +1s have all been placed. */
+/**
+ * The mode the player is taking.
+ *
+ * Clamped rather than trusted. The index is just a number on a draft, and a
+ * race swapped underneath it — or a homebrew edit that removed a mode — must
+ * not leave the wizard reading past the end of the list.
+ */
+export function chosenFlexibleMode(
+  draft: CharacterDraft,
+): FlexibleAsiMode | undefined {
+  const modes = flexibleAsiSpec(draft)
+  if (!modes) return undefined
+  return modes[draft.flexibleAsiMode] ?? modes[0]
+}
+
+/**
+ * Whether the chosen mode's slots are all filled.
+ *
+ * Compares the multiset of amounts, not their total: "+2 and +1" and "three
+ * +1s" both add to 3, so a sum alone would pass a Goliath who put every point
+ * in one ability. Sorting both sides is enough — a mode's slots are
+ * interchangeable, and which ability sits in which is not a fact worth keeping.
+ */
 export function flexibleAsiComplete(draft: CharacterDraft): boolean {
-  const spec = flexibleAsiSpec(draft)
-  if (!spec) return true
-  const placed = Object.values(draft.flexibleAsi).reduce((sum, v) => sum + v, 0)
-  return placed === spec.count * spec.amount
+  const mode = chosenFlexibleMode(draft)
+  if (!mode) return true
+  const placed = Object.values(draft.flexibleAsi).sort((a, b) => a - b)
+  const wanted = [...mode.increases].sort((a, b) => a - b)
+  return (
+    placed.length === wanted.length && placed.every((n, i) => n === wanted[i])
+  )
+}
+
+/**
+ * The placed increases, re-shaped to a different mode's slots.
+ *
+ * Switching from "+2 and +1" to "three +1s" cannot keep the +2, and clearing
+ * the lot would throw away the abilities the player actually chose — the
+ * amounts were the mode's to dictate, not theirs. So the abilities are kept in
+ * the order they were placed and resized to the new slots, and anything past
+ * the last slot is dropped.
+ *
+ * The same trade `setKind` makes in the level-up wizard's AsiStep when the
+ * point budget shrinks. Insertion order is load-bearing here — it is what
+ * "the order they were placed" means — which is usually a smell and is
+ * deliberate in this one spot.
+ */
+export function refitFlexibleAsi(
+  placed: Partial<Record<Ability, number>>,
+  mode: FlexibleAsiMode,
+): Partial<Record<Ability, number>> {
+  const out: Partial<Record<Ability, number>> = {}
+  const abilities = Object.keys(placed) as Array<Ability>
+  // Abilities past the last slot are dropped, which is the whole point: a
+  // three-+1s spread refitted to "+2 and +1" has one ability too many.
+  for (const [i, amount] of mode.increases.entries()) {
+    if (i >= abilities.length) break
+    out[abilities[i]] = amount
+  }
+  return out
+}
+
+/**
+ * Which ability sits in each of the mode's slots, by slot index.
+ *
+ * The draft stores placements by ability, which cannot tell two same-sized
+ * slots apart — so the slot view is derived: walk the slots in order and hand
+ * each the next unclaimed ability holding that amount. That is enough, because
+ * same-sized slots are interchangeable by definition; the only thing this has
+ * to get right is that one ability never fills two slots.
+ */
+export function flexibleSlotAbilities(
+  placed: Partial<Record<Ability, number>>,
+  mode: FlexibleAsiMode,
+): Array<Ability | undefined> {
+  const taken = new Set<Ability>()
+  return mode.increases.map((amount) => {
+    const match = (Object.keys(placed) as Array<Ability>).find(
+      (ability) => !taken.has(ability) && placed[ability] === amount,
+    )
+    if (match) taken.add(match)
+    return match
+  })
+}
+
+/**
+ * Put `ability` in one slot, taking it out of any other it held.
+ *
+ * Passing undefined clears the slot. An ability can only be raised once, so
+ * assigning one that is already placed elsewhere *moves* it rather than
+ * duplicating it — which is what makes the dropdowns behave when you change
+ * your mind.
+ */
+export function assignFlexibleSlot(
+  placed: Partial<Record<Ability, number>>,
+  mode: FlexibleAsiMode,
+  slot: number,
+  ability: Ability | undefined,
+): Partial<Record<Ability, number>> {
+  const current = flexibleSlotAbilities(placed, mode)
+  const next: Partial<Record<Ability, number>> = {}
+  current.forEach((held, i) => {
+    const who = i === slot ? ability : held === ability ? undefined : held
+    if (who === undefined) return
+    const amount = mode.increases[i]
+    next[who] = amount
+  })
+  return next
 }
 
 // --- Step gating ------------------------------------------------------------

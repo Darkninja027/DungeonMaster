@@ -1,5 +1,5 @@
-import { Dices, Minus, Plus } from 'lucide-react'
-import { ABILITIES, ABILITY_NAMES, abilityMod } from '#/lib/character'
+import { Dices } from 'lucide-react'
+import { abilityMod } from '#/lib/character'
 import type { Ability, Character } from '#/lib/character'
 import type { AsiChoice, LevelUpDraft } from '#/lib/levelUp'
 import {
@@ -16,6 +16,7 @@ import {
   slotsAtLevel,
 } from '#/lib/levelUp'
 import { findFeat } from '#/lib/tables'
+import { AbilityStepperRow } from '../AbilityStepperRow'
 import { Button } from '#/components/ui/button'
 import { Input } from '#/components/ui/input'
 import { Combobox } from '#/components/ui/combobox'
@@ -378,55 +379,22 @@ export function AsiStep({
             </div>
 
             {choice.kind !== 'feat' && (
-              <div className="flex flex-wrap gap-2">
-                {ABILITIES.map((ability) => {
+              <AbilityStepperRow
+                state={(ability) => {
                   const points = choice.abilities[ability] ?? 0
                   const score = character.abilities[ability]
                   // 20 is the RAW cap an ASI can raise a score to.
                   const capped = score + points >= 20
-                  return (
-                    <div
-                      key={ability}
-                      className={cn(
-                        'flex items-center gap-1 rounded-md border px-1.5 py-1',
-                        points > 0 && 'border-primary bg-accent',
-                      )}
-                    >
-                      <span
-                        className="text-xs font-medium uppercase"
-                        title={ABILITY_NAMES[ability]}
-                      >
-                        {ability}
-                      </span>
-                      <span className="text-muted-foreground text-xs tabular-nums">
-                        {score}
-                      </span>
-                      <button
-                        type="button"
-                        aria-label={`Lower ${ABILITY_NAMES[ability]}`}
-                        disabled={points === 0}
-                        onClick={() => step(ability, -1)}
-                        className="hover:bg-accent flex size-5 items-center justify-center rounded border disabled:opacity-30"
-                      >
-                        <Minus className="size-3" />
-                      </button>
-                      <span className="w-5 text-center text-xs tabular-nums">
-                        {points > 0 ? `+${points}` : '—'}
-                      </span>
-                      <button
-                        type="button"
-                        aria-label={`Raise ${ABILITY_NAMES[ability]}`}
-                        disabled={placed >= asiPointsFor(choice.kind) || capped}
-                        title={capped ? 'Already at 20' : undefined}
-                        onClick={() => step(ability, 1)}
-                        className="hover:bg-accent flex size-5 items-center justify-center rounded border disabled:opacity-30"
-                      >
-                        <Plus className="size-3" />
-                      </button>
-                    </div>
-                  )
-                })}
-              </div>
+                  return {
+                    value: points,
+                    before: score,
+                    canRaise: placed < asiPointsFor(choice.kind) && !capped,
+                    canLower: points > 0,
+                    title: capped ? 'Already at 20' : undefined,
+                  }
+                }}
+                onStep={step}
+              />
             )}
 
             {choice.kind !== 'abilities' && (

@@ -448,6 +448,10 @@ function addTo(into: Array<string>, from: Array<string> | undefined) {
  *   lands on the sheet by name for the player to fill in by hand.
  * - `traits` — those go to `Character.traits`, which the sheet labels "Racial".
  *   A feat's rules text belongs with the feat, and the feat is already there.
+ *
+ * `spells` *is* applied, unlike those two: a fixed spell needs no UI to resolve
+ * — Fey Touched's misty step is known from the feat alone — and appending a
+ * spell row is exactly the kind of additive change this function exists for.
  */
 function applyFeatGrants(c: Character, grants: Array<Grant>): Character {
   let next = c
@@ -474,6 +478,20 @@ function applyFeatGrants(c: Character, grants: Array<Grant>): Character {
       // Only feats not already on the sheet reach this, which is what stops a
       // re-take stacking the bonus.
       initiativeBonus: next.initiativeBonus + (grant.initiativeBonus ?? 0),
+      // Appended, never replacing a row the player already has: matched on name
+      // *and* level so a caster who knows Misty Step keeps their own copy — and
+      // whatever they'd set on it — rather than getting a second, blanker one.
+      spells: [
+        ...next.spells,
+        ...(grant.spells ?? [])
+          .filter(
+            (g) =>
+              !next.spells.some(
+                (s) => s.name === g.name && s.level === g.level,
+              ),
+          )
+          .map((g) => ({ name: g.name, level: g.level })),
+      ],
     }
   }
   return next

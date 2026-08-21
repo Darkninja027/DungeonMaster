@@ -4,16 +4,21 @@ import { ABILITIES, ABILITY_NAMES } from '#/lib/character'
 import type { Ability } from '#/lib/character'
 import type { CharacterDraft } from '#/lib/characterDraft'
 import {
+  assignFlexibleSlot,
+  chosenFlexibleMode,
   draftFeat,
   draftRace,
   draftSubrace,
+  flexibleAsiComplete,
   flexibleAsiSpec,
+  flexibleSlotAbilities,
   picked,
+  refitFlexibleAsi,
 } from '#/lib/characterDraft'
 import type { FeatInfo, RaceInfo, SubraceInfo } from '#/lib/srd'
+import { describeFlexibleAsi, describeMode } from '#/lib/srd'
 import { Combobox } from '#/components/ui/combobox'
 import { Label } from '#/components/ui/label'
-import { cn } from '#/lib/utils'
 import { OptionCard } from '../OptionCard'
 import { HomebrewDialog } from '../HomebrewDialog'
 import { PickListGroup } from '../PickListGroup'
@@ -36,6 +41,19 @@ function asiLabel(asi: Partial<Record<Ability, number>>): string {
     .join(', ')
 }
 
+/**
+ * The whole increase for a race card, fixed part and chosen part.
+ *
+ * A Variant Human's card was blank here for as long as this only read `asi` —
+ * tolerable for one race, but a race whose entire increase is the choice would
+ * have had a card that looked broken.
+ */
+function raceAsiLabel(race: RaceInfo): string {
+  return [asiLabel(race.asi), describeFlexibleAsi(race.flexibleAsi)]
+    .filter((part) => part !== '')
+    .join(', ')
+}
+
 export function RaceStep({
   draft,
   onChange,
@@ -46,7 +64,8 @@ export function RaceStep({
   const race = draftRace(draft)
   const feat = draftFeat(draft)
   const subrace = draftSubrace(draft)
-  const flexible = flexibleAsiSpec(draft)
+  const modes = flexibleAsiSpec(draft)
+  const mode = chosenFlexibleMode(draft)
   const [creating, setCreating] = useState(false)
   const [creatingFeat, setCreatingFeat] = useState(false)
 
@@ -85,6 +104,7 @@ export function RaceStep({
       raceName: created.name,
       subraceName: '',
       flexibleAsi: {},
+      flexibleAsiMode: 0,
     })
   }
 
@@ -103,6 +123,7 @@ export function RaceStep({
       subraceName: '',
       picks,
       flexibleAsi: {},
+      flexibleAsiMode: 0,
     })
   }
 
@@ -114,19 +135,29 @@ export function RaceStep({
     onChange({ ...draft, subraceName: next.name, picks })
   }
 
-  const setFlexible = (ability: Ability, on: boolean) => {
-    const next = { ...draft.flexibleAsi }
-    if (on) next[ability] = flexible?.amount ?? 1
-    else delete next[ability]
-    onChange({ ...draft, flexibleAsi: next })
+  /** Switching mode keeps the abilities chosen and resizes them; see `refitFlexibleAsi`. */
+  const chooseMode = (index: number) => {
+    const next = modes?.[index]
+    if (!next) return
+    onChange({
+      ...draft,
+      flexibleAsiMode: index,
+      flexibleAsi: refitFlexibleAsi(draft.flexibleAsi, next),
+    })
   }
 
   const traits = [
     ...(race?.grant.traits ?? []),
     ...(subrace?.grant.traits ?? []),
   ]
-  const flexiblePlaced = Object.keys(draft.flexibleAsi).length
-  const flexibleFull = flexible ? flexiblePlaced >= flexible.count : false
+  const slotAbilities = mode
+    ? flexibleSlotAbilities(draft.flexibleAsi, mode)
+    : []
+  const flexiblePlaced = slotAbilities.filter((a) => a !== undefined).length
+  // One authority for "is this done" — `flexibleAsiComplete`. This used to
+  // count keys while that summed values, which agreed only while every slot was
+  // the same size and stopped agreeing the moment a mode mixed them.
+  const flexibleFull = flexibleAsiComplete(draft)
 
   return (
     <div className="space-y-4">
@@ -138,7 +169,7 @@ export function RaceStep({
               key={option.id}
               title={option.name}
               description={option.summary}
-              detail={asiLabel(option.asi) || undefined}
+              detail={raceAsiLabel(option) || undefined}
               selected={draft.raceName === option.name}
               onSelect={() => chooseRace(option)}
             />
@@ -187,11 +218,13 @@ export function RaceStep({
         </div>
       )}
 
-      {flexible && (
+      {mode && (
         <div className="space-y-1.5">
           <div className="flex items-baseline justify-between">
             <span className="text-sm font-medium">
-              Choose {flexible.count} abilities to raise by {flexible.amount}
+              {modes && modes.length > 1
+                ? 'Ability score increase'
+                : describeMode(mode)}
             </span>
             <span
               className={
@@ -200,35 +233,76 @@ export function RaceStep({
                   : 'text-xs font-medium text-amber-600 dark:text-amber-500'
               }
             >
-              {flexiblePlaced} / {flexible.count}
+              {flexiblePlaced} / {mode.increases.length}
             </span>
           </div>
-          <div className="flex flex-wrap gap-1.5">
-            {ABILITIES.map((ability) => {
-              const on = draft.flexibleAsi[ability] !== undefined
-              // Half-Elf's two +1s can't go into the Charisma its race already
-              // raised; Variant Human has no such restriction.
-              const blocked = (race?.asi[ability] ?? 0) > 0
+
+          {/* Only a race offering a real choice gets a selector; for the one-mode
+              races this is absent and the control below reads as it always did. */}
+          {modes && modes.length > 1 && (
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              {modes.map((option, index) => (
+                <OptionCard
+                  key={option.label ?? index}
+                  title={describeMode(option)}
+                  description={`Raise ${option.increases.length} abilities.`}
+                  selected={draft.flexibleAsiMode === index}
+                  onSelect={() => chooseMode(index)}
+                />
+              ))}
+            </div>
+          )}
+
+          {/* Literal slots, one row each. The alternative — chips that quietly
+              take the largest increase going — hides the actual choice inside
+              click order, which is unguessable the first time you meet it. */}
+          <div className="space-y-1.5">
+            {slotAbilities.map((held, slot) => {
+              const amount = mode.increases[slot]
               return (
-                <button
-                  key={ability}
-                  type="button"
-                  role="checkbox"
-                  aria-checked={on}
-                  disabled={blocked || (flexibleFull && !on)}
-                  title={blocked ? 'Already raised by your race' : undefined}
-                  onClick={() => setFlexible(ability, !on)}
-                  className={cn(
-                    'rounded-full border px-2.5 py-1 text-xs transition-colors',
-                    on
-                      ? 'border-primary bg-primary text-primary-foreground'
-                      : 'hover:bg-accent',
-                    (blocked || (flexibleFull && !on)) &&
-                      'cursor-not-allowed opacity-50 hover:bg-transparent',
-                  )}
-                >
-                  {ABILITY_NAMES[ability]}
-                </button>
+                <div key={slot} className="flex items-center gap-2 text-sm">
+                  <span className="w-8 font-medium tabular-nums">
+                    +{amount}
+                  </span>
+                  <span className="text-muted-foreground text-xs">to</span>
+                  <select
+                    value={held ?? ''}
+                    aria-label={`Ability to raise by ${amount}`}
+                    className="border-input bg-background h-8 min-w-40 rounded-md border px-2 text-sm"
+                    onChange={(e) =>
+                      onChange({
+                        ...draft,
+                        flexibleAsi: assignFlexibleSlot(
+                          draft.flexibleAsi,
+                          mode,
+                          slot,
+                          e.target.value
+                            ? (e.target.value as Ability)
+                            : undefined,
+                        ),
+                      })
+                    }
+                  >
+                    <option value="">Choose an ability…</option>
+                    {ABILITIES.map((ability) => {
+                      // Half-Elf's +1s can't go into the Charisma its race
+                      // already raised. An ability held by *another* slot stays
+                      // listed: picking it moves it, which is more forgiving
+                      // than making the player clear the old slot first.
+                      const blocked = (race?.asi[ability] ?? 0) > 0
+                      return (
+                        <option
+                          key={ability}
+                          value={ability}
+                          disabled={blocked}
+                        >
+                          {ABILITY_NAMES[ability]}
+                          {blocked ? ' — already raised by your race' : ''}
+                        </option>
+                      )
+                    })}
+                  </select>
+                </div>
               )
             })}
           </div>

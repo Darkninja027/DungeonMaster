@@ -89,6 +89,20 @@ export interface Grant {
    * homebrew grant to carry.
    */
   initiativeBonus?: number
+  /**
+   * Spells granted outright, no choice involved — Fey Touched's misty step,
+   * Shadow Touched's invisibility, Fey Teleportation's misty step.
+   *
+   * Distinct from a `kind: 'spell'` pick, which is the *other* half of those
+   * same feats: the pick is "one 1st-level divination spell of your choice" and
+   * this is the fixed one that comes with it. Without this field a feat could
+   * only express the half the player chooses, so the fixed spell was named in
+   * the summary and never reached the sheet.
+   *
+   * These are cast once per long rest without a slot, so they land unprepared
+   * and cost nothing against `preparedLimit` — see `applyGrantSpells`.
+   */
+  spells?: Array<GrantSpell>
   /** Named entries that land in `Character.traits`. */
   traits?: Array<GrantTrait>
   /** Inventory rows. */
@@ -102,6 +116,14 @@ export interface Grant {
    * unrelated choices.
    */
   picks?: Array<PickList>
+}
+
+/** One spell a grant hands over outright. */
+export interface GrantSpell {
+  /** Plain text or a `[[wiki link]]`, matching `Character.Spell.name`. */
+  name: string
+  /** 0 for a cantrip, 1-9 for a levelled spell. */
+  level: number
 }
 
 export interface GrantTrait {
@@ -191,6 +213,23 @@ export interface PickList {
 /** Racial ability score increases, e.g. `{ con: 2 }` for a Dwarf. */
 export type AbilityScoreIncrease = Partial<Record<Ability, number>>
 
+/**
+ * One shape a player-chosen ability increase can take.
+ *
+ * `increases` is one entry per ability the player picks, giving that ability's
+ * bonus: `[1, 1]` is "two abilities, +1 each"; `[2, 1]` is "+2 to one and +1 to
+ * another"; `[1, 1, 1]` is "+1 to each of three". Order is display order only —
+ * which ability sits in which slot is not a fact worth keeping.
+ */
+export interface FlexibleAsiMode {
+  /**
+   * Shown on the mode card when a race offers a choice. Derived from
+   * `increases` when absent, so a single-mode race need not name itself.
+   */
+  label?: string
+  increases: Array<number>
+}
+
 export interface RaceInfo {
   /** Lookup/React key only. Never written to disk. */
   id: string
@@ -209,10 +248,21 @@ export interface RaceInfo {
    */
   subraces?: Array<SubraceInfo>
   /**
-   * Variant Human only: two +1s to different abilities, plus a feat. Modelled
-   * as a flag rather than a general mechanism because it is the sole SRD case.
+   * Increases the player chooses rather than the race fixing.
+   *
+   * One mode is a fixed spread (Variant Human and Half-Elf both take two +1s);
+   * two or more means the player picks which shape to take, as a Goliath picks
+   * between "+2 and +1" and "three +1s".
+   *
+   * This was `{ count, amount }` — N increases all the same size — and its
+   * comment called it a flag rather than a mechanism because Variant Human was
+   * the sole case. A second, differently-shaped case arrived, so it is a
+   * mechanism now, but a deliberately small one: a list of amounts, and nothing
+   * that computes. `{ count, amount }` could not express "+2 and +1" for any
+   * single amount, which is why the shape changed rather than gaining a sibling
+   * field. The legacy shape is still read from disk; see `parseRace`.
    */
-  flexibleAsi?: { count: number; amount: number }
+  flexibleAsi?: Array<FlexibleAsiMode>
   /** Variant Human only: the player also takes a feat at level 1. */
   grantsFeat?: boolean
 }
@@ -225,7 +275,14 @@ export interface SubraceInfo {
    */
   name: string
   summary: string
-  /** Stacks on top of the parent race's `asi`. */
+  /**
+   * Stacks on top of the parent race's `asi`.
+   *
+   * There is deliberately no `flexibleAsi` here. The draft holds one record of
+   * placed increases, so a subrace offering its own spread would fight the
+   * parent's over the same keys — that needs placements keyed by owner, which
+   * is a mechanism rather than a field, and nothing needs it.
+   */
   asi: AbilityScoreIncrease
   /** Overrides the parent's speed when set (Wood Elf's 35). */
   speed?: number

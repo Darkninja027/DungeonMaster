@@ -560,6 +560,9 @@ export const PUBLISHED_FEATS: Array<FeatInfo> = [
       'Misty step and one 1st-level divination or enchantment spell, each free once per long rest. +1 Intelligence, Wisdom or Charisma.',
     asi: { wis: 1 },
     grant: {
+      // Misty step comes with the feat; the pick below is the half the player
+      // chooses. Both are cast free once per long rest.
+      spells: [{ name: 'Misty Step', level: 2 }],
       picks: [
         {
           id: 'fey-touched-spell',
@@ -609,6 +612,8 @@ export const PUBLISHED_FEATS: Array<FeatInfo> = [
       'Invisibility and one 1st-level illusion or necromancy spell, each free once per long rest. +1 Intelligence, Wisdom or Charisma.',
     asi: { cha: 1 },
     grant: {
+      // Invisibility comes with the feat; the pick below is the chosen half.
+      spells: [{ name: 'Invisibility', level: 2 }],
       picks: [
         {
           id: 'shadow-touched-spell',
@@ -841,7 +846,22 @@ export const PUBLISHED_FEATS: Array<FeatInfo> = [
       'Learn Sylvan, cast misty step once per long rest, and gain a cantrip. +1 Intelligence or Charisma.',
     prerequisite: 'Elf (high)',
     asi: { cha: 1 },
-    grant: { languages: ['Sylvan'] },
+    grant: {
+      languages: ['Sylvan'],
+      spells: [{ name: 'Misty Step', level: 2 }],
+      picks: [
+        {
+          // The wizard cantrip the feat also grants, which the summary promised
+          // and the grant never delivered.
+          id: 'fey-teleportation-cantrip',
+          kind: 'cantrip',
+          label: 'One wizard cantrip',
+          count: 1,
+          options: [],
+          open: true,
+        },
+      ],
+    },
   },
   {
     id: 'flames-of-phlegethos',

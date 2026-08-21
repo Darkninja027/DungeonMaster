@@ -48,7 +48,7 @@ adding a route file: `npm run generate-routes`.
 
 The React renderer **never touches disk**. It calls
 `window.dmApi.invoke(channel, args)`, exposed by `client/electron/preload/index.ts`
-via a **channel allowlist**. Adding a new IPC channel means adding it in *both*
+via a **channel allowlist**. Adding a new IPC channel means adding it in _both_
 the preload allowlist and `ipc.ts`, or the call is rejected.
 
 ### Data layer = Electron main (`client/electron/main/`)
@@ -89,10 +89,24 @@ here is silent: a mistyped skill just vanishes when the sheet parses it back.
 `lib/srd/` carries **per-level progression** — features by level, spell slot
 tables, ASI levels — and there is a line. What a class gains as it levels is in,
 because the level-up wizard needs it. Multiclassing, encumbrance rules and
-anything computed *during play* stay out, and nothing here is ever enforced: the
+anything computed _during play_ stay out, and nothing here is ever enforced: the
 wizard offers what the table says and the player takes it or ignores it.
 
-**Feats** are the one place that line moved, and only halfway. `FeatInfo` lives
+A class's level-1 **feature that is really a choice** becomes a `PickList` only
+when the sheet has a field for its answer. Rogue Expertise qualifies —
+`Character.expertise` exists and `skillBonus` doubles it — so it is a real
+`kind: 'expertise'` pick on the kit's grant. Fighter's Fighting Style and
+Ranger's Favored Enemy / Natural Explorer do not, and stay feature text: as
+`kind: 'other'` picks `applyPicks` would record the click and then discard it,
+which is worse than prose that at least promises nothing. An expertise pick's
+authored `options` are the _class's ceiling_, narrowed at render to the
+character's own proficiencies by `eligibleExpertise` — the table stays authored
+data `srd.test.ts` can validate, and "two of _your_ skill proficiencies" is a
+fact about the draft, not about the Rogue. A choice that stops being eligible is
+shown as a removable chip rather than pruned, because deleting a player's work
+on an unrelated edit is what this codebase doesn't do.
+
+**Feats** are where that line first moved, and only halfway. `FeatInfo` lives
 here but `SRD_FEATS` is deliberately **empty** and stays that way — SRD 5.1 has
 no feat list. The ~85 built-in feats live in **`lib/feats/publishedFeats.ts`**,
 outside `lib/srd/` on purpose: PHB, Xanathar's, Tasha's, Fizban's and Bigby's
@@ -115,12 +129,37 @@ keyspace as every race and background.
 A feat is built on `Grant`, the same bundle races and backgrounds use, so taking
 one grants its skills and proficiencies through `applyGrant` rather than any new
 mechanism; a half-feat's `+1` rides `racialAsi` at creation and `mergedAsi` at
-level-up. `asi` is a fixed record, so a feat offering a *choice* of ability
+level-up. `asi` is a fixed record, so a feat offering a _choice_ of ability
 (Resilient, Skill Expert) picks the usual one and says "of your choice" in its
-summary — the sheet is hand-editable, and adding a `flexibleAsi` mechanism for it
-was considered and rejected. `prerequisite` is free text that is **shown and
-never checked**. So feat *definitions* and their grants are in; feat *rules text
-and enforcement* remain out, exactly as the paragraph above still requires.
+summary — the sheet is hand-editable, and giving `FeatInfo` a chooseable `asi`
+was considered and rejected. (Races since gained one, below; feats did not, and
+the reasoning there is unchanged — a feat's bump is one point, not a spread.) `prerequisite` is free text that is **shown and
+never checked**. So feat _definitions_ and their grants are in; feat _rules text
+and enforcement_ remain out, exactly as the paragraph above still requires.
+
+That split is now a **pattern rather than an exception**:
+`lib/races/publishedRaces.ts` exists for the same attribution reason and layers
+the same way, though it currently ships **nothing** — the tier is wiring, so a
+race from a published book has somewhere to go that is not `lib/srd/`. Two
+differences from feats if you ever fill it: this tier sits on top of a
+*non-empty* SRD one, so `SRD_RACES.length` is not the built-in race count, and a
+published race must never collide by name with one of the SRD nine or `layer`
+would silently hide it. `srd.test.ts` asserts both.
+
+**A race's ability increase can be the player's**, and `flexibleAsi` is the one
+field here that graduated from flag to mechanism. It was `{ count, amount }` — N
+increases all the same size — with a comment conceding it was a flag because
+Variant Human was the only case. A Goliath-style race offers "+2 and +1" *or*
+"three +1s", which that shape cannot say at any single `amount`, so it became a
+list of modes, each a list of increase amounts. It is still not a rules engine:
+nothing is enforced, `racialAsi` just sums whatever the player placed, and the
+draft already stored a per-ability amount so the commit path did not move at
+all. Two things it deliberately cannot express — a per-slot restriction ("+2 to
+Str or Con") and a flexible spread on a *subrace*, which would need placements
+keyed by owner. `parseRace` still reads the legacy `{ count, amount }` off disk
+and `serializeHomebrew` writes it back whenever a spec is still sayable that
+way, so an older build reading a newer file gets the right answer rather than a
+plausible wrong one.
 
 `lib/levelUp.ts` is the level-up wizard's pure layer, and its invariant is the
 thing to preserve: **`applyLevelUp` only appends to arrays and raises numbers.**
@@ -205,4 +244,4 @@ shadcn/ui — add components with `pnpm dlx shadcn@latest add <name>`, they land
 - `client/README.md` is **stale TanStack Start boilerplate** (Nitro servers, server functions, API routes) — none of it applies. Ignore it.
 - `server/` (an empty `Data/` dir) and `scripts/migrate-sqlite.mjs` are **dead remnants** of a removed .NET/SQLite server, kept only for one-time migration. They are not part of the running app.
 - Deletes go to the OS Recycle Bin via `shell.trashItem`, not `fs.rm`.
-- "Reveal in File Explorer" is two channels, not one: `shell:reveal` for articles/folders/the world root, and `images:reveal` for images (`revealImage` in `images.ts`, ids relative to `_images/`). Both go through a path guard. `shell:reveal` takes a **world-relative `relPath`** and resolves it inline in `ipc.ts` via `resolveInWorld` — the *caller* appends `.md` for an article, passes a bare folder id for a folder, and passes nothing at all for the world root. That keeps `worldStore.ts` Electron-free so it stays testable without mocks; `images.ts` already imports `shell`, so its reveal sits there. Renderer side, always go through `revealer(worldId)` and the `REVEAL_LABEL` constant in `client/src/lib/reveal.ts` rather than calling the channel directly, so every reveal affordance reads and behaves the same.
+- "Reveal in File Explorer" is two channels, not one: `shell:reveal` for articles/folders/the world root, and `images:reveal` for images (`revealImage` in `images.ts`, ids relative to `_images/`). Both go through a path guard. `shell:reveal` takes a **world-relative `relPath`** and resolves it inline in `ipc.ts` via `resolveInWorld` — the _caller_ appends `.md` for an article, passes a bare folder id for a folder, and passes nothing at all for the world root. That keeps `worldStore.ts` Electron-free so it stays testable without mocks; `images.ts` already imports `shell`, so its reveal sits there. Renderer side, always go through `revealer(worldId)` and the `REVEAL_LABEL` constant in `client/src/lib/reveal.ts` rather than calling the channel directly, so every reveal affordance reads and behaves the same.

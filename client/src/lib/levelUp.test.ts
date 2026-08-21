@@ -775,6 +775,39 @@ describe('the "+1 and a feat" house rule', () => {
     ).toBe(false)
   })
 
+  it('adds a feat’s fixed spell to the sheet', () => {
+    // Unlike `picks` and `traits`, a granted spell needs no UI to resolve — it
+    // is known from the feat — so it applies at level-up as well as creation.
+    const c = characterAt(3, 'Fighter')
+    const after = applyLevelUp(
+      c,
+      draftFor(c, 4, {
+        feats: SRD_TABLES.feats,
+        asi: { 4: { kind: 'feat', abilities: {}, featName: 'Fey Touched' } },
+      }),
+    )
+    expect(after.spells).toContainEqual({ name: 'Misty Step', level: 2 })
+  })
+
+  it('does not replace a spell the character already has', () => {
+    // Append-only: a caster who already knows Misty Step keeps their own row,
+    // with whatever they set on it, rather than getting a second blanker one.
+    const base = characterAt(3, 'Fighter')
+    const c = {
+      ...base,
+      spells: [{ name: 'Misty Step', level: 2, prepared: true }],
+    }
+    const after = applyLevelUp(
+      c,
+      draftFor(c, 4, {
+        feats: SRD_TABLES.feats,
+        asi: { 4: { kind: 'feat', abilities: {}, featName: 'Fey Touched' } },
+      }),
+    )
+    expect(after.spells.filter((s) => s.name === 'Misty Step')).toHaveLength(1)
+    expect(after.spells[0].prepared).toBe(true)
+  })
+
   it('applies the ability point and the feat together', () => {
     const c = characterAt(3, 'Fighter')
     const after = applyLevelUp(

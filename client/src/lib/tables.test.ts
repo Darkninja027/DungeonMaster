@@ -18,6 +18,7 @@ import {
 } from './tables'
 import { PUBLISHED_FEATS } from './feats'
 import { SRD_BACKGROUNDS, SRD_CLASS_KITS, SRD_FEATS, SRD_RACES } from './srd'
+import { PUBLISHED_RACES } from './races'
 
 describe('feats', () => {
   it('has no SRD built-ins — SRD 5.1 has no feat list', () => {
@@ -74,11 +75,17 @@ describe('feats', () => {
   })
 })
 
+/**
+ * Both built-in race tiers. `SRD_RACES` alone stopped being the built-in count
+ * when `lib/races/` arrived, the same way `SRD_FEATS` never was.
+ */
+const BUILT_IN_RACES = [...SRD_RACES, ...PUBLISHED_RACES]
+
 describe('mergeTables', () => {
   it('with no homebrew returns exactly the SRD tables', () => {
     const tables = mergeTables()
     expect(tables.races.map((r) => r.name)).toEqual(
-      SRD_RACES.map((r) => r.name),
+      BUILT_IN_RACES.map((r) => r.name),
     )
     expect(tables.backgrounds.map((b) => b.name)).toEqual(
       SRD_BACKGROUNDS.map((b) => b.name),
@@ -97,7 +104,7 @@ describe('mergeTables', () => {
       races: [{ name: 'Thri-kreen', asi: { dex: 2 } }],
     })
     const tables = mergeTables(parsed)
-    expect(tables.races).toHaveLength(SRD_RACES.length + 1)
+    expect(tables.races).toHaveLength(BUILT_IN_RACES.length + 1)
     expect(tables.races.at(-1)?.name).toBe('Thri-kreen')
   })
 
@@ -111,7 +118,7 @@ describe('mergeTables', () => {
     expect(dwarf?.asi).toEqual({ con: 3 })
     // Shadowing replaces, never duplicates.
     expect(tables.races.filter((r) => r.name === 'Dwarf')).toHaveLength(1)
-    expect(tables.races).toHaveLength(SRD_RACES.length)
+    expect(tables.races).toHaveLength(BUILT_IN_RACES.length)
   })
 
   it('a world entry beats a global one', () => {
@@ -124,14 +131,29 @@ describe('mergeTables', () => {
   it('matches names case-insensitively when shadowing', () => {
     const parsed = parseHomebrew({ races: [{ name: 'dWaRf', speed: 40 }] })
     const tables = mergeTables(parsed)
-    expect(tables.races).toHaveLength(SRD_RACES.length)
+    expect(tables.races).toHaveLength(BUILT_IN_RACES.length)
     expect(findRace(tables.races, 'Dwarf')?.speed).toBe(40)
+  })
+
+  it('layers the published race tier, empty though it currently is', () => {
+    // The tier ships nothing today; this guards the wiring, so adding a race to
+    // `lib/races/` shows up in both the merge and the built-in list rather than
+    // only one of them.
+    expect(mergeTables().races.map((r) => r.name)).toEqual(
+      BUILT_IN_RACES.map((r) => r.name),
+    )
+    expect(SRD_TABLES.races.map((r) => r.name)).toEqual(
+      BUILT_IN_RACES.map((r) => r.name),
+    )
+    for (const race of PUBLISHED_RACES) {
+      expect(findRace(mergeTables().races, race.name)).toBeDefined()
+    }
   })
 
   it('keeps an overridden entry in its original position', () => {
     // A Dwarf that jumps to the end of the grid the moment you tweak it is
     // disorienting; overriding should feel like editing, not re-adding.
-    const before = SRD_RACES.findIndex((r) => r.name === 'Dwarf')
+    const before = BUILT_IN_RACES.findIndex((r) => r.name === 'Dwarf')
     const parsed = parseHomebrew({ races: [{ name: 'Dwarf', speed: 40 }] })
     const tables = mergeTables(parsed)
     expect(tables.races.findIndex((r) => r.name === 'Dwarf')).toBe(before)
@@ -370,7 +392,7 @@ describe('mergeTables', () => {
         { id: '', name: '  ', summary: '', asi: {}, speed: 30, grant: {} },
       ],
     })
-    expect(tables.races).toHaveLength(SRD_RACES.length)
+    expect(tables.races).toHaveLength(BUILT_IN_RACES.length)
   })
 })
 

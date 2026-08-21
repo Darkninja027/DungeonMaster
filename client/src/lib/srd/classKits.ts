@@ -51,8 +51,16 @@ export const SRD_CLASS_KITS: Array<ClassKit> = [
     hitDie: 12,
     subclassLabel: 'Primal Path',
     subclasses: [
-      { id: 'path-of-the-berserker', name: 'Path of the Berserker', features: [] },
-      { id: 'path-of-the-totem-warrior', name: 'Path of the Totem Warrior', features: [] },
+      {
+        id: 'path-of-the-berserker',
+        name: 'Path of the Berserker',
+        features: [],
+      },
+      {
+        id: 'path-of-the-totem-warrior',
+        name: 'Path of the Totem Warrior',
+        features: [],
+      },
     ],
     saves: ['str', 'con'],
     unarmoredDefense: 'con',
@@ -920,9 +928,17 @@ export const SRD_CLASS_KITS: Array<ClassKit> = [
     hitDie: 8,
     subclassLabel: 'Monastic Tradition',
     subclasses: [
-      { id: 'way-of-the-open-hand', name: 'Way of the Open Hand', features: [] },
+      {
+        id: 'way-of-the-open-hand',
+        name: 'Way of the Open Hand',
+        features: [],
+      },
       { id: 'way-of-shadow', name: 'Way of Shadow', features: [] },
-      { id: 'way-of-the-four-elements', name: 'Way of the Four Elements', features: [] },
+      {
+        id: 'way-of-the-four-elements',
+        name: 'Way of the Four Elements',
+        features: [],
+      },
     ],
     saves: ['str', 'dex'],
     unarmoredDefense: 'wis',
@@ -1105,7 +1121,11 @@ export const SRD_CLASS_KITS: Array<ClassKit> = [
     subclassLabel: 'Sacred Oath',
     subclasses: [
       { id: 'oath-of-devotion', name: 'Oath of Devotion', features: [] },
-      { id: 'oath-of-the-ancients', name: 'Oath of the Ancients', features: [] },
+      {
+        id: 'oath-of-the-ancients',
+        name: 'Oath of the Ancients',
+        features: [],
+      },
       { id: 'oath-of-vengeance', name: 'Oath of Vengeance', features: [] },
     ],
     saves: ['wis', 'cha'],
@@ -1477,6 +1497,46 @@ export const SRD_CLASS_KITS: Array<ClassKit> = [
         { text: 'Leather armor', weight: 10 },
         { text: 'Dagger', qty: 2, weight: 1 },
         { text: 'Thieves’ tools', weight: 1 },
+      ],
+      picks: [
+        {
+          /**
+           * The eleven mirror `skillChoices.options` on purpose: they are the
+           * *ceiling* on what this class could ever double, and the wizard
+           * narrows them to the skills the character actually has via
+           * `eligibleExpertise`. Authored rather than derived because
+           * `PickList.options` is table data srd.test.ts validates — a pick
+           * whose options were computed would be a table the test still passes
+           * on while the UI shows something else.
+           *
+           * Skills only. The SRD also offers "one skill and thieves' tools",
+           * but `Character.expertise` is filtered to skill ids on write
+           * (`buildCharacter`) and on read (the parser), and the sheet renders
+           * expertise as a marker on a skill row — a tool would round-trip
+           * through the frontmatter and then render nowhere. A second
+           * tool-expertise list plus a sheet row for it is a rules engine's
+           * worth of machinery for one sentence; the feature text below still
+           * says the option exists, and `Thieves' tools` is already granted
+           * above, so a player who wants it writes it in.
+           */
+          id: 'rogue-expertise',
+          kind: 'expertise',
+          label: 'Expertise in two of your skill proficiencies',
+          count: 2,
+          options: [
+            'acrobatics',
+            'athletics',
+            'deception',
+            'insight',
+            'intimidation',
+            'investigation',
+            'perception',
+            'performance',
+            'persuasion',
+            'sleight-of-hand',
+            'stealth',
+          ],
+        },
       ],
     },
     equipment: [
@@ -1913,14 +1973,38 @@ export const SRD_CLASS_KITS: Array<ClassKit> = [
     hitDie: 6,
     subclassLabel: 'Arcane Tradition',
     subclasses: [
-      { id: 'school-of-abjuration', name: 'School of Abjuration', features: [] },
-      { id: 'school-of-conjuration', name: 'School of Conjuration', features: [] },
-      { id: 'school-of-divination', name: 'School of Divination', features: [] },
-      { id: 'school-of-enchantment', name: 'School of Enchantment', features: [] },
+      {
+        id: 'school-of-abjuration',
+        name: 'School of Abjuration',
+        features: [],
+      },
+      {
+        id: 'school-of-conjuration',
+        name: 'School of Conjuration',
+        features: [],
+      },
+      {
+        id: 'school-of-divination',
+        name: 'School of Divination',
+        features: [],
+      },
+      {
+        id: 'school-of-enchantment',
+        name: 'School of Enchantment',
+        features: [],
+      },
       { id: 'school-of-evocation', name: 'School of Evocation', features: [] },
       { id: 'school-of-illusion', name: 'School of Illusion', features: [] },
-      { id: 'school-of-necromancy', name: 'School of Necromancy', features: [] },
-      { id: 'school-of-transmutation', name: 'School of Transmutation', features: [] },
+      {
+        id: 'school-of-necromancy',
+        name: 'School of Necromancy',
+        features: [],
+      },
+      {
+        id: 'school-of-transmutation',
+        name: 'School of Transmutation',
+        features: [],
+      },
     ],
     saves: ['int', 'wis'],
     // A wizard picks their school at 2, not 3. `subclassAtLevel1` had no way to

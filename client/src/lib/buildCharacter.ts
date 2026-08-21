@@ -132,6 +132,30 @@ function applyGrant(c: Character, grant: Grant) {
     const key = coin as keyof Character['currency']
     c.currency[key] += amount
   }
+  applyGrantSpells(c, grant)
+}
+
+/**
+ * Spells a grant hands over outright — Fey Touched's misty step and friends.
+ *
+ * Never `prepared` and never `alwaysPrepared`: these are cast once per long rest
+ * without spending a slot, so counting them against `preparedLimit` would charge
+ * a caster for something free, and `alwaysPrepared` would imply a domain-spell
+ * relationship they don't have. A non-caster who takes the feat gets the spell
+ * with no slots at all, which is exactly how the feat works.
+ *
+ * Shared with the level-up path, which needs the same rule.
+ */
+export function applyGrantSpells(c: Character, grant: Grant): void {
+  for (const spell of grant.spells ?? []) {
+    // Name *and* level, so a caster who already knows Misty Step as a 2nd-level
+    // spell isn't handed a duplicate row, while a same-named cantrip survives.
+    if (
+      !c.spells.some((s) => s.name === spell.name && s.level === spell.level)
+    ) {
+      c.spells.push({ name: spell.name, level: spell.level })
+    }
+  }
 }
 
 /**
@@ -215,9 +239,27 @@ function applyPicks(c: Character, draft: CharacterDraft) {
           }
         }
         break
+      case 'spell':
+        // Level 1, and never `prepared`. Every spell pick in the tables is a
+        // 1st-level one (Fey Touched, Shadow Touched, Magic Initiate, Ritual
+        // Caster, Artificer Initiate), and all of them are cast without
+        // spending a slot — once per long rest, or from a ritual book. Marking
+        // them prepared would spend a caster's preparation limit on a spell
+        // that never needed it, and a rogue who took Fey Touched has no limit
+        // to spend at all.
+        //
+        // Matched on name *and* level, unlike the cantrip case above: a caster
+        // can legitimately know the cantrip and the 1st-level spell of the same
+        // name, and Magic Initiate hands out one of each.
+        for (const name of values) {
+          if (!c.spells.some((s) => s.name === name && s.level === 1)) {
+            c.spells.push({ name, level: 1 })
+          }
+        }
+        break
       default:
-        // 'other' and 'spell' carry no single home on the sheet; they surface
-        // in the body and on the traits the option belongs to.
+        // 'other' carries no single home on the sheet; it surfaces in the body
+        // and on the traits the option belongs to.
         break
     }
   }

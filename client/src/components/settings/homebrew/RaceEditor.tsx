@@ -1,13 +1,12 @@
 import { Minus, Plus, X } from 'lucide-react'
-import { ABILITIES, ABILITY_NAMES } from '#/lib/character'
 import type { Ability } from '#/lib/character'
-import type { RaceInfo, SubraceInfo } from '#/lib/srd'
+import type { FlexibleAsiMode, RaceInfo, SubraceInfo } from '#/lib/srd'
 import { homebrewId } from '#/lib/homebrew'
 import { SRD_TABLES, nameKey } from '#/lib/tables'
 import { Input } from '#/components/ui/input'
 import { Textarea } from '#/components/ui/textarea'
 import { Button } from '#/components/ui/button'
-import { cn } from '#/lib/utils'
+import { AbilityStepperRow } from '#/components/character/AbilityStepperRow'
 import { Field, GrantEditor } from './GrantEditor'
 
 export function blankRace(): RaceInfo {
@@ -39,47 +38,10 @@ export function AsiEditor({
     onChange(next)
   }
   return (
-    <div className="flex flex-wrap gap-2">
-      {ABILITIES.map((ability) => {
-        const value = asi[ability] ?? 0
-        return (
-          <div
-            key={ability}
-            className={cn(
-              'flex items-center gap-1 rounded-md border px-1.5 py-1',
-              value > 0 && 'border-primary bg-accent',
-            )}
-          >
-            <span
-              className="text-xs font-medium uppercase"
-              title={ABILITY_NAMES[ability]}
-            >
-              {ability}
-            </span>
-            <button
-              type="button"
-              aria-label={`Lower ${ABILITY_NAMES[ability]}`}
-              disabled={value === 0}
-              onClick={() => step(ability, -1)}
-              className="hover:bg-accent flex size-5 items-center justify-center rounded border disabled:opacity-30"
-            >
-              <Minus className="size-3" />
-            </button>
-            <span className="w-5 text-center text-xs tabular-nums">
-              {value > 0 ? `+${value}` : '—'}
-            </span>
-            <button
-              type="button"
-              aria-label={`Raise ${ABILITY_NAMES[ability]}`}
-              onClick={() => step(ability, 1)}
-              className="hover:bg-accent flex size-5 items-center justify-center rounded border"
-            >
-              <Plus className="size-3" />
-            </button>
-          </div>
-        )
-      })}
-    </div>
+    <AbilityStepperRow
+      state={(ability) => ({ value: asi[ability] ?? 0 })}
+      onStep={step}
+    />
   )
 }
 
@@ -168,7 +130,7 @@ export function RaceEditor({
                 onChange={(e) =>
                   patch({
                     flexibleAsi: e.target.checked
-                      ? { count: 2, amount: 1 }
+                      ? [{ increases: [1, 1] }]
                       : undefined,
                   })
                 }
@@ -192,37 +154,126 @@ export function RaceEditor({
 
       {race.flexibleAsi && (
         <Field label="Player-chosen increases">
-          <div className="flex items-center gap-2 text-xs">
-            <span className="text-muted-foreground">Choose</span>
-            <Input
-              value={String(race.flexibleAsi.count)}
-              inputMode="numeric"
-              className="h-7 w-12 text-center"
-              onChange={(e) => {
-                const n = Number(e.target.value)
+          <div className="space-y-2">
+            {race.flexibleAsi.map((mode, index) => {
+              const modes = race.flexibleAsi ?? []
+              const patchMode = (next: FlexibleAsiMode) =>
                 patch({
-                  flexibleAsi: {
-                    ...race.flexibleAsi!,
-                    count: Number.isFinite(n) && n > 0 ? Math.round(n) : 1,
-                  },
+                  flexibleAsi: modes.map((m, i) => (i === index ? next : m)),
                 })
-              }}
-            />
-            <span className="text-muted-foreground">abilities to raise by</span>
-            <Input
-              value={String(race.flexibleAsi.amount)}
-              inputMode="numeric"
-              className="h-7 w-12 text-center"
-              onChange={(e) => {
-                const n = Number(e.target.value)
-                patch({
-                  flexibleAsi: {
-                    ...race.flexibleAsi!,
-                    amount: Number.isFinite(n) && n > 0 ? Math.round(n) : 1,
-                  },
-                })
-              }}
-            />
+              return (
+                <div
+                  key={index}
+                  className="flex flex-wrap items-center gap-2 text-xs"
+                >
+                  <Input
+                    value={mode.label ?? ''}
+                    placeholder="Name (optional)"
+                    className="h-7 w-40"
+                    onChange={(e) =>
+                      patchMode({
+                        ...mode,
+                        label: e.target.value.trim()
+                          ? e.target.value
+                          : undefined,
+                      })
+                    }
+                  />
+                  <span className="text-muted-foreground">raise</span>
+                  {mode.increases.map((amount, slot) => (
+                    <Input
+                      key={slot}
+                      value={String(amount)}
+                      inputMode="numeric"
+                      aria-label={`Slot ${slot + 1}`}
+                      className="h-7 w-12 text-center"
+                      onChange={(e) => {
+                        const n = Number(e.target.value)
+                        patchMode({
+                          ...mode,
+                          increases: mode.increases.map((a, i) =>
+                            i === slot
+                              ? Number.isFinite(n) && n > 0
+                                ? Math.round(n)
+                                : 1
+                              : a,
+                          ),
+                        })
+                      }}
+                    />
+                  ))}
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2"
+                    disabled={mode.increases.length >= 6}
+                    onClick={() =>
+                      patchMode({
+                        ...mode,
+                        increases: [...mode.increases, 1],
+                      })
+                    }
+                  >
+                    <Plus className="size-3" />
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2"
+                    disabled={mode.increases.length <= 1}
+                    onClick={() =>
+                      patchMode({
+                        ...mode,
+                        increases: mode.increases.slice(0, -1),
+                      })
+                    }
+                  >
+                    <Minus className="size-3" />
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    aria-label="Remove this mode"
+                    className="h-7 px-2"
+                    onClick={() => {
+                      const rest = modes.filter((_, i) => i !== index)
+                      // An empty list on disk is a lie — `flexibleAsiSpec`
+                      // reads it as "no choice" anyway, so drop the key.
+                      patch({
+                        flexibleAsi: rest.length > 0 ? rest : undefined,
+                      })
+                    }}
+                  >
+                    <X className="size-3" />
+                  </Button>
+                </div>
+              )
+            })}
+            <div className="flex items-center gap-3">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-7"
+                onClick={() =>
+                  patch({
+                    flexibleAsi: [
+                      ...(race.flexibleAsi ?? []),
+                      { increases: [1] },
+                    ],
+                  })
+                }
+              >
+                Add another mode
+              </Button>
+              <p className="text-muted-foreground text-xs">
+                Two or more modes lets the player choose between them &mdash;
+                say +2 and +1, or three +1s.
+              </p>
+            </div>
           </div>
         </Field>
       )}

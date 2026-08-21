@@ -23,8 +23,10 @@ import type {
   BackgroundInfo,
   ClassKit,
   FeatInfo,
+  FlexibleAsiMode,
   Grant,
   GrantItem,
+  GrantSpell,
   GrantTrait,
   PickKind,
   PickList,
@@ -136,6 +138,70 @@ function parseAsi(raw: unknown): Partial<Record<Ability, number>> {
     if (n > 0) out[ability] = Math.min(10, n)
   }
   return out
+}
+
+/**
+ * Player-chosen increases, from either shape on disk.
+ *
+ * **A compatibility boundary**, the same kind as `parseSubclasses`. Every
+ * `homebrew.json` and `worldSettings.json` written before modes existed carries
+ * `{ count, amount }`, and a world file is never rewritten just because it was
+ * opened — so both shapes are read forever and the union dies here.
+ * `{ count: 2, amount: 1 }` is exactly `[{ increases: [1, 1] }]`.
+ *
+ * Tolerant row by row like the rest of this file: a mode whose increases all
+ * drop out is dropped, and a spec left with no modes returns undefined rather
+ * than an empty choice that would gate the player on nothing.
+ */
+function parseFlexibleAsi(raw: unknown): Array<FlexibleAsiMode> | undefined {
+  if (typeof raw !== 'object' || raw === null) return undefined
+
+  if (Array.isArray(raw)) {
+    const modes = raw.flatMap((entry): Array<FlexibleAsiMode> => {
+      if (typeof entry !== 'object' || entry === null) return []
+      const m = entry as Record<string, unknown>
+      if (!Array.isArray(m.increases)) return []
+      const increases = m.increases
+        .filter((n): n is number => typeof n === 'number' && Number.isFinite(n))
+        .map((n) => int(n, 1, 1, 10))
+        // Six abilities is the most there are to raise, so a longer list can
+        // never be satisfied.
+        .slice(0, 6)
+      if (increases.length === 0) return []
+      const label = str(m.label).trim()
+      return [label ? { label, increases } : { increases }]
+    })
+    return modes.length > 0 ? modes : undefined
+  }
+
+  // The legacy `{ count, amount }`, still on every existing user's disk. Same
+  // clamps and defaults the old code had, so an old file parses to the numbers
+  // it always did.
+  const f = raw as Record<string, unknown>
+  const count = int(f.count, 2, 1, 6)
+  const amount = int(f.amount, 1, 1, 10)
+  return [{ increases: Array<number>(count).fill(amount) }]
+}
+
+/**
+ * Back to disk in the shape an older build can still read.
+ *
+ * One unlabelled mode whose increases are all the same size is exactly what
+ * `{ count, amount }` meant, so it is written that way — a file only gains the
+ * array shape once someone authors something the old shape cannot say. Same
+ * reasoning as `serializeSubclass`: a build predating modes reads
+ * `{ count, amount }` correctly, whereas it would read an array as its
+ * defaults — two +1s — and be quietly wrong rather than broken.
+ */
+function serializeFlexibleAsi(modes: Array<FlexibleAsiMode>): unknown {
+  const [only] = modes
+  if (modes.length === 1 && only.label === undefined) {
+    const [amount] = only.increases
+    if (only.increases.every((n) => n === amount)) {
+      return { count: only.increases.length, amount }
+    }
+  }
+  return modes
 }
 
 function parseTraits(raw: unknown): Array<GrantTrait> {
@@ -314,9 +380,34 @@ function parseGrant(raw: unknown, ownerId: string): Grant {
   if (items.length > 0) grant.items = items
   const currency = parseCurrency(r.currency)
   if (currency) grant.currency = currency
+  const spells = parseGrantSpells(r.spells)
+  if (spells.length > 0) grant.spells = spells
   const picks = parsePicks(r.picks, ownerId)
   if (picks.length > 0) grant.picks = picks
   return grant
+}
+
+/**
+ * Spells granted outright. A bare string is a 1st-level spell, which is what
+ * most homebrew means and saves writing `{ name, level }` for the common case;
+ * level 0 is a cantrip, and 9 is the ceiling 5e stops at.
+ */
+function parseGrantSpells(raw: unknown): Array<GrantSpell> {
+  if (!Array.isArray(raw)) return []
+  const seen = new Set<string>()
+  return raw.flatMap((entry): Array<GrantSpell> => {
+    const isText = typeof entry === 'string'
+    if (!isText && (typeof entry !== 'object' || entry === null)) return []
+    const r = isText ? {} : (entry as Record<string, unknown>)
+    const name = (isText ? entry : str(r.name)).trim()
+    if (name === '') return []
+    const level = int(r.level, 1, 0, 9)
+    // Name and level together, so a cantrip and a spell of one name both fit.
+    const key = `${name.toLowerCase()}:${level}`
+    if (seen.has(key)) return []
+    seen.add(key)
+    return [{ name, level }]
+  })
 }
 
 function parseSubrace(raw: unknown): SubraceInfo | null {
@@ -368,13 +459,8 @@ export function parseRace(raw: unknown): RaceInfo | null {
     })
     if (subraces.length > 0) race.subraces = subraces
   }
-  if (typeof r.flexibleAsi === 'object' && r.flexibleAsi !== null) {
-    const f = r.flexibleAsi as Record<string, unknown>
-    race.flexibleAsi = {
-      count: int(f.count, 2, 1, 6),
-      amount: int(f.amount, 1, 1, 10),
-    }
-  }
+  const flexibleAsi = parseFlexibleAsi(r.flexibleAsi)
+  if (flexibleAsi) race.flexibleAsi = flexibleAsi
   if (r.grantsFeat === true) race.grantsFeat = true
   return race
 }
@@ -783,16 +869,19 @@ export function serializeHomebrew(homebrew: Homebrew): unknown {
   return {
     version: homebrew.version,
     _comment: HOMEBREW_COMMENT,
-    races: homebrew.races.map(({ id: _id, subraces, grant, ...race }) => ({
-      ...race,
-      grant: stripPicks(grant),
-      ...(subraces && {
-        subraces: subraces.map(({ id: _subId, grant: subGrant, ...sub }) => ({
-          ...sub,
-          grant: stripPicks(subGrant),
-        })),
+    races: homebrew.races.map(
+      ({ id: _id, subraces, grant, flexibleAsi, ...race }) => ({
+        ...race,
+        ...(flexibleAsi && { flexibleAsi: serializeFlexibleAsi(flexibleAsi) }),
+        grant: stripPicks(grant),
+        ...(subraces && {
+          subraces: subraces.map(({ id: _subId, grant: subGrant, ...sub }) => ({
+            ...sub,
+            grant: stripPicks(subGrant),
+          })),
+        }),
       }),
-    })),
+    ),
     backgrounds: homebrew.backgrounds.map(({ id: _id, grant, ...bg }) => ({
       ...bg,
       grant: stripPicks(grant),

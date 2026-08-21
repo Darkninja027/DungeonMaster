@@ -7,7 +7,7 @@ import {
   ABILITIES,
 } from './character'
 import { WEAPON_STATS, featuresUpToLevel, weaponCategory } from './srd'
-import type { FeatInfo } from './srd'
+import type { FeatInfo, RaceInfo } from './srd'
 import { PHB_CLASSES } from './classes'
 import type { ClassInfo } from './classes'
 import { buildCharacter, computeAc, finalScores } from './buildCharacter'
@@ -395,6 +395,57 @@ describe('feats at creation', () => {
 })
 
 describe('flexible ability increases', () => {
+  it('applies a chosen +2 and +1, with the rest of the race', () => {
+    // A race with no fixed `asi` at all, so the whole increase is the choice —
+    // and mixed sizes reach the sheet without `racialAsi` knowing about modes.
+    // Defined here rather than leaning on a table, so this stays a test of the
+    // mechanism.
+    const twoShapes: RaceInfo = {
+      id: 'two-shapes',
+      name: 'Two Shapes',
+      summary: 'Chooses between +2/+1 and three +1s.',
+      asi: {},
+      speed: 30,
+      flexibleAsi: [{ increases: [2, 1] }, { increases: [1, 1, 1] }],
+      grant: {
+        languages: ['Common', 'Giant'],
+        skills: ['athletics'],
+        resistances: ['cold'],
+        traits: [
+          { name: 'Powerful Build', text: 'Counts as one size larger.' },
+        ],
+      },
+    }
+    const base = emptyDraft(SRD_TABLES)
+    const draft = {
+      ...base,
+      races: [...base.races, twoShapes],
+      name: 'Kavaki',
+      raceName: twoShapes.name,
+      flexibleAsi: { str: 2, con: 1 },
+    }
+    const { character } = buildCharacter(
+      withScores(draft, {
+        str: 15,
+        dex: 12,
+        con: 14,
+        int: 10,
+        wis: 10,
+        cha: 8,
+      }),
+    )
+    expect(character.abilities.str).toBe(17)
+    expect(character.abilities.con).toBe(15)
+    expect(character.abilities.dex).toBe(12)
+    expect(character.speed).toBe(30)
+    expect(character.skills).toContain('athletics')
+    expect(character.resistances).toContain('cold')
+    expect(character.languages).toEqual(
+      expect.arrayContaining(['Common', 'Giant']),
+    )
+    expect(character.traits.map((t) => t.name)).toContain('Powerful Build')
+  })
+
   it('applies Variant Human two +1s', () => {
     let draft = emptyDraft(SRD_TABLES)
     draft = {
@@ -882,5 +933,151 @@ describe('skill and tool picks', () => {
       }),
     )
     expect(character.expertise).not.toContain('Smith’s tools')
+  })
+
+  /** A rogue with its four skills and its two expertise choices. */
+  const rogueWithPicks = (picks: Record<string, Array<string>>) =>
+    withScores(
+      { ...emptyDraft(SRD_TABLES), name: 'Vex', className: 'Rogue', picks },
+      { str: 10, dex: 15, con: 13, int: 12, wis: 12, cha: 8 },
+    )
+
+  it('files a rogue’s expertise pick as expertise, not a plain proficiency', () => {
+    const { character } = buildCharacter(
+      rogueWithPicks({
+        'rogue-skills': ['stealth', 'perception', 'deception', 'insight'],
+        'rogue-expertise': ['stealth', 'perception'],
+      }),
+    )
+    expect(character.expertise).toEqual(
+      expect.arrayContaining(['stealth', 'perception']),
+    )
+    // Still proficient: the four came from `rogue-skills`, and the expertise
+    // pick must not be what granted them — nor may it have moved them out.
+    expect(character.skills).toEqual(
+      expect.arrayContaining(['stealth', 'perception', 'deception', 'insight']),
+    )
+  })
+
+  it('puts a feat’s chosen spell on the sheet as a 1st-level spell', () => {
+    // The bug this pins: `kind: 'spell'` fell through to the `default` arm and
+    // was thrown away, so a Variant Human who took Fey Touched and picked a
+    // spell got a feat that granted nothing. Five feats route through here —
+    // Fey Touched, Shadow Touched, Magic Initiate, Ritual Caster and Artificer
+    // Initiate.
+    const { character } = buildCharacter(
+      withPicks('Fey Touched', { 'fey-touched-spell': ['Bane'] }),
+    )
+    expect(character.spells).toContainEqual({ name: 'Bane', level: 1 })
+  })
+
+  it('gives a non-caster a feat spell, with no slots to cast it from', () => {
+    // A rogue has no `spellcasting` block, so the branch that files the wizard's
+    // own spell choices never runs for them. The feat's spell still has to land:
+    // it is cast once per long rest without a slot, which is exactly why someone
+    // with no slots can take it.
+    const draft = withScores(
+      {
+        ...emptyDraft(SRD_TABLES),
+        name: 'Vex',
+        className: 'Rogue',
+        raceName: 'Variant Human',
+        featName: 'Fey Touched',
+        picks: {
+          'rogue-skills': ['stealth', 'perception', 'deception', 'insight'],
+          'rogue-expertise': ['stealth', 'perception'],
+          'fey-touched-spell': ['Bane'],
+        },
+      },
+      { str: 10, dex: 15, con: 13, int: 12, wis: 12, cha: 8 },
+    )
+    const { character } = buildCharacter(draft)
+    expect(character.spells).toContainEqual({ name: 'Bane', level: 1 })
+    expect(character.spellSlots[1]).toBeUndefined()
+  })
+
+  it('never marks a feat spell prepared', () => {
+    // It costs no slot and no preparation. Marking it prepared would spend a
+    // caster's limit on a spell that never needed it.
+    const { character } = buildCharacter(
+      withPicks('Fey Touched', { 'fey-touched-spell': ['Bane'] }),
+    )
+    expect(character.spells.find((s) => s.name === 'Bane')?.prepared).toBe(
+      undefined,
+    )
+  })
+
+  it('keeps both the cantrip and the spell of the same name', () => {
+    // Magic Initiate hands out two cantrips and a 1st-level spell, and the
+    // overlap is real: a name can be both. The cantrip arm matches on name
+    // alone, so the spell arm has to match on name *and* level or the second
+    // one is silently swallowed.
+    const { character } = buildCharacter(
+      withPicks('Magic Initiate', {
+        'magic-initiate-cantrips': ['Guidance'],
+        'magic-initiate-spell': ['Guidance'],
+      }),
+    )
+    expect(character.spells).toContainEqual({ name: 'Guidance', level: 0 })
+    expect(character.spells).toContainEqual({ name: 'Guidance', level: 1 })
+  })
+
+  it('grants the fixed spell that comes with a feat, not just the chosen one', () => {
+    // The other half of the Fey Touched bug: misty step comes with the feat and
+    // was named only in the summary, so a player got the spell they picked and
+    // silently lost the one they were owed. Shadow Touched (invisibility) and
+    // Fey Teleportation (misty step) had the same gap.
+    const { character } = buildCharacter(
+      withPicks('Fey Touched', { 'fey-touched-spell': ['Bane'] }),
+    )
+    expect(character.spells).toContainEqual({ name: 'Misty Step', level: 2 })
+    expect(character.spells).toContainEqual({ name: 'Bane', level: 1 })
+  })
+
+  it('never marks a granted spell prepared', () => {
+    // Free once per long rest, so it costs no slot and no preparation.
+    const { character } = buildCharacter(
+      withPicks('Shadow Touched', { 'shadow-touched-spell': ['Bane'] }),
+    )
+    const invis = character.spells.find((s) => s.name === 'Invisibility')
+    expect(invis).toEqual({ name: 'Invisibility', level: 2 })
+    expect(invis?.prepared).toBe(undefined)
+    expect(invis?.alwaysPrepared).toBe(undefined)
+  })
+
+  it('gives a non-caster the feat’s fixed spell too', () => {
+    const draft = withScores(
+      {
+        ...emptyDraft(SRD_TABLES),
+        name: 'Vex',
+        className: 'Rogue',
+        raceName: 'Variant Human',
+        featName: 'Fey Touched',
+        picks: {
+          'rogue-skills': ['stealth', 'perception', 'deception', 'insight'],
+          'rogue-expertise': ['stealth', 'perception'],
+          'fey-touched-spell': ['Bane'],
+        },
+      },
+      { str: 10, dex: 15, con: 13, int: 12, wis: 12, cha: 8 },
+    )
+    const { character } = buildCharacter(draft)
+    expect(character.spells).toContainEqual({ name: 'Misty Step', level: 2 })
+  })
+
+  it('keeps a stale expertise choice rather than dropping it', () => {
+    // Swapping a skill out after taking expertise in it leaves a choice the
+    // narrowed list no longer offers. The wizard shows it as a removable chip
+    // instead of pruning the draft, because silently deleting a player's choice
+    // on an unrelated edit is the thing this codebase doesn't do — so a commit
+    // in that state has to keep it.
+    const { character } = buildCharacter(
+      rogueWithPicks({
+        'rogue-skills': ['acrobatics', 'perception', 'deception', 'insight'],
+        'rogue-expertise': ['stealth', 'perception'],
+      }),
+    )
+    expect(character.expertise).toContain('stealth')
+    expect(character.skills).not.toContain('stealth')
   })
 })

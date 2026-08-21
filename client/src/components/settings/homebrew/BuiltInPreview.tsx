@@ -9,7 +9,7 @@ import type {
   RaceInfo,
   SubraceInfo,
 } from '#/lib/srd'
-import { featuresUpToLevel } from '#/lib/srd'
+import { describeFlexibleAsi, featuresUpToLevel } from '#/lib/srd'
 import { Button } from '#/components/ui/button'
 
 /**
@@ -115,10 +115,7 @@ function RacePreview({ race }: { race: RaceInfo }) {
       </Row>
       {race.flexibleAsi && (
         <Row label="Flexible increases">
-          <Plain>
-            +{race.flexibleAsi.amount} to {race.flexibleAsi.count} abilit
-            {race.flexibleAsi.count === 1 ? 'y' : 'ies'} of your choice
-          </Plain>
+          <Plain>{describeFlexibleAsi(race.flexibleAsi)}</Plain>
         </Row>
       )}
       {race.grantsFeat === true && (

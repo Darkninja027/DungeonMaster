@@ -288,7 +288,7 @@ export const SRD_RACES: Array<RaceInfo> = [
     summary: 'Two +1s, a skill and a feat at first level.',
     asi: {},
     speed: 30,
-    flexibleAsi: { count: 2, amount: 1 },
+    flexibleAsi: [{ increases: [1, 1] }],
     grantsFeat: true,
     grant: {
       languages: ['Common'],
@@ -440,8 +440,9 @@ export const SRD_RACES: Array<RaceInfo> = [
     asi: { cha: 2 },
     speed: 30,
     // Two +1s to abilities other than Charisma. Same shape as Variant Human's
-    // flexible pair, so the UI has one control for both.
-    flexibleAsi: { count: 2, amount: 1 },
+    // flexible pair, so the UI has one control for both. One mode, so the
+    // wizard shows the slots directly rather than asking which shape to take.
+    flexibleAsi: [{ increases: [1, 1] }],
     grant: {
       languages: ['Common', 'Elvish'],
       conditionImmunities: ['charmed'],

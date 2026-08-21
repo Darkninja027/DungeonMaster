@@ -9,6 +9,9 @@ import { PHB_CLASSES, findClass } from '../classes'
 // let a collision between the two tiers slip through, which is the exact class
 // of silent bug this file exists to catch.
 import { PUBLISHED_FEATS } from '../feats'
+// Same reasoning for the published races: not SRD content, which is why they
+// live in lib/races/, but subject to every integrity rule below.
+import { PUBLISHED_RACES } from '../races'
 import { SRD_BACKGROUNDS } from './backgrounds'
 import { SRD_CLASS_KITS } from './classKits'
 import { ARMOR_AC, WEAPON_STATS } from './equipment'
@@ -33,10 +36,16 @@ const DAMAGE_IDS = new Set(DAMAGE_TYPES.map((d) => d.id))
 const CONDITION_IDS = new Set(CONDITIONS.map((c) => c.id))
 const ABILITY_IDS = new Set<string>(ABILITIES)
 
+/**
+ * Both built-in race tiers. The published races are checked by exactly the same
+ * walkers as the SRD nine — see the import note above.
+ */
+const ALL_RACES = [...SRD_RACES, ...PUBLISHED_RACES]
+
 /** Every grant in the tables, labelled with where it came from for failures. */
 function allGrants(): Array<{ where: string; grant: Grant }> {
   const out: Array<{ where: string; grant: Grant }> = []
-  for (const race of SRD_RACES) {
+  for (const race of ALL_RACES) {
     out.push({ where: `race ${race.name}`, grant: race.grant })
     for (const sub of race.subraces ?? []) {
       out.push({ where: `subrace ${sub.name}`, grant: sub.grant })
@@ -109,6 +118,24 @@ describe('grant contents reference real ids', () => {
           CONDITION_IDS.has(id),
           `${where}: unknown condition "${id}"`,
         ).toBe(true)
+      }
+    }
+  })
+
+  it('every granted spell has a name and a legal level', () => {
+    // A blank name renders as an empty spell row, and a level outside 0-9 is
+    // either a typo or a slot that doesn't exist — both silent on the sheet.
+    for (const { where, grant } of allGrants()) {
+      for (const spell of grant.spells ?? []) {
+        expect(spell.name.trim(), `${where}: blank granted spell`).not.toBe('')
+        expect(
+          spell.level,
+          `${where}: spell "${spell.name}" level ${spell.level}`,
+        ).toBeGreaterThanOrEqual(0)
+        expect(
+          spell.level,
+          `${where}: spell "${spell.name}" level ${spell.level}`,
+        ).toBeLessThanOrEqual(9)
       }
     }
   })
@@ -206,6 +233,25 @@ describe('pick lists', () => {
       expect(new Set(pick.options).size, `${where} pick ${pick.id}`).toBe(
         pick.options.length,
       )
+    }
+  })
+
+  it('a class kit expertise pick draws from that kit’s own skill list', () => {
+    // A class doubles a proficiency it could actually have, so its authored
+    // options are the *ceiling* the wizard narrows from — the same eleven the
+    // kit offers as skills. A general feat is different: Skill Expert applies to
+    // any character, so all eighteen is right there. Duplicating the eleven is
+    // what makes this check worth having; it catches the two lists drifting.
+    for (const kit of SRD_CLASS_KITS) {
+      for (const pick of kit.grant.picks ?? []) {
+        if (pick.kind !== 'expertise') continue
+        for (const id of pick.options) {
+          expect(
+            kit.skillChoices.options.includes(id),
+            `kit ${kit.name} pick ${pick.id}: "${id}" is not one of its skills`,
+          ).toBe(true)
+        }
+      }
     }
   })
 })
@@ -858,5 +904,67 @@ describe('subclasses', () => {
     // The off-by-one the boolean could not express.
     const wizard = SRD_CLASS_KITS.find((kit) => kit.name === 'Wizard')
     expect(subclassLevelOf(wizard)).toBe(2)
+  })
+})
+
+describe('published races', () => {
+  it('are slugified, uniquely identified and sanely statted', () => {
+    const ids = new Set<string>()
+    for (const race of PUBLISHED_RACES) {
+      expect(race.id, race.name).toBe(
+        race.name
+          .trim()
+          .toLowerCase()
+          .replace(/['’]/g, '')
+          .replace(/[^a-z0-9]+/g, '-'),
+      )
+      expect(ids.has(race.id), `duplicate id ${race.id}`).toBe(false)
+      ids.add(race.id)
+      expect(race.summary.length, race.name).toBeGreaterThan(0)
+      expect(race.speed, race.name).toBeGreaterThanOrEqual(20)
+      expect(race.speed, race.name).toBeLessThanOrEqual(40)
+      for (const [ability, amount] of Object.entries(race.asi)) {
+        expect(ABILITY_IDS.has(ability), `${race.name} ${ability}`).toBe(true)
+        expect(amount, `${race.name} ${ability}`).toBeGreaterThan(0)
+      }
+    }
+  })
+
+  it('do not shadow an SRD race', () => {
+    // `layer` matches on name, so a collision would silently hide one of the
+    // nine rather than adding anything.
+    const srd = new Set(SRD_RACES.map((r) => r.name.toLowerCase()))
+    for (const race of PUBLISHED_RACES) {
+      expect(srd.has(race.name.toLowerCase()), race.name).toBe(false)
+    }
+  })
+})
+
+describe('flexible ability increases', () => {
+  it('offer slots a player can actually fill', () => {
+    for (const race of ALL_RACES) {
+      if (!race.flexibleAsi) continue
+      expect(race.flexibleAsi.length, race.name).toBeGreaterThan(0)
+      for (const mode of race.flexibleAsi) {
+        expect(mode.increases.length, race.name).toBeGreaterThan(0)
+        // Six abilities is the most there are to raise.
+        expect(mode.increases.length, race.name).toBeLessThanOrEqual(6)
+        for (const amount of mode.increases) {
+          expect(amount, race.name).toBeGreaterThan(0)
+          expect(amount, race.name).toBeLessThanOrEqual(10)
+        }
+      }
+    }
+  })
+
+  it('never offer the same shape twice in one race', () => {
+    // Two modes that mean the same thing render as duplicate cards, which reads
+    // as a bug to the player.
+    for (const race of ALL_RACES) {
+      const shapes = (race.flexibleAsi ?? []).map((m) =>
+        [...m.increases].sort((a, b) => a - b).join('/'),
+      )
+      expect(new Set(shapes).size, race.name).toBe(shapes.length)
+    }
   })
 })

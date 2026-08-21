@@ -4,8 +4,13 @@ import { SKILLS } from '#/lib/character'
 import { api } from '#/lib/api'
 import { collectSpells, filterSpells, mergeEntries } from '#/lib/bestiary'
 import { useLibraryEntries } from '#/lib/useGlobalLibrary'
-import type { CharacterDraft } from '#/lib/characterDraft'
-import { draftPickLists, grantedSkills, picked } from '#/lib/characterDraft'
+import type { CharacterDraft, OwnedPickList } from '#/lib/characterDraft'
+import {
+  draftOwnedPickLists,
+  eligibleExpertise,
+  grantedSkills,
+  picked,
+} from '#/lib/characterDraft'
 import type { PickList } from '#/lib/srd'
 import { TOOL_SUGGESTIONS } from '#/lib/srd'
 import { PickListGroup } from '../PickListGroup'
@@ -22,14 +27,20 @@ export function SkillsStep({
   const granted = grantedSkills(draft)
   // Weapon picks belong to the equipment step, where the option that created
   // them lives.
-  const picks = draftPickLists(draft).filter((p) => p.kind !== 'weapon')
+  //
+  // The *owned* list, because a pick's own label can't say where it came from —
+  // "Choose any three skills or tools" is the Skilled feat's wording, and next
+  // to the race's and class's skill picks nothing marks it as the feat's.
+  const picks = draftOwnedPickLists(draft).filter(
+    (o) => o.pick.kind !== 'weapon',
+  )
 
   // Spell and cantrip picks — High Elf's wizard cantrip, Magic Initiate's two —
   // ship no options, because no table here holds a spell list. Their
   // suggestions come from the world's articles and the shared library, the same
   // two sources the spells step uses.
   const wantsSpells = picks.some(
-    (p) => p.kind === 'cantrip' || p.kind === 'spell',
+    (o) => o.pick.kind === 'cantrip' || o.pick.kind === 'spell',
   )
   const tree = useQuery({
     queryKey: ['worlds', worldId, 'tree'],
@@ -97,21 +108,38 @@ export function SkillsStep({
 
       {picks.length === 0 ? (
         <p className="text-muted-foreground text-sm">
-          Nothing to choose here — your race, class and background didn&rsquo;t
-          offer any options. You can add proficiencies on the sheet.
+          Nothing to choose here — your race, class, background and feat
+          didn&rsquo;t offer any options. You can add proficiencies on the
+          sheet.
         </p>
       ) : (
-        picks.map((pick) => (
+        picks.map(({ pick, owner, ownerKind }) => (
           <PickListGroup
             key={pick.id}
             pick={pick}
             chosen={picked(draft, pick.id)}
+            source={sourceLabel(owner, ownerKind)}
+            // Expertise doubles a proficiency, so its real answer set is the
+            // character's own skills rather than the class's authored ceiling.
+            options={
+              pick.kind === 'expertise'
+                ? eligibleExpertise(draft, pick)
+                : undefined
+            }
             alreadyGranted={
               pick.kind === 'skill' || pick.kind === 'skillOrTool'
                 ? grantedSkills(draft, pick.id)
                 : undefined
             }
             suggestions={suggestionsFor(pick)}
+            // Only `skillOrTool` splits its answers across the two controls;
+            // every other kind's combobox is a free-text tail on its own list.
+            suggestionsLabel={pick.kind === 'skillOrTool' ? 'Tools' : undefined}
+            suggestionsPlaceholder={
+              pick.kind === 'skillOrTool'
+                ? `Search ${TOOL_SUGGESTIONS.length} tools, or type your own…`
+                : undefined
+            }
             onChange={(values) =>
               onChange({
                 ...draft,
@@ -123,6 +151,18 @@ export function SkillsStep({
       )}
     </div>
   )
+}
+
+/**
+ * "the Skilled feat", "the Variant Human race" — what to print after "From".
+ *
+ * An equipment option's owner is its own label ("a martial weapon and a
+ * shield"), which is a phrase rather than the name of a thing, so it prints
+ * bare: "From a martial weapon and a shield" reads, where "the ... equipment"
+ * would not.
+ */
+function sourceLabel(owner: string, kind: OwnedPickList['ownerKind']): string {
+  return kind === 'equipment' ? owner : `the ${owner} ${kind}`
 }
 
 /**

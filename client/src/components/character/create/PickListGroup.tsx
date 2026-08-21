@@ -36,12 +36,27 @@ function optionLabel(pick: PickList, value: string): string {
 export function PickListGroup({
   pick,
   chosen,
+  options,
   alreadyGranted,
   suggestions,
+  suggestionsLabel,
+  suggestionsPlaceholder,
+  source,
   onChange,
 }: {
   pick: PickList
   chosen: Array<string>
+  /**
+   * Overrides `pick.options` as the offered chips.
+   *
+   * For an expertise pick, whose authored options are the class's ceiling and
+   * whose real answer set is the character's own proficiencies — see
+   * `eligibleExpertise`. Narrowing here rather than in the table keeps
+   * `pick.options` the authored thing srd.test.ts validates, and it means a
+   * choice that *stops* being offered falls out of `extras` below as a chip the
+   * player can still see and still remove, rather than silently vanishing.
+   */
+  options?: Array<string>
   /** value -> where it came from, for the disabled tooltip. */
   alreadyGranted?: Map<string, string>
   /**
@@ -54,12 +69,43 @@ export function PickListGroup({
    * still accepted.
    */
   suggestions?: Array<string>
+  /**
+   * Names what the combobox holds, turning it into a labelled half of the
+   * choice rather than an afterthought below the chips.
+   *
+   * This exists for `skillOrTool`, whose two halves live in different controls:
+   * the skills are chips and the ~40 tools are suggestions, because every tool
+   * as a chip is a wall rather than a choice. Without a label the tools were
+   * invisible — the group promised "skills or tools" and showed eighteen skills
+   * over an "or type your own" box that reads as an escape hatch for homebrew.
+   * Given, the chips get a heading too, so neither half looks like the primary
+   * one.
+   */
+  suggestionsLabel?: string
+  /** Overrides the combobox placeholder, to say what's behind it. */
+  suggestionsPlaceholder?: string
+  /**
+   * Where this pick came from — "the Skilled feat". Shown under the heading,
+   * because a pick's own label is written from the player's side and can't say
+   * why they have it: three extra skill slots sit beside the race's one and the
+   * class's four with nothing tying them to the feat that granted them.
+   */
+  source?: string
   onChange: (values: Array<string>) => void
 }) {
+  const offered = options ?? pick.options
   const full = chosen.length >= pick.count
   // Free-text answers the option list doesn't contain, shown as their own chips
   // so they can be removed the same way as any other choice.
-  const extras = chosen.filter((v) => !pick.options.includes(v))
+  //
+  // Against `offered`, not `pick.options`: a narrowed pick's no-longer-eligible
+  // choice lands here too, which is how a stale expertise pick stays visible
+  // and removable instead of being pruned out of the draft behind the player.
+  const extras = chosen.filter((v) => !offered.includes(v))
+  // Whether an extra is a stale narrowing casualty rather than something typed.
+  // A value the table itself never offered is free text and needs no warning.
+  const staleExtra = (value: string) =>
+    options !== undefined && pick.options.includes(value)
 
   const toggle = (value: string) => {
     if (chosen.includes(value)) {
@@ -89,21 +135,31 @@ export function PickListGroup({
           {chosen.length} / {pick.count}
         </span>
       </div>
+      {source && <p className="text-muted-foreground text-xs">From {source}</p>}
+      {/*
+        Only when the combobox is a labelled half of the choice: on its own,
+        "Skills" over the one and only chip cloud is noise.
+      */}
+      {suggestionsLabel && (
+        <p className="text-muted-foreground text-xs">Skills</p>
+      )}
       <div className="flex flex-wrap gap-1.5">
-        {pick.options.map((value) => {
-          const source = alreadyGranted?.get(value)
+        {offered.map((value) => {
+          // `spentBy`, not `source`: this is who already took the value, where
+          // the `source` prop above is who handed out the pick itself.
+          const spentBy = alreadyGranted?.get(value)
           const selected = chosen.includes(value)
           return (
             <Chip
               key={value}
               label={optionLabel(pick, value)}
               selected={selected}
-              disabled={Boolean(source) || (full && !selected)}
+              disabled={Boolean(spentBy) || (full && !selected)}
               // "from", not "granted by": the source may be a choice made in
               // another pick — your Skilled skills, your race's free skill —
               // rather than something handed over outright, and the player
               // needs to know which of their own picks already spent it.
-              title={source ? `Already taken from ${source}` : undefined}
+              title={spentBy ? `Already taken from ${spentBy}` : undefined}
               onToggle={() => toggle(value)}
             />
           )
@@ -111,26 +167,49 @@ export function PickListGroup({
         {extras.map((value) => (
           <Chip
             key={value}
-            label={value}
+            label={optionLabel(pick, value)}
             selected
+            title={
+              staleExtra(value)
+                ? 'No longer one of your proficiencies — click to remove'
+                : undefined
+            }
             onToggle={() => toggle(value)}
           />
         ))}
       </div>
+      {offered.length < pick.count && (
+        // A narrowed pick whose source hasn't been filled in yet. The group
+        // stays rendered rather than hiding, because a vanishing choice reads as
+        // the app having lost it; the line says what to do instead.
+        <p className="text-muted-foreground text-xs">
+          Choose your skills above first — expertise applies to skills
+          you&rsquo;re already proficient in.
+        </p>
+      )}
       {pick.open && !full && (
-        <Combobox
-          id={`picklist-${pick.id}`}
-          // Suggestions first: for a spell pick they're the only content, and
-          // for an open skill pick the options are already chips above.
-          options={suggestions ?? pick.options}
-          onCommit={addFreeText}
-          placeholder={
-            suggestions && suggestions.length > 0
-              ? 'Search, or type your own…'
-              : 'Or type your own…'
-          }
-          className="h-7 text-sm"
-        />
+        // The label lives inside the same guard as the box it names: once the
+        // pick is full the combobox goes away, and a "Tools" heading with
+        // nothing under it reads as a half-rendered list.
+        <div className="space-y-1.5">
+          {suggestionsLabel && (
+            <p className="text-muted-foreground text-xs">{suggestionsLabel}</p>
+          )}
+          <Combobox
+            id={`picklist-${pick.id}`}
+            // Suggestions first: for a spell pick they're the only content, and
+            // for an open skill pick the options are already chips above.
+            options={suggestions ?? pick.options}
+            onCommit={addFreeText}
+            placeholder={
+              suggestionsPlaceholder ??
+              (suggestions && suggestions.length > 0
+                ? 'Search, or type your own…'
+                : 'Or type your own…')
+            }
+            className="h-7 text-sm"
+          />
+        </div>
       )}
     </div>
   )
