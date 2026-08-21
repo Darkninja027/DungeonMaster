@@ -1271,6 +1271,18 @@ a {
 .dnd-page .dnd-cs-2col > * {
   break-inside: avoid;
 }
+/* Sequential fill: left column top-to-bottom, then right, then a new sheet —
+   the article pages' reading order (see .dnd-flow). column-fill: auto needs a
+   definite height on the multicol box, and a flex-basis-derived one is not
+   dependable, so the height comes from an explicit 100% inside a flex-sized
+   frame that owns the clip. Overflow past the right column is clipped
+   silently; FEATURE_LINES in SheetPreview.tsx is what keeps content on the
+   page. Deliberately not on .dnd-cs-2col itself — the gear page's Equipment
+   list wants balanced columns and its row budget assumes them. */
+.dnd-page .dnd-cs-2col-fill {
+  column-fill: auto;
+  height: 100%;
+}
 
 /* Static pips: death saves, spell slots */
 .dnd-page .dnd-cs-pips {
@@ -1422,22 +1434,16 @@ a {
   line-height: 1.5;
 }
 
-/* Spell list: two columns filled left-to-right, so reading order runs across
-   the page and then down. `dnd-cs-2col` (column-count) fills the whole left
-   column before starting the right, which reads as a grid rather than a list.
-   A level heading spans both columns and forces the next spell onto a new row,
-   so a level never starts halfway across. */
-.dnd-page .dnd-cs-spellgrid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  grid-auto-flow: row;
-  column-gap: 24px;
-  align-content: start;
-  min-height: 0;
-  overflow: hidden;
-}
-.dnd-page .dnd-cs-spellgrid > .dnd-cs-cap {
-  grid-column: 1 / -1;
+/* Spell list: filled down the left column and then the right, matching the
+   features and equipment pages (.dnd-cs-2col-fill). This page used to be a
+   two-column grid so a level heading could span the full width and force the
+   next spell onto a fresh row — that kept a level from starting halfway
+   across, but it made this the only sheet that read across-then-down. Reading
+   order won: a level heading is now an ordinary in-column heading, and it
+   stays with its first spell via break-after: avoid below. */
+.dnd-page .dnd-cs-spelllist > .dnd-cs-cap {
+  break-after: avoid;
+  break-inside: avoid;
 }
 
 /* Prepared marker: a filled or hollow dot, so it survives black-ink printing

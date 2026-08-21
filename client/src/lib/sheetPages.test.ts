@@ -325,33 +325,21 @@ describe('paginateSpellRows', () => {
     expect(pages.flat()).toEqual(rows)
   })
 
-  it('charges a heading two half-rows, since it spans both columns', () => {
-    // Budget 4: cap0 (2) + one cantrip (1) = 3, and cap1 needs 2 more, so it
-    // cannot fit — under the old one-per-row costing all four would have.
+  it('charges a heading one row, like a spell', () => {
+    // The list fills down one column and then the other, so a heading is an
+    // ordinary in-column row — it no longer spans a grid and costs two, and
+    // there is no half-row left to pad. cap0 + Fire Bolt + cap1 + Bless = 4.
     const rows = spellRows([spell('Fire Bolt', 0), spell('Bless', 1)])
-    const pages = paginateSpellRows(rows, 4, 4)
-    expect(pages).toHaveLength(2)
-    expect(pages[0]).toEqual([
-      { kind: 'cap', level: 0 },
-      { kind: 'spell', spell: spell('Fire Bolt', 0) },
+    expect(paginateSpellRows(rows, 4, 4)).toHaveLength(1)
+    // One less, and the trailing cap1 travels with its spell rather than
+    // stranding at the foot of the page.
+    const split = paginateSpellRows(rows, 3, 3)
+    expect(split).toHaveLength(2)
+    expect(split[1]).toEqual([
+      { kind: 'cap', level: 1 },
+      { kind: 'spell', spell: spell('Bless', 1) },
     ])
-    expect(pages.flat()).toEqual(rows)
-  })
-
-  it('pads a half-filled row before a heading', () => {
-    // cap0 (2) + two cantrips (2) = 4 fills two whole rows; a third cantrip
-    // leaves the next row half-empty, so cap1 must pay 1 to pad it out.
-    const rows = spellRows([
-      spell('Fire Bolt', 0),
-      spell('Light', 0),
-      spell('Mending', 0),
-      spell('Bless', 1),
-    ])
-    // 2 + 3 = 5 used, +1 pad +2 cap +1 spell = 9; a budget of 8 can't hold it.
-    const pages = paginateSpellRows(rows, 8, 8)
-    expect(pages).toHaveLength(2)
-    expect(pages[1][0]).toEqual({ kind: 'cap', level: 1 })
-    expect(pages.flat()).toEqual(rows)
+    expect(split.flat()).toEqual(rows)
   })
 
   it('never loses or reorders rows across a realistic spell list', () => {
@@ -406,7 +394,7 @@ describe('session note pagination', () => {
       '- I gave 2 gold pieces to [[Ivy]] (Elles Character) for the bale toss game',
       '- I notice bandits robbing the blacksmiths stall during the game',
       '- Combat ensued i killed 2 [[Boot Bandits]] and took one in for questioning',
-      "- [[Clayn]] cut his hand off and sent him away then gave us a mission to hunt them down",
+      '- [[Clayn]] cut his hand off and sent him away then gave us a mission to hunt them down',
       '- Ate a goodberry pie which gives me + 10 HP for 1 week',
     ].join('\n'),
     'Festival of Thorns',
@@ -419,7 +407,10 @@ describe('session note pagination', () => {
   })
 
   it('does not count wiki-link brackets, which never print', () => {
-    const linked = note('2026-08-13', '- Met [[Baron Clayn Greenbane|the Baron]]')
+    const linked = note(
+      '2026-08-13',
+      '- Met [[Baron Clayn Greenbane|the Baron]]',
+    )
     const plain = note('2026-08-13', '- Met the Baron')
     expect(noteCost(linked)).toBe(noteCost(plain))
   })
@@ -439,7 +430,12 @@ describe('session note pagination', () => {
   })
 
   it('gives an oversized note its own page rather than looping', () => {
-    const huge = note('2026-08-13', nums(200).map((i) => `- beat ${i}`).join('\n'))
+    const huge = note(
+      '2026-08-13',
+      nums(200)
+        .map((i) => `- beat ${i}`)
+        .join('\n'),
+    )
     const pages = paginateNotes([huge, note('2026-08-12', 'short')], 54)
     expect(pages[0]).toEqual([huge])
     expect(pages.flat()).toHaveLength(2)

@@ -238,7 +238,10 @@ export function noteCost(note: CharacterNote): number {
             sum +
             (line.trim() === ''
               ? 0.3
-              : Math.max(1, Math.ceil(renderedLength(line) / NOTE_CHARS_PER_LINE))),
+              : Math.max(
+                  1,
+                  Math.ceil(renderedLength(line) / NOTE_CHARS_PER_LINE),
+                )),
           0,
         )
     : 0
@@ -278,21 +281,24 @@ export function paginateNotes(
 }
 
 /**
- * What one row costs against a page budget, counted in half-rows because the
- * list runs two columns. A spell fills one cell; a level heading spans both
- * columns and so consumes a whole visual row. Getting this wrong clips spells
- * silently, which is the whole reason pagination lives here.
+ * What one row costs against a page budget, counted in rows-per-column-pair:
+ * both a spell (24px) and a level heading (~22px with its rule and gap) take
+ * one slot in a column now that the list fills sequentially rather than
+ * spanning a grid. Getting this wrong clips spells silently, which is the
+ * whole reason pagination lives here.
  */
-function spellCost(row: SpellRow): number {
-  return row.kind === 'cap' ? 2 : 1
+function spellCost(_row: SpellRow): number {
+  return 1
 }
 
 /**
  * Paginate spell rows, moving a page-trailing level heading to the next page
  * so it always sits with at least one of its spells.
  *
- * A heading also has to start a fresh grid row, so an odd number of spells
- * before it leaves one empty cell — charged here so the page can't overflow.
+ * The page fills down the left column and then the right, so a heading is an
+ * ordinary in-column row now. It used to span a two-column grid and force a
+ * fresh row, which cost an empty cell after an odd number of spells; that
+ * padding is gone with the grid.
  */
 export function paginateSpellRows(
   rows: Array<SpellRow>,
@@ -308,9 +314,7 @@ export function paginateSpellRows(
 
   for (const row of rows) {
     const budget = pages.length === 0 ? first : rest
-    // A heading starts a new grid row, so pad out any half-filled one first.
-    const pad = row.kind === 'cap' && used % 2 === 1 ? 1 : 0
-    const cost = pad + spellCost(row)
+    const cost = spellCost(row)
     if (page.length > 0 && used + cost > budget) {
       // A heading that would end a page belongs with its spells overleaf.
       const last = page[page.length - 1]

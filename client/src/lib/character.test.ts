@@ -59,6 +59,7 @@ import {
   slotFor,
   sortedFeatures,
   sortedNotes,
+  sortedInventory,
   sortedSpells,
   spellSaveDc,
   tracksPreparation,
@@ -257,6 +258,35 @@ describe('derived 5e math', () => {
         { name: 'Aid', level: 2 },
       ]).map((s) => s.name),
     ).toEqual(['Light', 'Aid', 'Fireball'])
+  })
+
+  it('sorts inventory by visible name, not raw row text', () => {
+    const rows = (texts: Array<string>) =>
+      texts.map((text) => ({
+        text,
+        qty: 1,
+        weight: 0,
+        slot: null,
+        slots: [],
+      }))
+    // A [[link]] files under its title, not "["; a qty suffix is ignored; and
+    // case doesn't push lowercase rows to the end.
+    expect(
+      sortedInventory(
+        rows(['rope', '[[Flametongue]] (attuned)', 'Daggers x3', 'Axe']),
+      ).map((i) => i.text),
+    ).toEqual(['Axe', 'Daggers x3', '[[Flametongue]] (attuned)', 'rope'])
+    // An alias sorts by what's shown, so [[X|Boots]] files under B.
+    expect(
+      sortedInventory(rows(['[[Winged Boots|Boots]]', 'Candle'])).map(
+        (i) => i.text,
+      ),
+    ).toEqual(['[[Winged Boots|Boots]]', 'Candle'])
+    // The source array is never reordered — the sheet sorts, the Gear tab and
+    // the file on disk keep the player's own order.
+    const original = rows(['Zip', 'Apple'])
+    sortedInventory(original)
+    expect(original.map((i) => i.text)).toEqual(['Zip', 'Apple'])
   })
 
   it('formats d20 notation', () => {

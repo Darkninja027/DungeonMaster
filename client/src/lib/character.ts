@@ -1127,6 +1127,27 @@ export function sortedSpells(spells: Array<Spell>): Array<Spell> {
   )
 }
 
+/**
+ * Inventory sorted A-Z for the printed sheet only — `c.inventory` keeps the
+ * player's own order, which is what the Gear tab edits and what round-trips to
+ * disk. Sorting on `inventoryItemName` rather than the raw row means
+ * "[[Flametongue]]" files under F, not "[", and "Daggers x3" under D; the
+ * fallback keeps a row that is *only* a qty suffix from collapsing to "".
+ * Case-insensitive via `sensitivity: 'base'`, matching lib/bestiary.ts, so a
+ * lowercase "rope" doesn't sort after every capitalised item.
+ */
+export function sortedInventory(
+  items: Array<InventoryItem>,
+): Array<InventoryItem> {
+  return [...items].sort((a, b) =>
+    inventoryItemName(a.text).localeCompare(
+      inventoryItemName(b.text),
+      undefined,
+      { sensitivity: 'base' },
+    ),
+  )
+}
+
 // --- Unified feature view ---------------------------------------------------
 
 /**
