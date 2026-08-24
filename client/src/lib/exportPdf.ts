@@ -113,6 +113,75 @@ async function collectFontCss(): Promise<string | null> {
 }
 
 /**
+ * The multicol properties the capture loses, and the elements that need them.
+ *
+ * modern-screenshot serialises a page by copying each node's *computed* styles
+ * onto an inline `style` attribute and dropping the `class` attribute entirely.
+ * Neither half of that survives multi-column layout: with no classes, the
+ * stylesheet's `.dnd-page .dnd-cs-2col { column-count: 2 }` matches nothing,
+ * and the column longhands are not among the properties it inlines — the clone
+ * comes out with `columns: auto`. Chromium then picks its own column count from
+ * the element's width, so a list that fills one column on screen breaks into
+ * two (or breaks in a different place) in the PDF.
+ *
+ * Verified rather than inferred: the serialised SVG contains no `class=`
+ * attribute and no `column-count`, `columns` or `column-gap` declaration at
+ * all, while the live element computes `column-count: 2; column-gap: 24px;
+ * column-fill: auto`.
+ *
+ * So the values are pinned inline before the capture and removed afterwards.
+ * Inline styles are what the serialiser reads, so this is the one channel that
+ * reaches the clone. The list is deliberately explicit — reading them back off
+ * `getComputedStyle` per element would be tidier but would also faithfully copy
+ * a wrong value if one of these rules is ever changed to something the capture
+ * cannot express.
+ */
+const CAPTURE_PINNED_STYLES: Array<
+  [selector: string, styles: Record<string, string>]
+> = [
+  [
+    '.dnd-cs-2col',
+    { 'column-count': '2', 'column-width': 'auto', 'column-gap': '24px' },
+  ],
+  ['.dnd-cs-2col-fill', { 'column-fill': 'auto' }],
+  // The article/book pages use the same mechanism (see .dnd-flow in styles.css).
+  ['.dnd-flow', { 'column-fill': 'auto', 'column-gap': '40px' }],
+  ['.dnd-flow-2', { 'column-count': '2', 'column-width': 'auto' }],
+  ['.dnd-flow-1', { 'column-count': '1', 'column-width': 'auto' }],
+]
+
+/**
+ * Pin the styles above onto a page's elements, returning a restore function.
+ *
+ * `setProperty(..., 'important')` because the serialiser writes its own inline
+ * declarations for many properties; on the live element this only has to beat
+ * the stylesheet, but it costs nothing and makes the intent unambiguous.
+ */
+function pinCaptureStyles(page: HTMLElement): () => void {
+  const undo: Array<() => void> = []
+  for (const [selector, styles] of CAPTURE_PINNED_STYLES) {
+    const targets = [
+      ...(page.matches(selector) ? [page] : []),
+      ...page.querySelectorAll<HTMLElement>(selector),
+    ]
+    for (const el of targets) {
+      for (const [prop, value] of Object.entries(styles)) {
+        const prevValue = el.style.getPropertyValue(prop)
+        const prevPriority = el.style.getPropertyPriority(prop)
+        undo.push(() => {
+          if (prevValue) el.style.setProperty(prop, prevValue, prevPriority)
+          else el.style.removeProperty(prop)
+        })
+        el.style.setProperty(prop, value, 'important')
+      }
+    }
+  }
+  return () => {
+    for (const fn of undo) fn()
+  }
+}
+
+/**
  * Snapshot every rendered .dnd-page inside `root` and stitch them into a PDF,
  * one PDF page per book page. Captures the live preview DOM, so the output
  * matches the preview exactly (parchment, columns, drop caps, images).
@@ -135,18 +204,29 @@ export async function exportPdf(root: HTMLElement, filename: string) {
     // "Invalid argument passed to jsPDF.scale", losing the whole export over
     // one unsettled page. Skipping it costs a page; throwing costs the book.
     if (w === 0 || h === 0) continue
-    const jpeg = await domToJpeg(page, {
-      scale: CAPTURE_SCALE,
-      quality: JPEG_QUALITY,
-      // the parchment base under .dnd-page's gradients (styles.css)
-      backgroundColor: '#f2e8d5',
-      ...(fontCssText ? { font: { cssText: fontCssText } } : {}),
-      // roll buttons are dead weight on paper
-      filter: (node) =>
-        !(
-          node instanceof HTMLElement && node.classList.contains('dnd-roll-bar')
-        ),
-    })
+    // The capture drops class attributes and does not inline the column
+    // longhands, so the multicol pages have to carry theirs inline — see
+    // CAPTURE_PINNED_STYLES. Restored in `finally` so an aborted export can
+    // never leave !important declarations on the live preview.
+    const unpin = pinCaptureStyles(page)
+    let jpeg: string
+    try {
+      jpeg = await domToJpeg(page, {
+        scale: CAPTURE_SCALE,
+        quality: JPEG_QUALITY,
+        // the parchment base under .dnd-page's gradients (styles.css)
+        backgroundColor: '#f2e8d5',
+        ...(fontCssText ? { font: { cssText: fontCssText } } : {}),
+        // roll buttons are dead weight on paper
+        filter: (node) =>
+          !(
+            node instanceof HTMLElement &&
+            node.classList.contains('dnd-roll-bar')
+          ),
+      })
+    } finally {
+      unpin()
+    }
     const orientation = w > h ? 'landscape' : 'portrait'
     if (!pdf) {
       pdf = new jsPDF({

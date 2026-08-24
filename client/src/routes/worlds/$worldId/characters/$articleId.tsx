@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
+  BookOpen,
   Eye,
   FileDown,
   FileText,
@@ -36,8 +37,31 @@ import { InventoryTab } from '#/components/character/InventoryTab'
 import { EquipmentTab } from '#/components/character/EquipmentTab'
 import { FeaturesTab } from '#/components/character/FeaturesTab'
 import { NotesTab } from '#/components/character/NotesTab'
-import { SheetFitPane, SheetPreview } from '#/components/character/SheetPreview'
+import {
+  SheetFitPane,
+  SheetPreview,
+  hasSpellcasting,
+} from '#/components/character/SheetPreview'
+import { loadSpellCards, saveSpellCards } from '#/lib/sheetPrintPrefs'
 import { CreateMissingArticleDialog } from '#/components/CreateMissingArticleDialog'
+
+/**
+ * Poll a settled flag until it trips, or give up. Used by the PDF export to wait
+ * for the spell-card articles, which land asynchronously after the preview tab
+ * mounts — see the export handler for why exporting early fails silently.
+ *
+ * A poll rather than a promise because the flag is owned by a child component's
+ * query state, and there is no single fetch to await.
+ */
+async function waitForCards(
+  settled: { current: boolean },
+  timeoutMs = 8000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  while (!settled.current && Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 60))
+  }
+}
 
 export const Route = createFileRoute('/worlds/$worldId/characters/$articleId')({
   component: CharacterPage,
@@ -170,6 +194,21 @@ function CharacterPage() {
    * on load state, which React refuses outright.
    */
   const [levelUpTo, setLevelUpTo] = useState<number | null>(null)
+
+  /**
+   * Whether the printed sheet carries the spell-description pages, and whether
+   * their articles have finished loading.
+   *
+   * `cardsSettled` is a ref rather than state because only the export handler
+   * reads it, and re-rendering the whole route as two dozen article reads land
+   * would be pure churn. The button's own disabled state uses the state copy.
+   */
+  const [spellCards, setSpellCards] = useState(loadSpellCards)
+  const [cardsSettled, setCardsSettled] = useState(true)
+  const cardsSettledRef = useRef(true)
+  useEffect(() => {
+    saveSpellCards(spellCards)
+  }, [spellCards])
 
   if (article.isLoading || !character) {
     return <p className="text-muted-foreground p-6">Loading character…</p>
@@ -315,16 +354,49 @@ function CharacterPage() {
               <FileText className="size-3.5" /> Raw article
             </Link>
           </Button>
+          {/* Only shown for a caster — a fighter's toolbar shouldn't carry a
+              control that changes nothing. Gated on the same predicate the sheet
+              itself uses, so the two can't disagree about who is a caster. */}
+          {hasSpellcasting(character) && (
+            <Button
+              variant={spellCards ? 'default' : 'outline'}
+              size="icon"
+              className="size-8"
+              aria-pressed={spellCards}
+              title={
+                spellCards
+                  ? 'Spell descriptions are printed with the sheet — click to leave them out'
+                  : 'Spell descriptions are left out — click to print them with the sheet'
+              }
+              onClick={() => setSpellCards((on) => !on)}
+            >
+              <BookOpen className="size-3.5" />
+            </Button>
+          )}
           <Button
             variant="outline"
             size="icon"
             className="size-8"
-            title="Export the character sheet as PDF"
-            disabled={exporting}
+            title={
+              spellCards && !cardsSettled
+                ? 'Loading spell descriptions…'
+                : 'Export the character sheet as PDF'
+            }
+            disabled={exporting || (spellCards && !cardsSettled)}
             onClick={async () => {
               setTab('preview')
               setExporting(true)
               try {
+                // The spell cards read one article each, so the sheet is not
+                // whole for a moment after the tab mounts — and exportPdf
+                // captures whatever .dnd-page elements it finds, silently
+                // skipping any that measure zero. Without this wait a PDF taken
+                // too early is simply missing pages, with no error to notice.
+                //
+                // Bounded, not infinite: an article on a disconnected network
+                // drive should cost a few seconds and one absent card, not a
+                // permanently dead export button.
+                await waitForCards(cardsSettledRef)
                 // let the preview tab mount and paint before capturing
                 await new Promise((r) =>
                   requestAnimationFrame(() => requestAnimationFrame(r)),
@@ -487,6 +559,11 @@ function CharacterPage() {
                 source={source}
                 worldId={worldId}
                 articles={tree.data?.articles}
+                spellCards={spellCards}
+                onSpellCardsSettled={(s) => {
+                  cardsSettledRef.current = s
+                  setCardsSettled(s)
+                }}
               />
             </SheetFitPane>
           </div>

@@ -65,6 +65,10 @@ import {
 } from '#/lib/toc'
 import type { TocHeading } from '#/lib/toc'
 import { SheetPreview } from '#/components/character/SheetPreview'
+// No toggle on this route: it is the raw-markdown preview, not the print
+// surface. It reads the same preference so the two previews never disagree about
+// page count — Ctrl+P works from here too.
+import { loadSpellCards } from '#/lib/sheetPrintPrefs'
 import { ImagePickerDialog } from '#/components/ImagePickerDialog'
 import { HowToDialog } from '#/components/HowToDialog'
 import { useMarkdownEditor } from '#/lib/useMarkdownEditor'
@@ -1089,6 +1093,7 @@ function ArticlePage() {
                   source={sheetSource}
                   worldId={worldId}
                   articles={tree.data?.articles}
+                  spellCards={loadSpellCards()}
                 />
               ) : (
                 <BookView

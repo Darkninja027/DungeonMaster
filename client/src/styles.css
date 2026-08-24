@@ -1422,6 +1422,141 @@ a {
   font-style: italic;
 }
 
+/* Spell cards: the rules text of every spell on the sheet, so a printed sheet
+   is playable with no book and no laptop. Built on the features page's
+   vocabulary on purpose — .dnd-cs-feature-name for the title and
+   .dnd-cs-feature-text for the prose (see SpellCardsPage) — because a spell
+   description and a class feature are the same kind of thing on the same kind of
+   page, and a second set of type rules would drift from the first. The card
+   frame is the note card's, for the same reason.
+
+   What's genuinely new is the stat block: labelled lines between the title and
+   the prose, which nothing else on the sheet has. */
+.dnd-page .dnd-cs-spellcard {
+  border: 1px solid var(--dnd-gold);
+  border-radius: 4px;
+  background: color-mix(in oklab, var(--dnd-green) 30%, white);
+  padding: 5px 8px 6px;
+  margin-bottom: 7px;
+  /* Atomic, like .dnd-cs-feature and .dnd-cs-note. A card split at the column
+     seam reads as two broken half-cards — its border closes at the foot of one
+     column and a fragment with no title opens the next.
+
+     Restated here rather than left to .dnd-cs-2col > * above, which already
+     says it, for three reasons: it matches what .dnd-cs-feature and
+     .dnd-cs-note do; the > * rule only matches a DIRECT child, so any future
+     wrapper div would silently drop it; and both selectors are specificity
+     (0,2,0) — the universal * counts for nothing — so the two were previously
+     decided by source order alone. This file declared `break-inside: auto`
+     here and quietly won that tie for exactly that reason.
+
+     The cost is white space at the foot of a column when a card doesn't fit
+     the remainder and is pushed whole into the next. paginateSpellCards packs
+     by column rather than by page total so that space is accounted for — a
+     flat page budget cannot see it, and lowering one does not help.
+
+     A card genuinely taller than one column can be neither split nor placed —
+     it overflows its column and is clipped silently, the one failure this
+     sheet is built to prevent. That case is handled by isTallSpellCard in
+     lib/sheetPages.ts, which tags the ~2.4% of the bundled corpus that needs
+     it with .dnd-cs-spellcard-tall below. */
+  break-inside: avoid;
+}
+/* The escape hatch: the only cards allowed to break. Written as a compound
+   selector so it wins on specificity (0,3,0) rather than on source order —
+   see the note above about how relying on order caused the bug this replaces. */
+.dnd-page .dnd-cs-spellcard.dnd-cs-spellcard-tall {
+  break-inside: auto;
+}
+/* Not dead weight now that ordinary cards are atomic: these are what keep a
+   .dnd-cs-spellcard-tall card — the only kind that can break — from splitting
+   between its name and the stat block that belongs to it. */
+.dnd-page .dnd-cs-spellcard .dnd-cs-feature-name,
+.dnd-page .dnd-cs-spellcard-sub {
+  break-after: avoid;
+}
+.dnd-page .dnd-cs-spellcard-stats {
+  break-inside: avoid;
+}
+.dnd-page .dnd-cs-spellcard:last-child {
+  margin-bottom: 0;
+}
+/* "Level 3 evocation". Small caps like the banner's subtitle rather than a
+   .dnd-cs-cap: it is a subtitle, not a section heading, and a gold rule under
+   every card would fight the card's own border. */
+.dnd-page .dnd-cs-spellcard-sub {
+  font-size: 9px;
+  font-variant: small-caps;
+  letter-spacing: 0.04em;
+  opacity: 0.75;
+  line-height: 1.3;
+  margin-bottom: 2px;
+}
+/* Hairlines above and below are the only separators the stat block needs — a
+   full border inside an already-bordered card reads as a box in a box. */
+.dnd-page .dnd-cs-spellcard-stats {
+  border-top: 1px solid color-mix(in oklab, var(--dnd-gold) 60%, transparent);
+  border-bottom: 1px solid color-mix(in oklab, var(--dnd-gold) 60%, transparent);
+  padding: 2px 0;
+  margin-bottom: 3px;
+}
+/* A label rail then the value, not a table: Symbol's Components value runs 138
+   characters and has to wrap under its own label. A two-cell table row would
+   either widen the label column on every card to fit the longest value, or
+   refuse to wrap at all. */
+.dnd-page .dnd-cs-spellcard-stat {
+  display: flex;
+  gap: 5px;
+  font-size: 10px;
+  line-height: 1.35;
+}
+/* Wide enough for "COMPONENTS" — the longest of the four labels — on one line.
+   62px would match ProfLine's rail, but Cinzel at 8.5px needs more than that and
+   wrapping "CASTING TIME" costs a second line on every card, which spellCardCost
+   charges as one. nowrap makes that impossible rather than merely unlikely. */
+.dnd-page .dnd-cs-spellcard-statlabel {
+  flex: 0 0 74px;
+  font-family: 'Cinzel', serif;
+  font-size: 8.5px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--dnd-red);
+  padding-top: 1px;
+}
+.dnd-page .dnd-cs-spellcard-statvalue {
+  flex: 1;
+  min-width: 0;
+}
+/* InlineMarkdown wraps its content in a <p>. A stat value is one line and
+   spellCardCost charges it as one, so the paragraph margin has to go or every
+   row costs an uncharged 0.3 of a line. */
+.dnd-page .dnd-cs-spellcard-statvalue p {
+  margin: 0;
+}
+/* Eight of the bundled spells carry a table inside their description (Animate
+   Objects' object statistics, Reincarnate's races, Prismatic Wall's layers).
+   Nothing else on the sheet renders a markdown table, so it needs sizing here
+   or it inherits the article stylesheet's 14px and blows the column apart. */
+.dnd-page .dnd-cs-feature-text table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 9px;
+  line-height: 1.25;
+  margin: 0.2em 0;
+}
+.dnd-page .dnd-cs-feature-text th,
+.dnd-page .dnd-cs-feature-text td {
+  border: 1px solid color-mix(in oklab, var(--dnd-gold) 70%, transparent);
+  padding: 0 3px;
+  text-align: start;
+}
+.dnd-page .dnd-cs-feature-text th {
+  font-family: 'Cinzel', serif;
+  color: var(--dnd-red);
+  font-weight: 400;
+}
+
 /* Spell level badge */
 .dnd-page .dnd-cs-lvl {
   flex: 0 0 20px;

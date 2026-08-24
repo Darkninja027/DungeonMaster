@@ -48,16 +48,22 @@ import type {
   SpellSlots,
 } from '#/lib/character'
 import {
+  SPELL_CARD_LINES,
   featureRows,
+  isTallSpellCard,
   paginate,
   paginateFeatureRows,
   paginateNotes,
+  paginateSpellCards,
   paginateSpellRows,
   spellRows,
 } from '#/lib/sheetPages'
 import type { FeatureRow, SpellRow } from '#/lib/sheetPages'
 import { roll } from '#/lib/rollAction'
 import type { RollSource } from '#/lib/rollLog'
+import { resolveSpellArticle, spellCardSubtitle } from '#/lib/spellCard'
+import type { SpellCard } from '#/lib/spellCard'
+import { useSpellCards } from '#/lib/useSpellCards'
 import { openSpellInPanel } from '#/lib/spellPanel'
 import { useLibraryEntries } from '#/lib/useGlobalLibrary'
 import { cn } from '#/lib/utils'
@@ -84,6 +90,20 @@ export interface SheetPreviewProps {
   source: RollSource
   worldId: string
   articles?: Array<ArticleRef>
+  /**
+   * Include the auto-generated spell-card pages (the rules text of every spell
+   * on the sheet). Defaults on: the pages are the point of the feature, and
+   * someone who prints and finds extra sheets learns the toggle exists, whereas
+   * someone who prints and finds the text missing never knows it was there.
+   */
+  spellCards?: boolean
+  /**
+   * Fires when the spell articles have all landed or failed. The PDF export
+   * waits on it: exportPdf captures whatever `.dnd-page` elements exist and
+   * silently skips one measuring zero, so an export mid-load produces a PDF with
+   * pages missing and no error.
+   */
+  onSpellCardsSettled?: (settled: boolean) => void
 }
 
 /**
@@ -180,6 +200,8 @@ const FEATURE_LINES = 108
  * thing here you can't reconstruct if it clips.
  */
 const NOTE_LINES = 58
+// SPELL_CARD_LINES lives in lib/sheetPages.ts beside the cost model it belongs
+// to, so the unit tests can import the real value rather than restate it.
 
 const SLOT_LEVELS = [1, 2, 3, 4, 5, 6, 7, 8, 9]
 
@@ -225,7 +247,7 @@ function hasPrintedProficiencies(c: Character): boolean {
  * "INT / DC 12 / +4" with no spells and no slots is just noise. There has to
  * be something to actually print.
  */
-function hasSpellcasting(c: Character): boolean {
+export function hasSpellcasting(c: Character): boolean {
   return c.spells.length > 0 || anySlots(c)
 }
 
@@ -846,24 +868,25 @@ function CorePage({
 
 function SpellName({
   name,
+  worldId,
   articles,
 }: {
   name: string
+  worldId: string
   articles?: Array<ArticleRef>
 }) {
   const title = wikiLinkTitle(name)
   // This world first, then the global library — a shared-list spell should be
-  // readable from the sheet, not shown as an unresolved name.
+  // readable from the sheet, not shown as an unresolved name. Shared with the
+  // spell cards through resolveSpellArticle so the two can't disagree about
+  // which article a name means.
   const librarySpells = useLibraryEntries('Spells')
-  const local = (articles ?? []).find(
-    (a) => a.title.toLowerCase() === title.toLowerCase(),
+  const target = resolveSpellArticle(
+    name,
+    worldId,
+    articles,
+    librarySpells.entries,
   )
-  const global = local
-    ? undefined
-    : librarySpells.entries.find(
-        (e) => e.title.toLowerCase() === title.toLowerCase(),
-      )
-  const target = local ? { id: local.id } : global ? { id: global.articleId } : undefined
   if (!target) {
     return (
       <span
@@ -880,7 +903,7 @@ function SpellName({
       className="dnd-cs-link dnd-cs-row-name"
       style={{ textAlign: 'left' }}
       title="Read in the spell panel"
-      onClick={() => openSpellInPanel(target.id)}
+      onClick={() => openSpellInPanel(target.articleId)}
     >
       {title}
     </button>
@@ -910,7 +933,24 @@ function useColumnOverflowWarning(
       if (over > 1) {
         console.warn(
           `[SheetPreview] "${pageLabel}" overflows its two columns by ${over}px — ` +
-            `lower ${budgetName} (SheetPreview.tsx) until it fits.`,
+            `lower ${budgetName} until it fits.`,
+        )
+      }
+      // The other way content escapes, and the one width can't see. An
+      // unbreakable box taller than a column isn't refused — it is placed and
+      // allowed to overflow DOWNWARD, where .dnd-cs-scroll's overflow: hidden
+      // clips it. Only reachable since spell cards became atomic, which is
+      // exactly why it is checked here.
+      const last = el.lastElementChild
+      if (!last) return
+      const spill = Math.round(
+        last.getBoundingClientRect().bottom - el.getBoundingClientRect().bottom,
+      )
+      if (spill > 1) {
+        console.warn(
+          `[SheetPreview] "${pageLabel}" spills ${spill}px past the bottom of its ` +
+            `last column — lower ${budgetName}, or the offending block is taller ` +
+            `than one column and needs to be allowed to break.`,
         )
       }
     }
@@ -938,7 +978,11 @@ function FeaturesPage({
   articles?: Array<ArticleRef>
   pageLabel: string
 }) {
-  const flowRef = useColumnOverflowWarning(pageLabel, 'FEATURE_LINES', rows)
+  const flowRef = useColumnOverflowWarning(
+    pageLabel,
+    'FEATURE_LINES (SheetPreview.tsx)',
+    rows,
+  )
 
   return (
     <div className="dnd-page">
@@ -1007,6 +1051,7 @@ function SpellPage({
   title,
   source,
   rows,
+  worldId,
   articles,
   showHeader,
   pageLabel,
@@ -1015,6 +1060,7 @@ function SpellPage({
   title: string
   source: RollSource
   rows: Array<SpellRow>
+  worldId: string
   articles?: Array<ArticleRef>
   showHeader: boolean
   pageLabel: string
@@ -1023,7 +1069,11 @@ function SpellPage({
   const atk = spellAttackBonus(c)
   const showSlots = anySlots(c)
   const showPrepare = tracksPreparation(c)
-  const flowRef = useColumnOverflowWarning(pageLabel, 'SPELL_ROWS_*', rows)
+  const flowRef = useColumnOverflowWarning(
+    pageLabel,
+    'SPELL_ROWS_* (SheetPreview.tsx)',
+    rows,
+  )
 
   return (
     <div className="dnd-page">
@@ -1157,7 +1207,11 @@ function SpellPage({
                         <span className="dnd-cs-lvl">
                           {row.spell.level === 0 ? 'C' : row.spell.level}
                         </span>
-                        <SpellName name={row.spell.name} articles={articles} />
+                        <SpellName
+                          name={row.spell.name}
+                          worldId={worldId}
+                          articles={articles}
+                        />
                         {row.spell.damage?.trim() && (
                           <SheetChip
                             label={wikiLinkTitle(row.spell.name)}
@@ -1172,6 +1226,118 @@ function SpellPage({
                 </div>
               </div>
             )}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * The spell cards: a compact stat block and the full rules text for every spell
+ * on the sheet, so a printed sheet is playable with no book beside it. The spell
+ * list a page earlier says what the character knows; these say what it does.
+ *
+ * Only spells whose article resolved and held something printable get a card. An
+ * unresolved name gets nothing rather than an empty card, because an empty card
+ * is a promise the page can't keep — see lib/spellCard.ts's isEmptySpellCard.
+ */
+function SpellCardsPage({
+  c,
+  title,
+  source,
+  cards,
+  worldId,
+  articles,
+  pageLabel,
+}: {
+  c: Character
+  title: string
+  source: RollSource
+  cards: Array<SpellCard>
+  worldId: string
+  articles?: Array<ArticleRef>
+  pageLabel: string
+}) {
+  const flowRef = useColumnOverflowWarning(
+    pageLabel,
+    'SPELL_CARD_LINES (lib/sheetPages.ts)',
+    cards,
+  )
+
+  return (
+    <div className="dnd-page">
+      <div className="dnd-cs">
+        <Banner title={`${title} — ${pageLabel}`} small>
+          {[c.race, c.class, `Level ${c.level}`].filter(Boolean).join(' ')}
+        </Banner>
+        <div className="dnd-cs-body">
+          <div className="dnd-cs-box" style={{ flex: '1 1 auto' }}>
+            <div className="dnd-cs-cap">Spell Descriptions</div>
+            <div className="dnd-cs-scroll">
+              <div className="dnd-cs-2col dnd-cs-2col-fill" ref={flowRef}>
+                {cards.map((card, i) => (
+                  <div
+                    key={`${card.name}-${i}`}
+                    /* Cards are atomic (see .dnd-cs-spellcard in styles.css).
+                       One taller than a column could be neither split nor
+                       placed, so it would overflow and clip silently — this
+                       tag is what lets that card, and only that card, break. */
+                    className={cn(
+                      'dnd-cs-spellcard',
+                      isTallSpellCard(card, SPELL_CARD_LINES) &&
+                        'dnd-cs-spellcard-tall',
+                    )}
+                  >
+                    <div className="dnd-cs-feature-name">{card.name}</div>
+                    {spellCardSubtitle(card) && (
+                      <div className="dnd-cs-spellcard-sub">
+                        {spellCardSubtitle(card)}
+                      </div>
+                    )}
+                    {card.stats.length > 0 && (
+                      <div className="dnd-cs-spellcard-stats">
+                        {card.stats.map((stat) => (
+                          <div
+                            key={stat.label}
+                            className="dnd-cs-spellcard-stat"
+                          >
+                            <span className="dnd-cs-spellcard-statlabel">
+                              {stat.label}
+                            </span>
+                            <InlineMarkdown
+                              className="dnd-cs-spellcard-statvalue"
+                              worldId={worldId}
+                              articles={articles}
+                              source={source}
+                            >
+                              {stat.value}
+                            </InlineMarkdown>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {card.description && (
+                      /* No preserveLineBreaks, unlike the features and notes
+                         pages: those render text somebody typed into the sheet,
+                         where a single newline is meant as a hard break. A spell
+                         *article* is real markdown with blank-line paragraphs,
+                         so hard-breaking every line would roughly double its
+                         height — and spellCardCost doesn't charge for that, so
+                         every page would clip. */
+                      <InlineMarkdown
+                        className="dnd-cs-feature-text"
+                        worldId={worldId}
+                        articles={articles}
+                        source={source}
+                      >
+                        {card.description}
+                      </InlineMarkdown>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -1254,7 +1420,11 @@ function GearPage({
   pageLabel: string
 }) {
   const tier = encumbranceTier(c)
-  const flowRef = useColumnOverflowWarning(pageLabel, 'GEAR_ROWS_*', items)
+  const flowRef = useColumnOverflowWarning(
+    pageLabel,
+    'GEAR_ROWS_* (SheetPreview.tsx)',
+    items,
+  )
 
   return (
     <div className="dnd-page">
@@ -1426,6 +1596,8 @@ export function SheetPreview({
   source,
   worldId,
   articles,
+  spellCards = true,
+  onSpellCardsSettled,
 }: SheetPreviewProps) {
   const spellPages = useMemo(
     () =>
@@ -1465,6 +1637,22 @@ export function SheetPreview({
     () => paginateNotes(sessionNotes(c.notes), NOTE_LINES),
     [c.notes],
   )
+  // Gated on being a caster as well as on the toggle, so a fighter's sheet and
+  // a toggled-off one read nothing off disk at all.
+  const { cards, settled: cardsSettled } = useSpellCards(
+    c.spells,
+    worldId,
+    articles,
+    spellCards && casts,
+  )
+  const cardPages = useMemo(
+    () => paginateSpellCards(cards, SPELL_CARD_LINES),
+    [cards],
+  )
+  useEffect(() => {
+    onSpellCardsSettled?.(cardsSettled)
+  }, [cardsSettled, onSpellCardsSettled])
+
   const showGear = gearPages.length > 0 || hasPrintedProficiencies(c)
   const prose = body?.trim()
   // Most backstories already open with their own "# Name" heading — only add
@@ -1500,9 +1688,37 @@ export function SheetPreview({
             title={title}
             source={source}
             rows={rows}
+            worldId={worldId}
             articles={articles}
             showHeader={i === 0}
             pageLabel={i === 0 ? 'Spellcasting' : 'Spellcasting (cont.)'}
+          />
+        ))}
+
+      {/* The cards sit directly behind the list they annotate: you read the
+          list, then turn the page. Behind Equipment they'd be separated from it
+          by the gear and notes sheets.
+
+          Nothing renders until every article has landed — exportPdf captures
+          the live DOM, so a half-loaded sheet exports as a PDF with pages
+          missing and no error at all. Rendering nothing until then makes the
+          failure "the cards aren't here yet", which is visible and recoverable.
+          It also means the page count jumps once rather than ticking up. */}
+      {spellCards &&
+        casts &&
+        cardsSettled &&
+        cardPages.map((pageCards, i) => (
+          <SpellCardsPage
+            key={`spellcards-${i}`}
+            c={c}
+            title={title}
+            source={source}
+            cards={pageCards}
+            worldId={worldId}
+            articles={articles}
+            pageLabel={
+              i === 0 ? 'Spell Descriptions' : 'Spell Descriptions (cont.)'
+            }
           />
         ))}
 
