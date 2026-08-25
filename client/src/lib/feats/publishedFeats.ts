@@ -38,9 +38,15 @@
  *   silently vanish at every level-up — worse than not being there.
  *
  * **Half-feats that let you choose the ability** (Resilient, Skill Expert,
- * Telepathic…) cannot say so: `asi` is a fixed record. Each takes the ability
- * it is most often built around and says "of your choice" in its summary; the
- * sheet is hand-editable, which is the whole point of the free-text rule.
+ * Observant, Weapon Master, Lightly/Moderately Armored) say so with
+ * `asiChoice`, listing the abilities on offer. The wizard asks and the player
+ * places the point. `asi` remains for the far more common fixed case, and a
+ * feat carries one or the other — never both.
+ *
+ * This used to be impossible: `asi` is a fixed record, so each of those six
+ * named the ability it is most often built around and wrote "of your choice"
+ * in a summary the app then did not honour. That was a workaround for having
+ * nowhere to ask, and the picks step is the somewhere.
  */
 
 import {
@@ -221,7 +227,7 @@ export const PUBLISHED_FEATS: Array<FeatInfo> = [
     name: 'Lightly Armored',
     summary:
       'Proficiency with light armor, and +1 Strength or Dexterity of your choice.',
-    asi: { dex: 1 },
+    asiChoice: ['str', 'dex'],
     grant: { armor: ['light'] },
   },
   {
@@ -311,7 +317,7 @@ export const PUBLISHED_FEATS: Array<FeatInfo> = [
     summary:
       'Proficiency with medium armor and shields, and +1 Strength or Dexterity of your choice.',
     prerequisite: 'Proficiency with light armor',
-    asi: { dex: 1 },
+    asiChoice: ['str', 'dex'],
     grant: { armor: ['medium', 'shields'] },
   },
   {
@@ -326,7 +332,7 @@ export const PUBLISHED_FEATS: Array<FeatInfo> = [
     name: 'Observant',
     summary:
       'Read lips, and +5 to passive Perception and passive Investigation. +1 Intelligence or Wisdom of your choice.',
-    asi: { wis: 1 },
+    asiChoice: ['int', 'wis'],
     grant: {},
   },
   {
@@ -340,9 +346,13 @@ export const PUBLISHED_FEATS: Array<FeatInfo> = [
     id: 'resilient',
     name: 'Resilient',
     summary:
-      'Saving throw proficiency in one ability of your choice, and +1 to it. Constitution is the usual pick.',
-    asi: { con: 1 },
-    grant: { saves: ['con'] },
+      'Saving throw proficiency in one ability of your choice, and +1 to it.',
+    // The save must follow the ability the player picked — a Resilient (Strength)
+    // who got a Constitution save would be the app disagreeing with its own
+    // prompt. `applyAsiChoice` grants it, which is why there is no `saves` here.
+    asiChoice: ['str', 'dex', 'con', 'int', 'wis', 'cha'],
+    grantsSaveForAsiChoice: true,
+    grant: {},
   },
   {
     id: 'ritual-caster',
@@ -452,7 +462,11 @@ export const PUBLISHED_FEATS: Array<FeatInfo> = [
     id: 'tough',
     name: 'Tough',
     summary: 'Your hit point maximum increases by 2 per character level.',
-    grant: {},
+    // One of the few feats whose whole effect is a number this sheet models, so
+    // it is a real grant rather than the empty one it carried while `Grant` had
+    // nowhere to put it. Counted over every level, behind and ahead — see
+    // `featHp`.
+    grant: { hpPerLevel: 2 },
   },
   {
     id: 'war-caster',
@@ -467,7 +481,7 @@ export const PUBLISHED_FEATS: Array<FeatInfo> = [
     name: 'Weapon Master',
     summary:
       'Proficiency with four weapons of your choice, and +1 Strength or Dexterity of your choice.',
-    asi: { str: 1 },
+    asiChoice: ['str', 'dex'],
     grant: {
       picks: [
         {
@@ -631,7 +645,7 @@ export const PUBLISHED_FEATS: Array<FeatInfo> = [
     name: 'Skill Expert',
     summary:
       'One skill proficiency, expertise in another, and +1 to an ability of your choice.',
-    asi: { dex: 1 },
+    asiChoice: ['str', 'dex', 'con', 'int', 'wis', 'cha'],
     grant: {
       picks: [
         {

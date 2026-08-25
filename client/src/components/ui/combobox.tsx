@@ -73,6 +73,7 @@ export function Combobox({
   /** Shown in place of the list when nothing matches what was typed. */
   emptyLabel = 'No match — press Enter to use what you typed',
   id,
+  disabled,
 }: {
   options: Array<string>
   onCommit: (value: string) => void
@@ -87,6 +88,12 @@ export function Combobox({
   className?: string
   emptyLabel?: string
   id?: string
+  /**
+   * Inert and dimmed. The suggestion list is suppressed too — a disabled input
+   * cannot be typed into, but the list opens on focus and would otherwise hang
+   * there with nothing able to dismiss it.
+   */
+  disabled?: boolean
 }) {
   const controlled = value !== undefined
   const [draft, setDraft] = React.useState('')
@@ -126,7 +133,7 @@ export function Combobox({
   // believe the list is open while it isn't. The popover version derived this
   // for rendering but kept `open` as the thing every handler wrote to, which
   // let Escape leave the two disagreeing.
-  const showing = open && matches.length > 0
+  const showing = open && !disabled && matches.length > 0
   const listId = `${id ?? 'combobox'}-listbox`
 
   const reveal = () => {
@@ -207,6 +214,7 @@ export function Combobox({
         placeholder={placeholder}
         className={className}
         autoComplete="off"
+        disabled={disabled}
         onChange={(e) => {
           setQuery(e.target.value)
           setActive(-1)

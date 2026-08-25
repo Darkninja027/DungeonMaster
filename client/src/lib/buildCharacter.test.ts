@@ -11,7 +11,12 @@ import type { FeatInfo, RaceInfo } from './srd'
 import { PHB_CLASSES } from './classes'
 import type { ClassInfo } from './classes'
 import { buildCharacter, computeAc, finalScores } from './buildCharacter'
-import { emptyDraft } from './characterDraft'
+import {
+  asiChoicePickId,
+  canAdvance,
+  draftOwnedPickLists,
+  emptyDraft,
+} from './characterDraft'
 import type { CharacterDraft } from './characterDraft'
 import { assign, emptyAbilityDraft } from './abilityMethods'
 import { parseHomebrew } from './homebrew'
@@ -1079,5 +1084,213 @@ describe('skill and tool picks', () => {
     )
     expect(character.expertise).toContain('stealth')
     expect(character.skills).not.toContain('stealth')
+  })
+})
+
+describe('a chooseable half-feat increase at creation', () => {
+  const variantHumanWith = (
+    featName: string,
+    picks: Record<string, Array<string>>,
+  ) =>
+    withScores(
+      {
+        ...emptyDraft(SRD_TABLES),
+        name: 'Aldric',
+        raceName: 'Variant Human',
+        flexibleAsi: { str: 1, dex: 1 },
+        featName,
+        picks,
+      },
+      { str: 15, dex: 12, con: 14, int: 10, wis: 10, cha: 8 },
+    )
+
+  it('raises the ability the player chose, not a hardcoded one', () => {
+    const { character } = buildCharacter(
+      variantHumanWith('Skill Expert', {
+        [asiChoicePickId('skill-expert')]: ['Wisdom'],
+        'skill-expert-skill': ['stealth'],
+        'skill-expert-expertise': ['stealth'],
+      }),
+    )
+    // 10 base + 1 from the feat. Dexterity gets only its flexible racial +1.
+    expect(character.abilities.wis).toBe(11)
+    expect(character.abilities.dex).toBe(13)
+  })
+
+  it('grants nothing until the ability is placed', () => {
+    const { character } = buildCharacter(
+      variantHumanWith('Skill Expert', {
+        'skill-expert-skill': ['stealth'],
+        'skill-expert-expertise': ['stealth'],
+      }),
+    )
+    // Guessing on the player's behalf is the bug this replaced.
+    expect(character.abilities.wis).toBe(10)
+    expect(character.abilities.dex).toBe(13)
+  })
+
+  it('ties a Resilient save to the ability chosen', () => {
+    const { character } = buildCharacter(
+      variantHumanWith('Resilient', {
+        [asiChoicePickId('resilient')]: ['Wisdom'],
+      }),
+    )
+    expect(character.abilities.wis).toBe(11)
+    expect(character.saves).toContain('wis')
+  })
+
+  it('gates the skills step until the ability is placed', () => {
+    // Variant Human's own free skill and language have to be answered too, or
+    // the gate would be measuring those rather than the feat's choice.
+    const otherPicks = {
+      'variant-human-skill': ['stealth'],
+      'variant-human-language': ['Dwarvish'],
+    }
+    expect(
+      canAdvance(variantHumanWith('Observant', otherPicks), 'skills'),
+    ).toBe(false)
+    expect(
+      canAdvance(
+        variantHumanWith('Observant', {
+          ...otherPicks,
+          [asiChoicePickId('observant')]: ['Wisdom'],
+        }),
+        'skills',
+      ),
+    ).toBe(true)
+  })
+})
+
+describe('fighting style at creation', () => {
+  const fighter = (picks: Record<string, Array<string>> = {}) =>
+    withScores(
+      {
+        ...emptyDraft(SRD_TABLES),
+        name: 'Aldric',
+        className: 'Fighter',
+        picks,
+      },
+      { str: 15, dex: 12, con: 14, int: 10, wis: 10, cha: 8 },
+    )
+
+  it('offers the choice on the class step', () => {
+    const ids = draftOwnedPickLists(fighter()).map((o) => o.pick.id)
+    expect(ids).toContain('fighter-fighting-style')
+  })
+
+  it('writes the chosen style onto the sheet with its rules text', () => {
+    const { character } = buildCharacter(
+      fighter({ 'fighter-fighting-style': ['Defense'] }),
+    )
+    const row = character.features.find(
+      (f) => f.name === 'Fighting Style: Defense',
+    )
+    expect(row).toBeDefined()
+    expect(row?.text).toContain('+1 AC')
+  })
+
+  it('gates the skills step until a style is chosen', () => {
+    expect(
+      canAdvance(
+        fighter({ 'fighter-skills': ['athletics', 'survival'] }),
+        'skills',
+      ),
+    ).toBe(false)
+    expect(
+      canAdvance(
+        fighter({
+          'fighter-skills': ['athletics', 'survival'],
+          'fighter-fighting-style': ['Archery'],
+        }),
+        'skills',
+      ),
+    ).toBe(true)
+  })
+
+  it('never asks about a feature gained above level 1', () => {
+    // Extra Attack is 5th level and Champion's second style 10th; neither is a
+    // question a level-1 character should be answering.
+    const ids = draftOwnedPickLists(fighter()).map((o) => o.pick.id)
+    expect(ids).not.toContain('champion-second-fighting-style')
+    expect(ids.some((id) => id.includes('maneuvers'))).toBe(false)
+  })
+
+  it('leaves a class with no level-1 feature picks alone', () => {
+    const wizard = withScores(
+      { ...emptyDraft(SRD_TABLES), className: 'Wizard' },
+      { str: 8, dex: 14, con: 14, int: 15, wis: 12, cha: 10 },
+    )
+    const ids = draftOwnedPickLists(wizard).map((o) => o.pick.id)
+    expect(ids.some((id) => id.includes('fighting-style'))).toBe(false)
+  })
+})
+
+describe('fighting style grants', () => {
+  /** A fighter in chain mail — option 0 of the kit's armour choice. */
+  const fighter = (picks: Record<string, Array<string>> = {}) =>
+    withScores(
+      {
+        ...emptyDraft(SRD_TABLES),
+        name: 'Aldric',
+        className: 'Fighter',
+        equipment: { 'fighter-armor': 0 },
+        picks,
+      },
+      { str: 15, dex: 12, con: 14, int: 10, wis: 10, cha: 8 },
+    )
+
+  const acOf = (style?: string) =>
+    buildCharacter(fighter(style ? { 'fighter-fighting-style': [style] } : {}))
+      .character.ac
+
+  it('gives Defense its +1 AC on top of the armour worn', () => {
+    const withDefense = buildCharacter(
+      fighter({ 'fighter-fighting-style': ['Defense'] }),
+    ).character
+    const without = buildCharacter(
+      fighter({ 'fighter-fighting-style': ['Archery'] }),
+    ).character
+    expect(withDefense.ac).toBe(without.ac + 1)
+  })
+
+  it('grants nothing for a style whose effect this app does not model', () => {
+    // Archery's "+2 to ranged attack rolls" is a combat rule, not a sheet
+    // number. An empty grant is correct rather than incomplete.
+    expect(acOf('Archery')).toBe(acOf(undefined))
+  })
+
+  it('applies the bonus once, however the row is de-duped', () => {
+    const { character } = buildCharacter(
+      fighter({ 'fighter-fighting-style': ['Defense', 'Defense'] }),
+    )
+    const rows = character.features.filter(
+      (f) => f.name === 'Fighting Style: Defense',
+    )
+    expect(rows).toHaveLength(1)
+    expect(character.ac).toBe(
+      buildCharacter(fighter({ 'fighter-fighting-style': ['Defense'] }))
+        .character.ac,
+    )
+  })
+})
+
+describe('AC is derived once at creation', () => {
+  it('counts a Defense bonus exactly once, not once per apply path', () => {
+    // `applyGrant` increments `c.ac` for the level-up path's benefit, and
+    // `buildCharacter` then assigns the derived value over it. If that ordering
+    // is ever broken the fighter silently starts with +2.
+    const withDefense = buildCharacter(
+      withScores(
+        {
+          ...emptyDraft(SRD_TABLES),
+          className: 'Fighter',
+          equipment: { 'fighter-armor': 0 },
+          picks: { 'fighter-fighting-style': ['Defense'] },
+        },
+        { str: 15, dex: 12, con: 14, int: 10, wis: 10, cha: 8 },
+      ),
+    ).character
+    // Chain mail is AC 16 flat, no Dexterity. Defense makes it 17 — never 18.
+    expect(withDefense.ac).toBe(17)
   })
 })

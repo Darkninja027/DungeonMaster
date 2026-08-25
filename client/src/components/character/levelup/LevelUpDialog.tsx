@@ -26,6 +26,7 @@ import {
   AsiStep,
   FeaturesStep,
   HpStep,
+  PicksStep,
   ReviewStep,
   SpellsStep,
   SubclassStep,
@@ -39,6 +40,10 @@ const STEP_HEADINGS: Record<LevelUpStepId, { title: string; blurb: string }> = {
     title: 'Ability Score Improvement',
     blurb: 'Two points, or a feat instead.',
   },
+  picks: {
+    title: 'Choices',
+    blurb: 'What your feats and features let you choose.',
+  },
   spells: { title: 'Spells', blurb: 'Your slots for the new level.' },
   review: { title: 'Review', blurb: 'Everything this will change.' },
 }
@@ -48,6 +53,7 @@ const STEP_TITLES: Record<LevelUpStepId, string> = {
   features: 'Features',
   subclass: 'Subclass',
   asi: 'Ability scores',
+  picks: 'Choices',
   spells: 'Spells',
   review: 'Review',
 }
@@ -131,6 +137,9 @@ export function LevelUpDialog({
         current.to,
         current.kit ?? kit,
         current.feats.length > 0 ? current.feats : tables.feats,
+        // Carried across the rebuild: an archetype already chosen must keep the
+        // features it revealed, or they silently arrive unticked.
+        current.subclassName,
       )
     })
   }, [toLevel, kit, tables.feats])
@@ -217,6 +226,13 @@ export function LevelUpDialog({
                   )}
                   {step === 'asi' && (
                     <AsiStep
+                      character={draft.base}
+                      draft={draft}
+                      onChange={setDraft}
+                    />
+                  )}
+                  {step === 'picks' && (
+                    <PicksStep
                       character={draft.base}
                       draft={draft}
                       onChange={setDraft}

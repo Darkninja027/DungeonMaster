@@ -8,6 +8,7 @@ import type { CharacterDraft, OwnedPickList } from '#/lib/characterDraft'
 import {
   draftOwnedPickLists,
   eligibleExpertise,
+  grantedFor,
   grantedSkills,
   picked,
 } from '#/lib/characterDraft'
@@ -126,11 +127,10 @@ export function SkillsStep({
                 ? eligibleExpertise(draft, pick)
                 : undefined
             }
-            alreadyGranted={
-              pick.kind === 'skill' || pick.kind === 'skillOrTool'
-                ? grantedSkills(draft, pick.id)
-                : undefined
-            }
+            // Every kind a grant can hand over outright, not just skills: a
+            // language the player already speaks is greyed with its source
+            // named, rather than silently swallowed by `mergeList` at commit.
+            alreadyGranted={grantedFor(draft, pick.kind, pick.id)}
             suggestions={suggestionsFor(pick)}
             // Only `skillOrTool` splits its answers across the two controls;
             // every other kind's combobox is a free-text tail on its own list.

@@ -145,6 +145,41 @@ export interface SpellSlots {
   used: number
 }
 
+/**
+ * A counter the player tracks between rests — superiority dice, rage uses, ki
+ * points, sorcery points, bardic inspiration.
+ *
+ * `used`/`total` rather than a bare remaining count, matching `SpellSlots` and
+ * `hitDice`: every expendable on this sheet spends upward from zero, so the
+ * three read and clamp the same way.
+ *
+ * Deliberately **player-authored and never derived**. The tables know that a
+ * Battle Master has four superiority dice at 3rd level, and the level-up wizard
+ * may offer to add the row — but nothing recomputes `total` afterwards. A
+ * number the player has tuned is theirs, and a rules engine that silently
+ * corrected it is exactly what this app is not. See MAX_RESOURCES.
+ */
+export interface CharacterResource {
+  /** What the player calls it. Free text — "Superiority Dice", "Rage". */
+  name: string
+  used: number
+  total: number
+  /**
+   * Which rest refills it, when the player has said. Shown as a hint on the
+   * sheet and never enforced — nothing in this app runs a rest.
+   */
+  resets?: 'short' | 'long'
+}
+
+/**
+ * How many resources one character may track.
+ *
+ * A cap rather than an unbounded list because these share the sheet's Combat
+ * column with hit dice and death saves, and because a character needing a
+ * fourth counter is better served by the Features tab than by a longer column.
+ */
+export const MAX_RESOURCES = 3
+
 export interface Spell {
   /** Plain text or a [[wiki link]] to the spell's article. */
   name: string
@@ -591,6 +626,11 @@ export interface Character {
   encumbrance: EncumbranceSettings
   /** How many items may be attuned at once. 3 by RAW; homebrew varies. */
   attunementSlots: number
+  /**
+   * Player-authored counters, at most `MAX_RESOURCES`. Empty for most
+   * characters, and omitted from the frontmatter entirely while empty.
+   */
+  resources: Array<CharacterResource>
   notes: Array<CharacterNote>
 }
 
@@ -633,6 +673,7 @@ export function emptyCharacter(): Character {
     inventory: [],
     encumbrance: { enabled: false, countCoins: true },
     attunementSlots: DEFAULT_ATTUNEMENT_SLOTS,
+    resources: [],
     notes: [],
   }
 }
@@ -1657,6 +1698,22 @@ function serializeSpell(spell: Spell): Record<string, unknown> {
  * tags existed round-trip byte-identically instead of growing a `title: null`
  * on every entry.
  */
+/**
+ * One resource row. `resets` is written only when the player set it, so a
+ * counter they never labelled stays a three-key row.
+ */
+function serializeResource(
+  resource: CharacterResource,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {
+    name: resource.name,
+    used: resource.used,
+    total: resource.total,
+  }
+  if (resource.resets) out.resets = resource.resets
+  return out
+}
+
 function serializeNote(note: CharacterNote): Record<string, unknown> {
   const out: Record<string, unknown> = { at: note.at }
   if (note.title?.trim()) out.title = note.title.trim()
@@ -1864,6 +1921,32 @@ export function parseCharacter(content: string): {
     0,
     Math.floor(num(r.preparedLimit, c.preparedLimit)),
   )
+  if (Array.isArray(r.resources)) {
+    c.resources = r.resources
+      .flatMap((entry): Array<CharacterResource> => {
+        // A bare string is a counter somebody typed into the YAML with no
+        // numbers yet — keep it as an empty tracker rather than dropping the
+        // name they wrote.
+        if (typeof entry === 'string') {
+          return entry.trim() ? [{ name: entry.trim(), used: 0, total: 0 }] : []
+        }
+        if (typeof entry !== 'object' || entry === null) return []
+        const row = entry as Record<string, unknown>
+        const name = str(row.name, '').trim()
+        if (name === '') return []
+        const total = Math.max(0, Math.floor(num(row.total, 0)))
+        // Clamped into the total the same way `hitDice.used` and
+        // `spellSlots[n].used` are, so a hand-edited file can't show four dice
+        // spent out of three.
+        const used = Math.max(0, Math.min(total, Math.floor(num(row.used, 0))))
+        const resource: CharacterResource = { name, used, total }
+        if (row.resets === 'short' || row.resets === 'long') {
+          resource.resets = row.resets
+        }
+        return [resource]
+      })
+      .slice(0, MAX_RESOURCES)
+  }
   if (Array.isArray(r.notes)) {
     c.notes = r.notes.flatMap((entry): Array<CharacterNote> => {
       // A bare string is a note somebody typed straight into the YAML list;
@@ -1950,6 +2033,13 @@ export function serializeCharacter(character: Character, body: string): string {
     inventory: serializeInventory(character.inventory),
     encumbrance: character.encumbrance,
     attunementSlots: character.attunementSlots,
+    // Omitted while empty, exactly as the extra speeds and an unpinned
+    // `hitDice.total` are: a character with no counters serializes as it did
+    // before this field existed, so opening and saving an old sheet adds
+    // nothing to its frontmatter.
+    ...(character.resources.length > 0
+      ? { resources: character.resources.map(serializeResource) }
+      : {}),
     notes: character.notes.map(serializeNote),
   }
   const yaml = stringifyYaml(data).trimEnd()

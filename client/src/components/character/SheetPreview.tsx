@@ -834,6 +834,27 @@ function CorePage({
                   </span>
                 </span>
               </div>
+
+              {/*
+                Trackers, on their own line and only when the character has any.
+                Rendered inside the combat block rather than as a new section
+                because this page is budgeted to the pixel — an always-present
+                row would cost every character a line to say nothing. Same
+                "remaining/total" reading as hit dice directly above.
+              */}
+              {c.resources.length > 0 && (
+                <div className="dnd-cs-combat-foot">
+                  {c.resources.map((resource, i) => (
+                    <span key={i}>
+                      {resource.name}{' '}
+                      <strong>
+                        {Math.max(0, resource.total - resource.used)}/
+                        {resource.total}
+                      </strong>
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* Spellcasting ability / DC / attack live on the Spellcasting

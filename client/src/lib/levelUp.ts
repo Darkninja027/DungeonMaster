@@ -17,10 +17,38 @@
  * call; autosave takes it from there.
  */
 
-import { ABILITIES, abilityMod, proficiencyBonus, setLevel } from './character'
-import type { Ability, Character, ClassFeature } from './character'
-import type { ClassKit, FeatInfo, Grant } from './srd'
-import { DEFAULT_SUBCLASS_LEVEL, findFeat, subclassLevelOf } from './tables'
+import {
+  ABILITIES,
+  MAX_RESOURCES,
+  abilityMod,
+  proficiencyBonus,
+  setLevel,
+} from './character'
+import type {
+  Ability,
+  Character,
+  CharacterResource,
+  ClassFeature,
+} from './character'
+import { applyFeaturePick, applyPick } from './buildCharacter'
+import {
+  abilityForChoice,
+  asiChoicePick,
+  asiChoicePickId,
+} from './characterDraft'
+import type {
+  ClassFeatureInfo,
+  ClassKit,
+  FeatInfo,
+  Grant,
+  PickList,
+} from './srd'
+import {
+  DEFAULT_SUBCLASS_LEVEL,
+  findFeat,
+  findSubclass,
+  subclassLevelOf,
+} from './tables'
 
 /** How the player wants to gain hit points for the levels being taken. */
 export type HpMethod = 'roll' | 'average' | 'manual'
@@ -61,10 +89,39 @@ export interface LevelUpDraft {
   }
   /** Feature names the player is taking. Everything is opt-in. */
   takeFeatures: Array<string>
-  /** ASI choices, keyed by the level they're taken at. */
-  asi: Record<number, AsiChoice>
+  /**
+   * ASI choices, keyed by the level they're taken at.
+   *
+   * Sparse: `emptyLevelUpDraft` seeds every crossed level, but a draft
+   * assembled by hand — or one whose level range moved — may not have an entry
+   * for each, so every read has to cope with a miss.
+   */
+  asi: Record<number, AsiChoice | undefined>
   /** Set only when this level-up crosses the class's subclass level. */
   subclassName: string
+  /**
+   * Answers to the choices this level-up poses, keyed by `PickList.id` — the
+   * same keyspace and the same shape as `CharacterDraft.picks`.
+   *
+   * Level-up used to have nowhere to put these, so `applyFeatGrants` dropped
+   * `grant.picks` on the floor and a feat taken at 4th level granted strictly
+   * less than the same feat taken at 1st. Fourteen published feats were affected
+   * — Skilled handed out three proficiencies to a Variant Human and none to
+   * anybody else.
+   */
+  picks: Record<string, Array<string> | undefined>
+  /**
+   * Resource rows offered by features gained here, keyed by resource name, and
+   * only the ones the player has kept. Pre-filled from the feature's own
+   * suggestion; editable and removable before commit.
+   */
+  resources: Record<
+    string,
+    // Sparse, and the `undefined` is load-bearing: a row the player dropped is
+    // deleted from this record, so "absent" is the answer "no thanks" and
+    // every read has to cope with it.
+    { total: number; resets?: 'short' | 'long' } | undefined
+  >
 }
 
 export interface AsiChoice {
@@ -107,6 +164,12 @@ export function emptyLevelUpDraft(
   kit: ClassKit | undefined,
   /** Defaulted: a caller with no feat table just gets the free-text behaviour. */
   feats: Array<FeatInfo> = [],
+  /**
+   * The subclass to seed against, when it is already known — a rebuild of a
+   * draft whose archetype the player has chosen. Defaults to the character's
+   * own, which is right for a fresh draft.
+   */
+  subclassName: string = c.subclass,
 ): LevelUpDraft {
   const from = c.level
   const gained = Math.max(0, to - from)
@@ -123,12 +186,64 @@ export function emptyLevelUpDraft(
     },
     // Everything the kit offers is pre-selected: the common case is taking
     // what your class gives you, and unticking is easier than hunting.
-    takeFeatures: featuresGained(c, from, to, kit).map((f) => f.name),
+    takeFeatures: featuresGained(c, from, to, kit, subclassName).map(
+      (f) => f.name,
+    ),
     asi: Object.fromEntries(
       asiLevelsCrossed(from, to, kit).map((level) => [level, emptyAsiChoice()]),
     ),
-    subclassName: c.subclass,
+    subclassName,
+    picks: {},
+    resources: {},
   }
+}
+
+/**
+ * Choose a subclass, re-offering the features that choice reveals.
+ *
+ * `emptyLevelUpDraft` pre-selects everything on offer, because taking what your
+ * class gives you is the common case and unticking is easier than hunting. An
+ * archetype picked *after* that seeding would otherwise arrive with all its
+ * features unticked — the one case where the wizard silently defaults to "no".
+ *
+ * Only adds. A feature the player has deliberately unticked stays unticked, and
+ * switching archetype leaves the previous one's names in the list, where they
+ * are harmless: `levelUpPlan` intersects `takeFeatures` with what is actually
+ * on offer, so a name with no matching feature grants nothing.
+ */
+/**
+ * Feature names to pre-select for a draft, given the subclass in play.
+ *
+ * `emptyLevelUpDraft` seeds `takeFeatures` from the character's *existing*
+ * subclass, because that is all it knows. An archetype chosen later reveals
+ * features that seeding never saw, and they would arrive unticked — the one
+ * place the wizard silently defaults to "no". Both `chooseSubclass` and the
+ * dialog's rebuild-on-tables-arriving path go through here so neither can
+ * forget.
+ */
+function offeredFeatureNames(
+  draft: LevelUpDraft,
+  subclassName: string,
+): Array<string> {
+  return featuresGained(
+    draft.base,
+    draft.from,
+    draft.to,
+    draft.kit,
+    subclassName,
+  ).map((f) => f.name)
+}
+
+export function chooseSubclass(
+  draft: LevelUpDraft,
+  subclassName: string,
+): LevelUpDraft {
+  const next = { ...draft, subclassName }
+  const revealed = offeredFeatureNames(draft, subclassName)
+  const have = new Set(draft.takeFeatures.map((n) => n.trim().toLowerCase()))
+  const added = revealed.filter((n) => !have.has(n.trim().toLowerCase()))
+  if (added.length === 0) return next
+  return { ...next, takeFeatures: [...draft.takeFeatures, ...added] }
 }
 
 // --- What this level-up offers ---------------------------------------------
@@ -141,25 +256,38 @@ export function levelsGained(from: number, to: number): Array<number> {
 }
 
 /**
- * Class features gained in this range, minus any the sheet already lists.
+ * Class *and subclass* features gained in this range, minus any the sheet
+ * already lists.
  *
  * The de-dupe matters: `ClassFeature`'s own doc says features above the
  * character's level are kept so you can plan a build ahead, so a sheet that
  * already has "Extra Attack (Lv5)" is legal data, not a mistake — granting it
  * again would leave a duplicate row the player then has to clean up.
+ *
+ * The two sources run through one code path, which is what `SubclassInfo`'s doc
+ * has always claimed and what this function did not actually do: it read
+ * `kit.features` alone, so a Battle Master gained nothing from being a Battle
+ * Master at any level. `subclassName` is taken as an argument rather than read
+ * off `c.subclass` because the archetype may be getting chosen *in this very
+ * level-up* — a Fighter reaching 3rd level picks Battle Master and gains its
+ * 3rd-level features in the same pass, and the character doesn't know its own
+ * subclass until the commit lands.
  */
 export function featuresGained(
   c: Character,
   from: number,
   to: number,
   kit: ClassKit | undefined,
+  /** Defaulted so callers with no subclass in hand keep the old behaviour. */
+  subclassName: string = c.subclass,
 ): Array<ClassFeature> {
   if (!kit) return []
   const range = new Set(levelsGained(from, to))
   const have = new Set(
     c.features.map((f) => `${f.level}:${f.name.trim().toLowerCase()}`),
   )
-  return kit.features
+  const subclass = findSubclass(kit, subclassName)
+  return [...kit.features, ...(subclass?.features ?? [])]
     .filter((f) => range.has(f.level))
     .filter((f) => !have.has(`${f.level}:${f.name.trim().toLowerCase()}`))
     .map((f): ClassFeature =>
@@ -243,6 +371,247 @@ export function cantripsAtLevel(
   return best
 }
 
+/**
+ * Where a level-up pick came from, so the step can say "From the Skilled feat"
+ * rather than showing three unattributed skill slots.
+ *
+ * The level-up counterpart of `OwnedPickList` in characterDraft.ts, and
+ * deliberately the same shape: one step renders both, and a second shape would
+ * mean a second renderer.
+ */
+export interface LevelUpPick {
+  pick: PickList
+  owner: string
+  ownerKind: 'feat' | 'class' | 'subclass'
+}
+
+/**
+ * Every choice this level-up poses, in the order they should be answered.
+ *
+ * Two sources: feats taken at any ASI level crossed here, and features gained
+ * from the class or the chosen subclass. Both were previously silent — a feat's
+ * picks were dropped at commit, and a feature had no way to carry one at all.
+ *
+ * `expertise` picks sort last, the same rule `draftOwnedPickLists` follows: what
+ * you may double depends on what you are proficient in, so a Skill Expert's two
+ * halves have to be answered in that order or the second offers nothing.
+ */
+export function levelUpPicks(draft: LevelUpDraft): Array<LevelUpPick> {
+  const out: Array<LevelUpPick> = []
+
+  // Feats first: an ASI is chosen before the features step in every layout, and
+  // a feat's picks are the ones a player is most likely to be waiting on.
+  const already = new Set(
+    draft.base.feats.map((f) => f.name.trim().toLowerCase()),
+  )
+  for (const name of featsTaken(draft)) {
+    // A feat the character already had grants nothing on a re-take, so it must
+    // not ask anything either — `applyLevelUp` refuses to add it twice.
+    if (already.has(name.trim().toLowerCase())) continue
+    already.add(name.trim().toLowerCase())
+    const feat = findFeat(draft.feats, name)
+    if (feat) {
+      const choice = asiChoicePick(feat)
+      if (choice)
+        out.push({ pick: choice, owner: feat.name, ownerKind: 'feat' })
+    }
+    for (const pick of feat?.grant.picks ?? []) {
+      out.push({ pick, owner: feat?.name ?? name, ownerKind: 'feat' })
+    }
+  }
+
+  // Then the features actually being taken. Intersected with `takeFeatures`
+  // because features are opt-in: a player who unticked Combat Superiority is
+  // not asked to choose manoeuvres for it.
+  const taking = new Set(draft.takeFeatures.map((n) => n.trim().toLowerCase()))
+  const kit = draft.kit
+  if (kit) {
+    const subclass = findSubclass(
+      kit,
+      draft.subclassName || draft.base.subclass,
+    )
+    const range = new Set(levelsGained(draft.from, draft.to))
+    const sources: Array<[Array<ClassFeatureInfo>, LevelUpPick['ownerKind']]> =
+      [
+        [kit.features, 'class'],
+        [subclass?.features ?? [], 'subclass'],
+      ]
+    for (const [features, ownerKind] of sources) {
+      for (const feature of features) {
+        if (!range.has(feature.level)) continue
+        if (!taking.has(feature.name.trim().toLowerCase())) continue
+        for (const pick of feature.picks ?? []) {
+          out.push({ pick, owner: feature.name, ownerKind })
+        }
+      }
+    }
+  }
+
+  return [
+    ...out.filter((o) => o.pick.kind !== 'expertise'),
+    ...out.filter((o) => o.pick.kind === 'expertise'),
+  ]
+}
+
+/**
+ * Values a pick should grey out: ones the character already has, and ones
+ * already spent on another pick crossed in the same level-up.
+ *
+ * The level-up counterpart of the creation wizard's `grantedFor`. "Your sheet"
+ * is the only source it can name for what the character owns — unlike a draft,
+ * a finished character has forgotten which race or background handed each value
+ * over — but a value spent on another pick here is named by that pick's owner.
+ *
+ * Greyed rather than hidden, as everywhere else: a silently missing option
+ * reads as the app having lost the choice.
+ */
+export function grantedAlreadyAt(
+  c: Character,
+  draft: LevelUpDraft,
+  pick: PickList,
+  /** All picks this level-up poses; defaulted so callers need not thread it. */
+  picks: Array<LevelUpPick> = levelUpPicks(draft),
+): Map<string, string> {
+  const out = new Map<string, string>()
+
+  // Spent on a sibling pick of the same kind. A Battle Master going 6 -> 10
+  // crosses two manoeuvre picks at once, and each has to see the other's
+  // answers or the same manoeuvre can be taken twice.
+  for (const { pick: other, owner } of picks) {
+    if (other.id === pick.id || other.kind !== pick.kind) continue
+    for (const value of pickedAt(draft, other.id)) {
+      if (!out.has(value)) out.set(value, owner)
+    }
+  }
+
+  // A `feature` pick's answers live in `Character.features` under the row name
+  // the pick writes — "Manoeuvre: Riposte", not "Riposte" — so they are matched
+  // by that same construction rather than by the raw option. Without this a
+  // 7th-level Battle Master was offered the three manoeuvres they took at 3rd,
+  // and `applyFeaturePick` silently swallowed the duplicate.
+  if (pick.kind === 'feature') {
+    for (const option of pick.options) {
+      if (out.has(option)) continue
+      const name = pick.featureLabel
+        ? `${pick.featureLabel}: ${option}`
+        : option
+      if (c.features.some((f) => f.name.toLowerCase() === name.toLowerCase())) {
+        out.set(option, 'your sheet')
+      }
+    }
+    return out
+  }
+
+  const owned =
+    pick.kind === 'skill' || pick.kind === 'skillOrTool'
+      ? c.skills
+      : pick.kind === 'expertise'
+        ? c.expertise
+        : pick.kind === 'language'
+          ? c.languages
+          : pick.kind === 'tool'
+            ? c.tools
+            : []
+  for (const value of owned) {
+    if (!out.has(value)) out.set(value, 'your sheet')
+  }
+  return out
+}
+
+/**
+ * Skills this character may take expertise in — the ones they are already
+ * proficient with, plus any being granted by this same level-up.
+ *
+ * The level-up twin of `eligibleExpertise`, which takes a draft and so could
+ * never be reached from here. Without it Skill Expert's second pick offered the
+ * class's authored ceiling rather than the character's own skills, which is the
+ * thing that makes "two of *your* proficiencies" true.
+ */
+export function eligibleExpertiseAt(
+  c: Character,
+  draft: LevelUpDraft,
+  pick: PickList,
+): Array<string> {
+  const owned = new Set(c.skills)
+  // Skills granted by another pick in this same level-up count: Skill Expert
+  // grants a proficiency and an expertise together, and the whole point is that
+  // the second may double the first.
+  for (const { pick: other } of levelUpPicks(draft)) {
+    if (other.id === pick.id) continue
+    if (other.kind !== 'skill' && other.kind !== 'skillOrTool') continue
+    for (const value of draft.picks[other.id] ?? []) owned.add(value)
+  }
+  return pick.options.filter((id) => owned.has(id))
+}
+
+/** The values chosen for one level-up pick. */
+export function pickedAt(draft: LevelUpDraft, id: string): Array<string> {
+  return draft.picks[id] ?? []
+}
+
+/** Whether a level-up pick has exactly as many answers as it asked for. */
+export function pickSatisfiedAt(draft: LevelUpDraft, pick: PickList): boolean {
+  return pickedAt(draft, pick.id).length === pick.count
+}
+
+/**
+ * Resource rows this level-up offers, from the features being taken.
+ *
+ * Suggestions, not grants. The wizard pre-fills them and the player accepts,
+ * edits or drops each one — see `Character.resources`. A later feature naming
+ * the same resource supersedes an earlier one in the same level-up (a Battle
+ * Master going 3 -> 10 in one go should be offered five dice, not four).
+ */
+export function resourcesOffered(draft: LevelUpDraft): Array<{
+  name: string
+  total: number
+  resets?: 'short' | 'long'
+  /**
+   * What the sheet says today, when this counter is already tracked. Lets the
+   * step show "4 -> 5" rather than presenting a raise as a brand-new row.
+   */
+  from?: number
+}> {
+  const kit = draft.kit
+  if (!kit) return []
+  const taking = new Set(draft.takeFeatures.map((n) => n.trim().toLowerCase()))
+  const subclass = findSubclass(kit, draft.subclassName || draft.base.subclass)
+  const range = new Set(levelsGained(draft.from, draft.to))
+  const byName = new Map<
+    string,
+    { name: string; total: number; resets?: 'short' | 'long'; at: number }
+  >()
+  for (const feature of [...kit.features, ...(subclass?.features ?? [])]) {
+    if (!range.has(feature.level)) continue
+    if (!taking.has(feature.name.trim().toLowerCase())) continue
+    const offer = feature.resource
+    if (!offer) continue
+    const prior = byName.get(offer.name.toLowerCase())
+    if (prior && prior.at >= feature.level) continue
+    byName.set(offer.name.toLowerCase(), { ...offer, at: feature.level })
+  }
+  return [...byName.values()]
+    .sort((a, b) => a.at - b.at || a.name.localeCompare(b.name))
+    .flatMap(({ name, total, resets }) => {
+      const existing = draft.base.resources.find(
+        (r) => r.name.trim().toLowerCase() === name.trim().toLowerCase(),
+      )
+      // Nothing to offer when the sheet already meets or beats the table: a
+      // player who tuned their dice higher is not shown a downgrade, and an
+      // unchanged number is not worth a row in the step.
+      if (existing && existing.total >= total) return []
+      const offer: {
+        name: string
+        total: number
+        resets?: 'short' | 'long'
+        from?: number
+      } = { name, total }
+      if (resets) offer.resets = resets
+      if (existing) offer.from = existing.total
+      return [offer]
+    })
+}
+
 // --- The plan ---------------------------------------------------------------
 
 export interface SlotChange {
@@ -261,6 +630,14 @@ export interface LevelUpPlan {
   from: number
   to: number
   hpGained: number
+  /**
+   * Hit points owed for levels already held because this level-up raised the
+   * CON modifier, and hit points from a newly-taken Tough. Broken out from
+   * `hpGained` rather than folded into it so the summary panel can say *why*
+   * the maximum jumped by more than the dice explain.
+   */
+  hpRetroactive: number
+  hpFromFeats: number
   hpFrom: number
   hpTo: number
   hitDiceFrom: number
@@ -275,6 +652,11 @@ export interface LevelUpPlan {
   cantripsFrom: number | undefined
   cantripsTo: number | undefined
   subclassName: string | null
+  /**
+   * Counters to add, already filtered to the ones the player kept. Named rows
+   * rather than a count, so the summary can list them.
+   */
+  resources: Array<CharacterResource>
   preparedLimitFrom: number | undefined
   preparedLimitTo: number | undefined
 }
@@ -287,7 +669,11 @@ export interface LevelUpPlan {
 export function hpGained(c: Character, draft: LevelUpDraft): number {
   const levels = Math.max(0, draft.to - draft.from)
   if (levels === 0) return 0
-  const con = abilityMod(c.abilities.con)
+  // The CON the character will *have*, not the one they arrived with. An ASI
+  // taken in this same level-up raises the modifier before the new hit dice are
+  // rolled, so reading the pre-ASI score shorted every level bought alongside a
+  // +2 CON. `retroactiveHp` below covers the levels already held.
+  const con = abilityMod(c.abilities.con + (mergedAsi(draft).con ?? 0))
   const die = c.hitDice.size
 
   if (draft.hp.method === 'manual') {
@@ -305,6 +691,50 @@ export function hpGained(c: Character, draft: LevelUpDraft): number {
   return total
 }
 
+/**
+ * Hit points owed for levels the character *already had*, when this level-up
+ * raises the Constitution modifier.
+ *
+ * 5e is explicit that raising CON raises your maximum for every level, not just
+ * the ones bought afterwards. Without this a Fighter who took +2 CON at 4th
+ * level was three hit points short for the rest of their career, and the sheet
+ * disagreed with every other sheet at the table.
+ *
+ * Only ever positive: it reads the *modifier* gain, so two points that don't
+ * cross a modifier boundary correctly owe nothing, and a hand-lowered score
+ * yields zero rather than a negative — `applyLevelUp` never takes HP away.
+ */
+export function retroactiveHp(c: Character, draft: LevelUpDraft): number {
+  const points = mergedAsi(draft).con ?? 0
+  if (points <= 0) return 0
+  const before = abilityMod(c.abilities.con)
+  // The same 20 cap `applyLevelUp` applies, so the preview can't promise hit
+  // points the commit then declines to grant.
+  const after = abilityMod(Math.min(20, c.abilities.con + points))
+  return Math.max(0, after - before) * draft.from
+}
+
+/**
+ * Hit points from a feat taken in this level-up that raises the maximum per
+ * level — Tough, and any homebrew feat authored with `hpPerLevel`.
+ *
+ * Counted over the *whole* character, `draft.to` levels, because that is what
+ * Tough says: your maximum increases by 2 per character level, including the
+ * ones behind you. Only feats genuinely being added count, so re-taking a feat
+ * the sheet already lists grants nothing — the same rule `mergedAsi` uses for a
+ * half-feat's +1, and for the same reason.
+ */
+export function featHp(c: Character, draft: LevelUpDraft): number {
+  const already = new Set(c.feats.map((f) => f.name.trim().toLowerCase()))
+  let perLevel = 0
+  for (const name of featsTaken(draft)) {
+    if (already.has(name.trim().toLowerCase())) continue
+    already.add(name.trim().toLowerCase())
+    perLevel += findFeat(draft.feats, name)?.grant.hpPerLevel ?? 0
+  }
+  return perLevel * draft.to
+}
+
 /** Ability increases merged across every ASI taken in this level-up. */
 export function mergedAsi(
   draft: LevelUpDraft,
@@ -318,18 +748,36 @@ export function mergedAsi(
     draft.base.feats.map((f) => f.name.trim().toLowerCase()),
   )
   for (const choice of Object.values(draft.asi)) {
+    if (!choice) continue
     // A half-feat's own +1 counts however the ASI was spent — including for a
     // pure `feat` choice, where the points come from the feat rather than the
     // improvement. Resolved against the draft's captured feats, so an unknown
     // name contributes nothing, exactly as it does everywhere else.
-    const feat = already.has(choice.featName.trim().toLowerCase())
-      ? undefined
-      : findFeat(draft.feats, choice.featName)
+    const key = choice.featName.trim().toLowerCase()
+    const feat = already.has(key) ? undefined : findFeat(draft.feats, key)
+    // Grown as it goes, mirroring `applyLevelUp`'s own feat loop: a 4 -> 8
+    // level-up crosses three ASI levels chosen independently, and naming the
+    // same feat at two of them added its bump twice while `applyLevelUp`
+    // (correctly) added the feat once. The two halves have to agree.
+    if (feat) already.add(key)
     if (choice.kind !== 'abilities' && feat?.asi) {
       for (const ability of ABILITIES) {
         const points = feat.asi[ability]
         if (!points) continue
         out[ability] = (out[ability] ?? 0) + points
+      }
+    }
+    // A half-feat whose +1 is the player's to place. Worth nothing until they
+    // place it — unanswered, the point simply is not granted, which is right:
+    // the alternative is guessing an ability on their behalf, and guessing is
+    // the bug this replaced.
+    if (choice.kind !== 'abilities' && feat?.asiChoice) {
+      const answer = draft.picks[asiChoicePickId(feat.id)]?.[0]
+      const ability = answer ? abilityForChoice(answer) : undefined
+      // Only an ability the feat actually offered; a typed answer outside the
+      // list is ignored rather than quietly widening the feat.
+      if (ability && feat.asiChoice.includes(ability)) {
+        out[ability] = (out[ability] ?? 0) + 1
       }
     }
     // `both` raises an ability as well as granting a feat.
@@ -343,20 +791,83 @@ export function mergedAsi(
   return out
 }
 
+/**
+ * Ability scores as they stand when one ASI level is being chosen — the
+ * character's own, plus everything spent at *earlier* ASI levels in this same
+ * level-up.
+ *
+ * Every ASI level used to read `draft.base` directly, so all five a Fighter
+ * crosses on the way to 20 showed the same starting score. A player who took
+ * Strength 16 -> 18 at the first was still shown 16 at the next four, could
+ * "raise to 18" at each, and watched the summary total 20 while every stepper
+ * claimed 18. The steppers were each right about a different question and none
+ * of them was the one being asked.
+ *
+ * Excludes the level being chosen, so the stepper still shows what you are
+ * raising *from*. Half-feat bumps count too — they are spent points like any
+ * other.
+ */
+export function abilitiesBefore(
+  draft: LevelUpDraft,
+  atLevel: number,
+): Record<Ability, number> {
+  const out = { ...draft.base.abilities }
+  const already = new Set(
+    draft.base.feats.map((f) => f.name.trim().toLowerCase()),
+  )
+  for (const level of asiLevelsCrossed(draft.from, draft.to, draft.kit)) {
+    if (level >= atLevel) continue
+    const choice = draft.asi[level]
+    if (!choice) continue
+
+    const key = choice.featName.trim().toLowerCase()
+    const feat = already.has(key) ? undefined : findFeat(draft.feats, key)
+    if (feat) already.add(key)
+
+    if (choice.kind !== 'abilities' && feat?.asi) {
+      for (const ability of ABILITIES) {
+        out[ability] += feat.asi[ability] ?? 0
+      }
+    }
+    if (choice.kind !== 'abilities' && feat?.asiChoice) {
+      const answer = draft.picks[asiChoicePickId(feat.id)]?.[0]
+      const ability = answer ? abilityForChoice(answer) : undefined
+      if (ability && feat.asiChoice.includes(ability)) out[ability] += 1
+    }
+    if (choice.kind === 'feat') continue
+    for (const ability of ABILITIES) {
+      out[ability] += choice.abilities[ability] ?? 0
+    }
+  }
+  // The same cap `applyLevelUp` applies, so a stepper can never offer a point
+  // the commit would then decline to grant.
+  for (const ability of ABILITIES) out[ability] = Math.min(20, out[ability])
+  return out
+}
+
 /** Feat names taken via ASI in this level-up, blanks dropped. */
 export function featsTaken(draft: LevelUpDraft): Array<string> {
   return Object.values(draft.asi)
-    .filter((choice) => choice.kind !== 'abilities')
+    .filter(
+      (choice): choice is AsiChoice =>
+        choice !== undefined && choice.kind !== 'abilities',
+    )
     .map((choice) => choice.featName.trim())
     .filter(Boolean)
 }
 
 export function levelUpPlan(c: Character, draft: LevelUpDraft): LevelUpPlan {
   const gained = hpGained(c, draft)
+  const retroactive = retroactiveHp(c, draft)
+  const fromFeats = featHp(c, draft)
   const taking = new Set(draft.takeFeatures.map((n) => n.trim().toLowerCase()))
-  const features = featuresGained(c, draft.from, draft.to, draft.kit).filter(
-    (f) => taking.has(f.name.trim().toLowerCase()),
-  )
+  const features = featuresGained(
+    c,
+    draft.from,
+    draft.to,
+    draft.kit,
+    draft.subclassName || c.subclass,
+  ).filter((f) => taking.has(f.name.trim().toLowerCase()))
 
   const before = slotsAtLevel(draft.kit, draft.from) ?? []
   const after = slotsAtLevel(draft.kit, draft.to) ?? []
@@ -390,8 +901,10 @@ export function levelUpPlan(c: Character, draft: LevelUpDraft): LevelUpPlan {
     from: draft.from,
     to: draft.to,
     hpGained: gained,
+    hpRetroactive: retroactive,
+    hpFromFeats: fromFeats,
     hpFrom: c.hp.max,
-    hpTo: c.hp.max + gained,
+    hpTo: c.hp.max + gained + retroactive + fromFeats,
     hitDiceFrom: c.hitDice.total,
     hitDiceTo: setLevel(c, draft.to).hitDice.total,
     proficiencyFrom: proficiencyBonus(c.level),
@@ -407,6 +920,22 @@ export function levelUpPlan(c: Character, draft: LevelUpDraft): LevelUpPlan {
       draft.subclassName.trim() !== ''
         ? draft.subclassName.trim()
         : null,
+    // Only the offers the player kept — `draft.resources` is keyed by name and
+    // a dropped row is deleted from it, so an offer with no entry is one they
+    // said no to. Fresh counters start unspent.
+    resources: resourcesOffered(draft).flatMap(
+      (offer): Array<CharacterResource> => {
+        const kept = draft.resources[offer.name]
+        if (!kept) return []
+        const row: CharacterResource = {
+          name: offer.name,
+          used: 0,
+          total: kept.total,
+        }
+        if (kept.resets) row.resets = kept.resets
+        return [row]
+      },
+    ),
     preparedLimitFrom: c.preparedLimit || undefined,
     preparedLimitTo:
       preparedLimitTo === c.preparedLimit ? undefined : preparedLimitTo,
@@ -443,11 +972,14 @@ function addTo(into: Array<string>, from: Array<string> | undefined) {
  * Every field here **adds**; nothing is removed, replaced or lowered, which is
  * `applyLevelUp`'s whole contract. Two things are deliberately left out:
  *
- * - `picks` — an unresolved choice needs a UI to resolve it, and the level-up
- *   ASI step has no pick control. A feat whose grant is entirely a pick still
- *   lands on the sheet by name for the player to fill in by hand.
  * - `traits` — those go to `Character.traits`, which the sheet labels "Racial".
  *   A feat's rules text belongs with the feat, and the feat is already there.
+ *
+ * `picks` used to be listed here too, dropped because "an unresolved choice
+ * needs a UI to resolve it". It has one now — the picks step — so the answers
+ * are applied by `applyLevelUpPicks` below, through the very same `applyPick`
+ * the creation wizard uses. That was the whole bug: Skilled granted three
+ * proficiencies at level 1 and nothing at level 4.
  *
  * `spells` *is* applied, unlike those two: a fixed spell needs no UI to resolve
  * — Fey Touched's misty step is known from the feat alone — and appending a
@@ -478,6 +1010,11 @@ function applyFeatGrants(c: Character, grants: Array<Grant>): Character {
       // Only feats not already on the sheet reach this, which is what stops a
       // re-take stacking the bonus.
       initiativeBonus: next.initiativeBonus + (grant.initiativeBonus ?? 0),
+      // Raised, never lowered, like every other number here. Unlike creation
+      // this does not re-check for armour: `computeAc` is not re-run at
+      // level-up at all, so AC is whatever the player has on their sheet and
+      // this adds to it rather than deriving it afresh.
+      ac: next.ac + (grant.acBonus ?? 0),
       // Appended, never replacing a row the player already has: matched on name
       // *and* level so a caster who knows Misty Step keeps their own copy — and
       // whatever they'd set on it — rather than getting a second, blanker one.
@@ -497,6 +1034,47 @@ function applyFeatGrants(c: Character, grants: Array<Grant>): Character {
   return next
 }
 
+/**
+ * Merge every resolved pick into the character.
+ *
+ * Runs through `applyPick` / `applyFeaturePick` — the creation wizard's own
+ * routing — so a feat grants exactly the same thing whether it was taken at
+ * level 1 or at level 12. Two copies of that switch would have drifted the
+ * first time a kind was added, which is why it moved to buildCharacter.ts and
+ * is imported rather than reimplemented.
+ *
+ * `applyPick` mutates, and everything above here is copy-on-write, so the
+ * character is cloned once before it is handed over. The mutation is confined
+ * to that clone; the caller's input is untouched, as `applyLevelUp` promises.
+ */
+export function applyLevelUpPicks(
+  c: Character,
+  draft: LevelUpDraft,
+): Character {
+  const picks = levelUpPicks(draft)
+  if (picks.length === 0) return c
+  const next: Character = {
+    ...c,
+    skills: [...c.skills],
+    saves: [...c.saves],
+    expertise: [...c.expertise],
+    tools: [...c.tools],
+    languages: [...c.languages],
+    weapons: [...c.weapons],
+    armor: [...c.armor],
+    spells: [...c.spells],
+    features: [...c.features],
+    inventory: [...c.inventory],
+  }
+  for (const { pick } of picks) {
+    const values = pickedAt(draft, pick.id).filter(Boolean)
+    if (values.length === 0) continue
+    if (pick.kind === 'feature') applyFeaturePick(next, pick, values)
+    else applyPick(next, pick.kind, values)
+  }
+  return next
+}
+
 export function applyLevelUp(c: Character, draft: LevelUpDraft): Character {
   if (draft.to <= draft.from) return c
   const plan = levelUpPlan(c, draft)
@@ -508,7 +1086,7 @@ export function applyLevelUp(c: Character, draft: LevelUpDraft): Character {
     ...next,
     hp: {
       ...next.hp,
-      max: next.hp.max + plan.hpGained,
+      max: next.hp.max + plan.hpGained + plan.hpRetroactive + plan.hpFromFeats,
       // `current` is deliberately untouched: how hurt you are is a fact about
       // the fiction, not something a level-up gets to decide. Healing to full
       // is the player's call.
@@ -561,6 +1139,56 @@ export function applyLevelUp(c: Character, draft: LevelUpDraft): Character {
       .map((f) => findFeat(draft.feats, f.name)?.grant)
       .filter((g): g is NonNullable<typeof g> => g !== undefined)
     if (grants.length > 0) next = applyFeatGrants(next, grants)
+
+    // Resilient's saving throw follows the ability the player chose, so it
+    // cannot be a fixed `grant.saves` — one written before anyone has chosen
+    // handed a Resilient (Strength) character a Constitution save.
+    for (const { name } of added) {
+      const feat = findFeat(draft.feats, name)
+      if (!feat?.grantsSaveForAsiChoice) continue
+      const answer = draft.picks[asiChoicePickId(feat.id)]?.[0]
+      const ability = answer ? abilityForChoice(answer) : undefined
+      if (!ability || !feat.asiChoice?.includes(ability)) continue
+      if (!next.saves.includes(ability)) {
+        next = { ...next, saves: [...next.saves, ability] }
+      }
+    }
+  }
+
+  // The answers to everything this level-up asked. Additive like the rest: the
+  // shared `applyPick` merges into the character's own lists and never replaces
+  // a value already there.
+  next = applyLevelUpPicks(next, draft)
+
+  if (plan.resources.length > 0) {
+    // A counter already on the sheet is **raised**, not replaced: a Battle
+    // Master reaching 10th level has five superiority dice, and a row stuck at
+    // four is the sheet disagreeing with the feature directly above it. Raising
+    // is what `applyLevelUp` is allowed to do — it is `Math.max`, so a total the
+    // player has tuned *higher* than the table (a magic item, a house rule)
+    // keeps their number, exactly like a spell slot.
+    //
+    // `used` rides along untouched, so a Battle Master who has spent two dice
+    // still has two spent — gaining a die is not the same as regaining one.
+    const offered = new Map(
+      plan.resources.map((r) => [r.name.trim().toLowerCase(), r]),
+    )
+    const resources = next.resources.map((row) => {
+      const offer = offered.get(row.name.trim().toLowerCase())
+      if (!offer) return row
+      offered.delete(row.name.trim().toLowerCase())
+      return offer.total > row.total ? { ...row, total: offer.total } : row
+    })
+    // Whatever was left is genuinely new. Capped, and a row that would push
+    // past the cap is dropped rather than displacing one already there.
+    const added = [...offered.values()]
+    next = {
+      ...next,
+      resources:
+        added.length > 0
+          ? [...resources, ...added].slice(0, MAX_RESOURCES)
+          : resources,
+    }
   }
 
   if (plan.slots.length > 0) {
@@ -586,7 +1214,7 @@ export function applyLevelUp(c: Character, draft: LevelUpDraft): Character {
 // --- Step machinery ---------------------------------------------------------
 
 export type LevelUpStepId =
-  'hp' | 'features' | 'subclass' | 'asi' | 'spells' | 'review'
+  'hp' | 'features' | 'subclass' | 'asi' | 'picks' | 'spells' | 'review'
 
 /**
  * Steps this level-up actually needs, in order.
@@ -597,12 +1225,30 @@ export type LevelUpStepId =
 export function levelUpSteps(draft: LevelUpDraft): Array<LevelUpStepId> {
   const c = draft.base
   const steps: Array<LevelUpStepId> = ['hp']
-  if (featuresGained(c, draft.from, draft.to, draft.kit).length > 0) {
+  // Subclass *before* features, which is the opposite of the order these were
+  // added in and now load-bearing: the archetype chosen here decides which
+  // features the next step offers, so asking for them the other way round
+  // showed a Fighter an empty features step and then asked what they were.
+  if (needsSubclass(c, draft.from, draft.to, draft.kit)) steps.push('subclass')
+  if (
+    featuresGained(
+      c,
+      draft.from,
+      draft.to,
+      draft.kit,
+      draft.subclassName || c.subclass,
+    ).length > 0
+  ) {
     steps.push('features')
   }
-  if (needsSubclass(c, draft.from, draft.to, draft.kit)) steps.push('subclass')
   if (asiLevelsCrossed(draft.from, draft.to, draft.kit).length > 0) {
     steps.push('asi')
+  }
+  // After the ASI, because a feat chosen there is one of the two things that
+  // can pose a pick, and before spells, because a chosen cantrip lands on the
+  // same sheet section the spells step then reports on.
+  if (levelUpPicks(draft).length > 0 || resourcesOffered(draft).length > 0) {
+    steps.push('picks')
   }
   const before = slotsAtLevel(draft.kit, draft.from)
   const after = slotsAtLevel(draft.kit, draft.to)
@@ -635,7 +1281,7 @@ export function featsAvailable(
 ): Array<FeatInfo> {
   const taken = new Set(c.feats.map((f) => f.name.trim().toLowerCase()))
   for (const [level, choice] of Object.entries(draft.asi)) {
-    if (Number(level) === atLevel) continue
+    if (Number(level) === atLevel || !choice) continue
     const name = choice.featName.trim().toLowerCase()
     if (name !== '') taken.add(name)
   }
@@ -643,14 +1289,63 @@ export function featsAvailable(
 }
 
 /** Whether an ASI choice is complete: two points placed, or a feat named. */
-export function asiComplete(choice: AsiChoice): boolean {
+export function asiComplete(
+  choice: AsiChoice,
+  /**
+   * How many points there is anywhere left to put, when the caller knows. A
+   * character with every score at 20 has nowhere to spend an improvement, and
+   * demanding two placed points would leave the wizard's Next button dead with
+   * nothing the player could do about it — the one kind of gate that is a trap
+   * rather than a prompt. Omitted, the check is the plain "all points placed".
+   */
+  headroom?: number,
+): boolean {
   const needsFeat = choice.kind !== 'abilities'
   if (needsFeat && choice.featName.trim() === '') return false
   const placed = Object.values(choice.abilities).reduce<number>(
     (sum, n) => sum + n,
     0,
   )
-  return placed === asiPointsFor(choice.kind)
+  const wanted = asiPointsFor(choice.kind)
+  return placed === Math.min(wanted, headroom ?? wanted)
+}
+
+/**
+ * The first ASI level in this level-up that is not yet finished, or undefined
+ * when they all are.
+ *
+ * The wizard locks every level after this one. Not a validation rule — nothing
+ * here rejects a draft — but a display one, and it exists because each ASI's
+ * numbers are only meaningful once the ones before it are settled: a later
+ * level shows what your scores will be *when you reach it*, and that answer
+ * changes under the player's feet while an earlier level is still being edited.
+ *
+ * Levels are answered in order, which is also the order they happen in.
+ */
+export function firstIncompleteAsi(draft: LevelUpDraft): number | undefined {
+  return asiLevelsCrossed(draft.from, draft.to, draft.kit).find(
+    (level) =>
+      !asiComplete(
+        draft.asi[level] ?? emptyAsiChoice(),
+        asiHeadroom(draft, level),
+      ),
+  )
+}
+
+/**
+ * Whether one ASI level is open for editing: every earlier one is complete.
+ *
+ * The first incomplete level is itself open — it is the one being worked on.
+ */
+export function asiUnlocked(draft: LevelUpDraft, atLevel: number): boolean {
+  const blocked = firstIncompleteAsi(draft)
+  return blocked === undefined || atLevel <= blocked
+}
+
+/** Points that can still be placed given the 20 cap, across all six abilities. */
+export function asiHeadroom(draft: LevelUpDraft, atLevel: number): number {
+  const before = abilitiesBefore(draft, atLevel)
+  return ABILITIES.reduce((sum, a) => sum + Math.max(0, 20 - before[a]), 0)
 }
 
 /**
@@ -673,7 +1368,17 @@ export function canAdvance(draft: LevelUpDraft, step: LevelUpStepId): boolean {
       return draft.subclassName.trim() !== ''
     case 'asi':
       return asiLevelsCrossed(draft.from, draft.to, draft.kit).every((level) =>
-        asiComplete(draft.asi[level] ?? emptyAsiChoice()),
+        asiComplete(
+          draft.asi[level] ?? emptyAsiChoice(),
+          asiHeadroom(draft, level),
+        ),
+      )
+    case 'picks':
+      // Every choice answered in full. An unanswered pick is the one kind of
+      // incomplete state that silently costs the player something: the feat is
+      // already on the sheet by the time they notice.
+      return levelUpPicks(draft).every(({ pick }) =>
+        pickSatisfiedAt(draft, pick),
       )
     case 'spells':
       return true

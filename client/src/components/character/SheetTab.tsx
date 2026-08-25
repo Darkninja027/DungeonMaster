@@ -20,6 +20,7 @@ import {
   DAMAGE_TYPES,
   ENCUMBRANCE_LABELS,
   HIT_DIE_SIZES,
+  MAX_RESOURCES,
   MOVEMENT_MODES,
   SKILLS,
   WEAPON_CATEGORIES,
@@ -1043,6 +1044,113 @@ export function SheetTab({
                 }
               />
             </span>
+          </div>
+
+          {/*
+            Player-authored counters — superiority dice, rage, ki. Shown in the
+            same "remaining / total" shape as hit dice above, because they are
+            the same kind of thing and reading two idioms in one column is one
+            too many. Nothing here is derived: the total is whatever the player
+            typed, and levelling up offers a row rather than correcting one.
+          */}
+          <div className="mt-3 space-y-2 text-sm">
+            {c.resources.map((resource, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <Input
+                  value={resource.name}
+                  placeholder="Superiority Dice"
+                  className="h-7 max-w-44 text-sm"
+                  onChange={(e) =>
+                    set({
+                      resources: c.resources.map((r, j) =>
+                        j === i ? { ...r, name: e.target.value } : r,
+                      ),
+                    })
+                  }
+                />
+                <NumField
+                  value={resource.total - resource.used}
+                  min={0}
+                  max={resource.total}
+                  className="w-10"
+                  title="Remaining"
+                  onCommit={(v) =>
+                    set({
+                      resources: c.resources.map((r, j) =>
+                        j === i ? { ...r, used: r.total - v } : r,
+                      ),
+                    })
+                  }
+                />
+                /
+                <NumField
+                  value={resource.total}
+                  min={0}
+                  className="w-10"
+                  title="Total"
+                  onCommit={(v) =>
+                    set({
+                      resources: c.resources.map((r, j) =>
+                        // Clamp `used` as the total falls, so a counter can
+                        // never show more spent than it has.
+                        j === i
+                          ? { ...r, total: v, used: Math.min(r.used, v) }
+                          : r,
+                      ),
+                    })
+                  }
+                />
+                <select
+                  className="bg-background text-foreground h-7 rounded border px-1 text-sm"
+                  value={resource.resets ?? ''}
+                  title="Which rest refills this — a reminder, never enforced"
+                  onChange={(e) =>
+                    set({
+                      resources: c.resources.map((r, j) => {
+                        if (j !== i) return r
+                        const { resets: _drop, ...rest } = r
+                        return e.target.value === ''
+                          ? rest
+                          : {
+                              ...rest,
+                              resets: e.target.value as 'short' | 'long',
+                            }
+                      }),
+                    })
+                  }
+                >
+                  <option value="">no reset</option>
+                  <option value="short">short rest</option>
+                  <option value="long">long rest</option>
+                </select>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  aria-label={`Remove ${resource.name || 'resource'}`}
+                  onClick={() =>
+                    set({ resources: c.resources.filter((_, j) => j !== i) })
+                  }
+                >
+                  <X className="size-4" />
+                </Button>
+              </div>
+            ))}
+            {c.resources.length < MAX_RESOURCES && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() =>
+                  set({
+                    resources: [
+                      ...c.resources,
+                      { name: '', used: 0, total: 0 },
+                    ],
+                  })
+                }
+              >
+                Add tracker
+              </Button>
+            )}
           </div>
         </Section>
 

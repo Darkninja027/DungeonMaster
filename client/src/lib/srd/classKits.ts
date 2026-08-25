@@ -18,8 +18,201 @@
  * 2nd level, which is correct for a level 1 build.
  */
 
-import { PACKS } from './equipment'
-import type { ClassKit } from './types'
+import { ARTISAN_TOOLS, PACKS } from './equipment'
+import type { ClassFeatureInfo, ClassKit, Grant, PickList } from './types'
+
+/**
+ * Fighting Style, as a real choice rather than a sentence listing the options.
+ *
+ * A factory because three classes gain this feature and pick ids are globally
+ * unique — the owner's name is the prefix, so `fighter-fighting-style` and
+ * `paladin-fighting-style` are distinct choices that happen to offer overlapping
+ * options. Paladin and Ranger get narrower lists, which is what the book says
+ * and what the `only` argument is for.
+ *
+ * The text on each option is a reminder in our own words, and none of it is
+ * enforced: choosing Defense writes a row saying it grants +1 AC in armour. It
+ * does not touch `Character.ac`, because that is a number the player also edits
+ * and this app does not overrule its owner.
+ */
+/**
+ * The fighting styles, each with the reminder its sheet row carries and — where
+ * the app can honestly model it — what it grants.
+ *
+ * Most grant nothing. "+2 to attack rolls with a ranged weapon" is a combat
+ * rule this app does not compute, so Archery's row is the reminder and that is
+ * the whole of it; an empty grant here is correct rather than incomplete, the
+ * same bargain the feat catalogue strikes. Two land on numbers the sheet
+ * actually holds: Defense raises AC, and Superior Technique adds a superiority
+ * die a Battle Master can spend.
+ */
+const FIGHTING_STYLES: Record<
+  string,
+  // `| undefined` because the per-class lists below are plain string arrays and
+  // a name outside this table is a typo waiting to happen — the lookup has to
+  // admit it can miss, or the check that catches it reads as dead code.
+  | { text: string; grant?: Grant; resource?: ClassFeatureInfo['resource'] }
+  | undefined
+> = {
+  Archery: {
+    text: '+2 to attack rolls you make with a ranged weapon.',
+  },
+  'Blind Fighting': {
+    text: 'Blindsight to 10 feet — you see anything not behind total cover in that range, even blinded or in darkness, including invisible creatures that have not hidden from you.',
+  },
+  Defense: {
+    text: '+1 AC while you are wearing armour.',
+    // The one style whose whole effect is a number on this sheet. The "while
+    // wearing armour" half is checked once, at creation; see `acBonus`.
+    grant: { acBonus: 1 },
+  },
+  Duelling: {
+    text: '+2 damage when wielding a melee weapon in one hand and no other weapon.',
+  },
+  'Great Weapon Fighting': {
+    text: 'Reroll a 1 or 2 on a damage die for a two-handed or versatile melee weapon.',
+  },
+  Interception: {
+    text: 'Reaction to reduce damage to a creature within 5 feet by 1d10 + your proficiency bonus. You must be wielding a shield or a weapon.',
+  },
+  Protection: {
+    text: 'Use your reaction and shield to impose disadvantage on an attack against a creature within 5 feet.',
+  },
+  'Superior Technique': {
+    text: 'One Battle Master manoeuvre, and one superiority die (a d6) regained on a short or long rest.',
+    // The die is a counter the sheet tracks, so it is offered like any other.
+    // The manoeuvre it comes with is not granted: a pick that poses another
+    // pick is a mechanism this table does not have, and inventing one for a
+    // single style would be worse than the row saying so plainly.
+    resource: { name: 'Superiority Dice', total: 1, resets: 'short' },
+  },
+  'Thrown Weapon Fighting': {
+    text: 'Draw a thrown weapon as part of the attack, and +2 damage on a hit with one.',
+  },
+  'Two-Weapon Fighting': {
+    text: 'Add your ability modifier to the damage of your off-hand attack.',
+  },
+  'Unarmed Fighting': {
+    text: 'Your unarmed strikes deal 1d6 + your Strength modifier bludgeoning damage, a d8 with no weapon or shield in hand, and 1d4 to a creature you have grappled at the start of your turn.',
+  },
+}
+
+/**
+ * Which styles each class may take. Not one list: Tasha's widened the option
+ * set per class rather than globally, so a Paladin has never been able to take
+ * Archery and a Ranger has never been able to take Protection.
+ */
+const FIGHTER_STYLES = [
+  'Archery',
+  'Blind Fighting',
+  'Defense',
+  'Duelling',
+  'Great Weapon Fighting',
+  'Interception',
+  'Protection',
+  'Superior Technique',
+  'Thrown Weapon Fighting',
+  'Two-Weapon Fighting',
+  'Unarmed Fighting',
+]
+
+const PALADIN_STYLES = [
+  'Blind Fighting',
+  'Defense',
+  'Duelling',
+  'Great Weapon Fighting',
+  'Interception',
+  'Protection',
+]
+
+const RANGER_STYLES = [
+  'Archery',
+  'Blind Fighting',
+  'Defense',
+  'Duelling',
+  'Thrown Weapon Fighting',
+  'Two-Weapon Fighting',
+]
+
+function FIGHTING_STYLE_PICK(owner: string, only?: Array<string>): PickList {
+  const options = only ?? Object.keys(FIGHTING_STYLES)
+  const grants: Record<string, Grant> = {}
+  for (const name of options) {
+    const grant = FIGHTING_STYLES[name]?.grant
+    if (grant) grants[name] = grant
+  }
+  const pick: PickList = {
+    id: `${owner}-fighting-style`,
+    kind: 'feature',
+    label: 'Choose a Fighting Style',
+    count: 1,
+    options,
+    featureLabel: 'Fighting Style',
+    featureText: Object.fromEntries(
+      options.map((name) => [name, FIGHTING_STYLES[name]?.text ?? '']),
+    ),
+  }
+  if (Object.keys(grants).length > 0) pick.featureGrant = grants
+  return pick
+}
+
+/**
+ * The Battle Master's manoeuvres, as a real choice.
+ *
+ * A factory for the same reason Fighting Style is one: the archetype learns
+ * more of them at 7th, 10th and 15th level, and each of those is its own pick
+ * with its own id in the one global keyspace. Every list offers all sixteen —
+ * a manoeuvre already taken is greyed out by the pick UI rather than removed,
+ * so the player can see what they chose earlier.
+ *
+ * Summaries in our own words, one line each, the same rule the feat catalogue
+ * follows. Nothing here computes: taking Riposte writes a row that says what
+ * Riposte does, and the superiority die it spends is the player's own counter.
+ */
+const MANEUVER_TEXT: Record<string, string> = {
+  Ambush: 'Add the die to a Stealth check or initiative roll.',
+  'Bait and Switch': 'Swap places with an ally, adding the die to their AC.',
+  'Commander’s Strike':
+    'Forgo an attack to let an ally strike, adding the die.',
+  'Disarming Attack': 'On a hit, add the die and force a save or drop an item.',
+  'Distracting Strike':
+    'Add the die; the next attacker on that creature has advantage.',
+  'Evasive Footwork': 'Add the die to your AC while you move.',
+  'Feinting Attack':
+    'Bonus action to gain advantage on your next attack, adding the die.',
+  'Goading Attack':
+    'On a hit, add the die and force a save or the target has disadvantage attacking anyone else.',
+  'Lunging Attack': 'Add the die and reach 5 feet further with a melee attack.',
+  'Maneuvering Attack':
+    'On a hit, add the die and let an ally move without provoking.',
+  'Menacing Attack':
+    'On a hit, add the die and force a save or the target is frightened.',
+  Parry:
+    'Reaction to reduce melee damage by the die plus your Dexterity modifier.',
+  'Precision Attack':
+    'Add the die to an attack roll, before or after seeing the result.',
+  'Pushing Attack':
+    'On a hit, add the die and force a save or push the target 15 feet.',
+  Rally:
+    'Bonus action to grant an ally temporary hit points equal to the die plus your Charisma modifier.',
+  Riposte: 'Reaction to attack a creature that misses you, adding the die.',
+  'Sweeping Attack':
+    'On a hit, deal the die as damage to a second creature within reach.',
+  'Trip Attack':
+    'On a hit, add the die and force a save or knock the target prone.',
+}
+
+function MANEUVER_PICK(owner: string, count: number): PickList {
+  return {
+    id: `${owner}-maneuvers`,
+    kind: 'feature',
+    label: count === 1 ? 'Choose a manoeuvre' : `Choose ${count} manoeuvres`,
+    count,
+    options: Object.keys(MANEUVER_TEXT),
+    featureLabel: 'Manoeuvre',
+    featureText: MANEUVER_TEXT,
+  }
+}
 
 /** Every skill id, for classes whose list is "choose any". */
 const ALL_SKILLS = [
@@ -756,9 +949,151 @@ export const SRD_CLASS_KITS: Array<ClassKit> = [
     hitDie: 10,
     subclassLabel: 'Martial Archetype',
     subclasses: [
-      { id: 'champion', name: 'Champion', features: [] },
-      { id: 'battle-master', name: 'Battle Master', features: [] },
-      { id: 'eldritch-knight', name: 'Eldritch Knight', features: [] },
+      {
+        id: 'champion',
+        name: 'Champion',
+        summary: 'Raw physical power honed to deadly perfection.',
+        features: [
+          {
+            level: 3,
+            name: 'Improved Critical',
+            text: 'Your weapon attacks score a critical hit on a roll of 19 or 20.',
+          },
+          {
+            level: 7,
+            name: 'Remarkable Athlete',
+            text: 'Add half your proficiency bonus, rounded up, to any Strength, Dexterity or Constitution check that does not already use it. Your running long jump increases by a number of feet equal to your Strength modifier.',
+          },
+          {
+            level: 10,
+            name: 'Additional Fighting Style',
+            text: 'You take a second Fighting Style.',
+            picks: [FIGHTING_STYLE_PICK('champion-second', FIGHTER_STYLES)],
+          },
+          {
+            level: 15,
+            name: 'Superior Critical',
+            text: 'Your weapon attacks score a critical hit on a roll of 18-20.',
+          },
+          {
+            level: 18,
+            name: 'Survivor',
+            text: 'At the start of each of your turns, regain hit points equal to 5 + your Constitution modifier if you have no more than half your hit points left and are not at 0.',
+          },
+        ],
+      },
+      {
+        id: 'battle-master',
+        name: 'Battle Master',
+        summary: 'Techniques and tactics learned as much as drilled.',
+        features: [
+          {
+            level: 3,
+            name: 'Combat Superiority',
+            text: 'You have four superiority dice (d8), regained on a short or long rest. Your manoeuvre save DC is 8 + your proficiency bonus + your Strength or Dexterity modifier.',
+            resource: {
+              name: 'Superiority Dice',
+              total: 4,
+              resets: 'short',
+            },
+            picks: [MANEUVER_PICK('battle-master-3', 3)],
+          },
+          {
+            level: 3,
+            name: 'Student of War',
+            text: 'You gain proficiency with one type of artisan’s tools of your choice.',
+            picks: [
+              {
+                id: 'battle-master-tools',
+                kind: 'tool',
+                label: 'One type of artisan’s tools',
+                count: 1,
+                options: [...ARTISAN_TOOLS],
+                open: true,
+              },
+            ],
+          },
+          {
+            level: 7,
+            name: 'Know Your Enemy',
+            text: 'Study a creature for one minute outside combat to learn how its Strength, Dexterity, Constitution, AC, current hit points, total levels or class levels compare to your own.',
+          },
+          {
+            level: 7,
+            name: 'Additional Manoeuvres (7th)',
+            text: 'You learn two more manoeuvres, and gain a fifth superiority die.',
+            resource: {
+              name: 'Superiority Dice',
+              total: 5,
+              resets: 'short',
+            },
+            picks: [MANEUVER_PICK('battle-master-7', 2)],
+          },
+          {
+            level: 10,
+            name: 'Improved Combat Superiority',
+            text: 'Your superiority dice turn into d10s.',
+            picks: [MANEUVER_PICK('battle-master-10', 2)],
+          },
+          {
+            level: 15,
+            name: 'Relentless',
+            text: 'When you roll initiative and have no superiority dice left, you regain one. You also gain a sixth superiority die and learn two more manoeuvres.',
+            resource: {
+              name: 'Superiority Dice',
+              total: 6,
+              resets: 'short',
+            },
+            picks: [MANEUVER_PICK('battle-master-15', 2)],
+          },
+          {
+            level: 18,
+            name: 'Improved Combat Superiority (d12)',
+            text: 'Your superiority dice turn into d12s.',
+          },
+        ],
+      },
+      {
+        id: 'eldritch-knight',
+        name: 'Eldritch Knight',
+        summary: 'A warrior who studies a narrow band of arcane magic.',
+        // No `spells` rows: srd.test.ts refuses subclass spell tables for a
+        // class with no `spellcasting` block, and giving Fighter one would
+        // claim a full progression this third-caster does not have. The spells
+        // are the player's to record on the sheet, as the feature text says.
+        features: [
+          {
+            level: 3,
+            name: 'Spellcasting',
+            text: 'You learn three cantrips and two 1st-level spells from the wizard list, mostly abjuration and evocation. Intelligence is your spellcasting ability.',
+          },
+          {
+            level: 3,
+            name: 'Weapon Bond',
+            text: 'Ritually bond with up to two weapons. A bonded weapon cannot be disarmed and can be summoned to your hand as a bonus action.',
+          },
+          {
+            level: 7,
+            name: 'War Magic',
+            text: 'When you use your action to cast a cantrip, you can make one weapon attack as a bonus action.',
+          },
+          {
+            level: 10,
+            name: 'Eldritch Strike',
+            text: 'When you hit a creature with a weapon attack, it has disadvantage on its next saving throw against a spell you cast before the end of your next turn.',
+          },
+          {
+            level: 15,
+            name: 'Arcane Charge',
+            text: 'When you use Action Surge you can teleport up to 30 feet to an unoccupied space you can see.',
+          },
+          {
+            level: 18,
+            name: 'Improved War Magic',
+            text: 'When you use your action to cast a spell, you can make one weapon attack as a bonus action.',
+          },
+        ],
+      },
     ],
     saves: ['str', 'con'],
     abilityPriority: ['str', 'con', 'dex', 'wis', 'cha', 'int'],
@@ -892,7 +1227,8 @@ export const SRD_CLASS_KITS: Array<ClassKit> = [
       {
         level: 1,
         name: 'Fighting Style',
-        text: 'You adopt a particular style of fighting as your speciality — Archery, Defense, Duelling, Great Weapon Fighting, Protection or Two-Weapon Fighting.',
+        text: 'You adopt a particular style of fighting as your speciality.',
+        picks: [FIGHTING_STYLE_PICK('fighter', FIGHTER_STYLES)],
       },
       {
         level: 1,
@@ -902,7 +1238,8 @@ export const SRD_CLASS_KITS: Array<ClassKit> = [
       {
         level: 2,
         name: 'Action Surge',
-        text: 'On your turn you can take one additional action. Once per short or long rest; twice at 17th level.',
+        text: 'On your turn you can take one additional action. Once per short or long rest.',
+        resource: { name: 'Action Surge', total: 1, resets: 'short' },
       },
       {
         level: 3,
@@ -912,12 +1249,46 @@ export const SRD_CLASS_KITS: Array<ClassKit> = [
       {
         level: 5,
         name: 'Extra Attack',
-        text: 'You can attack twice whenever you take the Attack action. Three times at 11th level, four at 20th.',
+        text: 'You can attack twice, rather than once, whenever you take the Attack action on your turn.',
       },
       {
         level: 9,
         name: 'Indomitable',
-        text: 'You can reroll a saving throw you fail, and must use the new roll. Once per long rest; twice at 13th level, three times at 17th.',
+        text: 'You can reroll a saving throw you fail, and must use the new roll. Once per long rest.',
+        resource: { name: 'Indomitable', total: 1, resets: 'long' },
+      },
+      // The upgrades are their own rows rather than a clause inside the row
+      // above. `featuresGained` de-dupes on `level:name`, so a second "Extra
+      // Attack" at 11 is a distinct feature the wizard grants at the right
+      // level — where prose in the level-5 row scrolled past unread and left
+      // the sheet claiming one extra attack at 20th.
+      {
+        level: 11,
+        name: 'Extra Attack (2)',
+        text: 'You can attack three times whenever you take the Attack action on your turn.',
+      },
+      {
+        level: 13,
+        name: 'Indomitable (2)',
+        text: 'You can use Indomitable twice per long rest.',
+        resource: { name: 'Indomitable', total: 2, resets: 'long' },
+      },
+      {
+        level: 17,
+        name: 'Action Surge (2)',
+        text: 'You can use Action Surge twice per short or long rest, though only once on the same turn.',
+        resource: { name: 'Action Surge', total: 2, resets: 'short' },
+      },
+      {
+        level: 17,
+        name: 'Indomitable (3)',
+        text: 'You can use Indomitable three times per long rest.',
+        resource: { name: 'Indomitable', total: 3, resets: 'long' },
+      },
+      {
+        level: 20,
+        name: 'Extra Attack (3)',
+        text: 'You can attack four times whenever you take the Attack action on your turn.',
       },
     ],
   },
@@ -1251,6 +1622,7 @@ export const SRD_CLASS_KITS: Array<ClassKit> = [
         level: 2,
         name: 'Fighting Style',
         text: 'You adopt a style of fighting as your speciality.',
+        picks: [FIGHTING_STYLE_PICK('paladin', PALADIN_STYLES)],
       },
       {
         level: 2,
@@ -1409,6 +1781,7 @@ export const SRD_CLASS_KITS: Array<ClassKit> = [
         level: 2,
         name: 'Fighting Style',
         text: 'You adopt a style of fighting as your speciality.',
+        picks: [FIGHTING_STYLE_PICK('ranger', RANGER_STYLES)],
       },
       {
         level: 2,

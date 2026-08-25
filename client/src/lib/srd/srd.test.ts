@@ -499,6 +499,113 @@ describe('published feats', () => {
     }
   })
 
+  it('a chooseable increase offers real abilities, and never with a fixed one', () => {
+    for (const feat of PUBLISHED_FEATS) {
+      const choice = feat.asiChoice
+      if (choice === undefined) continue
+      // One or the other. Both would apply twice — a silent +2 from a half-feat.
+      expect(
+        feat.asi,
+        `feat ${feat.name} has both asi and asiChoice`,
+      ).toBeUndefined()
+      expect(choice.length, `feat ${feat.name}`).toBeGreaterThan(1)
+      expect(new Set(choice).size, `feat ${feat.name} repeats an ability`).toBe(
+        choice.length,
+      )
+      for (const ability of choice) {
+        expect(ABILITY_IDS.has(ability), `feat ${feat.name}: ${ability}`).toBe(
+          true,
+        )
+      }
+    }
+  })
+
+  it('says "of your choice" exactly when the increase is chooseable', () => {
+    // The summary is the only thing the player reads before taking the feat, so
+    // it promising a choice the data cannot offer is the bug this pins — six
+    // feats said "of your choice" and then quietly picked for you.
+    for (const feat of PUBLISHED_FEATS) {
+      if (feat.asi === undefined && feat.asiChoice === undefined) continue
+      const promises =
+        /\+1 [^.]*of your choice|one ability of your choice/i.test(feat.summary)
+      expect(
+        feat.asiChoice !== undefined,
+        `feat ${feat.name}: summary and data disagree about a chooseable +1`,
+      ).toBe(promises)
+    }
+  })
+
+  it('only Resilient ties its saving throw to the chosen ability', () => {
+    for (const feat of PUBLISHED_FEATS) {
+      if (!feat.grantsSaveForAsiChoice) continue
+      // The flag is meaningless without something to follow.
+      expect(feat.asiChoice, `feat ${feat.name}`).toBeDefined()
+      // And it must not also hand over a fixed save, or the character gets two.
+      expect(feat.grant.saves, `feat ${feat.name}`).toBeUndefined()
+    }
+  })
+
+  it('a repeatable feature pick offers enough for every level that grants it', () => {
+    // A Battle Master takes 3 manoeuvres at 3rd and 2 more at 7, 10 and 15 —
+    // nine in total, all distinct, all drawn from one list. If the list were
+    // ever shorter than that sum the last pick would be unanswerable, and the
+    // level-up step gates on every pick being satisfied, so the player would be
+    // stuck with no way forward.
+    for (const kit of SRD_CLASS_KITS) {
+      for (const sub of kit.subclasses) {
+        const byOptions = new Map<string, number>()
+        for (const feature of sub.features) {
+          for (const pick of feature.picks ?? []) {
+            if (pick.kind !== 'feature' || pick.open) continue
+            const key = pick.options.join('|')
+            byOptions.set(key, (byOptions.get(key) ?? 0) + pick.count)
+          }
+        }
+        for (const [key, needed] of byOptions) {
+          expect(
+            key.split('|').length,
+            `${kit.name} / ${sub.name} asks for ${needed} from a shorter list`,
+          ).toBeGreaterThanOrEqual(needed)
+        }
+      }
+    }
+  })
+
+  it('every feature pick option carries the text its row will show', () => {
+    // A `feature` pick writes its answer onto the sheet as a named row, and the
+    // rules text rides on the pick. An option with no entry lands as a bare
+    // name — fine for homebrew, wrong for an authored table, where it means a
+    // typo in one of the two lists that have to agree.
+    for (const { where, pick } of allPickLists()) {
+      if (pick.kind !== 'feature' || pick.open) continue
+      for (const option of pick.options) {
+        const text = pick.featureText?.[option]
+        expect(text, `${where}: option "${option}" has no text`).toBeTruthy()
+      }
+    }
+  })
+
+  it('a feature option grants only what both apply paths honour', () => {
+    // `applyFeaturePick` routes through `applyGrant` at creation and through
+    // the level-up applier afterwards, and neither carries items or currency —
+    // they would appear at level 1 and vanish at every level-up. Same rule the
+    // feat catalogue follows, asserted here because a fighting style is the
+    // other thing built on a bare `Grant`.
+    for (const { where, pick } of allPickLists()) {
+      if (pick.kind !== 'feature') continue
+      for (const [option, grant] of Object.entries(pick.featureGrant ?? {})) {
+        const at = `${where}: option "${option}"`
+        expect(grant.items, at).toBeUndefined()
+        expect(grant.currency, at).toBeUndefined()
+        expect(grant.traits, at).toBeUndefined()
+        // A grant nested inside a grant has no UI to resolve it.
+        expect(grant.picks, at).toBeUndefined()
+        // Every option a grant names must be one the pick actually offers.
+        expect(pick.options, at).toContain(option)
+      }
+    }
+  })
+
   it('grants no traits, items or currency — level-up drops all three', () => {
     // `applyFeatGrants` in lib/levelUp.ts deliberately ignores these, so a feat
     // carrying them would apply at level 1 and vanish at every level-up. Better

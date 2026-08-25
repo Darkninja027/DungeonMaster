@@ -137,80 +137,183 @@ export function PickListGroup({
       </div>
       {source && <p className="text-muted-foreground text-xs">From {source}</p>}
       {/*
+        A `feature` pick is a menu, not a cloud: its options are long-named and
+        each carries a paragraph of rules text, so eleven chips is a wall and
+        the text has nowhere to go. A select shows one at a time with its
+        description underneath — which is also the only way to read what you are
+        choosing *before* you choose it.
+
+        A native select rather than a portalled popup: these render inside a
+        modal Dialog whose focus trap kills portalled content, and the sheet
+        already uses native selects for exactly this reason.
+      */}
+      {pick.kind === 'feature' ? (
+        <FeatureSelects
+          pick={pick}
+          chosen={chosen}
+          offered={offered}
+          alreadyGranted={alreadyGranted}
+          onChange={onChange}
+        />
+      ) : (
+        <>
+          {/*
         Only when the combobox is a labelled half of the choice: on its own,
         "Skills" over the one and only chip cloud is noise.
       */}
-      {suggestionsLabel && (
-        <p className="text-muted-foreground text-xs">Skills</p>
-      )}
-      <div className="flex flex-wrap gap-1.5">
-        {offered.map((value) => {
-          // `spentBy`, not `source`: this is who already took the value, where
-          // the `source` prop above is who handed out the pick itself.
-          const spentBy = alreadyGranted?.get(value)
-          const selected = chosen.includes(value)
-          return (
-            <Chip
-              key={value}
-              label={optionLabel(pick, value)}
-              selected={selected}
-              disabled={Boolean(spentBy) || (full && !selected)}
-              // "from", not "granted by": the source may be a choice made in
-              // another pick — your Skilled skills, your race's free skill —
-              // rather than something handed over outright, and the player
-              // needs to know which of their own picks already spent it.
-              title={spentBy ? `Already taken from ${spentBy}` : undefined}
-              onToggle={() => toggle(value)}
-            />
-          )
-        })}
-        {extras.map((value) => (
-          <Chip
-            key={value}
-            label={optionLabel(pick, value)}
-            selected
-            title={
-              staleExtra(value)
-                ? 'No longer one of your proficiencies — click to remove'
-                : undefined
-            }
-            onToggle={() => toggle(value)}
-          />
-        ))}
-      </div>
-      {offered.length < pick.count && (
-        // A narrowed pick whose source hasn't been filled in yet. The group
-        // stays rendered rather than hiding, because a vanishing choice reads as
-        // the app having lost it; the line says what to do instead.
-        <p className="text-muted-foreground text-xs">
-          Choose your skills above first — expertise applies to skills
-          you&rsquo;re already proficient in.
-        </p>
-      )}
-      {pick.open && !full && (
-        // The label lives inside the same guard as the box it names: once the
-        // pick is full the combobox goes away, and a "Tools" heading with
-        // nothing under it reads as a half-rendered list.
-        <div className="space-y-1.5">
           {suggestionsLabel && (
-            <p className="text-muted-foreground text-xs">{suggestionsLabel}</p>
+            <p className="text-muted-foreground text-xs">Skills</p>
           )}
-          <Combobox
-            id={`picklist-${pick.id}`}
-            // Suggestions first: for a spell pick they're the only content, and
-            // for an open skill pick the options are already chips above.
-            options={suggestions ?? pick.options}
-            onCommit={addFreeText}
-            placeholder={
-              suggestionsPlaceholder ??
-              (suggestions && suggestions.length > 0
-                ? 'Search, or type your own…'
-                : 'Or type your own…')
-            }
-            className="h-7 text-sm"
-          />
-        </div>
+          <div className="flex flex-wrap gap-1.5">
+            {offered.map((value) => {
+              // `spentBy`, not `source`: this is who already took the value, where
+              // the `source` prop above is who handed out the pick itself.
+              const spentBy = alreadyGranted?.get(value)
+              const selected = chosen.includes(value)
+              return (
+                <Chip
+                  key={value}
+                  label={optionLabel(pick, value)}
+                  selected={selected}
+                  disabled={Boolean(spentBy) || (full && !selected)}
+                  // "from", not "granted by": the source may be a choice made in
+                  // another pick — your Skilled skills, your race's free skill —
+                  // rather than something handed over outright, and the player
+                  // needs to know which of their own picks already spent it.
+                  title={spentBy ? `Already taken from ${spentBy}` : undefined}
+                  onToggle={() => toggle(value)}
+                />
+              )
+            })}
+            {extras.map((value) => (
+              <Chip
+                key={value}
+                label={optionLabel(pick, value)}
+                selected
+                title={
+                  staleExtra(value)
+                    ? 'No longer one of your proficiencies — click to remove'
+                    : undefined
+                }
+                onToggle={() => toggle(value)}
+              />
+            ))}
+          </div>
+          {offered.length < pick.count && (
+            // A narrowed pick whose source hasn't been filled in yet. The group
+            // stays rendered rather than hiding, because a vanishing choice reads as
+            // the app having lost it; the line says what to do instead.
+            <p className="text-muted-foreground text-xs">
+              Choose your skills above first — expertise applies to skills
+              you&rsquo;re already proficient in.
+            </p>
+          )}
+          {pick.open && !full && (
+            // The label lives inside the same guard as the box it names: once the
+            // pick is full the combobox goes away, and a "Tools" heading with
+            // nothing under it reads as a half-rendered list.
+            <div className="space-y-1.5">
+              {suggestionsLabel && (
+                <p className="text-muted-foreground text-xs">
+                  {suggestionsLabel}
+                </p>
+              )}
+              <Combobox
+                id={`picklist-${pick.id}`}
+                // Suggestions first: for a spell pick they're the only content, and
+                // for an open skill pick the options are already chips above.
+                options={suggestions ?? pick.options}
+                onCommit={addFreeText}
+                placeholder={
+                  suggestionsPlaceholder ??
+                  (suggestions && suggestions.length > 0
+                    ? 'Search, or type your own…'
+                    : 'Or type your own…')
+                }
+                className="h-7 text-sm"
+              />
+            </div>
+          )}
+        </>
       )}
+    </div>
+  )
+}
+
+/**
+ * One `<select>` per slot the pick asks for, each with the chosen option's
+ * rules text below it.
+ *
+ * One control per slot rather than a multi-select: "choose two manoeuvres" is
+ * two decisions, and a native multi-select is famously hard to operate. Each
+ * select excludes what the *others* have taken, so the same answer cannot be
+ * given twice, and excludes anything `alreadyGranted` names — a style or
+ * manoeuvre already on the sheet.
+ */
+function FeatureSelects({
+  pick,
+  chosen,
+  offered,
+  alreadyGranted,
+  onChange,
+}: {
+  pick: PickList
+  chosen: Array<string>
+  offered: Array<string>
+  alreadyGranted?: Map<string, string>
+  onChange: (values: Array<string>) => void
+}) {
+  const setAt = (index: number, value: string) => {
+    const next = [...chosen]
+    if (value === '') next.splice(index, 1)
+    else next[index] = value
+    onChange(next.filter(Boolean))
+  }
+
+  return (
+    <div className="space-y-3">
+      {Array.from({ length: pick.count }, (_, i) => {
+        const value = chosen[i] ?? ''
+        const text = value ? pick.featureText?.[value] : undefined
+        return (
+          <div key={i} className="space-y-1">
+            <select
+              className="bg-background text-foreground h-8 w-full rounded border px-2 text-sm"
+              value={value}
+              onChange={(e) => setAt(i, e.target.value)}
+            >
+              <option value="">Choose…</option>
+              {offered.map((option) => {
+                // Taken by another slot of this same pick, or already on the
+                // sheet. Kept in the list but unselectable, with the reason —
+                // a silently missing option reads as the app having lost it.
+                const takenHere = chosen.includes(option) && option !== value
+                const takenBefore = alreadyGranted?.get(option)
+                return (
+                  <option
+                    key={option}
+                    value={option}
+                    disabled={takenHere || Boolean(takenBefore)}
+                    className="bg-background text-foreground"
+                  >
+                    {option}
+                    {takenBefore
+                      ? ` — already from ${takenBefore}`
+                      : takenHere
+                        ? ' — already chosen'
+                        : ''}
+                  </option>
+                )
+              })}
+            </select>
+            {text && (
+              <p className="text-muted-foreground text-xs leading-snug">
+                {text}
+              </p>
+            )}
+          </div>
+        )
+      })}
     </div>
   )
 }

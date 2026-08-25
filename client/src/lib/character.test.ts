@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import type { EquipSlot, InventoryItem, Spell } from './character'
+import type { Character, EquipSlot, InventoryItem, Spell } from './character'
 import {
+  MAX_RESOURCES,
   abilityMod,
   addFeatureEntry,
   allNoteTags,
@@ -1764,5 +1765,58 @@ describe('skillIdFor', () => {
     // A typo should become a tool, not quietly become the wrong skill.
     expect(skillIdFor('Acrobatic')).toBeUndefined()
     expect(skillIdFor('animal handling!')).toBeUndefined()
+  })
+})
+
+describe('resources', () => {
+  it('round-trips a tracked counter', () => {
+    const c: Character = {
+      ...emptyCharacter(),
+      resources: [
+        { name: 'Superiority Dice', used: 1, total: 4, resets: 'short' },
+        { name: 'Rage', used: 0, total: 3 },
+      ],
+    }
+    const back = parseCharacter(serializeCharacter(c, '')).character
+    expect(back.resources).toEqual(c.resources)
+  })
+
+  it('writes nothing at all when there are none', () => {
+    // The flySpeed / hitDice.total precedent: an existing sheet must serialize
+    // exactly as it did before this field existed.
+    expect(serializeCharacter(emptyCharacter(), '')).not.toContain('resources')
+  })
+
+  it('clamps a hand-edited count into its total', () => {
+    const text = [
+      '---',
+      'type: character',
+      'resources:',
+      '  - name: Ki',
+      '    used: 99',
+      '    total: 5',
+      '---',
+      '',
+    ].join('\n')
+    expect(parseCharacter(text).character.resources[0]).toEqual({
+      name: 'Ki',
+      used: 5,
+      total: 5,
+    })
+  })
+
+  it('keeps a bare string as a named, empty tracker', () => {
+    const text = '---\ntype: character\nresources:\n  - Sorcery Points\n---\n'
+    expect(parseCharacter(text).character.resources).toEqual([
+      { name: 'Sorcery Points', used: 0, total: 0 },
+    ])
+  })
+
+  it('drops rows past the cap rather than growing the column', () => {
+    const rows = ['One', 'Two', 'Three', 'Four']
+      .map((n) => '  - name: ' + n + '\n    used: 0\n    total: 1')
+      .join('\n')
+    const text = '---\ntype: character\nresources:\n' + rows + '\n---\n'
+    expect(parseCharacter(text).character.resources).toHaveLength(MAX_RESOURCES)
   })
 })

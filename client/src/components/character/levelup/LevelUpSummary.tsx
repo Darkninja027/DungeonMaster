@@ -43,6 +43,22 @@ export function LevelUpSummary({
 
       <Section title="Changes">
         <Row label="Hit points" from={plan.hpFrom} to={plan.hpTo} />
+        {/*
+          Why the maximum moved by more than the dice explain. Without these the
+          extra points look like a bug — a +2 CON at 8th level is worth eight
+          retroactive hit points, and nothing on screen said where they came
+          from.
+        */}
+        {plan.hpRetroactive > 0 && (
+          <p className="text-muted-foreground text-xs">
+            includes +{plan.hpRetroactive} for raising Constitution
+          </p>
+        )}
+        {plan.hpFromFeats > 0 && (
+          <p className="text-muted-foreground text-xs">
+            includes +{plan.hpFromFeats} from the feat you took
+          </p>
+        )}
         <Row
           label="Hit dice"
           from={`${plan.hitDiceFrom}d${character.hitDice.size}`}
@@ -105,6 +121,37 @@ export function LevelUpSummary({
           ))
         )}
       </Section>
+
+      {plan.resources.length > 0 && (
+        <Section title="Trackers">
+          {plan.resources.map((resource) => {
+            // A counter already on the sheet is being raised, so it reads as a
+            // change like every other number in this panel. Only a genuinely
+            // new one gets the "added" marker.
+            const existing = character.resources.find(
+              (r) =>
+                r.name.trim().toLowerCase() ===
+                resource.name.trim().toLowerCase(),
+            )
+            return existing ? (
+              <Row
+                key={resource.name}
+                label={resource.name}
+                from={existing.total}
+                to={Math.max(existing.total, resource.total)}
+              />
+            ) : (
+              <p key={resource.name} className="text-xs">
+                <Added /> {resource.name}{' '}
+                <span className="text-muted-foreground">
+                  {resource.total}
+                  {resource.resets ? ` · per ${resource.resets} rest` : ''}
+                </span>
+              </p>
+            )
+          })}
+        </Section>
+      )}
 
       {plan.slots.length > 0 && (
         <Section title="Spell slots">

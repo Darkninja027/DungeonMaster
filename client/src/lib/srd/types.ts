@@ -90,6 +90,35 @@ export interface Grant {
    */
   initiativeBonus?: number
   /**
+   * Added to `Character.ac`, e.g. the Defense fighting style's `+1`.
+   *
+   * Applied on top of whatever `computeAc` derives from armour and Dexterity,
+   * so it stacks with the armour a character is actually wearing rather than
+   * replacing the calculation.
+   *
+   * A caveat worth knowing: Defense's +1 applies *only while wearing armour*,
+   * and this field cannot say that — `applyGrant` has no view of the sheet's
+   * future inventory, and `Character.ac` is a stored number the player edits.
+   * `buildCharacter` checks for armour at creation, and beyond that the number
+   * is the player's. That is the usual bargain here: the table offers, the
+   * sheet is hand-editable, and nothing recomputes behind you.
+   */
+  acBonus?: number
+  /**
+   * Extra max HP per character level, e.g. Tough's `2`.
+   *
+   * The sibling of `SubraceInfo.hpPerLevel`, which has carried the Hill Dwarf's
+   * Dwarven Toughness since before feats existed. It is here rather than there
+   * because a feat is a `Grant` and a subrace is not, and because the two are
+   * read at different moments: a subrace's applies from level 1, while a feat's
+   * starts the level it is taken and is owed for every level already held.
+   *
+   * Additive and never lowered, like every other number on this type. Read by
+   * `buildCharacter` at creation and by `applyLevelUp` at level-up; both floor
+   * the resulting max at 1.
+   */
+  hpPerLevel?: number
+  /**
    * Spells granted outright, no choice involved — Fey Touched's misty step,
    * Shadow Touched's invisibility, Fey Teleportation's misty step.
    *
@@ -180,6 +209,27 @@ export type PickKind =
   | 'armor'
   | 'spell'
   | 'cantrip'
+  /**
+   * A choice whose answer *is* a feature: a Fighter's Fighting Style, a Battle
+   * Master's manoeuvres, a Warlock's invocations.
+   *
+   * These were prose for a long time, and the reason was sound: CLAUDE.md's rule
+   * is that a choice becomes a `PickList` only when the sheet has a field for
+   * its answer, and as a `kind: 'other'` pick `applyPicks` would record the
+   * click and then discard it — worse than prose, which at least promises
+   * nothing. This kind exists because `Character.features` *is* that field. The
+   * chosen value lands there as a named row, so "Fighting Style: Defense" is on
+   * the sheet, in the Features tab, and on the printed page.
+   *
+   * The rules text rides on the pick as `featureText`, keyed by option, which
+   * is why this is the one kind `applyPick(c, kind, values)` can't serve alone
+   * — see `applyFeaturePick`.
+   *
+   * Still not a rules engine: nothing here computes. Choosing Defense writes a
+   * row that says Defense gives +1 AC while wearing armour; it does not touch
+   * `Character.ac`, because that is a number the player also edits.
+   */
+  | 'feature'
   /** Anything else — rendered as free text with the options as suggestions. */
   | 'other'
 
@@ -208,6 +258,72 @@ export interface PickList {
    * options as a datalist.
    */
   open?: boolean
+  /**
+   * `kind: 'feature'` only: rules text for each option, keyed by the option's
+   * own string.
+   *
+   * It lives here rather than on the character because the answer is a choice
+   * *from a table*, and the table is the thing that knows what Defense does. A
+   * chosen option with no entry lands as a bare named row, which is exactly
+   * what a homebrew or hand-typed answer should do.
+   */
+  featureText?: Record<string, string>
+  /**
+   * `kind: 'feature'` only: prefix for the row written to the sheet, so a bare
+   * option name becomes "Fighting Style: Defense" rather than "Defense".
+   *
+   * Omitted where the option already names itself — a Battle Master's
+   * "Riposte" needs no prefix to read as a manoeuvre on the Features tab.
+   */
+  featureLabel?: string
+  /**
+   * `kind: 'feature'` only: what each option grants mechanically, keyed by the
+   * option's own string.
+   *
+   * Most carry nothing — a fighting style that reads "+2 to attack rolls with a
+   * ranged weapon" is a combat rule this app does not model, so Archery's entry
+   * is absent and its row is the reminder. The few that land on a number the
+   * sheet actually holds say so: Defense raises AC, Superior Technique adds a
+   * superiority die.
+   *
+   * An option with no entry grants nothing, which is correct rather than
+   * incomplete — the same rule `grant: {}` follows on a feat.
+   */
+  featureGrant?: Record<string, Grant>
+}
+
+/**
+ * One feature a class or subclass gains, at the character level it is gained at.
+ *
+ * Named rather than repeated inline — it was the same anonymous literal in two
+ * places, and `picks` had nowhere to be added without writing it twice.
+ *
+ * `picks` is what turns a feature that is really a *question* into one the
+ * wizard can ask: a Fighter's Fighting Style, a Battle Master's manoeuvres. The
+ * feature row still lands on the sheet as prose; the answers land beside it as
+ * their own rows. A feature with no `picks` is the ordinary case and behaves
+ * exactly as it always has.
+ */
+export interface ClassFeatureInfo {
+  /** Character level this is gained at, 1-20. */
+  level: number
+  name: string
+  /** Rules text. `[[wiki links]]` and dice notation stay live on the sheet. */
+  text?: string
+  /**
+   * Choices this feature poses. Same global id keyspace as every other
+   * `PickList`, so ids are prefixed by owner and asserted unique in srd.test.ts.
+   */
+  picks?: Array<PickList>
+  /**
+   * A counter this feature implies, offered to the player at level-up as a
+   * pre-filled `Character.resources` row they can accept, edit or ignore.
+   *
+   * Suggestion only, and deliberately so: `total` here is what the book says at
+   * the level the feature is gained, and nothing recomputes it afterwards. The
+   * player owns the number once it is on their sheet.
+   */
+  resource?: { name: string; total: number; resets?: 'short' | 'long' }
 }
 
 /** Racial ability score increases, e.g. `{ con: 2 }` for a Dwarf. */
@@ -344,8 +460,41 @@ export interface FeatInfo {
   /**
    * The half-feat ability bump ("+1 Constitution, and…"), applied like a racial
    * increase rather than merged like a list. Absent for a full feat.
+   *
+   * Fixed. When the feat lets the *player* choose which ability to raise, use
+   * `asiChoice` instead — a feat should carry one or the other, never both.
    */
   asi?: AbilityScoreIncrease
+  /**
+   * The abilities a half-feat lets the player choose between, when its +1 is
+   * theirs to place — Resilient's "one ability of your choice", Skill Expert's,
+   * Weapon Master's "Strength or Dexterity".
+   *
+   * These used to be impossible to say. `asi` is a fixed record, so each of the
+   * six choosable half-feats named the ability it is most often built around
+   * and wrote "of your choice" in its summary — which meant a Skill Expert
+   * quietly got +1 Dexterity whether or not that is what they wanted, and the
+   * summary said something the app then did not do.
+   *
+   * That workaround existed because there was nowhere to *ask*. There is now:
+   * the level-up picks step resolves it like any other choice, and creation
+   * resolves it the same way. Still one point, still not a spread — the reason
+   * feats were denied a chooseable spread stands; this is only about *which*
+   * ability the single point lands on.
+   *
+   * Always the whole point: a feat offering a choice grants exactly 1.
+   */
+  asiChoice?: Array<Ability>
+  /**
+   * Whether the saving-throw proficiency follows the `asiChoice` the player
+   * made. Exactly one feat needs it — Resilient, whose whole text is "choose an
+   * ability, gain +1 and its save".
+   *
+   * A `grant.saves` cannot express that: it is a fixed list written before
+   * anyone has chosen, which is why Resilient shipped a hardcoded Constitution
+   * save and handed a Resilient (Strength) character the wrong one.
+   */
+  grantsSaveForAsiChoice?: boolean
   grant: Grant
 }
 
@@ -432,7 +581,7 @@ export interface SubclassInfo {
   name: string
   summary?: string
   /** Features by the character level they are gained at. */
-  features: Array<{ level: number; name: string; text?: string }>
+  features: Array<ClassFeatureInfo>
   /**
    * Domain, oath and circle spells: always prepared and exempt from the
    * prepared limit, which is what `Character.Spell.alwaysPrepared` models.
@@ -506,7 +655,7 @@ export interface ClassKit {
    * for display; `buildCharacter` takes the level 1 ones and the level-up
    * wizard takes the rest.
    */
-  features: Array<{ level: number; name: string; text?: string }>
+  features: Array<ClassFeatureInfo>
   /**
    * Levels at which this class gains an Ability Score Improvement — [4, 8, 12,
    * 16, 19] for most, with Fighter and Rogue getting extras. Absent means the

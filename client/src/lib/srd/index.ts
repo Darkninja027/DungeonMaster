@@ -62,10 +62,10 @@ export {
  * which is why both the wizard and commit go through this one helper rather
  * than each filtering for themselves.
  */
-export function featuresUpToLevel(
-  features: Array<{ level: number; name: string; text?: string }>,
+export function featuresUpToLevel<T extends { level: number; name: string }>(
+  features: Array<T>,
   level: number,
-): Array<{ level: number; name: string; text?: string }> {
+): Array<T> {
   return features
     .filter((f) => f.level <= level)
     .sort((a, b) => a.level - b.level || a.name.localeCompare(b.name))

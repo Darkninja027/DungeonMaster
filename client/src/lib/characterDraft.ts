@@ -11,7 +11,7 @@
  */
 
 import type { Ability } from './character'
-import { skillIdFor } from './character'
+import { ABILITIES, ABILITY_NAMES, skillIdFor } from './character'
 import { emptyAbilityDraft, abilitiesValid } from './abilityMethods'
 import type { AbilityDraft } from './abilityMethods'
 import type { ClassInfo } from './classes'
@@ -25,12 +25,14 @@ import {
   SRD_TABLES,
 } from './tables'
 import type { Tables } from './tables'
+import { featuresUpToLevel } from './srd'
 import type {
   BackgroundInfo,
   ClassKit,
   FeatInfo,
   FlexibleAsiMode,
   Grant,
+  PickKind,
   PickList,
   RaceInfo,
 } from './srd'
@@ -312,10 +314,27 @@ export function draftOwnedPickLists(
   const background = draftBackground(draft)
   if (background) add(background.grant, background.name, 'background')
   const feat = draftFeat(draft)
-  if (feat) add(feat.grant, feat.name, 'feat')
+  if (feat) {
+    // A half-feat whose +1 the player places — offered before its own picks,
+    // because "which ability" is the first thing a Skill Expert decides.
+    const choice = asiChoicePick(feat)
+    if (choice) out.push({ pick: choice, owner: feat.name, ownerKind: 'feat' })
+    add(feat.grant, feat.name, 'feat')
+  }
   const kit = draftKit(draft)
   if (kit) {
     add(kit.grant, kit.name, 'class')
+    // Choices posed by the features a level-1 character actually has — a
+    // Fighter's Fighting Style. These live on the feature rather than on
+    // `kit.grant` because they arrive *with* it, and a feature gained at 5th
+    // level must not be asked about during creation; `featuresUpToLevel` is
+    // what draws that line, and it is the same line `buildCharacter` uses when
+    // it decides which feature rows to write.
+    for (const feature of featuresUpToLevel(kit.features, 1)) {
+      for (const pick of feature.picks ?? []) {
+        out.push({ pick, owner: feature.name, ownerKind: 'class' })
+      }
+    }
     for (const choice of kit.equipment) {
       const index = draft.equipment[choice.id] as number | undefined
       const option = index === undefined ? undefined : choice.options[index]
@@ -444,6 +463,79 @@ export function grantedSkills(
   return out
 }
 
+/**
+ * Values of one kind the character already has, mapped to where each came from.
+ *
+ * The general form of `grantedSkills`, which answered this for skills alone —
+ * so a Half-Elf who already spoke Elvish was still offered Elvish as a
+ * selectable chip, spent a pick on it, and had it silently deduplicated away by
+ * `mergeList` at commit. The pick was gone and nothing said so.
+ *
+ * Returns a map rather than a set because the UI names the source: greying a
+ * chip is only fair if it also says *why*.
+ */
+export function grantedFor(
+  draft: CharacterDraft,
+  kind: PickKind,
+  /**
+   * When given, also count values chosen in *other* pick lists of this kind,
+   * and exempt this one — a pick must never grey out its own answers.
+   */
+  exceptPickId?: string,
+): Map<string, string> {
+  // Skills keep their own function: they resolve free text through `skillIdFor`
+  // and are the one kind whose values are ids rather than the words on screen.
+  if (kind === 'skill' || kind === 'skillOrTool') {
+    return grantedSkills(draft, exceptPickId)
+  }
+  const field = GRANT_FIELD_FOR[kind]
+  if (!field) return new Map()
+
+  const out = new Map<string, string>()
+  const add = (values: Array<string> | undefined, source: string) => {
+    for (const value of values ?? []) {
+      const trimmed = value.trim()
+      // First writer wins, matching `mergeList` — the source shown is the one
+      // that would actually have granted it.
+      if (trimmed && !out.has(trimmed)) out.set(trimmed, source)
+    }
+  }
+  const race = draftRace(draft)
+  if (race) add(race.grant[field], race.name)
+  const subrace = draftSubrace(draft)
+  if (subrace) add(subrace.grant[field], subrace.name)
+  const background = draftBackground(draft)
+  if (background) add(background.grant[field], background.name)
+  const kit = draftKit(draft)
+  if (kit) add(kit.grant[field], kit.name)
+  const feat = draftFeat(draft)
+  if (feat) add(feat.grant[field], feat.name)
+
+  if (exceptPickId === undefined) return out
+  // Values spent in another pick of the same kind. Two "choose a language"
+  // picks must not both offer Dwarvish.
+  for (const { pick, owner } of draftOwnedPickLists(draft)) {
+    if (pick.id === exceptPickId || pick.kind !== kind) continue
+    add(picked(draft, pick.id), owner)
+  }
+  return out
+}
+
+/**
+ * Which `Grant` list a pick kind draws from, for the kinds where the two line
+ * up one-to-one. Absent for kinds a grant cannot hand over outright (`spell`,
+ * `cantrip`, `expertise`, `feature`, `other`), which is why the lookup is
+ * partial rather than a `Record`.
+ */
+const GRANT_FIELD_FOR: Partial<
+  Record<PickKind, 'languages' | 'tools' | 'armor' | 'weapons'>
+> = {
+  language: 'languages',
+  tool: 'tools',
+  armor: 'armor',
+  weapon: 'weapons',
+}
+
 /** Racial ability increases, race and subrace merged, plus flexible picks. */
 export function racialAsi(
   draft: CharacterDraft,
@@ -462,7 +554,63 @@ export function racialAsi(
   // through `finalScores` with the racial increases and gets the same 1-30
   // clamp. Only ever set for a race that grants a feat at all.
   bump(draftFeat(draft)?.asi)
+  // And the chooseable half of one, once the player has placed it. Unanswered
+  // it is worth nothing rather than a guess — see `asiChoicePick`.
+  const feat = draftFeat(draft)
+  if (feat?.asiChoice) {
+    const answer = picked(draft, asiChoicePickId(feat.id))[0]
+    const ability = answer ? abilityForChoice(answer) : undefined
+    if (ability && feat.asiChoice.includes(ability)) {
+      bump({ [ability]: 1 })
+    }
+  }
   return out
+}
+
+/**
+ * The synthetic pick id for a feat's chooseable +1.
+ *
+ * Derived from the feat id rather than authored, because the choice belongs to
+ * the *feat* and every authored pick id is already spoken for. Kept in one
+ * function so the writer (`levelUpPicks`) and the reader (`mergedAsi`) cannot
+ * disagree about the key.
+ */
+export function asiChoicePickId(featId: string): string {
+  return `${featId}-asi-choice`
+}
+
+/**
+ * A feat's chooseable ability increase, as a `PickList` the ordinary picks step
+ * can render.
+ *
+ * Synthetic rather than authored: expressing it as a pick means no new control,
+ * no new step and no new gating — it is one more choice among the feat's own,
+ * shown beside them and answered the same way. `kind: 'other'` because the
+ * answer does not belong in any character *list*: it raises a score, and
+ * `mergedAsi` reads it back directly.
+ */
+export function asiChoicePick(feat: FeatInfo): PickList | undefined {
+  if (!feat.asiChoice || feat.asiChoice.length === 0) return undefined
+  return {
+    id: asiChoicePickId(feat.id),
+    kind: 'other',
+    label: feat.grantsSaveForAsiChoice
+      ? 'Choose an ability — you gain +1 and its saving throw'
+      : 'Choose an ability to increase by 1',
+    count: 1,
+    // Display names, not ids: this is the one pick whose values are read back
+    // as abilities, and `abilityForChoice` resolves either spelling so a
+    // hand-typed answer still lands.
+    options: feat.asiChoice.map((a) => ABILITY_NAMES[a]),
+  }
+}
+
+/** The ability a chooseable-ASI answer names, by id or display name. */
+export function abilityForChoice(value: string): Ability | undefined {
+  const key = value.trim().toLowerCase()
+  return ABILITIES.find(
+    (a) => a === key || ABILITY_NAMES[a].toLowerCase() === key,
+  )
 }
 
 /**

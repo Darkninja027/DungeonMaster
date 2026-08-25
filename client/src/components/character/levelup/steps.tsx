@@ -5,17 +5,28 @@ import type { AsiChoice, LevelUpDraft } from '#/lib/levelUp'
 import {
   ASI_HYBRID_POINTS,
   ASI_POINTS,
-  asiPointsFor,
+  abilitiesBefore,
+  asiHeadroom,
   asiLevelsCrossed,
+  asiUnlocked,
+  asiPointsFor,
   averageHitDie,
   cantripsAtLevel,
+  chooseSubclass,
+  eligibleExpertiseAt,
   featsAvailable,
+  firstIncompleteAsi,
   featuresGained,
+  grantedAlreadyAt,
   hpGained,
+  levelUpPicks,
+  pickedAt,
+  resourcesOffered,
   levelsGained,
   slotsAtLevel,
 } from '#/lib/levelUp'
 import { findFeat } from '#/lib/tables'
+import { PickListGroup } from '../create/PickListGroup'
 import { AbilityStepperRow } from '../AbilityStepperRow'
 import { Button } from '#/components/ui/button'
 import { Input } from '#/components/ui/input'
@@ -173,7 +184,13 @@ export function FeaturesStep({
   draft: LevelUpDraft
   onChange: (next: LevelUpDraft) => void
 }) {
-  const offered = featuresGained(character, draft.from, draft.to, draft.kit)
+  const offered = featuresGained(
+    character,
+    draft.from,
+    draft.to,
+    draft.kit,
+    draft.subclassName || character.subclass,
+  )
   const taking = new Set(draft.takeFeatures.map((n) => n.trim().toLowerCase()))
 
   const toggle = (name: string) => {
@@ -248,7 +265,7 @@ export function SubclassStep({
             title={sub.name}
             description={sub.summary}
             selected={draft.subclassName === sub.name}
-            onSelect={() => onChange({ ...draft, subclassName: sub.name })}
+            onSelect={() => onChange(chooseSubclass(draft, sub.name))}
           />
         ))}
       </div>
@@ -261,7 +278,7 @@ export function SubclassStep({
         <Input
           value={draft.subclassName}
           placeholder={label}
-          onChange={(e) => onChange({ ...draft, subclassName: e.target.value })}
+          onChange={(e) => onChange(chooseSubclass(draft, e.target.value))}
         />
       </label>
     </div>
@@ -322,11 +339,25 @@ export function AsiStep({
   return (
     <div className="space-y-5">
       {levels.map((level) => {
+        const before = abilitiesBefore(draft, level)
         const choice = draft.asi[level] ?? {
           kind: 'abilities' as const,
           abilities: {},
           featName: '',
         }
+        // Locked until every earlier ASI is settled. A later level's numbers
+        // are a claim about what your scores will be when you reach it, and
+        // that answer moves while an earlier level is still being edited —
+        // filling them out of order meant watching your own choices rewrite
+        // themselves above you.
+        const unlocked = asiUnlocked(draft, level)
+        // What this level can actually ask for. Normally the full 2, but a
+        // character whose scores are all at 20 has nowhere to put them, and
+        // demanding two would leave Next dead with nothing to click.
+        const wanted = Math.min(
+          asiPointsFor(choice.kind),
+          asiHeadroom(draft, level),
+        )
         const placed = Object.values(choice.abilities).reduce<number>(
           (sum, n) => sum + n,
           0,
@@ -339,21 +370,34 @@ export function AsiStep({
           patch(level, { abilities: next })
         }
         return (
-          <div key={level} className="space-y-2">
+          <div
+            key={level}
+            className={cn('space-y-2', !unlocked && 'opacity-50')}
+            // Dimmed *and* inert: opacity alone still lets a click through, and
+            // a control that looks unavailable but answers anyway is worse than
+            // one that plainly is not there.
+            aria-disabled={!unlocked || undefined}
+          >
             <div className="flex items-baseline justify-between">
               <h3 className="text-sm font-medium">
                 Level {level} — Ability Score Improvement
               </h3>
-              {choice.kind !== 'feat' && (
-                <span
-                  className={
-                    placed === asiPointsFor(choice.kind)
-                      ? 'text-muted-foreground text-xs'
-                      : 'text-xs font-medium text-amber-600 dark:text-amber-500'
-                  }
-                >
-                  {placed} / {asiPointsFor(choice.kind)}
+              {!unlocked ? (
+                <span className="text-muted-foreground text-xs">
+                  Finish level {firstIncompleteAsi(draft)} first
                 </span>
+              ) : (
+                choice.kind !== 'feat' && (
+                  <span
+                    className={
+                      placed === wanted
+                        ? 'text-muted-foreground text-xs'
+                        : 'text-xs font-medium text-amber-600 dark:text-amber-500'
+                    }
+                  >
+                    {placed} / {wanted}
+                  </span>
+                )
               )}
             </div>
 
@@ -362,18 +406,21 @@ export function AsiStep({
                 title="Raise ability scores"
                 description={`Add ${ASI_POINTS} points, split as you like.`}
                 selected={choice.kind === 'abilities'}
+                disabled={!unlocked}
                 onSelect={() => setKind(level, 'abilities')}
               />
               <OptionCard
                 title="Take a feat"
                 description="Type its name; note the details on the sheet."
                 selected={choice.kind === 'feat'}
+                disabled={!unlocked}
                 onSelect={() => setKind(level, 'feat')}
               />
               <OptionCard
                 title={`+${ASI_HYBRID_POINTS} and a feat`}
                 description="A common house rule — one point and a feat."
                 selected={choice.kind === 'both'}
+                disabled={!unlocked}
                 onSelect={() => setKind(level, 'both')}
               />
             </div>
@@ -382,14 +429,20 @@ export function AsiStep({
               <AbilityStepperRow
                 state={(ability) => {
                   const points = choice.abilities[ability] ?? 0
-                  const score = character.abilities[ability]
+                  // What the score is *by the time this level is reached* —
+                  // the character's own plus everything spent at earlier ASI
+                  // levels in this same level-up. Reading `character` directly
+                  // showed every ASI the starting score, so a Fighter's five
+                  // could each "raise Strength 16 -> 18" while the summary
+                  // correctly totalled 20.
+                  const score = before[ability]
                   // 20 is the RAW cap an ASI can raise a score to.
                   const capped = score + points >= 20
                   return {
                     value: points,
                     before: score,
-                    canRaise: placed < asiPointsFor(choice.kind) && !capped,
-                    canLower: points > 0,
+                    canRaise: unlocked && placed < wanted && !capped,
+                    canLower: unlocked && points > 0,
                     title: capped ? 'Already at 20' : undefined,
                   }
                 }}
@@ -411,6 +464,7 @@ export function AsiStep({
                   options={featsAvailable(character, draft, level).map(
                     (f) => f.name,
                   )}
+                  disabled={!unlocked}
                   onCommit={(featName) => patch(level, { featName })}
                   placeholder="e.g. Sharpshooter"
                   className="h-8 max-w-sm"
@@ -431,6 +485,147 @@ export function AsiStep({
           </div>
         )
       })}
+    </div>
+  )
+}
+
+/**
+ * Every choice this level-up poses, in one step.
+ *
+ * Renders through `PickListGroup` — the creation wizard's own control — so a
+ * feat's picks look and behave identically whether they were answered at level
+ * 1 or level 12. That symmetry is the point: the two paths diverging is what
+ * made Skilled grant three proficiencies to a Variant Human and none to anybody
+ * else.
+ */
+export function PicksStep({
+  character,
+  draft,
+  onChange,
+}: {
+  character: Character
+  draft: LevelUpDraft
+  onChange: (next: LevelUpDraft) => void
+}) {
+  const picks = levelUpPicks(draft)
+  const offers = resourcesOffered(draft)
+
+  const setValues = (id: string, values: Array<string>) =>
+    onChange({ ...draft, picks: { ...draft.picks, [id]: values } })
+
+  const toggleResource = (name: string) => {
+    const next = { ...draft.resources }
+    if (next[name]) delete next[name]
+    else {
+      const offer = offers.find((o) => o.name === name)
+      if (offer) {
+        next[name] = offer.resets
+          ? { total: offer.total, resets: offer.resets }
+          : { total: offer.total }
+      }
+    }
+    onChange({ ...draft, resources: next })
+  }
+
+  const setTotal = (name: string, total: number) => {
+    const current = draft.resources[name]
+    if (!current) return
+    onChange({
+      ...draft,
+      resources: { ...draft.resources, [name]: { ...current, total } },
+    })
+  }
+
+  return (
+    <div className="space-y-5">
+      <p className="text-muted-foreground text-sm">
+        What your new feats and features let you choose. These land on the sheet
+        with everything else when you apply.
+      </p>
+
+      {picks.map(({ pick, owner, ownerKind }) => (
+        <PickListGroup
+          key={pick.id}
+          pick={pick}
+          chosen={pickedAt(draft, pick.id)}
+          source={ownerKind === 'feat' ? `the ${owner} feat` : owner}
+          // Expertise doubles a proficiency, so the real answer set is this
+          // character's own skills — including any granted moments ago by
+          // another pick in this same step.
+          options={
+            pick.kind === 'expertise'
+              ? eligibleExpertiseAt(character, draft, pick)
+              : undefined
+          }
+          alreadyGranted={grantedAlreadyAt(character, draft, pick, picks)}
+          suggestionsLabel={pick.kind === 'skillOrTool' ? 'Tools' : undefined}
+          onChange={(values) => setValues(pick.id, values)}
+        />
+      ))}
+
+      {offers.length > 0 && (
+        <div className="space-y-2">
+          <div>
+            <p className="text-sm font-medium">Trackers</p>
+            <p className="text-muted-foreground text-xs">
+              Counters these features imply. Add the ones you want to track on
+              the sheet — the number is yours to change, now or later. A counter
+              you already track is raised, never reset.
+            </p>
+          </div>
+          {offers.map((offer) => {
+            const kept = draft.resources[offer.name]
+            return (
+              <div
+                key={offer.name}
+                className="flex items-center justify-between gap-3 text-sm"
+              >
+                <button
+                  type="button"
+                  role="checkbox"
+                  aria-checked={Boolean(kept)}
+                  onClick={() => toggleResource(offer.name)}
+                  className={cn(
+                    'rounded-md border px-2.5 py-1 text-left',
+                    kept ? 'border-primary' : 'opacity-60',
+                  )}
+                >
+                  {offer.name}
+                  {/*
+                    A raise reads as a change, not a new row: "Superiority Dice
+                    4 -> 5" says what actually happens, where the bare name plus
+                    a 5 looks like a counter the player is being asked to create
+                    a second time.
+                  */}
+                  {offer.from !== undefined && (
+                    <span className="text-muted-foreground">
+                      {' '}
+                      {offer.from} → {offer.total}
+                    </span>
+                  )}
+                  {offer.resets && (
+                    <span className="text-muted-foreground">
+                      {' '}
+                      · per {offer.resets} rest
+                    </span>
+                  )}
+                </button>
+                {kept && (
+                  <Input
+                    type="number"
+                    min={0}
+                    value={kept.total}
+                    onChange={(e) =>
+                      setTotal(offer.name, Math.max(0, Number(e.target.value)))
+                    }
+                    className="h-7 w-20 text-sm"
+                  />
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }

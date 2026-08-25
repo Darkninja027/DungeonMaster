@@ -558,6 +558,9 @@ describe('pick ownership', () => {
       'variant-human-skill',
       'soldier-gaming-set',
       'skilled-skills',
+      // The class's own choices, in the order the kit poses them: the picks its
+      // level-1 features carry, then the skill list.
+      'fighter-fighting-style',
       'fighter-skills',
     ])
   })

@@ -12,6 +12,7 @@ import {
   flexibleAsiComplete,
   flexibleAsiSpec,
   flexibleSlotAbilities,
+  grantedFor,
   picked,
   refitFlexibleAsi,
 } from '#/lib/characterDraft'
@@ -361,6 +362,11 @@ export function RaceStep({
             key={pick.id}
             pick={pick}
             chosen={picked(draft, pick.id)}
+            // The same greying the Skills step does. These are the very same
+            // pick objects rendered a second time, sharing `draft.picks`, so
+            // without this a language your race already grants was selectable
+            // here and greyed out there.
+            alreadyGranted={grantedFor(draft, pick.kind, pick.id)}
             onChange={(values) =>
               onChange({
                 ...draft,

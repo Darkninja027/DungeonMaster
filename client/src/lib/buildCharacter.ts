@@ -28,6 +28,8 @@ import type {
 } from './character'
 import { baseScores } from './abilityMethods'
 import {
+  abilityForChoice,
+  asiChoicePickId,
   draftBackground,
   draftClassInfo,
   draftFeat,
@@ -48,7 +50,7 @@ import {
   weaponCategory,
   weaponEntry,
 } from './srd'
-import type { Grant, GrantItem } from './srd'
+import type { Grant, GrantItem, PickKind, PickList } from './srd'
 
 /** Ability scores after racial increases, clamped to the parser's 1-30 range. */
 export function finalScores(draft: CharacterDraft): Record<Ability, number> {
@@ -108,6 +110,14 @@ function toInventoryItem(item: GrantItem): InventoryItem {
 
 /** Merge one grant's list fields into a character in place. */
 function applyGrant(c: Character, grant: Grant) {
+  // Additive, and applied here so the level-up path gets it too: that path
+  // reaches `applyGrant` through `applyFeaturePick` and never re-derives AC, so
+  // a bonus summed only in `buildCharacter` was silently lost after creation.
+  // Creation still sums it separately, because only there can the "while
+  // wearing armour" condition be checked against the inventory the kit built —
+  // see the `wearingArmor` guard below, which is why this line skips a grant
+  // that creation will account for itself.
+  c.ac += grant.acBonus ?? 0
   mergeList(c.skills, grant.skills)
   mergeList(c.armor, grant.armor)
   mergeList(c.weapons, grant.weapons)
@@ -169,99 +179,186 @@ function coveredByCategory(c: Character, weapon: string): boolean {
   return c.weapons.some((w) => w.trim().toLowerCase() === category)
 }
 
+/**
+ * Route one resolved pick's values into the character fields its kind belongs
+ * to. Mutates in place and only ever merges — nothing here removes or replaces.
+ *
+ * Exported and taking `(character, kind, values)` rather than a draft, because
+ * the level-up wizard resolves the same picks against a finished `Character`
+ * with no draft in sight. Both callers must stay on this one implementation: a
+ * feat's Skilled pick has to land in the same place whether it was taken at
+ * level 1 by a Variant Human or at level 4 through an ASI, and two copies of
+ * this switch would drift apart the first time a kind was added.
+ */
+export function applyPick(c: Character, kind: PickKind, values: Array<string>) {
+  if (values.length === 0) return
+  switch (kind) {
+    case 'skill':
+      // Through `skillIdFor` so a typed display name — "Animal Handling"
+      // rather than `animal-handling` — becomes the id the sheet stores.
+      // Without it the filter at the end of `buildCharacter` drops the value
+      // and the player silently loses a proficiency they chose. A value that
+      // is no skill at all is left as-is for that same filter to reject.
+      mergeList(
+        c.skills,
+        values.map((v) => skillIdFor(v) ?? v),
+      )
+      break
+    case 'skillOrTool':
+      // The one kind whose values do not share a destination, so it routes
+      // per value rather than per pick: a skill becomes its id, and anything
+      // else is a tool, stored verbatim because tools are free text.
+      for (const value of values) {
+        const id = skillIdFor(value)
+        if (id) mergeList(c.skills, [id])
+        else mergeList(c.tools, [value])
+      }
+      break
+    case 'expertise':
+      // Expertise, not proficiency: `skillBonus` doubles the bonus for these.
+      // Filing them in `c.skills` would quietly hand back a plain proficiency
+      // the character usually already has.
+      mergeList(
+        c.expertise,
+        values.map((v) => skillIdFor(v) ?? v),
+      )
+      break
+    case 'tool':
+      mergeList(c.tools, values)
+      break
+    case 'language':
+      mergeList(c.languages, values)
+      break
+    case 'weapon':
+      // A granted weapon is a thing you carry, and *sometimes* also a
+      // proficiency. Listing "Battleaxe" beside the "martial" category a
+      // paladin already has is noise, not information — the category
+      // already covers it. So only name a weapon individually when no
+      // category the character has would include it.
+      mergeList(
+        c.weapons,
+        values.filter((v) => !coveredByCategory(c, v)),
+      )
+      for (const value of values) {
+        const existing = c.inventory.find(
+          (i) => i.text.toLowerCase() === value.toLowerCase(),
+        )
+        if (existing) existing.qty += 1
+        else c.inventory.push({ text: value, qty: 1, weight: 0, slot: null })
+      }
+      break
+    case 'armor':
+      mergeList(c.armor, values)
+      break
+    case 'cantrip':
+      for (const name of values) {
+        if (!c.spells.some((s) => s.name === name)) {
+          c.spells.push({ name, level: 0 })
+        }
+      }
+      break
+    case 'spell':
+      // Level 1, and never `prepared`. Every spell pick in the tables is a
+      // 1st-level one (Fey Touched, Shadow Touched, Magic Initiate, Ritual
+      // Caster, Artificer Initiate), and all of them are cast without
+      // spending a slot — once per long rest, or from a ritual book. Marking
+      // them prepared would spend a caster's preparation limit on a spell
+      // that never needed it, and a rogue who took Fey Touched has no limit
+      // to spend at all.
+      //
+      // Matched on name *and* level, unlike the cantrip case above: a caster
+      // can legitimately know the cantrip and the 1st-level spell of the same
+      // name, and Magic Initiate hands out one of each.
+      for (const name of values) {
+        if (!c.spells.some((s) => s.name === name && s.level === 1)) {
+          c.spells.push({ name, level: 1 })
+        }
+      }
+      break
+    case 'feature':
+      // A choice whose answer *is* a feature: a Fighter's Fighting Style, a
+      // Battle Master's manoeuvres. The value carries the chosen name and the
+      // pick's `featureText` the rules reminder, so it lands as a real row on
+      // the Features tab rather than being recorded and dropped.
+      //
+      // Level 0 and de-duped by name alone: unlike a class feature, this is not
+      // gained *at* a level in any meaningful sense — it is an answer, and the
+      // level it was answered at is not a fact worth pinning. `featureRow`
+      // below is what actually writes it, because the text lives on the pick.
+      break
+    default:
+      // 'other' carries no single home on the sheet; it surfaces in the body
+      // and on the traits the option belongs to.
+      break
+  }
+}
+
+/**
+ * Grants carried by the options a player has chosen in `feature` picks.
+ *
+ * Separate from `draftGrants`, which walks the fixed sources — race, subrace,
+ * background, feat, class, equipment. A feature pick's grant belongs to an
+ * *answer*, so it cannot be known until the answer is given.
+ */
+function featurePickGrants(draft: CharacterDraft): Array<Grant> {
+  const out: Array<Grant> = []
+  // De-duped by the row name the pick writes, matching `applyFeaturePick`: it
+  // refuses to add a second "Fighting Style: Defense" row, so the bonus must
+  // not be counted a second time either. A draft holding the same answer twice
+  // is reachable — a stale value plus a re-pick — and the two halves of one
+  // choice have to agree about how many times it happened.
+  const seen = new Set<string>()
+  for (const pick of draftPickLists(draft)) {
+    if (pick.kind !== 'feature') continue
+    for (const value of picked(draft, pick.id)) {
+      const name = (
+        pick.featureLabel ? `${pick.featureLabel}: ${value}` : value
+      ).toLowerCase()
+      if (seen.has(name)) continue
+      seen.add(name)
+      const grant = pick.featureGrant?.[value]
+      if (grant) out.push(grant)
+    }
+  }
+  return out
+}
+
 /** Merge the player's resolved pick lists into the right character fields. */
 function applyPicks(c: Character, draft: CharacterDraft) {
   for (const pick of draftPickLists(draft)) {
     const values = picked(draft, pick.id).filter(Boolean)
     if (values.length === 0) continue
-    switch (pick.kind) {
-      case 'skill':
-        // Through `skillIdFor` so a typed display name — "Animal Handling"
-        // rather than `animal-handling` — becomes the id the sheet stores.
-        // Without it the filter at the end of `buildCharacter` drops the value
-        // and the player silently loses a proficiency they chose. A value that
-        // is no skill at all is left as-is for that same filter to reject.
-        mergeList(
-          c.skills,
-          values.map((v) => skillIdFor(v) ?? v),
-        )
-        break
-      case 'skillOrTool':
-        // The one kind whose values do not share a destination, so it routes
-        // per value rather than per pick: a skill becomes its id, and anything
-        // else is a tool, stored verbatim because tools are free text.
-        for (const value of values) {
-          const id = skillIdFor(value)
-          if (id) mergeList(c.skills, [id])
-          else mergeList(c.tools, [value])
-        }
-        break
-      case 'expertise':
-        // Expertise, not proficiency: `skillBonus` doubles the bonus for these.
-        // Filing them in `c.skills` would quietly hand back a plain proficiency
-        // the character usually already has.
-        mergeList(
-          c.expertise,
-          values.map((v) => skillIdFor(v) ?? v),
-        )
-        break
-      case 'tool':
-        mergeList(c.tools, values)
-        break
-      case 'language':
-        mergeList(c.languages, values)
-        break
-      case 'weapon':
-        // A granted weapon is a thing you carry, and *sometimes* also a
-        // proficiency. Listing "Battleaxe" beside the "martial" category a
-        // paladin already has is noise, not information — the category
-        // already covers it. So only name a weapon individually when no
-        // category the character has would include it.
-        mergeList(
-          c.weapons,
-          values.filter((v) => !coveredByCategory(c, v)),
-        )
-        for (const value of values) {
-          const existing = c.inventory.find(
-            (i) => i.text.toLowerCase() === value.toLowerCase(),
-          )
-          if (existing) existing.qty += 1
-          else c.inventory.push({ text: value, qty: 1, weight: 0, slot: null })
-        }
-        break
-      case 'armor':
-        mergeList(c.armor, values)
-        break
-      case 'cantrip':
-        for (const name of values) {
-          if (!c.spells.some((s) => s.name === name)) {
-            c.spells.push({ name, level: 0 })
-          }
-        }
-        break
-      case 'spell':
-        // Level 1, and never `prepared`. Every spell pick in the tables is a
-        // 1st-level one (Fey Touched, Shadow Touched, Magic Initiate, Ritual
-        // Caster, Artificer Initiate), and all of them are cast without
-        // spending a slot — once per long rest, or from a ritual book. Marking
-        // them prepared would spend a caster's preparation limit on a spell
-        // that never needed it, and a rogue who took Fey Touched has no limit
-        // to spend at all.
-        //
-        // Matched on name *and* level, unlike the cantrip case above: a caster
-        // can legitimately know the cantrip and the 1st-level spell of the same
-        // name, and Magic Initiate hands out one of each.
-        for (const name of values) {
-          if (!c.spells.some((s) => s.name === name && s.level === 1)) {
-            c.spells.push({ name, level: 1 })
-          }
-        }
-        break
-      default:
-        // 'other' carries no single home on the sheet; it surfaces in the body
-        // and on the traits the option belongs to.
-        break
+    if (pick.kind === 'feature') {
+      applyFeaturePick(c, pick, values)
+      continue
     }
+    applyPick(c, pick.kind, values)
+  }
+}
+
+/**
+ * A `feature` pick's chosen values, as rows on the sheet.
+ *
+ * Separate from `applyPick` because it needs the whole `PickList` — the rules
+ * text for each option lives on the pick as `featureText`, keyed by option, and
+ * a bare `(kind, values)` call cannot reach it.
+ */
+export function applyFeaturePick(
+  c: Character,
+  pick: PickList,
+  values: Array<string>,
+) {
+  for (const value of values) {
+    const name = pick.featureLabel ? `${pick.featureLabel}: ${value}` : value
+    if (c.features.some((f) => f.name.toLowerCase() === name.toLowerCase())) {
+      continue
+    }
+    const text = pick.featureText?.[value]
+    c.features.push(text ? { level: 0, name, text } : { level: 0, name })
+    // The row *and* whatever it grants. Inside the de-dupe guard, so choosing a
+    // style already on the sheet cannot apply its bonus a second time.
+    const grant = pick.featureGrant?.[value]
+    if (grant) applyGrant(c, grant)
   }
 }
 
@@ -409,10 +506,56 @@ export function buildCharacter(draft: CharacterDraft): {
   )
 
   const conMod = abilityMod(c.abilities.con)
-  const hpMax = Math.max(1, hitDie + conMod + (subrace?.hpPerLevel ?? 0))
+  // A grant's `hpPerLevel` alongside the subrace's: at level 1 both are worth
+  // exactly one level, so a Variant Human who took Tough starts with its +2 the
+  // same way a Hill Dwarf starts with its +1.
+  const grantHpPerLevel = draftGrants(draft).reduce(
+    (sum, grant) => sum + (grant.hpPerLevel ?? 0),
+    0,
+  )
+  const hpMax = Math.max(
+    1,
+    hitDie + conMod + (subrace?.hpPerLevel ?? 0) + grantHpPerLevel,
+  )
   c.hp = { current: hpMax, max: hpMax, temp: 0 }
 
-  c.ac = computeAc(c, kit?.unarmoredDefense)
+  // Grants that raise AC — the Defense fighting style's +1 — on top of what
+  // armour and Dexterity derive. Only while actually wearing armour, which is
+  // the half of Defense the `acBonus` field itself cannot express: it is
+  // checked here, once, because this is the only place that can see both the
+  // grant and the inventory the kit produced.
+  //
+  // This **assigns**, which deliberately discards the increments `applyGrant`
+  // made while merging those same grants above. AC is derived at creation and
+  // merely adjusted afterwards, so the two paths cannot share one line: keep
+  // the assignment last, or a Defense fighter starts with +2.
+  const wearingArmor = c.inventory.some(
+    (item) => armorEntry(item.text) !== null && !isShield(item.text),
+  )
+  const acBonus = wearingArmor
+    ? draftGrants(draft).reduce((sum, grant) => sum + (grant.acBonus ?? 0), 0) +
+      // A `feature` pick's grant is not part of `draftGrants` — it hangs off
+      // the chosen option rather than off a race, class or background — so it
+      // is summed from the picks the player has answered.
+      featurePickGrants(draft).reduce(
+        (sum, grant) => sum + (grant.acBonus ?? 0),
+        0,
+      )
+    : 0
+  c.ac = computeAc(c, kit?.unarmoredDefense) + acBonus
+
+  // Resilient's saving throw follows the ability the player chose, so it is not
+  // a fixed `grant.saves` — one written before anyone has chosen handed a
+  // Resilient (Strength) character a Constitution save. Mirrors the same step
+  // in `applyLevelUp`, so the feat is worth the same at level 1 and at level 8.
+  const feat = draftFeat(draft)
+  if (feat?.grantsSaveForAsiChoice) {
+    const answer = picked(draft, asiChoicePickId(feat.id))[0]
+    const ability = answer ? abilityForChoice(answer) : undefined
+    if (ability && feat.asiChoice?.includes(ability)) {
+      if (!c.saves.includes(ability)) c.saves.push(ability)
+    }
+  }
 
   if (kit) {
     // Saves are a top-level kit field rather than part of its grant, because
@@ -424,11 +567,20 @@ export function buildCharacter(draft: CharacterDraft): {
     // level-up wizard, so an unfiltered copy put Extra Attack and Aura of
     // Protection on a brand-new paladin — and stamped level 1 on them, which
     // then stopped `featuresGained` from ever granting them properly.
-    c.features = featuresUpToLevel(kit.features, 1).map((f): ClassFeature => ({
-      level: f.level,
-      name: f.name,
-      ...(f.text ? { text: f.text } : {}),
-    }))
+    //
+    // Prepended, not assigned: `applyPicks` has already run, and a `feature`
+    // pick's answer — "Fighting Style: Defense" — is a feature row too.
+    // Overwriting the list here silently threw the player's choice away, so the
+    // pick was offered, gated on, and then discarded. The class's own features
+    // come first because they are what the answers hang off.
+    c.features = [
+      ...featuresUpToLevel(kit.features, 1).map((f): ClassFeature => ({
+        level: f.level,
+        name: f.name,
+        ...(f.text ? { text: f.text } : {}),
+      })),
+      ...c.features,
+    ]
     const sc = kit.spellcasting
     if (sc) {
       c.spellAbility = sc.ability

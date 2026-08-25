@@ -8,20 +8,31 @@ import {
 } from './character'
 import type { Character } from './character'
 import { SRD_TABLES, findKit } from './tables'
+import { buildCharacter } from './buildCharacter'
+import { asiChoicePickId, emptyDraft } from './characterDraft'
 import type { ClassKit, FeatInfo } from './srd'
 import {
   ASI_HYBRID_POINTS,
   ASI_POINTS,
-  asiPointsFor,
+  abilitiesBefore,
   applyLevelUp,
   asiComplete,
+  asiHeadroom,
   asiLevelsCrossed,
+  asiPointsFor,
+  asiUnlocked,
   averageHitDie,
   featsAvailable,
+  firstIncompleteAsi,
   cantripsAtLevel,
   canAdvance,
+  chooseSubclass,
+  eligibleExpertiseAt,
   emptyLevelUpDraft,
   featuresGained,
+  grantedAlreadyAt,
+  levelUpPicks,
+  resourcesOffered,
   hpGained,
   levelUpPlan,
   levelUpSteps,
@@ -52,7 +63,13 @@ function draftFor(
   to: number,
   patch: Partial<LevelUpDraft> = {},
 ): LevelUpDraft {
-  return { ...emptyLevelUpDraft(c, to, kitFor(c.class)), ...patch }
+  const base = { ...emptyLevelUpDraft(c, to, kitFor(c.class)), ...patch }
+  // Through `chooseSubclass` when the patch names one, exactly as the dialog
+  // does: choosing an archetype is what puts its features on offer, and a
+  // draft that only had the name assigned would leave them unticked.
+  return patch.subclassName !== undefined && patch.subclassName !== c.subclass
+    ? chooseSubclass(base, patch.subclassName)
+    : base
 }
 
 describe('feats taken at level-up', () => {
@@ -607,7 +624,14 @@ describe('a class with no kit', () => {
 describe('steps', () => {
   it('adds a features step when the class grants any', () => {
     const c = characterAt(1, 'Fighter')
-    expect(levelUpSteps(draftFor(c, 2))).toEqual(['hp', 'features', 'review'])
+    // Action Surge at 2nd level offers a Superiority-Dice-style counter, so the
+    // choices step comes with it — the features step is what puts it on offer.
+    expect(levelUpSteps(draftFor(c, 2))).toEqual([
+      'hp',
+      'features',
+      'picks',
+      'review',
+    ])
   })
 
   it('adds subclass and ASI steps at the right levels', () => {
@@ -969,5 +993,838 @@ describe('feats are not repeatable', () => {
     expect(after.feats.map((f) => f.name).sort()).toEqual(['Alert', 'Mobile'])
     expect(after.initiativeBonus).toBe(c.initiativeBonus + 5)
     expect(after.speed).toBe(c.speed + 10)
+  })
+})
+
+describe('picks resolved at level-up', () => {
+  /**
+   * The bug this whole step exists for: a feat's choices were dropped at
+   * commit, so the same feat granted three proficiencies at level 1 and nothing
+   * at level 4. These assert the two are now the same feat.
+   */
+  const featsWith = (...ids: Array<string>): Array<FeatInfo> =>
+    SRD_TABLES.feats.filter((f) => ids.includes(f.id))
+
+  function tookFeat(
+    c: Character,
+    at: number,
+    featName: string,
+    picks: Record<string, Array<string>>,
+  ): LevelUpDraft {
+    const draft = draftFor(c, at, {
+      feats: featsWith('skilled', 'skill-expert'),
+    })
+    return {
+      ...draft,
+      asi: { [at]: { kind: 'feat', abilities: {}, featName } },
+      picks,
+    }
+  }
+
+  it('grants a Skilled feat its three chosen proficiencies', () => {
+    const c = characterAt(3, 'Fighter')
+    const after = applyLevelUp(
+      c,
+      tookFeat(c, 4, 'Skilled', {
+        'skilled-skills': ['athletics', 'stealth', 'Smith tools'],
+      }),
+    )
+    expect(after.skills).toContain('athletics')
+    expect(after.skills).toContain('stealth')
+    // Routed per value, exactly as the creation path does it.
+    expect(after.tools).toContain('Smith tools')
+  })
+
+  it('files a Skill Expert expertise pick as expertise, not proficiency', () => {
+    const c = { ...characterAt(3, 'Fighter'), skills: ['athletics'] }
+    const after = applyLevelUp(
+      c,
+      tookFeat(c, 4, 'Skill Expert', {
+        'skill-expert-skill': ['stealth'],
+        'skill-expert-expertise': ['athletics'],
+      }),
+    )
+    expect(after.skills).toContain('stealth')
+    expect(after.expertise).toEqual(['athletics'])
+    // The proficiency it doubles stays a proficiency too.
+    expect(after.skills).toContain('athletics')
+  })
+
+  it('asks nothing for a feat the character already has', () => {
+    const c = { ...characterAt(3, 'Fighter'), feats: [{ name: 'Skilled' }] }
+    // Re-taking grants nothing, so it must not pose its picks either.
+    expect(levelUpPicks(tookFeat(c, 4, 'Skilled', {}))).toEqual([])
+  })
+
+  it('gates the step until every pick is answered', () => {
+    const c = characterAt(3, 'Fighter')
+    const draft = tookFeat(c, 4, 'Skilled', { 'skilled-skills': ['athletics'] })
+    expect(canAdvance(draft, 'picks')).toBe(false)
+    expect(
+      canAdvance(
+        {
+          ...draft,
+          picks: { 'skilled-skills': ['athletics', 'stealth', 'arcana'] },
+        },
+        'picks',
+      ),
+    ).toBe(true)
+  })
+
+  it('offers expertise only over skills the character actually has', () => {
+    const c = { ...characterAt(3, 'Fighter'), skills: ['athletics'] }
+    const draft = tookFeat(c, 4, 'Skill Expert', {
+      'skill-expert-skill': ['stealth'],
+    })
+    const owned = levelUpPicks(draft).find(
+      (p) => p.pick.id === 'skill-expert-expertise',
+    )
+    const offered = eligibleExpertiseAt(c, draft, owned!.pick)
+    // The skill they had, and the one this very feat just granted.
+    expect(offered).toContain('athletics')
+    expect(offered).toContain('stealth')
+    expect(offered).not.toContain('arcana')
+  })
+
+  it('is additive: a chosen language never displaces one already known', () => {
+    const c = { ...characterAt(3, 'Fighter'), languages: ['Common'] }
+    const after = applyLevelUp(
+      c,
+      draftFor(c, 4, {
+        feats: SRD_TABLES.feats.filter((f) => f.id === 'linguist'),
+        asi: { 4: { kind: 'feat', abilities: {}, featName: 'Linguist' } },
+        picks: { 'linguist-languages': ['Dwarvish', 'Elvish', 'Orc'] },
+      }),
+    )
+    expect(after.languages[0]).toBe('Common')
+    expect(after.languages).toContain('Dwarvish')
+  })
+})
+
+describe('archetype features', () => {
+  it('grants the subclass its features when the archetype is chosen', () => {
+    const c = characterAt(2, 'Fighter')
+    const after = applyLevelUp(
+      c,
+      draftFor(c, 3, { subclassName: 'Battle Master' }),
+    )
+    expect(after.subclass).toBe('Battle Master')
+    const names = after.features.map((f) => f.name)
+    // Its own 3rd-level features, not just the class's Martial Archetype row.
+    expect(names).toContain('Combat Superiority')
+    expect(names).toContain('Student of War')
+  })
+
+  it('keeps granting them at later levels', () => {
+    const c = { ...characterAt(6, 'Fighter'), subclass: 'Battle Master' }
+    const after = applyLevelUp(c, draftFor(c, 7))
+    expect(after.features.map((f) => f.name)).toContain('Know Your Enemy')
+  })
+
+  it('grants nothing extra for an archetype the tables do not know', () => {
+    const c = characterAt(2, 'Fighter')
+    const after = applyLevelUp(
+      c,
+      draftFor(c, 3, { subclassName: 'Bladesinger of the Ninth Hell' }),
+    )
+    expect(after.subclass).toBe('Bladesinger of the Ninth Hell')
+    // The class's own level-3 feature still lands; homebrew just adds nothing.
+    expect(after.features.map((f) => f.name)).toContain('Martial Archetype')
+  })
+
+  it('scales Extra Attack with its own row rather than prose', () => {
+    const c = { ...characterAt(10, 'Fighter'), subclass: 'Champion' }
+    const after = applyLevelUp(c, draftFor(c, 11))
+    expect(after.features.map((f) => f.name)).toContain('Extra Attack (2)')
+  })
+})
+
+describe('hit points respond to Constitution and Tough', () => {
+  it('pays retroactively when an ASI raises the CON modifier', () => {
+    // CON 14 -> 16 is one modifier point, owed for all four levels already had.
+    const c = characterAt(4, 'Fighter')
+    const draft = draftFor(c, 5, {
+      asi: { 4: { kind: 'abilities', abilities: { con: 2 }, featName: '' } },
+    })
+    const plan = levelUpPlan(c, draft)
+    expect(plan.hpRetroactive).toBe(4)
+    expect(applyLevelUp(c, draft).hp.max).toBe(plan.hpTo)
+  })
+
+  it('owes nothing when the points do not cross a modifier boundary', () => {
+    // CON 14 -> 15 is still +2, so nothing is owed and nothing is taken away.
+    const c = characterAt(4, 'Fighter')
+    const draft = draftFor(c, 5, {
+      asi: {
+        4: { kind: 'abilities', abilities: { con: 1, str: 1 }, featName: '' },
+      },
+    })
+    expect(levelUpPlan(c, draft).hpRetroactive).toBe(0)
+  })
+
+  it('applies the new CON to the level being gained, not the old one', () => {
+    const c = characterAt(4, 'Fighter')
+    const withCon = draftFor(c, 5, {
+      asi: { 4: { kind: 'abilities', abilities: { con: 2 }, featName: '' } },
+    })
+    const without = draftFor(c, 5, {
+      asi: { 4: { kind: 'abilities', abilities: { str: 2 }, featName: '' } },
+    })
+    expect(hpGained(c, withCon)).toBe(hpGained(c, without) + 1)
+  })
+
+  it('gives Tough 2 hit points for every level, behind and ahead', () => {
+    const c = characterAt(7, 'Fighter')
+    const draft = draftFor(c, 8, {
+      feats: SRD_TABLES.feats.filter((f) => f.id === 'tough'),
+      asi: { 8: { kind: 'feat', abilities: {}, featName: 'Tough' } },
+    })
+    const plan = levelUpPlan(c, draft)
+    expect(plan.hpFromFeats).toBe(16)
+    expect(applyLevelUp(c, draft).hp.max).toBe(plan.hpTo)
+  })
+
+  it('never lowers the maximum, and never touches current', () => {
+    const c = characterAt(4, 'Fighter')
+    const after = applyLevelUp(
+      c,
+      draftFor(c, 5, {
+        asi: { 4: { kind: 'abilities', abilities: { con: 2 }, featName: '' } },
+      }),
+    )
+    expect(after.hp.max).toBeGreaterThan(c.hp.max)
+    expect(after.hp.current).toBe(c.hp.current)
+  })
+})
+
+describe('creation and level-up grant the same feat', () => {
+  /**
+   * The asymmetry that motivated the picks step: a Variant Human taking Skilled
+   * at level 1 got three proficiencies, and the same character taking it at an
+   * ASI got a name on the sheet and nothing else. Whatever else changes, these
+   * two paths must not disagree about what a feat is worth.
+   */
+  it('lands the same proficiencies whichever path took Skilled', () => {
+    const answers = ['stealth', 'animal-handling', 'Lute']
+
+    const atCreation = buildCharacter({
+      ...emptyDraft(SRD_TABLES),
+      name: 'Parity',
+      raceName: 'Variant Human',
+      flexibleAsi: { str: 1, dex: 1 },
+      featName: 'Skilled',
+      picks: { 'skilled-skills': answers },
+    }).character
+
+    const before = characterAt(3, 'Fighter')
+    const atLevelUp = applyLevelUp(before, {
+      ...draftFor(before, 4, {
+        feats: SRD_TABLES.feats.filter((f) => f.id === 'skilled'),
+      }),
+      asi: { 4: { kind: 'feat', abilities: {}, featName: 'Skilled' } },
+      picks: { 'skilled-skills': answers },
+    })
+
+    for (const skill of ['stealth', 'animal-handling']) {
+      expect(atCreation.skills).toContain(skill)
+      expect(atLevelUp.skills).toContain(skill)
+    }
+    expect(atCreation.tools).toContain('Lute')
+    expect(atLevelUp.tools).toContain('Lute')
+  })
+})
+
+describe('half-feats whose increase is the player choice', () => {
+  /**
+   * Six feats say "+1 to an ability of your choice" and, until the picks step
+   * existed, quietly picked one for you — Skill Expert always handed out
+   * Dexterity. The summary promised a choice the app did not offer.
+   */
+  const featNamed = (id: string) => SRD_TABLES.feats.filter((f) => f.id === id)
+
+  function took(c: Character, featId: string, name: string, ability?: string) {
+    return draftFor(c, 4, {
+      feats: featNamed(featId),
+      asi: { 4: { kind: 'feat', abilities: {}, featName: name } },
+      picks: ability ? { [asiChoicePickId(featId)]: [ability] } : {},
+    })
+  }
+
+  it('raises the ability the player actually chose', () => {
+    const c = characterAt(3, 'Fighter')
+    const after = applyLevelUp(
+      c,
+      took(c, 'skill-expert', 'Skill Expert', 'Wisdom'),
+    )
+    expect(after.abilities.wis).toBe(c.abilities.wis + 1)
+    // And emphatically not the one the old hardcoded record named.
+    expect(after.abilities.dex).toBe(c.abilities.dex)
+  })
+
+  it('offers the choice as a pick on the feat', () => {
+    const c = characterAt(3, 'Fighter')
+    const offered = levelUpPicks(took(c, 'skill-expert', 'Skill Expert'))
+    const choice = offered.find(
+      (p) => p.pick.id === asiChoicePickId('skill-expert'),
+    )
+    expect(choice?.owner).toBe('Skill Expert')
+    expect(choice?.pick.count).toBe(1)
+    expect(choice?.pick.options).toContain('Wisdom')
+  })
+
+  it('gates the step until the ability is placed', () => {
+    const c = characterAt(3, 'Fighter')
+    expect(canAdvance(took(c, 'observant', 'Observant'), 'picks')).toBe(false)
+    expect(
+      canAdvance(took(c, 'observant', 'Observant', 'Intelligence'), 'picks'),
+    ).toBe(true)
+  })
+
+  it('grants nothing for an ability the feat never offered', () => {
+    // Observant is Intelligence or Wisdom. A hand-typed Strength widens the
+    // feat, so it is ignored rather than honoured.
+    const c = characterAt(3, 'Fighter')
+    const after = applyLevelUp(c, took(c, 'observant', 'Observant', 'Strength'))
+    expect(after.abilities.str).toBe(c.abilities.str)
+  })
+
+  it('gives Resilient the saving throw for the ability chosen', () => {
+    const c = characterAt(3, 'Fighter')
+    const after = applyLevelUp(c, took(c, 'resilient', 'Resilient', 'Wisdom'))
+    expect(after.abilities.wis).toBe(c.abilities.wis + 1)
+    expect(after.saves).toContain('wis')
+    // The old fixed grant handed out Constitution regardless of the choice.
+    expect(after.saves).not.toContain('con')
+  })
+
+  it('adds the point once, not once per ASI level crossed', () => {
+    const c = characterAt(3, 'Fighter')
+    const draft = {
+      ...took(c, 'skill-expert', 'Skill Expert', 'Wisdom'),
+      to: 8,
+      asi: {
+        4: { kind: 'feat' as const, abilities: {}, featName: 'Skill Expert' },
+        6: { kind: 'feat' as const, abilities: {}, featName: 'Skill Expert' },
+      },
+    }
+    expect(applyLevelUp(c, draft).abilities.wis).toBe(c.abilities.wis + 1)
+  })
+})
+
+describe('a fixed half-feat named twice in one level-up', () => {
+  it('adds its increase once, matching the single feat row applied', () => {
+    // `applyLevelUp` adds a feat once however many ASI levels name it, so the
+    // bump must be added once too — otherwise a 4 -> 8 level-up that picked
+    // Athlete at two levels raised Strength by 2 for one row on the sheet.
+    const c = characterAt(3, 'Fighter')
+    const draft = draftFor(c, 8, {
+      feats: SRD_TABLES.feats.filter((f) => f.id === 'athlete'),
+      asi: {
+        4: { kind: 'feat', abilities: {}, featName: 'Athlete' },
+        6: { kind: 'feat', abilities: {}, featName: 'Athlete' },
+      },
+    })
+    const after = applyLevelUp(c, draft)
+    expect(after.abilities.str).toBe(c.abilities.str + 1)
+    expect(after.feats.filter((f) => f.name === 'Athlete')).toHaveLength(1)
+  })
+})
+
+describe('manoeuvres already known', () => {
+  /**
+   * A Battle Master learns more manoeuvres at 7th, 10th and 15th. Each is its
+   * own pick, so without knowing what is already on the sheet the 7th-level
+   * pick offered all eighteen — including the three taken at 3rd. Choosing one
+   * twice was silently swallowed by `applyFeaturePick`'s de-dupe, so the player
+   * spent a choice on nothing and was never told.
+   */
+  const bm = (level: number, features: Array<string>): Character => ({
+    ...characterAt(level, 'Fighter'),
+    subclass: 'Battle Master',
+    features: features.map((name) => ({ level: 3, name })),
+  })
+
+  it('never writes a second row for a manoeuvre already taken', () => {
+    const c = bm(6, ['Manoeuvre: Riposte'])
+    const draft = draftFor(c, 7, { picks: {} })
+    const pick = levelUpPicks(draft).find((p) =>
+      p.pick.id.startsWith('battle-master-7'),
+    )!.pick
+    const after = applyLevelUp(c, {
+      ...draft,
+      picks: { [pick.id]: ['Riposte', 'Parry'] },
+    })
+    const ripostes = after.features.filter(
+      (f) => f.name === 'Manoeuvre: Riposte',
+    )
+    expect(ripostes).toHaveLength(1)
+    expect(after.features.map((f) => f.name)).toContain('Manoeuvre: Parry')
+  })
+
+  it('still offers every manoeuvre in the authored list', () => {
+    // The table stays the class's whole ceiling; narrowing happens at render.
+    const c = bm(6, ['Manoeuvre: Riposte'])
+    const draft = draftFor(c, 7)
+    const pick = levelUpPicks(draft).find((p) =>
+      p.pick.id.startsWith('battle-master-7'),
+    )!.pick
+    expect(pick.options).toContain('Riposte')
+    expect(pick.options.length).toBeGreaterThan(2)
+  })
+
+  it('poses a separate pick for each level that grants manoeuvres', () => {
+    // 6 -> 10 crosses both the 7th and 10th level grants.
+    const c = bm(6, [])
+    const ids = levelUpPicks(draftFor(c, 10))
+      .map((p) => p.pick.id)
+      .filter((id) => id.includes('maneuvers'))
+    expect(new Set(ids).size).toBe(ids.length)
+    expect(ids.length).toBe(2)
+  })
+})
+
+describe('greying out choices already spent', () => {
+  const bm = (level: number, features: Array<string>): Character => ({
+    ...characterAt(level, 'Fighter'),
+    subclass: 'Battle Master',
+    features: features.map((name) => ({ level: 3, name })),
+  })
+
+  const maneuverPick = (draft: LevelUpDraft, at: string) =>
+    levelUpPicks(draft).find((p) => p.pick.id.startsWith(at))!.pick
+
+  it('greys a manoeuvre already on the sheet, naming the source', () => {
+    const c = bm(6, ['Manoeuvre: Riposte', 'Manoeuvre: Parry'])
+    const draft = draftFor(c, 7)
+    const greyed = grantedAlreadyAt(
+      c,
+      draft,
+      maneuverPick(draft, 'battle-master-7'),
+    )
+    expect(greyed.get('Riposte')).toBe('your sheet')
+    expect(greyed.get('Parry')).toBe('your sheet')
+    expect(greyed.has('Trip Attack')).toBe(false)
+  })
+
+  it('greys one taken by a sibling pick in the same level-up', () => {
+    // 6 -> 10 crosses the 7th and 10th grants together.
+    const c = bm(6, [])
+    const base = draftFor(c, 10)
+    const seventh = maneuverPick(base, 'battle-master-7')
+    const tenth = maneuverPick(base, 'battle-master-10')
+    const draft = { ...base, picks: { [seventh.id]: ['Riposte'] } }
+    const greyed = grantedAlreadyAt(c, draft, tenth)
+    // Named by the feature that took it, not merely marked unavailable.
+    expect(greyed.get('Riposte')).toBeDefined()
+    expect(greyed.has('Trip Attack')).toBe(false)
+  })
+
+  it('never greys out a pick against its own answers', () => {
+    const c = bm(6, [])
+    const base = draftFor(c, 7)
+    const pick = maneuverPick(base, 'battle-master-7')
+    const draft = { ...base, picks: { [pick.id]: ['Riposte'] } }
+    // Otherwise a chosen chip could not be clicked again to remove it.
+    expect(grantedAlreadyAt(c, draft, pick).has('Riposte')).toBe(false)
+  })
+
+  it('greys a language the character already speaks', () => {
+    const c = { ...characterAt(3, 'Fighter'), languages: ['Dwarvish'] }
+    const draft = draftFor(c, 4, {
+      feats: SRD_TABLES.feats.filter((f) => f.id === 'linguist'),
+      asi: { 4: { kind: 'feat', abilities: {}, featName: 'Linguist' } },
+    })
+    const pick = levelUpPicks(draft).find(
+      (p) => p.pick.id === 'linguist-languages',
+    )!.pick
+    expect(grantedAlreadyAt(c, draft, pick).get('Dwarvish')).toBe('your sheet')
+  })
+})
+
+describe('a tracked resource that grows with the class', () => {
+  const bm = (level: number, resources: Character['resources']): Character => ({
+    ...characterAt(level, 'Fighter'),
+    subclass: 'Battle Master',
+    resources,
+  })
+
+  /** Accept every resource the level-up offers, as the step's UI would. */
+  const accepting = (draft: LevelUpDraft): LevelUpDraft => ({
+    ...draft,
+    resources: Object.fromEntries(
+      resourcesOffered(draft).map((o) => [
+        o.name,
+        o.resets ? { total: o.total, resets: o.resets } : { total: o.total },
+      ]),
+    ),
+  })
+
+  it('raises a counter already on the sheet rather than ignoring it', () => {
+    // A Battle Master gains a fifth die at 7th; a row stuck at four is the
+    // sheet disagreeing with the feature printed directly above it.
+    const c = bm(6, [
+      { name: 'Superiority Dice', used: 0, total: 4, resets: 'short' },
+    ])
+    const after = applyLevelUp(c, accepting(draftFor(c, 7)))
+    const dice = after.resources.find((r) => r.name === 'Superiority Dice')
+    expect(dice?.total).toBe(5)
+    // And it stays one row, not two.
+    expect(after.resources).toHaveLength(1)
+  })
+
+  it('shows the raise as a change from what the sheet says', () => {
+    const c = bm(6, [
+      { name: 'Superiority Dice', used: 0, total: 4, resets: 'short' },
+    ])
+    const offer = resourcesOffered(draftFor(c, 7)).find(
+      (o) => o.name === 'Superiority Dice',
+    )
+    expect(offer?.from).toBe(4)
+    expect(offer?.total).toBe(5)
+  })
+
+  it('keeps spent dice spent — a new die is not a regained one', () => {
+    const c = bm(6, [
+      { name: 'Superiority Dice', used: 2, total: 4, resets: 'short' },
+    ])
+    const after = applyLevelUp(c, accepting(draftFor(c, 7)))
+    expect(after.resources[0]?.used).toBe(2)
+    expect(after.resources[0]?.total).toBe(5)
+  })
+
+  it('never lowers a total the player tuned higher than the table', () => {
+    // Same rule as a spell slot: a house rule or a magic item wins.
+    const c = bm(6, [
+      { name: 'Superiority Dice', used: 0, total: 8, resets: 'short' },
+    ])
+    const after = applyLevelUp(c, accepting(draftFor(c, 7)))
+    expect(after.resources[0]?.total).toBe(8)
+    // And nothing is offered at all, so the step does not show a downgrade.
+    expect(
+      resourcesOffered(draftFor(c, 7)).some(
+        (o) => o.name === 'Superiority Dice',
+      ),
+    ).toBe(false)
+  })
+
+  it('offers nothing when the number has not changed', () => {
+    // 8 -> 9 gains no dice; an unchanged number is not worth a row in the step.
+    const c = bm(8, [
+      { name: 'Superiority Dice', used: 0, total: 5, resets: 'short' },
+    ])
+    expect(
+      resourcesOffered(draftFor(c, 9)).some(
+        (o) => o.name === 'Superiority Dice',
+      ),
+    ).toBe(false)
+  })
+})
+
+describe('fighting style', () => {
+  it('offers every style the class may take, PHB and Tasha alike', () => {
+    const c = characterAt(1, 'Fighter')
+    const pick = levelUpPicks({
+      ...draftFor(c, 2),
+      takeFeatures: ['Fighting Style'],
+      from: 0,
+    }).find((p) => p.pick.id === 'fighter-fighting-style')?.pick
+    expect(pick?.options).toEqual(
+      expect.arrayContaining([
+        'Archery',
+        'Blind Fighting',
+        'Defense',
+        'Interception',
+        'Superior Technique',
+        'Unarmed Fighting',
+      ]),
+    )
+  })
+
+  it('writes the chosen style as a named feature row with its rules text', () => {
+    const c = { ...characterAt(1, 'Fighter'), features: [] }
+    const draft = {
+      ...draftFor(c, 2),
+      from: 0,
+      takeFeatures: ['Fighting Style'],
+      picks: { 'fighter-fighting-style': ['Defense'] },
+    }
+    const row = applyLevelUp(c, draft).features.find(
+      (f) => f.name === 'Fighting Style: Defense',
+    )
+    expect(row).toBeDefined()
+    expect(row?.text).toContain('+1 AC')
+  })
+
+  it('never offers a style the character already has', () => {
+    // "You can't take a Fighting Style option more than once, even if you later
+    // get to choose again" — a Champion's second style at 10th.
+    const c: Character = {
+      ...characterAt(9, 'Fighter'),
+      subclass: 'Champion',
+      features: [{ level: 1, name: 'Fighting Style: Defense' }],
+    }
+    const draft = draftFor(c, 10)
+    const pick = levelUpPicks(draft).find(
+      (p) => p.pick.id === 'champion-second-fighting-style',
+    )!.pick
+    expect(grantedAlreadyAt(c, draft, pick).get('Defense')).toBe('your sheet')
+    // The rest are still on offer.
+    expect(grantedAlreadyAt(c, draft, pick).has('Archery')).toBe(false)
+  })
+
+  it('gives Paladin and Ranger their own narrower lists', () => {
+    const styles = (className: string, id: string) => {
+      const c = characterAt(1, className)
+      return levelUpPicks({
+        ...draftFor(c, 2),
+        takeFeatures: ['Fighting Style'],
+      }).find((p) => p.pick.id === id)?.pick.options
+    }
+    // A Paladin has never had Archery; a Ranger has never had Protection.
+    expect(styles('Paladin', 'paladin-fighting-style')).not.toContain('Archery')
+    expect(styles('Ranger', 'ranger-fighting-style')).not.toContain(
+      'Protection',
+    )
+    expect(styles('Ranger', 'ranger-fighting-style')).toContain('Archery')
+  })
+})
+
+describe('a fighting style chosen at level-up', () => {
+  it('raises AC when the style is Defense', () => {
+    const c = { ...characterAt(1, 'Fighter'), ac: 16, features: [] }
+    const after = applyLevelUp(c, {
+      ...draftFor(c, 2),
+      from: 0,
+      takeFeatures: ['Fighting Style'],
+      picks: { 'fighter-fighting-style': ['Defense'] },
+    })
+    expect(after.ac).toBe(17)
+  })
+
+  it('leaves AC alone for a style this app does not model', () => {
+    const c = { ...characterAt(1, 'Fighter'), ac: 16, features: [] }
+    const after = applyLevelUp(c, {
+      ...draftFor(c, 2),
+      from: 0,
+      takeFeatures: ['Fighting Style'],
+      picks: { 'fighter-fighting-style': ['Archery'] },
+    })
+    expect(after.ac).toBe(16)
+  })
+})
+
+describe('ability scores across several ASI levels', () => {
+  /**
+   * A Fighter levelling 1 -> 20 crosses five ASIs. Each used to read the
+   * *starting* character, so all five showed Strength 16, each offered to raise
+   * it to 18, and the summary totalled 20 while every stepper claimed 18.
+   */
+  const fighterTo20 = (asi: Record<number, AsiChoice>): LevelUpDraft => {
+    const c = {
+      ...characterAt(1, 'Fighter'),
+      abilities: { ...characterAt(1, 'Fighter').abilities, str: 16 },
+    }
+    return { ...draftFor(c, 20), asi }
+  }
+
+  const raiseStr = (n: number): AsiChoice => ({
+    kind: 'abilities',
+    abilities: { str: n },
+    featName: '',
+  })
+
+  it('shows the running score, not the starting one', () => {
+    const draft = fighterTo20({ 4: raiseStr(2) })
+    // The first ASI raises from what the character actually has.
+    expect(abilitiesBefore(draft, 4).str).toBe(16)
+    // Every later one sees the point already spent.
+    expect(abilitiesBefore(draft, 6).str).toBe(18)
+    expect(abilitiesBefore(draft, 19).str).toBe(18)
+  })
+
+  it('accumulates across every earlier ASI level', () => {
+    const draft = fighterTo20({ 4: raiseStr(2), 6: raiseStr(2) })
+    expect(abilitiesBefore(draft, 8).str).toBe(20)
+  })
+
+  it('never reports above the RAW cap of 20', () => {
+    // Three ASIs of +2 from 16 is 22 on paper; `applyLevelUp` caps at 20, so
+    // the stepper must not promise a 21st point it would then decline.
+    const draft = fighterTo20({
+      4: raiseStr(2),
+      6: raiseStr(2),
+      8: raiseStr(2),
+    })
+    expect(abilitiesBefore(draft, 12).str).toBe(20)
+    expect(applyLevelUp(draft.base, draft).abilities.str).toBe(20)
+  })
+
+  it('excludes the level being chosen, so the stepper shows what it raises from', () => {
+    const draft = fighterTo20({ 4: raiseStr(2), 6: raiseStr(2) })
+    // At 6 the answer is 18 — the point spent at 4 counts, its own does not.
+    expect(abilitiesBefore(draft, 6).str).toBe(18)
+  })
+
+  it('counts a half-feat bump taken at an earlier level', () => {
+    const draft = fighterTo20({
+      4: { kind: 'feat', abilities: {}, featName: 'Athlete' },
+    })
+    const withFeats = {
+      ...draft,
+      feats: SRD_TABLES.feats.filter((f) => f.id === 'athlete'),
+    }
+    // Athlete is +1 Strength, so the next ASI starts from 17.
+    expect(abilitiesBefore(withFeats, 6).str).toBe(17)
+  })
+
+  it('counts a chooseable half-feat once the ability is placed', () => {
+    const base = fighterTo20({
+      4: { kind: 'feat', abilities: {}, featName: 'Skill Expert' },
+    })
+    const draft = {
+      ...base,
+      feats: SRD_TABLES.feats.filter((f) => f.id === 'skill-expert'),
+      picks: { [asiChoicePickId('skill-expert')]: ['Strength'] },
+    }
+    expect(abilitiesBefore(draft, 6).str).toBe(17)
+    // And nothing before it is placed — no guessing on the player's behalf.
+    expect(abilitiesBefore({ ...draft, picks: {} }, 6).str).toBe(16)
+  })
+
+  it('agrees with what applying actually does', () => {
+    // The stepper and the commit must not disagree: that was the whole bug.
+    const draft = fighterTo20({
+      4: raiseStr(2),
+      6: raiseStr(2),
+      8: raiseStr(1),
+    })
+    const after = applyLevelUp(draft.base, draft)
+    // 16 + 2 + 2 + 1 = 21, capped to 20 by the commit; the last stepper is
+    // told 20 and so cannot offer that fifth point in the first place.
+    expect(after.abilities.str).toBe(20)
+    expect(abilitiesBefore(draft, 12).str).toBe(20)
+  })
+})
+
+describe('an ASI with nowhere to put the points', () => {
+  const maxed = (): Character => ({
+    ...characterAt(4, 'Fighter'),
+    abilities: { str: 20, dex: 20, con: 20, int: 20, wis: 20, cha: 20 },
+  })
+
+  it('does not leave the wizard stuck on a gate nothing can satisfy', () => {
+    // Every score at 20 means the two points cannot be placed anywhere. The
+    // old gate demanded them regardless, so Next went dead with nothing the
+    // player could click — a trap rather than a prompt.
+    const c = maxed()
+    expect(asiHeadroom(draftFor(c, 6), 6)).toBe(0)
+    expect(canAdvance(draftFor(c, 6), 'asi')).toBe(true)
+  })
+
+  it('still demands the points when there is room for them', () => {
+    const c = characterAt(4, 'Fighter')
+    expect(canAdvance(draftFor(c, 6), 'asi')).toBe(false)
+  })
+
+  it('asks only for the points that will fit', () => {
+    // One point of room across the whole spread: ask for one, not two.
+    const c: Character = {
+      ...maxed(),
+      abilities: { str: 19, dex: 20, con: 20, int: 20, wis: 20, cha: 20 },
+    }
+    expect(asiHeadroom(draftFor(c, 6), 6)).toBe(1)
+    const draft = draftFor(c, 6, {
+      asi: { 6: { kind: 'abilities', abilities: { str: 1 }, featName: '' } },
+    })
+    expect(canAdvance(draft, 'asi')).toBe(true)
+  })
+
+  it('still requires a feat name when the ASI is spent on one', () => {
+    // Headroom says nothing about the feat half of the choice.
+    const c = maxed()
+    const draft = draftFor(c, 6, {
+      asi: { 6: { kind: 'feat', abilities: {}, featName: '' } },
+    })
+    expect(canAdvance(draft, 'asi')).toBe(false)
+  })
+})
+
+describe('ASI levels are answered in order', () => {
+  const fighter = (asi: Record<number, AsiChoice> = {}) => {
+    const c = characterAt(3, 'Fighter')
+    return { ...draftFor(c, 20), asi }
+  }
+  const raiseStr = (n: number): AsiChoice => ({
+    kind: 'abilities',
+    abilities: { str: n },
+    featName: '',
+  })
+
+  it('locks every level after the first unfinished one', () => {
+    const draft = fighter()
+    // Fighter's ASIs are 4, 6, 8, 12, 14, 16, 19.
+    expect(firstIncompleteAsi(draft)).toBe(4)
+    expect(asiUnlocked(draft, 4)).toBe(true)
+    expect(asiUnlocked(draft, 6)).toBe(false)
+    expect(asiUnlocked(draft, 19)).toBe(false)
+  })
+
+  it('opens the next one as each is completed', () => {
+    const draft = fighter({ 4: raiseStr(2) })
+    expect(firstIncompleteAsi(draft)).toBe(6)
+    expect(asiUnlocked(draft, 4)).toBe(true)
+    expect(asiUnlocked(draft, 6)).toBe(true)
+    expect(asiUnlocked(draft, 8)).toBe(false)
+  })
+
+  it('keeps earlier levels editable, not just the current one', () => {
+    // Locking forward must not lock backward: changing your mind about the
+    // first ASI is exactly the thing the running-score display is for.
+    const draft = fighter({ 4: raiseStr(2), 6: raiseStr(2) })
+    expect(asiUnlocked(draft, 4)).toBe(true)
+    expect(asiUnlocked(draft, 6)).toBe(true)
+  })
+
+  it('unlocks everything once they are all answered', () => {
+    const draft = fighter({
+      4: raiseStr(2),
+      6: raiseStr(2),
+      8: raiseStr(2),
+      12: raiseStr(2),
+      14: raiseStr(2),
+      16: raiseStr(2),
+      19: raiseStr(2),
+    })
+    expect(firstIncompleteAsi(draft)).toBeUndefined()
+    expect(asiUnlocked(draft, 19)).toBe(true)
+  })
+
+  it('treats a feat with no name as unfinished', () => {
+    const draft = fighter({
+      4: { kind: 'feat', abilities: {}, featName: '' },
+    })
+    expect(firstIncompleteAsi(draft)).toBe(4)
+    expect(asiUnlocked(draft, 6)).toBe(false)
+  })
+
+  it('counts a maxed-out level as finished rather than blocking forever', () => {
+    // Nowhere to put the points is a completed level, not a stuck one — the
+    // same rule `canAdvance` uses, or the lock would trap the whole step.
+    const c: Character = {
+      ...characterAt(3, 'Fighter'),
+      abilities: { str: 20, dex: 20, con: 20, int: 20, wis: 20, cha: 20 },
+    }
+    const draft = draftFor(c, 20)
+    expect(firstIncompleteAsi(draft)).toBeUndefined()
+    expect(asiUnlocked(draft, 19)).toBe(true)
+  })
+
+  it('agrees with the step gate about what is finished', () => {
+    // Next lights up exactly when nothing is locked; two answers to one
+    // question would be worse than either.
+    const draft = fighter({ 4: raiseStr(2) })
+    expect(canAdvance(draft, 'asi')).toBe(
+      firstIncompleteAsi(draft) === undefined,
+    )
   })
 })
