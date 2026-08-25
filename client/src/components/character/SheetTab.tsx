@@ -20,6 +20,7 @@ import {
   DAMAGE_TYPES,
   ENCUMBRANCE_LABELS,
   HIT_DIE_SIZES,
+  MOVEMENT_MODES,
   SKILLS,
   WEAPON_CATEGORIES,
   abilityMod,
@@ -31,6 +32,7 @@ import {
   damageStance,
   effectiveSpeed,
   encumbranceTier,
+  extraSpeeds,
   hitDiceArePinned,
   initiativeBonus,
   passivePerception,
@@ -406,7 +408,11 @@ export function SheetTab({
   const matchedId = matchedSpell?.id ?? null
   const prefilledIdRef = useRef<string | null>(null)
   useEffect(() => {
-    if (matchedSpellKey === null || matchedWorldId === null || matchedId === null) {
+    if (
+      matchedSpellKey === null ||
+      matchedWorldId === null ||
+      matchedId === null
+    ) {
       prefilledIdRef.current = null
       return
     }
@@ -834,6 +840,62 @@ export function SheetTab({
                 </span>
               )}
             </label>
+            {/* Fly/swim/climb, shown only once they exist. Three always-visible
+                fields would put four numbers in this row for every character
+                and almost nobody has any, so a mode appears when it is added
+                and disappears when it is removed — the same "only when
+                present" rule the printed sheet's Defenses box follows. */}
+            {extraSpeeds(c).map(({ mode, feet }) => (
+              <label key={mode.key} className="flex items-center gap-1.5">
+                {mode.label}
+                <NumField
+                  value={feet}
+                  // 1, not 0: NumField reverts a blank draft to the last value,
+                  // so it cannot say "unset" and zeroing is not the delete
+                  // gesture. The x beside it is.
+                  min={1}
+                  className="w-12"
+                  onCommit={(v) => set({ [mode.key]: v })}
+                />
+                <button
+                  type="button"
+                  className="text-muted-foreground hover:text-destructive"
+                  title={`Remove ${mode.label.toLowerCase()} speed`}
+                  // Leaves the key present but undefined, which the serializer
+                  // omits anyway — no delete helper needed.
+                  onClick={() => set({ [mode.key]: undefined })}
+                >
+                  <X className="size-3.5" />
+                </button>
+              </label>
+            ))}
+            {extraSpeeds(c).length < MOVEMENT_MODES.length && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-muted-foreground h-6 gap-1 px-1.5 text-xs"
+                    title="Add a fly, swim or climb speed"
+                  >
+                    <Plus className="size-3" /> Speed
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start">
+                  {MOVEMENT_MODES.filter((m) => !c[m.key]).map((m) => (
+                    <DropdownMenuItem
+                      key={m.key}
+                      // 30 ft, not 0: a real value to edit down from, rather
+                      // than a zero that reads as broken and that the parser
+                      // would drop on the next save anyway.
+                      onClick={() => set({ [m.key]: 30 })}
+                    >
+                      {m.label}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
             <span>
               Proficiency <strong>{signed(prof)}</strong>
             </span>

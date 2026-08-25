@@ -16,6 +16,8 @@ import {
   effectiveSpeed,
   encumbranceTier,
   equippedIn,
+  extraSpeedSummary,
+  extraSpeeds,
   hasDefenses,
   initiativeBonus,
   inventoryItemName,
@@ -644,6 +646,9 @@ function CorePage({
   const prof = proficiencyBonus(c.level)
   const init = initiativeBonus(c)
   const speed = effectiveSpeed(c)
+  // Fly/swim/climb, when there are any. Read once here so the tile and its
+  // abbreviation threshold agree.
+  const extras = extraSpeeds(c)
   const hitDiceLeft = Math.max(0, c.hitDice.total - c.hitDice.used)
 
   return (
@@ -761,6 +766,18 @@ function CorePage({
                       : speed === 0
                         ? 'over capacity'
                         : `base ${c.speed}`
+                  }
+                  // Extra movement rides the chip slot rather than `note`,
+                  // which is already the encumbrance channel — an encumbered
+                  // flier needs both lines at once. Both are conditional and
+                  // most sheets show neither, so the tile is the height it
+                  // always was for the characters that have no extra movement.
+                  chip={
+                    extras.length > 0 ? (
+                      <div className="dnd-cs-stat-note">
+                        {extraSpeedSummary(c, extras.length === 3)}
+                      </div>
+                    ) : undefined
                   }
                 />
                 <StatBox label="Proficiency" value={signed(prof)} />

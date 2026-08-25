@@ -537,6 +537,28 @@ export interface Character {
   /** Misc initiative bonus on top of the DEX modifier. */
   initiativeBonus: number
   speed: number
+  /**
+   * Non-walking movement in feet, when the character has any. Absent means the
+   * character has none, which is almost everybody — so these are omitted from
+   * the frontmatter entirely rather than written as zeroes, and an existing
+   * sheet saved by this build gains nothing it did not already have.
+   *
+   * Three flat fields rather than a `speeds: { fly, swim, climb }` object.
+   * `serializeCharacter` builds one flat record, so a nested field would need a
+   * conditional spread anyway *and* would print an empty `speeds: {}` into
+   * every sheet the moment it was next saved. `flySpeed: 50` is also what a
+   * person actually types under `speed: 30` in Obsidian; a nested block is one
+   * more chance to get the indentation wrong. Not a `Partial<Record<>>` either
+   * — this file keeps `Record` for closed keyspaces where every key is present
+   * (`abilities`, `currency`), and a partial one hands every reader a lookup
+   * that can be undefined at a computed key.
+   *
+   * Walking gets no `walkSpeed` sibling: every sheet on disk says `speed`, and
+   * renaming it would break all of them to buy symmetry.
+   */
+  flySpeed?: number
+  swimSpeed?: number
+  climbSpeed?: number
   hp: { current: number; max: number; temp: number }
   /**
    * `total` tracks `level` unless the sheet pins it — a total that differs from
@@ -838,11 +860,69 @@ export function encumbrancePenalty(tier: EncumbranceTier): number {
 /**
  * Walking speed after encumbrance. Over your maximum carrying capacity your
  * speed is 0 (RAW), not speed - 20; never negative either way.
+ *
+ * Walking only, deliberately. RAW slows every speed you have, but `flySpeed`
+ * and friends are numbers the player typed, and a sheet printing "fly 40
+ * (base 50)" at them is the rules engine this app is not. Encumbrance is
+ * already the furthest anything here reaches into in-play arithmetic.
  */
 export function effectiveSpeed(c: Character): number {
   const tier = encumbranceTier(c)
   if (tier === 'over') return 0
   return Math.max(0, c.speed - encumbrancePenalty(tier))
+}
+
+// --- Extra movement ---------------------------------------------------------
+
+/**
+ * The non-walking movement modes, in the order every surface shows them.
+ *
+ * `satisfies` rather than a bare `as const` so `key` stays the literal union
+ * `'flySpeed' | 'swimSpeed' | 'climbSpeed'` — `SheetTab` patches these through
+ * a computed key, which only type-checks against `Partial<Character>` if the
+ * key is narrowed.
+ */
+export const MOVEMENT_MODES = [
+  { key: 'flySpeed', label: 'Fly', short: 'fly' },
+  { key: 'swimSpeed', label: 'Swim', short: 'swim' },
+  { key: 'climbSpeed', label: 'Climb', short: 'climb' },
+] as const satisfies ReadonlyArray<{
+  key: keyof Character
+  label: string
+  short: string
+}>
+
+export type MovementMode = (typeof MOVEMENT_MODES)[number]
+
+/**
+ * The extra movement this character has, in a fixed order, skipping the modes
+ * they don't. One list feeds the interactive sheet, the printed sheet and the
+ * wizard panel, so the three cannot drift on order or wording — the same
+ * reason `RailDefenses` builds its four lists from a single array.
+ */
+export function extraSpeeds(
+  c: Character,
+): Array<{ mode: MovementMode; feet: number }> {
+  return MOVEMENT_MODES.flatMap((mode) => {
+    const feet = c[mode.key]
+    return typeof feet === 'number' && feet > 0 ? [{ mode, feet }] : []
+  })
+}
+
+/**
+ * "fly 50 · swim 30" — the one-line form for the printed sheet and tooltips.
+ *
+ * `terse` drops to "f100 s100 c100". The printed Speed tile is ~135px of a
+ * hardcoded six-column grid and page one clips silently, so three three-digit
+ * modes have to give way somewhere; shortening the string is a graceful
+ * failure, while a character's data forcing the grid to be re-measured is not.
+ */
+export function extraSpeedSummary(c: Character, terse = false): string {
+  return extraSpeeds(c)
+    .map(({ mode, feet }) =>
+      terse ? `${mode.short[0]}${feet}` : `${mode.short} ${feet}`,
+    )
+    .join(terse ? ' ' : ' · ')
 }
 
 // --- Attunement -------------------------------------------------------------
@@ -1357,6 +1437,17 @@ const str = (v: unknown, fallback: string): string =>
 const strList = (v: unknown): Array<string> =>
   Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []
 /**
+ * An optional speed in feet: undefined when the key is missing, not a number,
+ * or zero. Zero collapsing to undefined is the point — "0 ft of flight" and
+ * "cannot fly" are the same fact, and only the second is worth printing.
+ * Truncated and capped so a hand-edit typo can't blow out a print tile.
+ */
+const optSpeed = (v: unknown): number | undefined => {
+  if (typeof v !== 'number' || !Number.isFinite(v)) return undefined
+  const n = Math.min(999, Math.trunc(v))
+  return n > 0 ? n : undefined
+}
+/**
  * Free-text list field: trims and drops blanks. Unlike `skills`, these lists
  * have no known vocabulary to filter against, so a blank hand-typed entry would
  * otherwise reach the UI and the printed sheet as an empty row.
@@ -1640,6 +1731,12 @@ export function parseCharacter(content: string): {
   c.ac = Math.max(0, num(r.ac, c.ac))
   c.initiativeBonus = num(r.initiativeBonus, c.initiativeBonus)
   c.speed = Math.max(0, num(r.speed, c.speed))
+  // Assigned only when the sheet actually says so: an absent key has to stay
+  // absent, or the next save writes three new lines into every existing file.
+  for (const mode of MOVEMENT_MODES) {
+    const feet = optSpeed(r[mode.key])
+    if (feet !== undefined) c[mode.key] = feet
+  }
 
   if (typeof r.hp === 'object' && r.hp !== null) {
     const hp = r.hp as Record<string, unknown>
@@ -1823,6 +1920,13 @@ export function serializeCharacter(character: Character, body: string): string {
     ac: character.ac,
     initiativeBonus: character.initiativeBonus,
     speed: character.speed,
+    // Omitted while unset, the way `hitDice.total` is omitted while it tracks
+    // the level: a character with no extra movement serializes exactly as it
+    // did before these fields existed, so opening and saving an old sheet adds
+    // nothing to its frontmatter.
+    ...Object.fromEntries(
+      extraSpeeds(character).map(({ mode, feet }) => [mode.key, feet]),
+    ),
     hp: character.hp,
     hitDice: {
       size: character.hitDice.size,

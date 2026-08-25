@@ -3,6 +3,8 @@ import {
   SKILLS,
   abilityMod,
   carriedWeight,
+  extraSpeedSummary,
+  extraSpeeds,
   initiativeBonus,
   passivePerception,
   proficiencyBonus,
@@ -54,6 +56,13 @@ export function WizardSummary({ draft }: { draft: CharacterDraft }) {
         <Row label="Hit Points" value={character.hp.max} />
         <Row label="Initiative" value={signed(initiativeBonus(character))} />
         <Row label="Speed" value={`${character.speed} ft`} />
+        {/* Nothing in the wizard can set these today — no race grants extra
+            movement and `Grant` has no field for it — but this panel reads the
+            built character rather than the draft, so it stays right for free if
+            that ever changes. */}
+        {extraSpeeds(character).length > 0 && (
+          <Row label="Other movement" value={extraSpeedSummary(character)} />
+        )}
         <Row
           label="Hit die"
           value={hasClass ? `d${character.hitDice.size}` : '—'}

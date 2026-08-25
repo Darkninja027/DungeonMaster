@@ -22,6 +22,8 @@ import {
   encumbranceTier,
   equipItem,
   equippedIn,
+  extraSpeedSummary,
+  extraSpeeds,
   featureBadge,
   featureEntries,
   filterFeatures,
@@ -137,6 +139,11 @@ function sample() {
     { text: 'Rations x5', qty: 5, weight: 2, slot: null },
   ]
   c.encumbrance = { enabled: true, countCoins: true }
+  // Two of the three modes, not all three: the round-trip then covers both a
+  // written key and an omitted one, so a serializer that emits `climbSpeed: 0`
+  // fails here rather than shipping.
+  c.flySpeed = 50
+  c.swimSpeed = 30
   c.notes = [{ at: '2026-07-21', text: 'Met [[Strahd]].' }]
   return c
 }
@@ -980,6 +987,85 @@ describe('encumbrance', () => {
     const c = carrier(1, [], 250)
     expect(carriedWeight(c)).toBe(5)
     expect(encumbranceTier(c)).toBe('none')
+  })
+})
+
+describe('extra movement speeds', () => {
+  it('writes nothing at all when a character has none', () => {
+    // The whole point of the optional shape: a sheet saved by this build must
+    // be byte-identical to one saved before these fields existed, so opening
+    // an old character and saving it adds nothing to its frontmatter.
+    const content = serializeCharacter(emptyCharacter(), 'Body')
+    expect(content).not.toContain('flySpeed')
+    expect(content).not.toContain('swimSpeed')
+    expect(content).not.toContain('climbSpeed')
+    expect(content).not.toContain('speeds')
+  })
+
+  it('round-trips only the modes that are set', () => {
+    const c = { ...emptyCharacter(), flySpeed: 50, climbSpeed: 20 }
+    const again = parseCharacter(serializeCharacter(c, '')).character
+    expect(again.flySpeed).toBe(50)
+    expect(again.climbSpeed).toBe(20)
+    // Absent, not zero: the key never appears, so nothing renders a mode the
+    // character doesn't have.
+    expect(again.swimSpeed).toBeUndefined()
+    expect('swimSpeed' in again).toBe(false)
+  })
+
+  it('reads hand-typed values and drops junk and zeroes', () => {
+    const { character } = parseCharacter(
+      '---\ntype: character\nflySpeed: 60\nswimSpeed: fast\n' +
+        'climbSpeed: 0\n---\n',
+    )
+    expect(character.flySpeed).toBe(60)
+    // Not a number: absent rather than 0, so it isn't shown as a mode.
+    expect(character.swimSpeed).toBeUndefined()
+    // Zero means "cannot climb", which is the same as saying nothing.
+    expect(character.climbSpeed).toBeUndefined()
+  })
+
+  it('truncates and caps a hand-edit typo', () => {
+    const { character } = parseCharacter(
+      '---\ntype: character\nflySpeed: 12.7\nswimSpeed: 99999\n---\n',
+    )
+    expect(character.flySpeed).toBe(12)
+    expect(character.swimSpeed).toBe(999)
+  })
+
+  it('lists set modes in a fixed order and summarises them', () => {
+    // Authored out of order on purpose: the order has to come from
+    // MOVEMENT_MODES, not from key insertion, because three surfaces render
+    // this list and they must agree.
+    const c = { ...emptyCharacter(), climbSpeed: 20, flySpeed: 50 }
+    expect(extraSpeeds(c).map((e) => e.mode.short)).toEqual(['fly', 'climb'])
+    expect(extraSpeedSummary(c)).toBe('fly 50 · climb 20')
+    expect(extraSpeeds(emptyCharacter())).toEqual([])
+    expect(extraSpeedSummary(emptyCharacter())).toBe('')
+  })
+
+  it('abbreviates on request, for the printed tile', () => {
+    const all = {
+      ...emptyCharacter(),
+      flySpeed: 100,
+      swimSpeed: 100,
+      climbSpeed: 100,
+    }
+    // The widest case the print tile can be asked to hold.
+    expect(extraSpeedSummary(all, true)).toBe('f100 s100 c100')
+  })
+
+  it('leaves encumbrance a walking-only rule', () => {
+    // Guards the decision rather than the arithmetic: RAW slows every speed,
+    // this app deliberately doesn't, and a later "fix" should fail here first.
+    const c = emptyCharacter()
+    c.abilities.str = 10
+    c.inventory = [{ text: 'Anvil', qty: 1, weight: 60, slot: null }]
+    c.encumbrance = { enabled: true, countCoins: true }
+    c.flySpeed = 50
+    expect(effectiveSpeed(c)).toBe(20)
+    expect(extraSpeeds(c)[0].feet).toBe(50)
+    expect(extraSpeedSummary(c)).toBe('fly 50')
   })
 })
 
