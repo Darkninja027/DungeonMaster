@@ -411,3 +411,42 @@ describe('filterEntries', () => {
     ])
   })
 })
+
+describe('filterSpells by a level ceiling', () => {
+  const entries = [
+    { worldId: 'w', articleId: 'a', title: 'Fire Bolt', level: 0 },
+    { worldId: 'w', articleId: 'b', title: 'Charm Person', level: 1 },
+    { worldId: 'w', articleId: 'c', title: 'Invisibility', level: 2 },
+    { worldId: 'w', articleId: 'd', title: 'Fireball', level: 3 },
+    { worldId: 'w', articleId: 'e', title: 'Homebrew Thing' },
+  ] as Array<Parameters<typeof filterSpells>[0][number]>
+
+  it('offers every level a character has slots for, not just the highest', () => {
+    // A 7th-level Arcane Trickster may learn a 1st *or* 2nd level spell.
+    // Filtering to the highest open level alone hid half of what they can take.
+    const names = filterSpells(entries, { maxLevel: 2 }).map((e) => e.title)
+    expect(names).toContain('Charm Person')
+    expect(names).toContain('Invisibility')
+    expect(names).not.toContain('Fireball')
+  })
+
+  it('leaves cantrips out — they are counted and chosen separately', () => {
+    expect(
+      filterSpells(entries, { maxLevel: 2 }).map((e) => e.title),
+    ).not.toContain('Fire Bolt')
+  })
+
+  it('still shows a spell that declares no level', () => {
+    // The permissive rule the whole filter is built on: homebrew is never
+    // silently hidden.
+    expect(
+      filterSpells(entries, { maxLevel: 1 }).map((e) => e.title),
+    ).toContain('Homebrew Thing')
+  })
+
+  it('leaves the exact-level filter alone', () => {
+    const names = filterSpells(entries, { level: 1 }).map((e) => e.title)
+    expect(names).toContain('Charm Person')
+    expect(names).not.toContain('Invisibility')
+  })
+})

@@ -47,6 +47,7 @@ import {
   DEFAULT_SUBCLASS_LEVEL,
   findFeat,
   findSubclass,
+  spellcastingFor,
   subclassLevelOf,
 } from './tables'
 
@@ -110,6 +111,17 @@ export interface LevelUpDraft {
    * anybody else.
    */
   picks: Record<string, Array<string> | undefined>
+  /**
+   * Cantrip and spell names chosen at this level-up, free text exactly as at
+   * creation — a spell on the sheet is just a name, which may be a wiki link,
+   * homebrew, or something invented at the table.
+   *
+   * Separate from `picks` because these are not a `PickList`: how many you may
+   * take comes from the class's own progression table rather than from an
+   * authored list of options, and the answers are unconstrained.
+   */
+  cantrips: Array<string>
+  spells: Array<string>
   /**
    * Resource rows offered by features gained here, keyed by resource name, and
    * only the ones the player has kept. Pre-filled from the feature's own
@@ -195,6 +207,8 @@ export function emptyLevelUpDraft(
     subclassName,
     picks: {},
     resources: {},
+    cantrips: [],
+    spells: [],
   }
 }
 
@@ -337,8 +351,14 @@ export function needsSubclass(
 export function slotsAtLevel(
   kit: ClassKit | undefined,
   level: number,
+  /**
+   * The archetype in force, when one is. Trailing and optional so the many
+   * callers with no subclass in hand keep reading the class's own table; an
+   * Arcane Trickster's slots live on the subclass and are invisible without it.
+   */
+  subclassName = '',
 ): Array<number> | undefined {
-  const table = kit?.spellcasting?.slotsByLevel
+  const table = spellcastingFor(kit, subclassName)?.slotsByLevel
   if (!table) return undefined
   let best: Array<number> | undefined
   let bestLevel = 0
@@ -352,12 +372,92 @@ export function slotsAtLevel(
   return best
 }
 
+/**
+ * Spells known at a character level, same lookup rule again.
+ *
+ * Only the "known" casters have a table — a preparer has no cap to track, and
+ * `undefined` here means "this class does not count spells known", which is a
+ * different answer from 0 and is why the level-up step asks for nothing rather
+ * than asking for none.
+ */
+export function spellsKnownAtLevel(
+  kit: ClassKit | undefined,
+  level: number,
+  /** The archetype in force; see `slotsAtLevel`. */
+  subclassName = '',
+): number | undefined {
+  const table = spellcastingFor(kit, subclassName)?.spellsKnownByLevel
+  if (!table) return undefined
+  let best: number | undefined
+  let bestLevel = 0
+  for (const [key, value] of Object.entries(table)) {
+    const at = Number(key)
+    if (at <= level && at > bestLevel) {
+      bestLevel = at
+      best = value
+    }
+  }
+  return best
+}
+
+/**
+ * How many more of something a level-up grants: the table at the new level
+ * minus the table at the old one.
+ *
+ * Floored at 0 so a table that goes backwards — a homebrew typo — asks for
+ * nothing rather than a negative number, and `undefined` in means 0 out: a
+ * class with no table for this is not owed any.
+ */
+function gainedBetween(
+  lookup: (
+    kit: ClassKit | undefined,
+    level: number,
+    subclassName?: string,
+  ) => number | undefined,
+  draft: LevelUpDraft,
+  subclassName: string,
+): number {
+  const before = lookup(draft.kit, draft.from, subclassName)
+  const after = lookup(draft.kit, draft.to, subclassName)
+  if (after === undefined) return 0
+  return Math.max(0, after - (before ?? 0))
+}
+
+/**
+ * The spells and cantrips the player typed, as sheet rows.
+ *
+ * Trimmed and de-duplicated here rather than at the UI so the plan is the one
+ * answer both the summary panel and the commit read — the property that keeps
+ * "what it says it will do" and "what it does" from drifting apart.
+ */
+function chosenSpells(
+  draft: LevelUpDraft,
+): Array<{ name: string; level: number }> {
+  const out: Array<{ name: string; level: number }> = []
+  const seen = new Set<string>()
+  const take = (names: Array<string>, level: number) => {
+    for (const raw of names) {
+      const name = raw.trim()
+      if (!name) continue
+      const key = `${level}:${name.toLowerCase()}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      out.push({ name, level })
+    }
+  }
+  take(draft.cantrips, 0)
+  take(draft.spells, 1)
+  return out
+}
+
 /** Cantrips known at a character level, same lookup rule as the slot table. */
 export function cantripsAtLevel(
   kit: ClassKit | undefined,
   level: number,
+  /** The archetype in force; see `slotsAtLevel`. */
+  subclassName = '',
 ): number | undefined {
-  const table = kit?.spellcasting?.cantripsByLevel
+  const table = spellcastingFor(kit, subclassName)?.cantripsByLevel
   if (!table) return undefined
   let best: number | undefined
   let bestLevel = 0
@@ -651,6 +751,25 @@ export interface LevelUpPlan {
   slots: Array<SlotChange>
   cantripsFrom: number | undefined
   cantripsTo: number | undefined
+  /**
+   * How many new cantrips and spells this level-up entitles the player to.
+   *
+   * A count, not a gate: the step shows it as a tally and never blocks Next,
+   * the same bargain every table in this app strikes. 0 for a preparer, whose
+   * spells are chosen fresh each day rather than learned.
+   */
+  cantripsToPick: number
+  spellsToPick: number
+  /** The spells and cantrips actually chosen, as rows ready for the sheet. */
+  spellsAdded: Array<{ name: string; level: number }>
+  /**
+   * Spells the archetype hands over outright — the Arcane Trickster's Mage
+   * Hand. Not a choice, so it is not part of `cantripsToPick`, but the step has
+   * to *show* it: a picker reading "0 / 2" beside a sheet that does not list
+   * Mage Hand yet reads as though it were still owed, and the grant does not
+   * land until Apply.
+   */
+  spellsGranted: Array<{ name: string; level: number }>
   subclassName: string | null
   /**
    * Counters to add, already filtered to the ones the player kept. Named rows
@@ -659,6 +778,20 @@ export interface LevelUpPlan {
   resources: Array<CharacterResource>
   preparedLimitFrom: number | undefined
   preparedLimitTo: number | undefined
+  /**
+   * The ability this character casts with, when a level-up is what makes them a
+   * caster at all.
+   *
+   * Only creation ever set `Character.spellAbility`, which was fine while every
+   * caster cast from level 1. An Arcane Trickster becomes one at 3rd, and was
+   * left with `null` — so `spellSaveDc` and `spellAttackBonus` both returned
+   * null and the sheet could not compute either.
+   *
+   * `undefined` when there is nothing to say: not a caster, or already set.
+   * Never overwrites an ability the sheet already names, in keeping with this
+   * file only ever adding.
+   */
+  spellAbilityTo: Ability | undefined
 }
 
 /**
@@ -869,8 +1002,21 @@ export function levelUpPlan(c: Character, draft: LevelUpDraft): LevelUpPlan {
     draft.subclassName || c.subclass,
   ).filter((f) => taking.has(f.name.trim().toLowerCase()))
 
-  const before = slotsAtLevel(draft.kit, draft.from) ?? []
-  const after = slotsAtLevel(draft.kit, draft.to) ?? []
+  // The archetype in force: the one being chosen this level-up if there is one,
+  // else what the sheet already says. Same resolution `resourcesOffered` and
+  // `levelUpPicks` use, so a third-caster's slots arrive on the very level-up
+  // that makes them a caster.
+  const castingAs = draft.subclassName || draft.base.subclass
+  // The archetype being chosen *by this level-up*, as opposed to one the sheet
+  // already names. Null on every later level-up, which is what stops a subclass
+  // grant applying twice.
+  const subclassChosen =
+    needsSubclass(c, draft.from, draft.to, draft.kit) &&
+    draft.subclassName.trim() !== ''
+      ? draft.subclassName.trim()
+      : null
+  const before = slotsAtLevel(draft.kit, draft.from, castingAs) ?? []
+  const after = slotsAtLevel(draft.kit, draft.to, castingAs) ?? []
   const slots: Array<SlotChange> = []
   for (let i = 0; i < Math.max(before.length, after.length); i++) {
     const level = i + 1
@@ -883,7 +1029,7 @@ export function levelUpPlan(c: Character, draft: LevelUpDraft): LevelUpPlan {
   }
 
   const abilityIncreases = mergedAsi(draft)
-  const sc = draft.kit?.spellcasting
+  const sc = spellcastingFor(draft.kit, castingAs)
   // `mod + level`, the same formula buildCharacter uses at creation — the two
   // must agree or a levelled character drifts from a freshly built one. Never
   // lowered: a sheet with a higher limit has been deliberately house-ruled.
@@ -913,13 +1059,18 @@ export function levelUpPlan(c: Character, draft: LevelUpDraft): LevelUpPlan {
     abilityIncreases,
     featsTaken: featsTaken(draft),
     slots,
-    cantripsFrom: cantripsAtLevel(draft.kit, draft.from),
-    cantripsTo: cantripsAtLevel(draft.kit, draft.to),
-    subclassName:
-      needsSubclass(c, draft.from, draft.to, draft.kit) &&
-      draft.subclassName.trim() !== ''
-        ? draft.subclassName.trim()
-        : null,
+    cantripsFrom: cantripsAtLevel(draft.kit, draft.from, castingAs),
+    cantripsTo: cantripsAtLevel(draft.kit, draft.to, castingAs),
+    cantripsToPick: gainedBetween(cantripsAtLevel, draft, castingAs),
+    spellsToPick: gainedBetween(spellsKnownAtLevel, draft, castingAs),
+    spellsAdded: chosenSpells(draft),
+    spellsGranted:
+      subclassChosen === null
+        ? []
+        : (findSubclass(draft.kit, subclassChosen)?.grant?.spells ?? []).map(
+            (sp) => ({ name: sp.name, level: sp.level }),
+          ),
+    subclassName: subclassChosen,
     // Only the offers the player kept — `draft.resources` is keyed by name and
     // a dropped row is deleted from it, so an offer with no entry is one they
     // said no to. Fresh counters start unspent.
@@ -936,6 +1087,9 @@ export function levelUpPlan(c: Character, draft: LevelUpDraft): LevelUpPlan {
         return [row]
       },
     ),
+    // Only when the sheet has none: a player who has set their own — a
+    // homebrew archetype, a DM ruling — keeps it.
+    spellAbilityTo: c.spellAbility === null ? sc?.ability : undefined,
     preparedLimitFrom: c.preparedLimit || undefined,
     preparedLimitTo:
       preparedLimitTo === c.preparedLimit ? undefined : preparedLimitTo,
@@ -1200,8 +1354,46 @@ export function applyLevelUp(c: Character, draft: LevelUpDraft): Character {
     next = { ...next, spellSlots }
   }
 
+  if (plan.spellsAdded.length > 0) {
+    // Appended, never replacing a row the player already has — the same rule
+    // `applyFeatGrants` follows, matched on name *and* level so a spell known
+    // as both a cantrip and a levelled spell keeps both rows.
+    //
+    // Compared case-insensitively after trimming, unlike that function's exact
+    // match: these names were typed by hand a moment ago, and "fire bolt"
+    // against an existing "Fire Bolt" is the same spell by any reading.
+    //
+    // Never `prepared`, matching `applyPick`'s spell case: what is prepared is
+    // a daily decision the sheet owns, not something learning a spell settles.
+    const has = new Set(
+      next.spells.map((sp) => `${sp.level}:${sp.name.trim().toLowerCase()}`),
+    )
+    const added = plan.spellsAdded.filter(
+      (sp) => !has.has(`${sp.level}:${sp.name.trim().toLowerCase()}`),
+    )
+    if (added.length > 0) next = { ...next, spells: [...next.spells, ...added] }
+  }
+
   if (plan.subclassName) {
     next = { ...next, subclass: plan.subclassName }
+    // What the archetype itself hands over — the Assassin's two tool
+    // proficiencies, a Valor Bard's martial weapons.
+    //
+    // Only on the level-up that *chooses* it, because `plan.subclassName` is
+    // null on every later one, so a grant cannot apply twice. Through
+    // `applyFeatGrants` because that is the additive applier already trusted
+    // here: it merges into the character's own lists and never overwrites, and
+    // it drops `traits`, `items` and `currency` exactly as it does for a feat.
+    //
+    // Creation applies this via `applyGrant` instead. For a subclass chosen
+    // after level 1 that path never runs, which is why the field was inert for
+    // every archetype chosen at 3 until this existed.
+    const granted = findSubclass(draft.kit, plan.subclassName)?.grant
+    if (granted) next = applyFeatGrants(next, [granted])
+  }
+
+  if (plan.spellAbilityTo !== undefined) {
+    next = { ...next, spellAbility: plan.spellAbilityTo }
   }
 
   if (plan.preparedLimitTo !== undefined) {
@@ -1250,9 +1442,20 @@ export function levelUpSteps(draft: LevelUpDraft): Array<LevelUpStepId> {
   if (levelUpPicks(draft).length > 0 || resourcesOffered(draft).length > 0) {
     steps.push('picks')
   }
-  const before = slotsAtLevel(draft.kit, draft.from)
-  const after = slotsAtLevel(draft.kit, draft.to)
-  if (after && JSON.stringify(before) !== JSON.stringify(after)) {
+  // Slots are not the only reason to open this step, and gating on them alone
+  // was a real hole: an Arcane Trickster learns a spell at 8th, 11th, 14th and
+  // 20th with no slot change at all, so four of their ten spell gains never
+  // prompted. The cantrip note above it had been invisible the same way.
+  const castingAs = draft.subclassName || draft.base.subclass
+  const before = slotsAtLevel(draft.kit, draft.from, castingAs)
+  const after = slotsAtLevel(draft.kit, draft.to, castingAs)
+  const slotsChanged =
+    Boolean(after) && JSON.stringify(before) !== JSON.stringify(after)
+  if (
+    slotsChanged ||
+    gainedBetween(cantripsAtLevel, draft, castingAs) > 0 ||
+    gainedBetween(spellsKnownAtLevel, draft, castingAs) > 0
+  ) {
     steps.push('spells')
   }
   steps.push('review')
@@ -1381,6 +1584,9 @@ export function canAdvance(draft: LevelUpDraft, step: LevelUpStepId): boolean {
         pickSatisfiedAt(draft, pick),
       )
     case 'spells':
+      // Deliberately ungated, unlike every case around it. The counts are what
+      // the table says you may take, not a bill to settle: a player who wants
+      // to pick their spells later, or on paper, is not stopped here.
       return true
     case 'review':
       return true

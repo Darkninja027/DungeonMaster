@@ -197,13 +197,21 @@ export function filterEntries(
  */
 export function filterSpells(
   entries: Array<LibraryEntry>,
-  options: { level?: number; className?: string } = {},
+  options: { level?: number; maxLevel?: number; className?: string } = {},
 ): Array<LibraryEntry> {
-  const { level, className } = options
+  const { level, maxLevel, className } = options
   const wantClass = className?.trim().toLowerCase()
   return entries.filter((e) => {
     if (level !== undefined && e.level != null && e.level !== level) {
       return false
+    }
+    // `maxLevel` is a ceiling rather than an exact match, for "a spell of a
+    // level for which you have slots" — a 7th-level Arcane Trickster may learn
+    // a 1st *or* 2nd level spell, so filtering to the highest open level alone
+    // would hide half of what they can actually take. Cantrips are excluded:
+    // they are counted and chosen separately.
+    if (maxLevel !== undefined && e.level != null) {
+      if (e.level < 1 || e.level > maxLevel) return false
     }
     if (wantClass && e.classes && e.classes.length > 0) {
       const has = e.classes.some((c) => c.trim().toLowerCase() === wantClass)

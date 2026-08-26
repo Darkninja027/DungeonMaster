@@ -16,7 +16,7 @@ import { SRD_BACKGROUNDS } from './backgrounds'
 import { SRD_CLASS_KITS } from './classKits'
 import { ARMOR_AC, WEAPON_STATS } from './equipment'
 import { SRD_RACES } from './races'
-import { subclassLevelOf } from '../tables'
+import { spellcastingFor, subclassLevelOf } from '../tables'
 import type { Grant, PickList } from './types'
 
 /**
@@ -79,6 +79,26 @@ function allPickLists(): Array<{ where: string; pick: PickList }> {
   }
   for (const kit of SRD_CLASS_KITS) {
     out.push({ where: `kit ${kit.name} skillChoices`, pick: kit.skillChoices })
+    // Feature picks, class and subclass. These were missed for as long as they
+    // have existed: a Fighting Style and a Battle Master's manoeuvres live on
+    // `features[].picks`, not on any `grant`, so every check below — global id
+    // uniqueness, featureText completeness, unique options, the banned
+    // featureGrant fields — walked straight past them.
+    for (const feature of kit.features) {
+      for (const pick of feature.picks ?? []) {
+        out.push({ where: `kit ${kit.name} ${feature.name}`, pick })
+      }
+    }
+    for (const sub of kit.subclasses) {
+      for (const feature of sub.features) {
+        for (const pick of feature.picks ?? []) {
+          out.push({
+            where: `kit ${kit.name}/${sub.name} ${feature.name}`,
+            pick,
+          })
+        }
+      }
+    }
   }
   return out
 }
@@ -395,6 +415,24 @@ describe('backgrounds', () => {
 })
 
 describe('spellcasting', () => {
+  /**
+   * The walk-back lookup every progression table uses: the highest row at or
+   * below a level. Mirrors `slotsAtLevel` in lib/levelUp.ts, so these tests
+   * read the tables exactly the way the app does.
+   */
+  const atLevel = <T>(table: Record<number, T>, n: number): T | undefined => {
+    let best: T | undefined
+    let bestLevel = 0
+    for (const key of Object.keys(table)) {
+      const lvl = Number(key)
+      if (lvl <= n && lvl > bestLevel) {
+        bestLevel = lvl
+        best = table[lvl]
+      }
+    }
+    return best
+  }
+
   it('slots and known counts are sane at level 1', () => {
     for (const kit of SRD_CLASS_KITS) {
       const sc = kit.spellcasting
@@ -403,6 +441,245 @@ describe('spellcasting', () => {
       expect(sc.slotsAtLevel1, kit.name).toBeGreaterThan(0)
       expect(sc.cantripsKnown, kit.name).toBeGreaterThanOrEqual(0)
       expect(sc.spellsKnown, kit.name).toBeGreaterThanOrEqual(0)
+    }
+  })
+
+  it('a subclass table is sane at the level its archetype begins', () => {
+    // The class-level checks above all read `kit.spellcasting` and walk past a
+    // subclass's own table entirely, so an Arcane Trickster's progression was
+    // unvalidated by construction rather than by intent. Its numbers are keyed
+    // by character level like every other table here, so the level to check
+    // against is `subclassLevelOf`, not 1 — which is also why `slotsAtLevel1`
+    // is 0 on a third caster and cannot be compared with the first row.
+    for (const kit of SRD_CLASS_KITS) {
+      for (const sub of kit.subclasses) {
+        const sc = sub.spellcasting
+        if (!sc) continue
+        const at = subclassLevelOf(kit)
+        const where = `${kit.name}/${sub.name}`
+        expect(ABILITY_IDS.has(sc.ability), where).toBe(true)
+        expect(sc.cantripsKnown, where).toBeGreaterThanOrEqual(0)
+        expect(sc.spellsKnown, where).toBeGreaterThanOrEqual(0)
+
+        const slots = sc.slotsByLevel
+        expect(slots, `${where} has no slot table`).toBeDefined()
+        // Nothing before the archetype exists, and a real row the level it does.
+        for (const key of Object.keys(slots!)) {
+          expect(
+            Number(key),
+            `${where} grants slots at ${key}`,
+          ).toBeGreaterThanOrEqual(at)
+        }
+        const first = slots![at]
+        expect(first, `${where} has no row at level ${at}`).toBeDefined()
+        expect(first[0], `${where} level ${at} slots`).toBeGreaterThan(0)
+
+        // Monotonic, exactly as the class-level tables must be.
+        let prior = 0
+        for (const key of Object.keys(slots!)
+          .map(Number)
+          .sort((a, b) => a - b)) {
+          const total = slots![key].reduce((sum, n) => sum + n, 0)
+          expect(
+            total,
+            `${where} loses slots at ${key}`,
+          ).toBeGreaterThanOrEqual(prior)
+          prior = total
+        }
+      }
+    }
+  })
+
+  it('an Arcane Trickster matches the printed progression at every level', () => {
+    // Transcribed once and got Spells Known wrong from 10th up — off by one,
+    // then by two, in a sparse table where the error is invisible unless every
+    // level is expanded. Spot checks would not have caught it, so this walks
+    // all eighteen.
+    const sub = SRD_CLASS_KITS.find((k) => k.name === 'Rogue')!.subclasses.find(
+      (s) => s.name === 'Arcane Trickster',
+    )!
+    const sc = sub.spellcasting!
+    // [cantrips beyond Mage Hand, spells known, slots by spell level]
+    const printed: Record<number, [number, number, Array<number>]> = {
+      3: [2, 3, [2]],
+      4: [2, 4, [3]],
+      5: [2, 4, [3]],
+      6: [2, 4, [3]],
+      7: [2, 5, [4, 2]],
+      8: [2, 6, [4, 2]],
+      9: [2, 6, [4, 2]],
+      10: [3, 7, [4, 3]],
+      11: [3, 8, [4, 3]],
+      12: [3, 8, [4, 3]],
+      13: [3, 9, [4, 3, 2]],
+      14: [3, 10, [4, 3, 2]],
+      15: [3, 10, [4, 3, 2]],
+      16: [3, 11, [4, 3, 3]],
+      17: [3, 11, [4, 3, 3]],
+      18: [3, 11, [4, 3, 3]],
+      19: [3, 12, [4, 3, 3, 1]],
+      20: [3, 13, [4, 3, 3, 1]],
+    }
+    for (let level = 3; level <= 20; level++) {
+      const [cantrips, known, slots] = printed[level]
+      expect(atLevel(sc.cantripsByLevel!, level), `cantrips at ${level}`).toBe(
+        cantrips,
+      )
+      expect(
+        atLevel(sc.spellsKnownByLevel!, level),
+        `spells known at ${level}`,
+      ).toBe(known)
+      expect(atLevel(sc.slotsByLevel!, level), `slots at ${level}`).toEqual(
+        slots,
+      )
+    }
+    // Mage Hand is the fixed cantrip the count above deliberately excludes.
+    expect(sub.grant?.spells?.map((sp) => sp.name)).toEqual(['Mage Hand'])
+  })
+
+  it('a spells-known table starts where the caster does and only grows', () => {
+    // Every "known" caster's column, at every level it covers. A sparse table
+    // hides an off-by-one completely — the Arcane Trickster's was wrong from
+    // 10th up on the first pass and read as perfectly plausible.
+    const known: Record<string, Record<number, number>> = {
+      Bard: {
+        1: 4,
+        2: 5,
+        3: 6,
+        4: 7,
+        5: 8,
+        6: 9,
+        7: 10,
+        8: 11,
+        9: 12,
+        10: 14,
+        11: 15,
+        12: 15,
+        13: 16,
+        14: 18,
+        15: 19,
+        16: 19,
+        17: 20,
+        18: 22,
+        19: 22,
+        20: 22,
+      },
+      Sorcerer: {
+        1: 2,
+        2: 3,
+        3: 4,
+        4: 5,
+        5: 6,
+        6: 7,
+        7: 8,
+        8: 9,
+        9: 10,
+        10: 11,
+        11: 12,
+        12: 12,
+        13: 13,
+        14: 13,
+        15: 14,
+        16: 14,
+        17: 15,
+        18: 15,
+        19: 15,
+        20: 15,
+      },
+      Warlock: {
+        1: 2,
+        2: 3,
+        3: 4,
+        4: 5,
+        5: 6,
+        6: 7,
+        7: 8,
+        8: 9,
+        9: 10,
+        10: 10,
+        11: 11,
+        12: 11,
+        13: 12,
+        14: 12,
+        15: 13,
+        16: 13,
+        17: 14,
+        18: 14,
+        19: 15,
+        20: 15,
+      },
+    }
+    for (const [name, table] of Object.entries(known)) {
+      const sc = SRD_CLASS_KITS.find((k) => k.name === name)!.spellcasting!
+      expect(
+        sc.spellsKnownByLevel,
+        `${name} has no spells-known table`,
+      ).toBeDefined()
+      // Level 1 must agree with the flat `spellsKnown` the creation wizard
+      // reads, or a fresh character and a levelled one disagree at level 1.
+      expect(sc.spellsKnownByLevel![1], `${name} level 1`).toBe(sc.spellsKnown)
+      for (let level = 1; level <= 20; level++) {
+        expect(
+          atLevel(sc.spellsKnownByLevel!, level),
+          `${name} at ${level}`,
+        ).toBe(table[level])
+      }
+    }
+  })
+
+  it('an Eldritch Knight matches the printed progression at every level', () => {
+    // The Fighter's third caster, on the same table shape as the Arcane
+    // Trickster: two cantrips, not the three the old prose claimed.
+    const sub = SRD_CLASS_KITS.find(
+      (k) => k.name === 'Fighter',
+    )!.subclasses.find((s) => s.name === 'Eldritch Knight')!
+    const sc = sub.spellcasting!
+    const printed: Record<number, [number, number, Array<number>]> = {
+      3: [2, 3, [2]],
+      4: [2, 4, [3]],
+      5: [2, 4, [3]],
+      6: [2, 4, [3]],
+      7: [2, 5, [4, 2]],
+      8: [2, 6, [4, 2]],
+      9: [2, 6, [4, 2]],
+      10: [3, 7, [4, 3]],
+      11: [3, 8, [4, 3]],
+      12: [3, 8, [4, 3]],
+      13: [3, 9, [4, 3, 2]],
+      14: [3, 10, [4, 3, 2]],
+      15: [3, 10, [4, 3, 2]],
+      16: [3, 11, [4, 3, 3]],
+      17: [3, 11, [4, 3, 3]],
+      18: [3, 11, [4, 3, 3]],
+      19: [3, 12, [4, 3, 3, 1]],
+      20: [3, 13, [4, 3, 3, 1]],
+    }
+    for (let level = 3; level <= 20; level++) {
+      const [cantrips, spells, slots] = printed[level]
+      expect(atLevel(sc.cantripsByLevel!, level), `cantrips at ${level}`).toBe(
+        cantrips,
+      )
+      expect(atLevel(sc.spellsKnownByLevel!, level), `spells at ${level}`).toBe(
+        spells,
+      )
+      expect(atLevel(sc.slotsByLevel!, level), `slots at ${level}`).toEqual(
+        slots,
+      )
+    }
+    // No fixed cantrip, unlike the Trickster's Mage Hand.
+    expect(sub.grant?.spells).toBeUndefined()
+  })
+
+  it('only a class that does not cast leaves its casting to an archetype', () => {
+    // A third caster on top of a full caster would be two tables claiming the
+    // same character, and `spellcastingFor` silently prefers the subclass.
+    for (const kit of SRD_CLASS_KITS) {
+      const casters = kit.subclasses.filter((sub) => sub.spellcasting)
+      if (casters.length === 0) continue
+      expect(
+        kit.spellcasting,
+        `${kit.name} casts and so does its archetype`,
+      ).toBeUndefined()
     }
   })
 
@@ -993,9 +1270,18 @@ describe('subclasses', () => {
   })
 
   it('only spellcasting classes grant bonus spells', () => {
+    // A subclass's own table satisfies this too: what the rule is really after
+    // is that an always-prepared spell has somewhere to be cast from, and a
+    // third caster supplies that itself. `spellcastingFor` is the same resolver
+    // the app reads, so the test agrees with the code rather than the shape.
     for (const kit of SRD_CLASS_KITS) {
-      const grants = kit.subclasses.some((sub) => (sub.spells ?? []).length > 0)
-      if (grants) expect(kit.spellcasting, kit.name).toBeDefined()
+      for (const sub of kit.subclasses) {
+        if ((sub.spells ?? []).length === 0) continue
+        expect(
+          spellcastingFor(kit, sub.name),
+          `${kit.name}/${sub.name} grants spells but nothing casts them`,
+        ).toBeDefined()
+      }
     }
   })
 

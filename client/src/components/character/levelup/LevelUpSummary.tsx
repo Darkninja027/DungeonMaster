@@ -153,7 +153,14 @@ export function LevelUpSummary({
         </Section>
       )}
 
-      {plan.slots.length > 0 && (
+      {/*
+        The cantrip row used to be nested inside the slot check, so a level that
+        granted a cantrip and no slot rendered nothing at all. Both conditions
+        are their own now.
+      */}
+      {(plan.slots.length > 0 ||
+        (plan.cantripsTo !== undefined &&
+          plan.cantripsTo !== plan.cantripsFrom)) && (
         <Section title="Spell slots">
           {plan.slots.map((slot) => (
             <Row
@@ -171,6 +178,19 @@ export function LevelUpSummary({
                 to={plan.cantripsTo}
               />
             )}
+        </Section>
+      )}
+
+      {plan.spellsAdded.length > 0 && (
+        <Section title="Spells learned">
+          {plan.spellsAdded.map((spell) => (
+            <p key={`${spell.level}:${spell.name}`} className="text-xs">
+              <Added /> {spell.name}
+              {spell.level === 0 && (
+                <span className="text-muted-foreground"> cantrip</span>
+              )}
+            </p>
+          ))}
         </Section>
       )}
 

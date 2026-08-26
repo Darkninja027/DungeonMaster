@@ -591,6 +591,26 @@ export interface SubclassInfo {
   spells?: Array<SubclassSpells>
   /** Rare, but real: Life Domain's heavy armor, Valor Bard's martial weapons. */
   grant?: Grant
+  /**
+   * A third-caster archetype's own spell progression — the Arcane Trickster's,
+   * the Eldritch Knight's.
+   *
+   * Separate from `ClassKit.spellcasting` because the *class* is not a caster:
+   * only this archetype is, and only from the level the archetype is chosen. A
+   * block on the kit would hand every Thief a spell step at level 1 and claim a
+   * progression a Rogue does not have, which is why these were prose for so
+   * long — there was nowhere subclass-shaped to put them.
+   *
+   * Read through `spellcastingFor(kit, subclassName)`, never directly: it is
+   * the one place the precedence rule lives, and it prefers this over the
+   * class's own. `slotsByLevel` here is keyed by *character* level like every
+   * other table, so a Rogue's starts at 3 rather than 1 — which is exactly why
+   * `slotsAtLevel1` is 0 on one of these and the srd tests check a subclass's
+   * numbers against `subclassLevelOf` instead.
+   *
+   * Nothing here is enforced, as ever. The wizard offers what the table says.
+   */
+  spellcasting?: SpellcastingInfo
 }
 
 /** One row of a subclass's always-prepared spell table. */
@@ -663,6 +683,15 @@ export interface ClassKit {
    * said.
    */
   asiLevels?: Array<number>
+  /**
+   * The class's own spell progression, for a class that casts from level 1 (or
+   * 2, for the half casters).
+   *
+   * Absent on a class whose *archetype* casts and whose base class does not —
+   * a Rogue is not a caster because an Arcane Trickster is. That case is
+   * `SubclassInfo.spellcasting`, which overrides this when both are present.
+   * Always read the pair through `spellcastingFor`.
+   */
   spellcasting?: SpellcastingInfo
   /**
    * Barbarian and Monk compute AC from ability scores rather than armor.

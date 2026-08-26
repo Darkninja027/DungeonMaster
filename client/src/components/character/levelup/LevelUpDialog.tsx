@@ -239,7 +239,12 @@ export function LevelUpDialog({
                     />
                   )}
                   {step === 'spells' && (
-                    <SpellsStep character={draft.base} draft={draft} />
+                    <SpellsStep
+                      worldId={worldId}
+                      character={draft.base}
+                      draft={draft}
+                      onChange={setDraft}
+                    />
                   )}
                   {step === 'review' && (
                     <ReviewStep character={draft.base} draft={draft} />

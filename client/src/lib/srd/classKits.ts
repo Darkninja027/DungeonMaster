@@ -543,6 +543,24 @@ export const SRD_CLASS_KITS: Array<ClassKit> = [
         4: 3,
         10: 4,
       },
+      spellsKnownByLevel: {
+        1: 4,
+        2: 5,
+        3: 6,
+        4: 7,
+        5: 8,
+        6: 9,
+        7: 10,
+        8: 11,
+        9: 12,
+        10: 14,
+        11: 15,
+        13: 16,
+        14: 18,
+        15: 19,
+        17: 20,
+        18: 22,
+      },
     },
     features: [
       {
@@ -1057,15 +1075,61 @@ export const SRD_CLASS_KITS: Array<ClassKit> = [
         id: 'eldritch-knight',
         name: 'Eldritch Knight',
         summary: 'A warrior who studies a narrow band of arcane magic.',
-        // No `spells` rows: srd.test.ts refuses subclass spell tables for a
-        // class with no `spellcasting` block, and giving Fighter one would
-        // claim a full progression this third-caster does not have. The spells
-        // are the player's to record on the sheet, as the feature text says.
+        /**
+         * The Fighter's third caster, on the same footing as the Arcane
+         * Trickster.
+         *
+         * This was prose for a long time and the comment here explained why:
+         * a `spells` table needs a `spellcasting` block, and putting one on the
+         * Fighter kit would have claimed a full progression for every Champion.
+         * `SubclassInfo.spellcasting` is the answer to exactly that, so the
+         * reasoning is spent and the table is real.
+         *
+         * Keyed by character level, so it starts at 3. Three cantrips rather
+         * than the Trickster's two, and none of them fixed — there is no
+         * Mage Hand equivalent here, so no `grant`.
+         *
+         * Still no `spells` rows: those are the always-prepared domain and oath
+         * tables, which is a different thing from a spells-known caster.
+         */
+        spellcasting: {
+          ability: 'int',
+          // Nothing at level 1 — this table begins where the archetype does.
+          slotsAtLevel1: 0,
+          cantripsKnown: 2,
+          spellsKnown: 3,
+          prepares: false,
+          listLabel: 'Wizard spells',
+          slotsByLevel: {
+            3: [2],
+            4: [3],
+            7: [4, 2],
+            10: [4, 3],
+            13: [4, 3, 2],
+            16: [4, 3, 3],
+            19: [4, 3, 3, 1],
+            20: [4, 3, 3, 1],
+          },
+          cantripsByLevel: { 3: 2, 10: 3 },
+          spellsKnownByLevel: {
+            3: 3,
+            4: 4,
+            7: 5,
+            8: 6,
+            10: 7,
+            11: 8,
+            13: 9,
+            14: 10,
+            16: 11,
+            19: 12,
+            20: 13,
+          },
+        },
         features: [
           {
             level: 3,
             name: 'Spellcasting',
-            text: 'You learn three cantrips and two 1st-level spells from the wizard list, mostly abjuration and evocation. Intelligence is your spellcasting ability.',
+            text: 'You learn two wizard cantrips and three 1st-level wizard spells, two of them abjuration or evocation. Intelligence is your spellcasting ability, and your save DC is 8 + your proficiency bonus + your Intelligence modifier.',
           },
           {
             level: 3,
@@ -1837,9 +1901,172 @@ export const SRD_CLASS_KITS: Array<ClassKit> = [
     hitDie: 8,
     subclassLabel: 'Roguish Archetype',
     subclasses: [
-      { id: 'thief', name: 'Thief', features: [] },
-      { id: 'assassin', name: 'Assassin', features: [] },
-      { id: 'arcane-trickster', name: 'Arcane Trickster', features: [] },
+      {
+        id: 'thief',
+        name: 'Thief',
+        summary: 'Speed and stealth turned to burglary and quick hands.',
+        features: [
+          {
+            level: 3,
+            name: 'Fast Hands',
+            text: 'You can use the bonus action from Cunning Action to make a Sleight of Hand check, use your thieves’ tools to disarm a trap or open a lock, or take the Use an Object action.',
+          },
+          {
+            level: 3,
+            name: 'Second-Story Work',
+            text: 'Climbing costs you no extra movement, and your running jump distance increases by a number of feet equal to your Dexterity modifier.',
+          },
+          {
+            level: 9,
+            name: 'Supreme Sneak',
+            text: 'You have advantage on a Stealth check on any turn you move no more than half your speed.',
+          },
+          {
+            level: 13,
+            name: 'Use Magic Device',
+            text: 'You ignore all class, race and level requirements on the use of magic items.',
+          },
+          {
+            level: 17,
+            name: 'Thief’s Reflexes',
+            text: 'You take two turns during the first round of any combat, the second at your initiative minus 10. You lose this if you are surprised.',
+          },
+        ],
+      },
+      {
+        id: 'assassin',
+        name: 'Assassin',
+        summary: 'Disguise, poison and a lethal opening strike.',
+        // Bonus Proficiencies is the rare subclass `grant` — two tools the sheet
+        // has a real field for, the same shape Life Domain's heavy armour uses.
+        // Its feature row below is the reminder; the grant is what lands.
+        grant: { tools: ['Disguise kit', 'Poisoner’s kit'] },
+        features: [
+          {
+            level: 3,
+            name: 'Bonus Proficiencies',
+            text: 'You gain proficiency with the disguise kit and the poisoner’s kit.',
+          },
+          {
+            level: 3,
+            name: 'Assassinate',
+            text: 'You have advantage on attack rolls against any creature that has not yet taken a turn. Any hit you score against a surprised creature is a critical hit.',
+          },
+          {
+            level: 9,
+            name: 'Infiltration Expertise',
+            text: 'You can spend 25 gp and seven days to establish a false identity, complete with documentation and acquaintances.',
+          },
+          {
+            level: 13,
+            name: 'Impostor',
+            text: 'You can mimic the speech, writing and behaviour of another person after studying them for three hours.',
+          },
+          {
+            level: 17,
+            name: 'Death Strike',
+            text: 'When you attack and hit a surprised creature, it makes a Constitution save against 8 + your Dexterity modifier + your proficiency bonus, or takes double damage.',
+          },
+        ],
+      },
+      {
+        id: 'arcane-trickster',
+        name: 'Arcane Trickster',
+        summary: 'Enchantment and illusion in service of theft and mischief.',
+        /**
+         * Mage Hand is the one cantrip that is not a choice — the book's
+         * "Mage Hand + 2" is three cantrips of which one is fixed. It rides
+         * here rather than on the level-3 feature because `ClassFeatureInfo`
+         * has no `grant`, and rather than as a pick because a question with a
+         * single answer is not a question. `cantripsKnown: 2` below counts only
+         * the chosen ones, which is what the wizard actually asks for.
+         *
+         * Applied on the level-up that chooses the archetype, which is level 3
+         * — exactly when the book grants it.
+         */
+        grant: { spells: [{ name: 'Mage Hand', level: 0 }] },
+        /**
+         * The one archetype in this file that casts, and the reason
+         * `SubclassInfo.spellcasting` exists.
+         *
+         * It cannot live on the Rogue kit: a class-level block would give every
+         * Thief a spell step at level 1 and claim a progression a Rogue does not
+         * have. Keyed by *character* level like every other table here, so it
+         * starts at 3 — the level the archetype is chosen — rather than at 1.
+         * `spellcastingFor` prefers this over the class's, and `slotsAtLevel`
+         * reads it through that.
+         *
+         * No `spells` rows: those are the always-prepared domain and oath
+         * tables, which is a different thing entirely from a spells-known
+         * caster. What an Arcane Trickster knows is theirs to choose.
+         */
+        spellcasting: {
+          ability: 'int',
+          // Nothing at level 1 — this table begins where the archetype does.
+          slotsAtLevel1: 0,
+          // "Mage Hand + 2" in the book: three cantrips, but one of them is
+          // fixed. Only the chosen ones are counted here, because that is what
+          // the wizard asks the player to pick — Mage Hand itself rides in on
+          // the level-3 feature's `grant` below, so it lands on the sheet
+          // without occupying a choice the player does not actually have.
+          cantripsKnown: 2,
+          spellsKnown: 3,
+          prepares: false,
+          listLabel: 'Wizard spells',
+          slotsByLevel: {
+            3: [2],
+            4: [3],
+            7: [4, 2],
+            10: [4, 3],
+            13: [4, 3, 2],
+            16: [4, 3, 3],
+            19: [4, 3, 3, 1],
+            20: [4, 3, 3, 1],
+          },
+          cantripsByLevel: { 3: 2, 10: 3 },
+          spellsKnownByLevel: {
+            3: 3,
+            4: 4,
+            7: 5,
+            8: 6,
+            10: 7,
+            11: 8,
+            13: 9,
+            14: 10,
+            16: 11,
+            19: 12,
+            20: 13,
+          },
+        },
+        features: [
+          {
+            level: 3,
+            name: 'Spellcasting',
+            text: 'You learn Mage Hand and two other wizard cantrips, and three 1st-level wizard spells, two of them enchantment or illusion. Intelligence is your spellcasting ability, and your save DC is 8 + your proficiency bonus + your Intelligence modifier.',
+          },
+          {
+            level: 3,
+            name: 'Mage Hand Legerdemain',
+            text: 'Your mage hand is invisible, and you can use it to stow or retrieve an object, pick a lock or disarm a trap at range, using your Sleight of Hand check.',
+          },
+          {
+            level: 9,
+            name: 'Magical Ambush',
+            text: 'If you are hidden from a creature when you cast a spell on it, it has disadvantage on any saving throw against that spell this turn.',
+          },
+          {
+            level: 13,
+            name: 'Versatile Trickster',
+            text: 'As a bonus action you can use your mage hand to distract a creature, gaining advantage on attack rolls against it this turn.',
+          },
+          {
+            level: 17,
+            name: 'Spell Thief',
+            text: 'When a creature casts a spell targeting you, you can use your reaction to force a save; on a failure you steal the spell, casting it once, and the creature cannot cast it for 8 hours. Once per long rest.',
+            resource: { name: 'Spell Thief', total: 1, resets: 'long' },
+          },
+        ],
+      },
     ],
     saves: ['dex', 'int'],
     abilityPriority: ['dex', 'con', 'wis', 'cha', 'int', 'str'],
@@ -1989,6 +2216,39 @@ export const SRD_CLASS_KITS: Array<ClassKit> = [
         level: 5,
         name: 'Uncanny Dodge',
         text: 'When an attacker you can see hits you, you can use your reaction to halve the damage.',
+      },
+      {
+        // The second Expertise, which the kit did not have: a levelling Rogue
+        // got the level-1 pick and then silently never got this one. Its own
+        // pick id, because ids are one global keyspace and the level-1 pick is
+        // a different question asked at a different time.
+        level: 6,
+        name: 'Expertise (2)',
+        text: 'Choose two more of your skill proficiencies, or one skill and thieves’ tools. Your proficiency bonus is doubled for any ability check you make using them.',
+        picks: [
+          {
+            id: 'rogue-expertise-6',
+            kind: 'expertise',
+            label: 'Expertise in two more of your skill proficiencies',
+            count: 2,
+            // The class's ceiling, as at level 1. `eligibleExpertiseAt` narrows
+            // it to what this character is actually proficient in, and anything
+            // already doubled is greyed rather than removed.
+            options: [
+              'acrobatics',
+              'athletics',
+              'deception',
+              'insight',
+              'intimidation',
+              'investigation',
+              'perception',
+              'performance',
+              'persuasion',
+              'sleight-of-hand',
+              'stealth',
+            ],
+          },
+        ],
       },
       {
         level: 7,
@@ -2144,6 +2404,22 @@ export const SRD_CLASS_KITS: Array<ClassKit> = [
         1: 4,
         4: 5,
         10: 6,
+      },
+      spellsKnownByLevel: {
+        1: 2,
+        2: 3,
+        3: 4,
+        4: 5,
+        5: 6,
+        6: 7,
+        7: 8,
+        8: 9,
+        9: 10,
+        10: 11,
+        11: 12,
+        13: 13,
+        15: 14,
+        17: 15,
       },
     },
     features: [
@@ -2304,6 +2580,22 @@ export const SRD_CLASS_KITS: Array<ClassKit> = [
         1: 2,
         4: 3,
         10: 4,
+      },
+      spellsKnownByLevel: {
+        1: 2,
+        2: 3,
+        3: 4,
+        4: 5,
+        5: 6,
+        6: 7,
+        7: 8,
+        8: 9,
+        9: 10,
+        11: 11,
+        13: 12,
+        15: 13,
+        17: 14,
+        19: 15,
       },
     },
     features: [

@@ -11,7 +11,6 @@ import {
   asiUnlocked,
   asiPointsFor,
   averageHitDie,
-  cantripsAtLevel,
   chooseSubclass,
   eligibleExpertiseAt,
   featsAvailable,
@@ -20,13 +19,16 @@ import {
   grantedAlreadyAt,
   hpGained,
   levelUpPicks,
+  levelUpPlan,
   pickedAt,
   resourcesOffered,
   levelsGained,
   slotsAtLevel,
 } from '#/lib/levelUp'
-import { findFeat } from '#/lib/tables'
+import { findFeat, spellListClass } from '#/lib/tables'
+import { useSpellSuggestions } from '#/lib/useGlobalLibrary'
 import { PickListGroup } from '../create/PickListGroup'
+import { SpellList } from '../create/steps/SpellsStep'
 import { AbilityStepperRow } from '../AbilityStepperRow'
 import { Button } from '#/components/ui/button'
 import { Input } from '#/components/ui/input'
@@ -631,16 +633,55 @@ export function PicksStep({
 }
 
 export function SpellsStep({
+  worldId,
   character,
   draft,
+  onChange,
 }: {
+  worldId: string
   character: Character
   draft: LevelUpDraft
+  onChange: (next: LevelUpDraft) => void
 }) {
-  const before = slotsAtLevel(draft.kit, draft.from) ?? []
-  const after = slotsAtLevel(draft.kit, draft.to) ?? []
-  const cantripsFrom = cantripsAtLevel(draft.kit, draft.from)
-  const cantripsTo = cantripsAtLevel(draft.kit, draft.to)
+  // The archetype in force, resolved exactly as `levelUpPlan` and
+  // `levelUpSteps` do. Without it this reads the *class* table, and a Rogue has
+  // none — so an Arcane Trickster reached this step (which gates on the
+  // subclass table) and then saw an empty one.
+  const castingAs = draft.subclassName || draft.base.subclass
+  const before = slotsAtLevel(draft.kit, draft.from, castingAs) ?? []
+  const after = slotsAtLevel(draft.kit, draft.to, castingAs) ?? []
+  const plan = levelUpPlan(character, draft)
+  const { cantripsToPick, spellsToPick, spellsGranted } = plan
+  // Every spell level the character now has slots for, not just the highest:
+  // "a spell of a level for which you have spell slots" means a 7th-level
+  // Arcane Trickster may learn a 1st *or* a 2nd level spell. `filterSpells`
+  // keeps every entry that declares no level, so homebrew is never hidden.
+  const highestSpellLevel = Math.max(1, after.length)
+  // The list they cast *from*, not the class they are. An Arcane Trickster is a
+  // Rogue casting wizard spells, and filtering by "Rogue" matched nothing at
+  // all — every wizard spell's frontmatter says Wizard.
+  const suggestionsFor = useSpellSuggestions(
+    worldId,
+    spellListClass(draft.kit, castingAs),
+  )
+  /**
+   * Suggestions minus what the character already has, so a choice cannot be
+   * spent on a spell they would get anyway.
+   *
+   * Covers both halves of "already": rows on the sheet, and rows this level-up
+   * is about to grant but has not written yet — the archetype's Mage Hand only
+   * lands at Apply. Typing one anyway is still harmless, since the commit
+   * de-dupes; this just stops the list inviting it.
+   */
+  const offer = (level: number, upTo = false) => {
+    const have = new Set([
+      ...character.spells.map((sp) => sp.name.trim().toLowerCase()),
+      ...spellsGranted.map((sp) => sp.name.trim().toLowerCase()),
+    ])
+    return suggestionsFor(level, upTo).filter(
+      (name) => !have.has(name.trim().toLowerCase()),
+    )
+  }
 
   return (
     <div className="space-y-4">
@@ -682,12 +723,67 @@ export function SpellsStep({
           )
         })}
       </div>
-      {cantripsTo !== undefined && cantripsTo !== cantripsFrom && (
-        <p className="text-sm">
-          You learn a new cantrip — {cantripsFrom ?? 0} →{' '}
-          <strong>{cantripsTo}</strong>. Add it on the sheet&rsquo;s Spells
-          section.
-        </p>
+      {(cantripsToPick > 0 || spellsToPick > 0 || spellsGranted.length > 0) && (
+        <div className="space-y-4">
+          <p className="text-muted-foreground text-sm">
+            What you learn at this level. Suggestions come from this
+            world&rsquo;s Spells folder and your library — anything else you
+            type is kept as written.
+          </p>
+
+          {/*
+            Shown, not offered. The archetype's own spells land at Apply, so
+            until then the sheet does not list them — and a picker reading
+            "0 / 2" beside a Mage Hand that is nowhere to be seen reads as
+            though it were still owed.
+          */}
+          {spellsGranted.length > 0 && (
+            <div className="space-y-1.5">
+              <span className="text-sm font-medium">
+                Granted by your archetype
+              </span>
+              <div className="flex flex-wrap gap-1.5">
+                {spellsGranted.map((spell) => (
+                  <span
+                    key={`${spell.level}:${spell.name}`}
+                    className="bg-muted text-muted-foreground rounded-full px-2.5 py-1 text-xs"
+                  >
+                    {spell.name}
+                    {spell.level === 0 && ' · cantrip'}
+                  </span>
+                ))}
+              </div>
+              <p className="text-muted-foreground text-xs">
+                Already yours — it doesn&rsquo;t use up a choice below.
+              </p>
+            </div>
+          )}
+
+          {cantripsToPick > 0 && (
+            <SpellList
+              label="New cantrips"
+              count={cantripsToPick}
+              values={draft.cantrips}
+              suggestions={offer(0)}
+              onChange={(cantrips) => onChange({ ...draft, cantrips })}
+            />
+          )}
+
+          {spellsToPick > 0 && (
+            <SpellList
+              label="New spells"
+              count={spellsToPick}
+              values={draft.spells}
+              suggestions={offer(highestSpellLevel, true)}
+              onChange={(spells) => onChange({ ...draft, spells })}
+            />
+          )}
+
+          <p className="text-muted-foreground text-xs">
+            Pick them later if you&rsquo;d rather — this never blocks, and the
+            sheet is yours to edit.
+          </p>
+        </div>
       )}
     </div>
   )

@@ -1,11 +1,8 @@
-import { useMemo } from 'react'
-import { useQuery } from '@tanstack/react-query'
 import { X } from 'lucide-react'
-import { api } from '#/lib/api'
-import { collectSpells, filterSpells, mergeEntries } from '#/lib/bestiary'
-import { useLibraryEntries } from '#/lib/useGlobalLibrary'
+import { useSpellSuggestions } from '#/lib/useGlobalLibrary'
 import type { CharacterDraft } from '#/lib/characterDraft'
 import { draftKit } from '#/lib/characterDraft'
+import { spellListClass } from '#/lib/tables'
 import { Combobox } from '#/components/ui/combobox'
 
 /**
@@ -37,41 +34,13 @@ export function SpellsStep({
   const kit = draftKit(draft)
   const sc = kit?.spellcasting
 
-  const tree = useQuery({
-    queryKey: ['worlds', worldId, 'tree'],
-    queryFn: () => api.worlds.tree(worldId),
-  })
-  // The folder walk alone knows only titles. This query is what carries the
-  // level/school/classes frontmatter, and it is the same union the global
-  // library already does for its own entries.
-  const typed = useQuery({
-    queryKey: ['worlds', worldId, 'query', { type: 'spell' }],
-    queryFn: () => api.worlds.query(worldId, { type: 'spell' }),
-  })
-  const library = useLibraryEntries('Spells')
-  const entries = useMemo(
-    () =>
-      mergeEntries(
-        collectSpells(worldId, tree.data, typed.data, { folder: 'Spells' }),
-        library.entries,
-      ),
-    [worldId, tree.data, typed.data, library.entries],
-  )
-
-  // The class name as the spell frontmatter spells it — "Wizard", "Cleric".
-  // A homebrew class nobody's spells mention would filter everything away, so
-  // only narrow by class when the kit is one the tables know.
-  const className = kit?.name
-  // Memoised per level rather than computed inline: a fresh array on every
-  // render re-runs the Combobox's own filtering for a list that only changes
-  // when the world's spells or the class do.
-  const cantripNames = useMemo(
-    () => filterSpells(entries, { level: 0, className }).map((e) => e.title),
-    [entries, className],
-  )
-  const spellNames = useMemo(
-    () => filterSpells(entries, { level: 1, className }).map((e) => e.title),
-    [entries, className],
+  // The list they cast *from*, as the spell frontmatter spells it — "Wizard",
+  // "Cleric". Not always the class's own name: a third caster casts from
+  // another class's list. Undefined for a homebrew class, so suggestions are
+  // never filtered away by a name nobody's spells mention.
+  const suggestionsFor = useSpellSuggestions(
+    worldId,
+    spellListClass(kit, draft.subclassName),
   )
 
   if (!sc) {
@@ -95,7 +64,7 @@ export function SpellsStep({
         label="Cantrips"
         count={sc.cantripsKnown}
         values={draft.cantrips}
-        suggestions={cantripNames}
+        suggestions={suggestionsFor(0)}
         onChange={(cantrips) => onChange({ ...draft, cantrips })}
       />
 
@@ -104,7 +73,7 @@ export function SpellsStep({
           label={sc.prepares ? 'Spells in your book' : 'Spells known'}
           count={sc.spellsKnown}
           values={draft.spells}
-          suggestions={spellNames}
+          suggestions={suggestionsFor(1)}
           onChange={(spells) => onChange({ ...draft, spells })}
         />
       )}
@@ -120,7 +89,12 @@ export function SpellsStep({
   )
 }
 
-function SpellList({
+/**
+ * A capped list of spell names: chips with a remove button, and a `Combobox`
+ * that suggests without ever constraining. Shared with the level-up wizard's
+ * own spells step, so learning a spell looks the same at level 1 and level 12.
+ */
+export function SpellList({
   label,
   count,
   values,

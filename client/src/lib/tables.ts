@@ -26,6 +26,7 @@ import type {
   ClassKit,
   FeatInfo,
   RaceInfo,
+  SpellcastingInfo,
   SubclassInfo,
   SubraceInfo,
 } from './srd'
@@ -390,6 +391,56 @@ export function findSubclass(
   const key = nameKey(name)
   if (key === '' || !kit) return undefined
   return kit.subclasses.find((sub) => nameKey(sub.name) === key)
+}
+
+/**
+ * The spell progression in force for a character: the archetype's own when it
+ * has one, else the class's.
+ *
+ * The precedence rule lives here and nowhere else, because the two tables mean
+ * different things and picking the wrong one is silent. A Rogue has no
+ * `spellcasting` block at all — the *class* does not cast — so an Arcane
+ * Trickster's slots can only come from the subclass. Reading `kit.spellcasting`
+ * directly would hand that character nothing; putting a block on the kit to
+ * compensate would hand every Thief a spell step at level 1.
+ *
+ * Name in, undefined out, like every other lookup in this file: an archetype
+ * the tables don't know falls through to the class's own table rather than
+ * erasing it, so a homebrew subclass on a Wizard still casts as a Wizard.
+ */
+export function spellcastingFor(
+  kit: ClassKit | undefined,
+  subclassName: string,
+): SpellcastingInfo | undefined {
+  return findSubclass(kit, subclassName)?.spellcasting ?? kit?.spellcasting
+}
+
+/**
+ * The class whose spell list a character casts from — which is not always their
+ * own class.
+ *
+ * An Arcane Trickster is a Rogue who casts wizard spells, and an Eldritch
+ * Knight is a Fighter who does. Filtering spell suggestions by the *class* name
+ * handed those two an empty list: every wizard spell's `classes` frontmatter
+ * says Wizard, and matching it against "Rogue" excludes all of them.
+ *
+ * Derived from `listLabel`, which already carries the answer ("Wizard spells")
+ * and is authored on every caster. Falls back to the class's own name when the
+ * label is missing or shaped unexpectedly, and returns undefined for a class
+ * that does not cast — `filterSpells` treats undefined as "do not narrow",
+ * which is the right answer for homebrew nobody's spells mention.
+ */
+export function spellListClass(
+  kit: ClassKit | undefined,
+  subclassName: string,
+): string | undefined {
+  const sc = spellcastingFor(kit, subclassName)
+  if (!sc) return undefined
+  const label = sc.listLabel.trim()
+  // "Wizard spells" -> "Wizard". Anything else is used as-is rather than
+  // mangled, since the field is free text a homebrew kit also writes.
+  const match = /^(.*?)\s+spells$/i.exec(label)
+  return (match?.[1] ?? label) || kit?.name
 }
 
 /**

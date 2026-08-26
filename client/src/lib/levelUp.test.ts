@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import {
   abilityMod,
   emptyCharacter,
+  spellAttackBonus,
+  spellSaveDc,
   hitDiceArePinned,
   parseCharacter,
   serializeCharacter,
@@ -1136,6 +1138,418 @@ describe('archetype features', () => {
     const c = { ...characterAt(10, 'Fighter'), subclass: 'Champion' }
     const after = applyLevelUp(c, draftFor(c, 11))
     expect(after.features.map((f) => f.name)).toContain('Extra Attack (2)')
+  })
+})
+
+describe('rogue archetype features', () => {
+  it('grants the archetype its features when it is chosen', () => {
+    const c = characterAt(2, 'Rogue')
+    const after = applyLevelUp(c, draftFor(c, 3, { subclassName: 'Thief' }))
+    expect(after.subclass).toBe('Thief')
+    const names = after.features.map((f) => f.name)
+    expect(names).toContain('Fast Hands')
+    expect(names).toContain('Second-Story Work')
+  })
+
+  it('keeps granting them at later levels', () => {
+    const c = { ...characterAt(8, 'Rogue'), subclass: 'Thief' }
+    const after = applyLevelUp(c, draftFor(c, 9))
+    expect(after.features.map((f) => f.name)).toContain('Supreme Sneak')
+  })
+
+  it('grants an Assassin its two tool proficiencies', () => {
+    // The rare subclass `grant`, and the only one on a Rogue: two tools the
+    // sheet has a real field for, rather than a combat rule it cannot model.
+    const c = characterAt(2, 'Rogue')
+    const after = applyLevelUp(c, draftFor(c, 3, { subclassName: 'Assassin' }))
+    expect(after.tools).toContain('Disguise kit')
+    expect(after.tools).toContain('Poisoner’s kit')
+  })
+
+  it('applies the archetype grant once and never again', () => {
+    // `plan.subclassName` is null on every level-up after the choosing one, so
+    // the grant cannot re-apply — but nothing else stops it, and a proficiency
+    // list that grows by two rows per level would be a slow, quiet corruption.
+    const c = characterAt(2, 'Rogue')
+    const at3 = applyLevelUp(c, draftFor(c, 3, { subclassName: 'Assassin' }))
+    expect(at3.tools.filter((t) => t === 'Disguise kit')).toHaveLength(1)
+    const at4 = applyLevelUp(at3, draftFor(at3, 4))
+    expect(at4.tools.filter((t) => t === 'Disguise kit')).toHaveLength(1)
+  })
+
+  it('grants nothing extra for an archetype the tables do not know', () => {
+    const c = characterAt(2, 'Rogue')
+    const after = applyLevelUp(
+      c,
+      draftFor(c, 3, { subclassName: 'Cutpurse of the Broken Coin' }),
+    )
+    expect(after.subclass).toBe('Cutpurse of the Broken Coin')
+    expect(after.features.map((f) => f.name)).toContain('Roguish Archetype')
+  })
+})
+
+describe('an archetype that casts when its class does not', () => {
+  /**
+   * The Arcane Trickster is the reason `SubclassInfo.spellcasting` exists. A
+   * Rogue has no class-level block — putting one there to reach these slots
+   * would hand every Thief a spell step at level 1 — so the whole point of
+   * these tests is that the slots follow the *archetype*, not the class.
+   */
+  const rogueAt = (level: number, subclass: string): Character => ({
+    ...characterAt(level, 'Rogue'),
+    subclass,
+  })
+
+  it('gains slots and cantrips on the level-up that makes it a caster', () => {
+    const c = characterAt(2, 'Rogue')
+    const plan = levelUpPlan(
+      c,
+      draftFor(c, 3, { subclassName: 'Arcane Trickster' }),
+    )
+    expect(plan.slots).toEqual([{ level: 1, from: 0, to: 2 }])
+    expect(plan.cantripsTo).toBe(2)
+  })
+
+  it('reports the slot rows the step renders, not the class table', () => {
+    // `SpellsStep` derives its rows from `slotsAtLevel` with the archetype
+    // threaded through. Without it the step gates open on the subclass table
+    // and then renders the class's — which for a Rogue is nothing at all, so
+    // the player reached a spells step that listed no slots.
+    const c = characterAt(2, 'Rogue')
+    const draft = draftFor(c, 3, { subclassName: 'Arcane Trickster' })
+    const castingAs = draft.subclassName || draft.base.subclass
+    expect(slotsAtLevel(draft.kit, draft.to, castingAs)).toEqual([2])
+    expect(cantripsAtLevel(draft.kit, draft.to, castingAs)).toBe(2)
+    // The bug, pinned: no archetype means no table.
+    expect(slotsAtLevel(draft.kit, draft.to)).toBeUndefined()
+  })
+
+  it('grants Mage Hand outright, since it is not a choice', () => {
+    // The book's "Mage Hand + 2" is three cantrips of which one is fixed, so
+    // the two the wizard asks for are the only real choices. If this fails the
+    // player is either short a cantrip or being asked a question with one
+    // answer.
+    const c = characterAt(2, 'Rogue')
+    const after = applyLevelUp(
+      c,
+      draftFor(c, 3, { subclassName: 'Arcane Trickster' }),
+    )
+    expect(after.spells.map((sp) => sp.name)).toContain('Mage Hand')
+  })
+
+  it('gives a Thief neither, at exactly the same levels', () => {
+    // The test that proves the change is scoped to the archetype. If this ever
+    // fails, a class-wide block has crept back onto the Rogue kit.
+    const c = characterAt(2, 'Rogue')
+    const plan = levelUpPlan(c, draftFor(c, 3, { subclassName: 'Thief' }))
+    expect(plan.slots).toEqual([])
+    expect(plan.cantripsTo).toBeUndefined()
+  })
+
+  it('gives a Rogue with no archetype nothing', () => {
+    const c = characterAt(2, 'Rogue')
+    expect(levelUpPlan(c, draftFor(c, 3)).slots).toEqual([])
+  })
+
+  it('offers the spells step to a Trickster and not to a Thief', () => {
+    const trickster = characterAt(2, 'Rogue')
+    expect(
+      levelUpSteps(
+        draftFor(trickster, 3, { subclassName: 'Arcane Trickster' }),
+      ),
+    ).toContain('spells')
+    expect(
+      levelUpSteps(draftFor(trickster, 3, { subclassName: 'Thief' })),
+    ).not.toContain('spells')
+  })
+
+  it('keeps scaling slots at later levels', () => {
+    const c = rogueAt(6, 'Arcane Trickster')
+    const plan = levelUpPlan(c, draftFor(c, 7))
+    // A second-level slot arrives at 7th.
+    expect(plan.slots).toContainEqual({ level: 2, from: 0, to: 2 })
+  })
+
+  it('never lowers slots the sheet already has', () => {
+    // The additive invariant, which this change must not have touched.
+    const c = {
+      ...rogueAt(6, 'Arcane Trickster'),
+      spellSlots: { 1: { total: 9, used: 0 } },
+    }
+    const after = applyLevelUp(c, draftFor(c, 7))
+    expect(after.spellSlots[1].total).toBe(9)
+  })
+
+  it('round-trips a Trickster’s slots through the sheet', () => {
+    // The slots are only useful if they survive the disk. `subclass` is free
+    // text on the sheet, so the archetype comes back as its name and the table
+    // is found again by that name on the next level-up.
+    const c = characterAt(2, 'Rogue')
+    const after = applyLevelUp(
+      c,
+      draftFor(c, 3, { subclassName: 'Arcane Trickster' }),
+    )
+    const { character: back } = parseCharacter(serializeCharacter(after, ''))
+    expect(back.subclass).toBe('Arcane Trickster')
+    expect(back.spellSlots[1].total).toBe(2)
+  })
+})
+
+describe('picking spells at level-up', () => {
+  const trickster = (level: number): Character => ({
+    ...characterAt(level, 'Rogue'),
+    subclass: 'Arcane Trickster',
+  })
+
+  it('opens the step on a level that grants only a spell', () => {
+    // The gate used to be slots alone. An Arcane Trickster learns a spell at
+    // 8th, 11th, 14th and 20th with no slot change, so four of their ten spell
+    // gains never prompted — the regression test for that hole.
+    // Slots already matching the table at 7th, so 7 -> 8 genuinely changes none
+    // of them — the sheet a real character would have.
+    const c = {
+      ...trickster(7),
+      spellSlots: { 1: { total: 4, used: 0 }, 2: { total: 2, used: 0 } },
+    }
+    expect(levelUpSteps(draftFor(c, 8))).toContain('spells')
+    const plan = levelUpPlan(c, draftFor(c, 8))
+    expect(plan.slots).toEqual([])
+    expect(plan.spellsToPick).toBe(1)
+  })
+
+  it('names the archetype spells the player already has', () => {
+    // Mage Hand is granted, not chosen, and does not land until Apply — so the
+    // step has to say so, or a "0 / 2" beside a sheet that lists no Mage Hand
+    // reads as though it were still owed.
+    const c = characterAt(2, 'Rogue')
+    const plan = levelUpPlan(
+      c,
+      draftFor(c, 3, { subclassName: 'Arcane Trickster' }),
+    )
+    expect(plan.spellsGranted.map((sp) => sp.name)).toEqual(['Mage Hand'])
+    // And it is not counted against what they get to pick.
+    expect(plan.cantripsToPick).toBe(2)
+  })
+
+  it('grants nothing extra on a later level-up', () => {
+    // `spellsGranted` follows `subclassName`, which is null once the archetype
+    // is already on the sheet — otherwise the step would keep re-announcing it.
+    const c = { ...characterAt(3, 'Rogue'), subclass: 'Arcane Trickster' }
+    expect(levelUpPlan(c, draftFor(c, 4)).spellsGranted).toEqual([])
+  })
+
+  it('lists nothing for an archetype that grants no spells', () => {
+    const c = characterAt(2, 'Rogue')
+    expect(
+      levelUpPlan(c, draftFor(c, 3, { subclassName: 'Thief' })).spellsGranted,
+    ).toEqual([])
+  })
+
+  it('sets the casting ability when a level-up makes you a caster', () => {
+    // Only creation ever set this, which was fine while every caster cast from
+    // level 1. An Arcane Trickster becomes one at 3rd and was left with null —
+    // so the sheet could compute neither a save DC nor an attack bonus.
+    const c = {
+      ...characterAt(2, 'Rogue'),
+      abilities: { ...characterAt(2, 'Rogue').abilities, int: 16 },
+    }
+    const after = applyLevelUp(
+      c,
+      draftFor(c, 3, { subclassName: 'Arcane Trickster' }),
+    )
+    expect(after.spellAbility).toBe('int')
+    // 8 + proficiency 2 + INT modifier 3.
+    expect(spellSaveDc(after)).toBe(13)
+    expect(spellAttackBonus(after)).toBe(5)
+  })
+
+  it('gives an Eldritch Knight the same', () => {
+    const c = {
+      ...characterAt(2, 'Fighter'),
+      abilities: { ...characterAt(2, 'Fighter').abilities, int: 16 },
+    }
+    const after = applyLevelUp(
+      c,
+      draftFor(c, 3, { subclassName: 'Eldritch Knight' }),
+    )
+    expect(after.spellAbility).toBe('int')
+  })
+
+  it('leaves a non-caster without one', () => {
+    const c = characterAt(2, 'Rogue')
+    expect(
+      applyLevelUp(c, draftFor(c, 3, { subclassName: 'Thief' })).spellAbility,
+    ).toBeNull()
+  })
+
+  it('never overwrites an ability the sheet already names', () => {
+    // A homebrew archetype or a DM ruling wins, like every other number here.
+    const c = { ...characterAt(2, 'Rogue'), spellAbility: 'cha' as const }
+    const after = applyLevelUp(
+      c,
+      draftFor(c, 3, { subclassName: 'Arcane Trickster' }),
+    )
+    expect(after.spellAbility).toBe('cha')
+  })
+
+  it('counts what a level-up entitles you to', () => {
+    const c = characterAt(2, 'Rogue')
+    const plan = levelUpPlan(
+      c,
+      draftFor(c, 3, { subclassName: 'Arcane Trickster' }),
+    )
+    expect(plan.cantripsToPick).toBe(2)
+    expect(plan.spellsToPick).toBe(3)
+  })
+
+  it('sums a multi-level jump into one total', () => {
+    // 3 -> 7 is spells known 3 -> 5, so two, not one per level crossed.
+    const c = trickster(3)
+    const plan = levelUpPlan(c, draftFor(c, 7))
+    expect(plan.spellsToPick).toBe(2)
+  })
+
+  it('asks a non-caster for nothing', () => {
+    const thief = { ...characterAt(2, 'Rogue'), subclass: 'Thief' }
+    const plan = levelUpPlan(thief, draftFor(thief, 3))
+    expect(plan.cantripsToPick).toBe(0)
+    expect(plan.spellsToPick).toBe(0)
+    expect(levelUpSteps(draftFor(thief, 3))).not.toContain('spells')
+  })
+
+  it('writes the chosen names onto the sheet', () => {
+    const c = characterAt(2, 'Rogue')
+    const after = applyLevelUp(c, {
+      ...draftFor(c, 3, { subclassName: 'Arcane Trickster' }),
+      cantrips: ['Prestidigitation', 'Minor Illusion'],
+      spells: ['Charm Person', 'Disguise Self', 'Sleep'],
+    })
+    const byName = new Map(after.spells.map((sp) => [sp.name, sp]))
+    expect(byName.get('Prestidigitation')?.level).toBe(0)
+    expect(byName.get('Minor Illusion')?.level).toBe(0)
+    expect(byName.get('Charm Person')?.level).toBe(1)
+    expect(byName.get('Sleep')?.level).toBe(1)
+    // Never prepared: what is prepared is a daily decision the sheet owns.
+    expect(byName.get('Charm Person')?.prepared).toBeUndefined()
+  })
+
+  it('never writes a second row for a spell already known', () => {
+    const c = {
+      ...trickster(3),
+      spells: [{ name: 'Charm Person', level: 1 }],
+    }
+    const after = applyLevelUp(c, {
+      ...draftFor(c, 4),
+      spells: ['charm person'],
+    })
+    // Matched case-insensitively — these names were typed by hand.
+    expect(
+      after.spells.filter((sp) => /charm person/i.test(sp.name)),
+    ).toHaveLength(1)
+  })
+
+  it('keeps a cantrip and a levelled spell of the same name apart', () => {
+    const c = { ...trickster(3), spells: [{ name: 'Shillelagh', level: 0 }] }
+    const after = applyLevelUp(c, {
+      ...draftFor(c, 4),
+      spells: ['Shillelagh'],
+    })
+    expect(after.spells.filter((sp) => sp.name === 'Shillelagh')).toHaveLength(
+      2,
+    )
+  })
+
+  it('ignores blanks and duplicates within one level-up', () => {
+    const c = characterAt(2, 'Rogue')
+    const after = applyLevelUp(c, {
+      ...draftFor(c, 3, { subclassName: 'Arcane Trickster' }),
+      cantrips: ['  ', 'Mage Hand'],
+      spells: ['Sleep', 'sleep', ''],
+    })
+    expect(after.spells.filter((sp) => /^sleep$/i.test(sp.name))).toHaveLength(
+      1,
+    )
+    // Mage Hand is already granted by the archetype; typing it adds no second row.
+    expect(after.spells.filter((sp) => sp.name === 'Mage Hand')).toHaveLength(1)
+  })
+
+  it('removes nothing the character already had', () => {
+    const c = {
+      ...trickster(3),
+      spells: [
+        { name: 'Shield', level: 1, prepared: true },
+        { name: 'Fire Bolt', level: 0 },
+      ],
+    }
+    const after = applyLevelUp(c, { ...draftFor(c, 4), spells: ['Sleep'] })
+    expect(after.spells).toEqual(expect.arrayContaining(c.spells))
+  })
+
+  it('never blocks Next on an unanswered count', () => {
+    // Guidance, not a bill. Deliberately unlike the picks step.
+    const c = characterAt(2, 'Rogue')
+    const draft = draftFor(c, 3, { subclassName: 'Arcane Trickster' })
+    expect(canAdvance(draft, 'spells')).toBe(true)
+  })
+
+  it('round-trips chosen spells through the sheet', () => {
+    const c = characterAt(2, 'Rogue')
+    const after = applyLevelUp(c, {
+      ...draftFor(c, 3, { subclassName: 'Arcane Trickster' }),
+      cantrips: ['Minor Illusion'],
+      spells: ['Charm Person'],
+    })
+    const { character: back } = parseCharacter(serializeCharacter(after, ''))
+    expect(back.spells.map((sp) => sp.name)).toContain('Minor Illusion')
+    expect(back.spells.map((sp) => sp.name)).toContain('Charm Person')
+  })
+})
+
+describe('a rogue’s second Expertise', () => {
+  it('poses a fresh pick at level 6', () => {
+    const c = { ...characterAt(5, 'Rogue'), skills: ['stealth', 'perception'] }
+    const pick = levelUpPicks(draftFor(c, 6)).find(
+      (p) => p.pick.id === 'rogue-expertise-6',
+    )
+    expect(pick).toBeDefined()
+    expect(pick!.pick.kind).toBe('expertise')
+    expect(pick!.pick.count).toBe(2)
+  })
+
+  it('narrows to the skills the character is actually proficient in', () => {
+    const c = { ...characterAt(5, 'Rogue'), skills: ['stealth', 'perception'] }
+    const draft = draftFor(c, 6)
+    const eligible = eligibleExpertiseAt(c, draft, {
+      ...levelUpPicks(draft).find((p) => p.pick.id === 'rogue-expertise-6')!
+        .pick,
+    })
+    expect(eligible).toContain('stealth')
+    expect(eligible).not.toContain('athletics')
+  })
+
+  it('greys a skill already doubled at level 1', () => {
+    const c = {
+      ...characterAt(5, 'Rogue'),
+      skills: ['stealth', 'perception'],
+      expertise: ['stealth'],
+    }
+    const draft = draftFor(c, 6)
+    const pick = levelUpPicks(draft).find(
+      (p) => p.pick.id === 'rogue-expertise-6',
+    )!.pick
+    expect(grantedAlreadyAt(c, draft, pick).get('stealth')).toBe('your sheet')
+  })
+
+  it('lands the chosen skills in expertise', () => {
+    const c = { ...characterAt(5, 'Rogue'), skills: ['stealth', 'perception'] }
+    const after = applyLevelUp(
+      c,
+      draftFor(c, 6, {
+        picks: { 'rogue-expertise-6': ['stealth', 'perception'] },
+      }),
+    )
+    expect(after.expertise).toContain('stealth')
+    expect(after.expertise).toContain('perception')
   })
 })
 

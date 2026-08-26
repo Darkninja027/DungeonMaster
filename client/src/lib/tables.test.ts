@@ -12,6 +12,8 @@ import {
   findSubrace,
   mergeTables,
   reconcileSubclasses,
+  spellListClass,
+  spellcastingFor,
   subclassLevelOf,
   subraceIndex,
   subracesFor,
@@ -529,5 +531,63 @@ describe('kits carry the class fields the sheet needs', () => {
     expect(kit?.subclasses.map((sub) => sub.name)).toEqual(['Duellist'])
     // Replacement, not a merge — the SRD subclasses are gone.
     expect(kit?.subclasses.map((sub) => sub.name)).not.toContain('Champion')
+  })
+})
+
+describe('spellcastingFor', () => {
+  const kit = (name: string) => findKit(SRD_TABLES.kits, name)
+
+  it('prefers the archetype table over the class one', () => {
+    // A Rogue has no class-level block at all, so this is the only way an
+    // Arcane Trickster's slots are reachable.
+    const sc = spellcastingFor(kit('Rogue'), 'Arcane Trickster')
+    expect(sc?.ability).toBe('int')
+    expect(sc?.slotsByLevel?.[3]).toEqual([2])
+  })
+
+  it('gives a non-casting archetype of a non-casting class nothing', () => {
+    expect(spellcastingFor(kit('Rogue'), 'Thief')).toBeUndefined()
+    expect(spellcastingFor(kit('Rogue'), '')).toBeUndefined()
+  })
+
+  it('falls back to the class for an archetype it does not know', () => {
+    // Homebrew must not erase a Wizard's spellcasting by being unrecognised.
+    const sc = spellcastingFor(kit('Wizard'), 'School of Bees')
+    expect(sc).toBe(kit('Wizard')?.spellcasting)
+  })
+
+  it('gives a full caster its own table whichever archetype is named', () => {
+    expect(spellcastingFor(kit('Cleric'), 'Life')).toBe(
+      kit('Cleric')?.spellcasting,
+    )
+  })
+
+  it('returns undefined for a class the tables do not know', () => {
+    expect(spellcastingFor(undefined, 'Arcane Trickster')).toBeUndefined()
+  })
+})
+
+describe('spellListClass', () => {
+  const kit = (name: string) => findKit(SRD_TABLES.kits, name)
+
+  it('sends a third caster to the list they actually cast from', () => {
+    // The bug this exists for: filtering wizard spells by "Rogue" matched
+    // nothing, because every wizard spell's frontmatter says Wizard.
+    expect(spellListClass(kit('Rogue'), 'Arcane Trickster')).toBe('Wizard')
+    expect(spellListClass(kit('Fighter'), 'Eldritch Knight')).toBe('Wizard')
+  })
+
+  it('gives an ordinary caster its own list', () => {
+    expect(spellListClass(kit('Wizard'), '')).toBe('Wizard')
+    expect(spellListClass(kit('Bard'), 'College of Lore')).toBe('Bard')
+    expect(spellListClass(kit('Cleric'), 'Life')).toBe('Cleric')
+  })
+
+  it('narrows nothing for a class that does not cast', () => {
+    // undefined means "do not filter", which is what keeps a homebrew class
+    // from being handed an empty list.
+    expect(spellListClass(kit('Rogue'), 'Thief')).toBeUndefined()
+    expect(spellListClass(kit('Barbarian'), '')).toBeUndefined()
+    expect(spellListClass(undefined, 'Arcane Trickster')).toBeUndefined()
   })
 })

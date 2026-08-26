@@ -2,7 +2,12 @@ import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '#/lib/api'
 import type { LibraryFolder, LibraryInfo } from '#/lib/api'
-import { collectMonsters, collectSpells } from '#/lib/bestiary'
+import {
+  collectMonsters,
+  collectSpells,
+  filterSpells,
+  mergeEntries,
+} from '#/lib/bestiary'
 import type { LibraryEntry } from '#/lib/bestiary'
 
 /** Shared empties, so "no library" doesn't hand callers a new array each render. */
@@ -98,4 +103,70 @@ export function useLibraryEntries(folder: LibraryFolder): {
     info,
     isPending: enabled ? tree.isPending || typed.isPending : false,
   }
+}
+
+/**
+ * Spell names to suggest, drawn from the world's own `Spells/` folder and the
+ * shared library, narrowed to a spell level and a class.
+ *
+ * Lifted out of the creation wizard's spells step when the level-up one needed
+ * the same three queries — the fourth caller of this `collectSpells` +
+ * `mergeEntries` trio in the codebase, and the point at which copying it again
+ * stopped being reasonable.
+ *
+ * `className` is deliberately allowed to be undefined: a homebrew class no
+ * spell's frontmatter mentions would otherwise filter every suggestion away,
+ * and `filterSpells` is permissive by the same logic — an article that declares
+ * no level or classes still shows, so homebrew is never silently hidden.
+ *
+ * Names are de-duplicated because `mergeEntries` deliberately does not: a world
+ * spell and a library spell can share a title, and the `Combobox` keys its rows
+ * by the string.
+ */
+export function useSpellSuggestions(
+  worldId: string,
+  className: string | undefined,
+): (level: number, upTo?: boolean) => Array<string> {
+  const tree = useQuery({
+    queryKey: ['worlds', worldId, 'tree'],
+    queryFn: () => api.worlds.tree(worldId),
+  })
+  // The folder walk alone knows only titles. This query is what carries the
+  // level/school/classes frontmatter.
+  const typed = useQuery({
+    queryKey: ['worlds', worldId, 'query', { type: 'spell' }],
+    queryFn: () => api.worlds.query(worldId, { type: 'spell' }),
+  })
+  const library = useLibraryEntries('Spells')
+
+  const entries = useMemo(
+    () =>
+      mergeEntries(
+        collectSpells(worldId, tree.data, typed.data, { folder: 'Spells' }),
+        library.entries,
+      ),
+    [worldId, tree.data, typed.data, library.entries],
+  )
+
+  return useMemo(() => {
+    const cache = new Map<string, Array<string>>()
+    // `upTo` asks for every levelled spell at or below a level, for "a spell of
+    // a level for which you have slots"; the default is an exact match, which
+    // is what creation wants and what cantrips always want.
+    return (level: number, upTo = false) => {
+      const key = `${level}:${upTo}`
+      const hit = cache.get(key)
+      if (hit) return hit
+      const names = [
+        ...new Set(
+          filterSpells(
+            entries,
+            upTo ? { maxLevel: level, className } : { level, className },
+          ).map((e) => e.title),
+        ),
+      ]
+      cache.set(key, names)
+      return names
+    }
+  }, [entries, className])
 }
