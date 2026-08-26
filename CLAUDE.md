@@ -80,9 +80,16 @@ contributes its name and nothing else, and the sheet is still perfectly valid �
 that is what keeps homebrew and Obsidian hand-edits round-tripping.
 
 It is deliberately **not a rules engine**, and level 1 only. No per-level
-feature tables, no slot progression, no multiclassing. `SubraceInfo.hpPerLevel`
-is the single derived-number exception (Hill Dwarf), and it is a field rather
-than a mechanism on purpose. `srd.test.ts` asserts data integrity — every skill
+feature tables, no slot progression, no multiclassing. There are two
+derived-number exceptions, and both are fields rather than mechanisms on
+purpose: `SubraceInfo.hpPerLevel` (Hill Dwarf), and
+`ClassFeatureInfo.halfProficiency`, which sets `Character.halfProficiency` so
+`skillBonus` can compute a Bard's Jack of All Trades and a Fighter's Remarkable
+Athlete. The second is deliberately *partial*: 5e applies half proficiency to
+any ability check, and it reaches the eighteen skill rows because those are the
+only checks the sheet has a row for. The feature text still describes the whole
+rule; the number only claims what it can honestly compute.
+`srd.test.ts` asserts data integrity — every skill
 id real, every `PickList.id` globally unique — because a transcription error
 here is silent: a mistyped skill just vanishes when the sheet parses it back.
 
@@ -145,6 +152,28 @@ differences from feats if you ever fill it: this tier sits on top of a
 *non-empty* SRD one, so `SRD_RACES.length` is not the built-in race count, and a
 published race must never collide by name with one of the SRD nine or `layer`
 would silently hide it. `srd.test.ts` asserts both.
+
+**`lib/subclasses/publishedSubclasses.ts`** is the third tier, and the one that
+actually ships something. SRD 5.1 licenses exactly **one subclass per class** —
+Champion, Thief, Life Domain, College of Lore — while `classKits.ts` seeds every
+archetype 5e offers as a bare *name*, so a player who picks Battle Master still
+gets a working sheet. A name is not what the licence is about; features are. So
+the moment a non-SRD archetype gains them it belongs here.
+
+Two differences from the other tiers, both structural. A subclass is **not a
+top-level list** — it lives inside the kit that offers it — so this one is keyed
+by class name and folded in by `withPublishedSubclasses`, which reuses
+`layerSubclasses`. And it has to be wired into **both** `SRD_TABLES` and
+`mergeTables`: the first is what every "is this a built-in?" check in settings
+reads, and wiring only one leaves half the app disagreeing with the other half.
+
+The invariant is the attribution boundary itself: a published entry may overlay
+a name-only *stub* — that is the whole point — but never a subclass `lib/srd/`
+authored, which `layerSubclasses` would silently replace. `subclasses.test.ts`
+asserts that, and pins the exact list of subclasses carrying content in
+`lib/srd/` so a future pass cannot quietly add a PHB one. That list currently
+holds four knowing exceptions — Battle Master, Eldritch Knight, Assassin and
+Arcane Trickster — authored before the boundary existed.
 
 **A race's ability increase can be the player's**, and `flexibleAsi` is the one
 field here that graduated from flag to mechanism. It was `{ count, amount }` — N

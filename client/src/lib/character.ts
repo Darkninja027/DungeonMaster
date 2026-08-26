@@ -43,6 +43,24 @@ export const SKILLS: Array<{ id: string; name: string; ability: Ability }> = [
 ]
 
 /**
+ * Which checks a character's half proficiency covers.
+ *
+ * `all` is the Bard's Jack of All Trades — any check not already proficient,
+ * rounded **down**. `physical` is the Fighter's Remarkable Athlete — Strength,
+ * Dexterity and Constitution only, rounded **up**. The two really do round
+ * differently, which is why this is a mode rather than a boolean.
+ *
+ * What neither can express: 5e applies both to *ability checks*, and a raw
+ * Strength check has no row on this sheet. So these reach the eighteen skills
+ * and stop there, which is the honest half of a rule this app does not
+ * otherwise model. The feature text still says what the rest of it does.
+ */
+export type HalfProficiency = 'all' | 'physical'
+
+/** The abilities `halfProficiency: 'physical'` covers. */
+const PHYSICAL_ABILITIES: ReadonlyArray<Ability> = ['str', 'dex', 'con']
+
+/**
  * The skill id for something a player typed or a table authored, matched on id
  * first and then on display name, both trimmed and case-insensitively.
  * `undefined` for anything that is not one of the eighteen skills.
@@ -554,6 +572,24 @@ export interface Character {
   skills: Array<string>
   expertise: Array<string>
   /**
+   * Half proficiency on checks the character is *not* already proficient in —
+   * a Bard's Jack of All Trades, a Fighter's Remarkable Athlete.
+   *
+   * A real field rather than a feature-name lookup, and that is the whole
+   * point. `Character.features` carries no id, so the only other signal is the
+   * literal row name, and a sheet is hand-editable: renaming "Jack of All
+   * Trades" in Obsidian would silently drop the bonus with nothing to explain
+   * it. This survives a rename, a translation and a homebrew class that grants
+   * the same thing under another name.
+   *
+   * Two modes because the two features genuinely differ, in both breadth and
+   * rounding — see `skillBonus`, which is the only place either is applied.
+   *
+   * Set by the wizard and editable on the sheet like everything else. Absent
+   * (the usual case) means no half proficiency at all.
+   */
+  halfProficiency: HalfProficiency | null
+  /**
    * Other proficiencies. Free text so homebrew and individually granted weapons
    * survive; `ARMOR_PROFICIENCIES` / `WEAPON_CATEGORIES` are editor affordances,
    * not filters. Known tokens store lowercase, free text keeps its own casing.
@@ -647,6 +683,7 @@ export function emptyCharacter(): Character {
     saves: [],
     skills: [],
     expertise: [],
+    halfProficiency: null,
     armor: [],
     weapons: [],
     tools: [],
@@ -744,8 +781,28 @@ export function skillBonus(c: Character, skillId: string): number {
     ? proficiencyBonus(c.level) * 2
     : c.skills.includes(skillId)
       ? proficiencyBonus(c.level)
-      : 0
+      : halfProficiencyFor(c, skill.ability)
   return abilityMod(c.abilities[skill.ability]) + prof
+}
+
+/**
+ * The half-proficiency bonus for a check the character is *not* proficient in,
+ * or 0. The last branch of `skillBonus`, extracted because the two modes differ
+ * in more than one way and a nested ternary hid that.
+ *
+ * Only ever reached when the character lacks the proficiency, which is what
+ * both features say: half proficiency is what you get *instead of* nothing, and
+ * it never stacks on top of a proficiency or an expertise.
+ *
+ * The rounding is not a detail. Jack of All Trades rounds down and Remarkable
+ * Athlete rounds up, so at a +3 proficiency bonus a Bard gets +1 and a Fighter
+ * +2 — printed as such in both books.
+ */
+export function halfProficiencyFor(c: Character, ability: Ability): number {
+  if (c.halfProficiency === null) return 0
+  const half = proficiencyBonus(c.level) / 2
+  if (c.halfProficiency === 'all') return Math.floor(half)
+  return PHYSICAL_ABILITIES.includes(ability) ? Math.ceil(half) : 0
 }
 
 export function initiativeBonus(c: Character): number {
@@ -1773,6 +1830,11 @@ export function parseCharacter(content: string): {
   const knownSkill = (id: string) => SKILLS.some((s) => s.id === id)
   c.skills = strList(r.skills).filter(knownSkill)
   c.expertise = strList(r.expertise).filter(knownSkill)
+  // Anything unrecognised reads as "no half proficiency" rather than throwing:
+  // an older build wrote no key at all, and a hand-edited typo should not stop
+  // the sheet from opening.
+  const half = str(r.halfProficiency, '').trim().toLowerCase()
+  c.halfProficiency = half === 'all' || half === 'physical' ? half : null
 
   // Deliberately unfiltered, unlike skills above: an unrecognised entry is
   // homebrew or an individually granted weapon, not a mistake to discard.
@@ -1992,6 +2054,12 @@ export function serializeCharacter(character: Character, body: string): string {
     saves: character.saves,
     skills: character.skills,
     expertise: character.expertise,
+    // Omitted when absent, like `resources`: a character without it serializes
+    // exactly as it did before this field existed, so opening and saving an old
+    // sheet adds nothing to its frontmatter.
+    ...(character.halfProficiency
+      ? { halfProficiency: character.halfProficiency }
+      : {}),
     armor: character.armor,
     weapons: character.weapons,
     tools: character.tools,

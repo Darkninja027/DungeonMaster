@@ -18,6 +18,7 @@
 import type { ClassInfo } from './classes'
 import { PUBLISHED_FEATS } from './feats'
 import { PUBLISHED_RACES } from './races'
+import { publishedSubclassesFor } from './subclasses'
 import type { Homebrew } from './homebrew'
 import { EMPTY_HOMEBREW } from './homebrew'
 import { SRD_BACKGROUNDS, SRD_CLASS_KITS, SRD_FEATS, SRD_RACES } from './srd'
@@ -87,8 +88,32 @@ export interface WorldTables {
 export const SRD_TABLES: Tables = {
   races: [...SRD_RACES, ...PUBLISHED_RACES],
   backgrounds: SRD_BACKGROUNDS,
-  kits: SRD_CLASS_KITS,
+  kits: withPublishedSubclasses(SRD_CLASS_KITS),
   feats: [...SRD_FEATS, ...PUBLISHED_FEATS],
+}
+
+/**
+ * The built-in kits with the published tier's subclasses folded in.
+ *
+ * A subclass is not a top-level list, so it cannot be `layer`ed like races and
+ * feats — it lives inside the kit that offers it, and the published tier is
+ * keyed by class name for that reason.
+ *
+ * What this mostly does is *fill in a stub*. `classKits.ts` seeds every class
+ * with the archetype names 5e offers, but SRD 5.1 only licenses one subclass
+ * per class, so the rest ship as bare names. This is where a name gains the
+ * features that were never ours to put in `lib/srd/`.
+ *
+ * `layerSubclasses` does the overlay and keeps its own rule: a bare entry never
+ * displaces a rich one. Here the published entry is the rich side, so it wins
+ * over the stub and appends when the name is new.
+ */
+function withPublishedSubclasses(kits: Array<ClassKit>): Array<ClassKit> {
+  return kits.map((kit) => {
+    const published = publishedSubclassesFor(kit.name)
+    if (published.length === 0) return kit
+    return { ...kit, subclasses: layerSubclasses(kit.subclasses, published) }
+  })
 }
 
 /**
@@ -278,7 +303,15 @@ export function mergeTables(
  * beats SRD.
  */
 function layerClasses(global: Homebrew, world: WorldTables): Array<ClassKit> {
-  const kits = layer(SRD_CLASS_KITS, global.kits, world.kits ?? [])
+  // The published tier sits directly on top of SRD and below anything a user
+  // wrote, so it is folded in *before* `layer` runs: a homebrew kit that
+  // replaces Barbarian outright is still allowed to say there is no Totem
+  // Warrior, which is the whole point of world > global > published > SRD.
+  const kits = layer(
+    withPublishedSubclasses(SRD_CLASS_KITS),
+    global.kits,
+    world.kits ?? [],
+  )
   const byName = new Map(kits.map((kit) => [nameKey(kit.name), kit]))
   const order = kits.map((kit) => nameKey(kit.name))
 

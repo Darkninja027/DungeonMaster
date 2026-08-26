@@ -247,11 +247,38 @@ export const SRD_CLASS_KITS: Array<ClassKit> = [
       {
         id: 'path-of-the-berserker',
         name: 'Path of the Berserker',
-        features: [],
+        summary: 'Rage as unchecked fury, paid for in exhaustion.',
+        features: [
+          {
+            level: 3,
+            name: 'Frenzy',
+            // No `resource`: Frenzy costs a level of exhaustion, which the
+            // sheet tracks in its own field, not a counter with a `used`.
+            text: 'You can go into a frenzy when you rage, making a single melee weapon attack as a bonus action on each of your turns. When your rage ends you gain one level of exhaustion.',
+          },
+          {
+            level: 6,
+            name: 'Mindless Rage',
+            text: 'You cannot be charmed or frightened while raging, and a charm or fear effect already on you is suspended for the duration.',
+          },
+          {
+            level: 10,
+            name: 'Intimidating Presence',
+            text: 'Action to frighten a creature within 30 feet unless it succeeds on a Wisdom save against a DC of 8 + your proficiency bonus + your Charisma modifier. You can repeat it on later turns to extend the effect.',
+          },
+          {
+            level: 14,
+            name: 'Retaliation',
+            text: 'When a creature within 5 feet damages you, you can use your reaction to make a melee weapon attack against it.',
+          },
+        ],
       },
       {
         id: 'path-of-the-totem-warrior',
         name: 'Path of the Totem Warrior',
+        // A PHB archetype, not SRD 5.1: the name is seeded here so a player who
+        // picks it gets a working sheet, and its features live in
+        // lib/subclasses/publishedSubclasses.ts. See that file's header.
         features: [],
       },
     ],
@@ -354,7 +381,8 @@ export const SRD_CLASS_KITS: Array<ClassKit> = [
       {
         level: 1,
         name: 'Rage',
-        text: 'In battle you fight with primal ferocity. As a bonus action you enter a rage for up to 1 minute: advantage on Strength checks and saves, a bonus to melee damage, and resistance to bludgeoning, piercing and slashing damage. Twice per long rest at 1st level.',
+        text: 'In battle you fight with primal ferocity. As a bonus action you enter a rage for up to 1 minute: advantage on Strength checks and saves, +2 damage on melee attacks using Strength, and resistance to bludgeoning, piercing and slashing damage. The damage bonus rises to +3 at 9th level and +4 at 16th.',
+        resource: { name: 'Rage', total: 2, resets: 'long' },
       },
       {
         level: 1,
@@ -376,6 +404,19 @@ export const SRD_CLASS_KITS: Array<ClassKit> = [
         name: 'Primal Path',
         text: 'Choose a path that shapes the nature of your rage.',
       },
+      // The rage count grows on its own schedule, and each step is its own row
+      // for the reason the Fighter's Indomitable is: `resourcesOffered` raises
+      // a counter already on the sheet only when a feature at *this* level
+      // names it, so "four times at 6th" folded into the prose above would
+      // never reach the player's Rage row. Level 20's unlimited rages are the
+      // one step with no row — `total` is a number, and there is no honest
+      // value for "no limit", so Primal Champion says it in words instead.
+      {
+        level: 3,
+        name: 'Rage (3/day)',
+        text: 'You can rage three times per long rest.',
+        resource: { name: 'Rage', total: 3, resets: 'long' },
+      },
       {
         level: 5,
         name: 'Extra Attack',
@@ -387,6 +428,12 @@ export const SRD_CLASS_KITS: Array<ClassKit> = [
         text: 'Your speed increases by 10 feet while you aren’t wearing heavy armor.',
       },
       {
+        level: 6,
+        name: 'Rage (4/day)',
+        text: 'You can rage four times per long rest.',
+        resource: { name: 'Rage', total: 4, resets: 'long' },
+      },
+      {
         level: 7,
         name: 'Feral Instinct',
         text: 'Advantage on initiative rolls, and you can act normally on a surprise round if you enter your rage first.',
@@ -394,7 +441,7 @@ export const SRD_CLASS_KITS: Array<ClassKit> = [
       {
         level: 9,
         name: 'Brutal Critical',
-        text: 'Roll one additional weapon damage die on a critical hit; two at 13th level, three at 17th.',
+        text: 'Roll one additional weapon damage die on a critical hit.',
       },
       {
         level: 11,
@@ -402,9 +449,35 @@ export const SRD_CLASS_KITS: Array<ClassKit> = [
         text: 'If you drop to 0 hit points while raging and don’t die outright, you can make a DC 10 Constitution save to drop to 1 instead.',
       },
       {
+        level: 12,
+        name: 'Rage (5/day)',
+        text: 'You can rage five times per long rest.',
+        resource: { name: 'Rage', total: 5, resets: 'long' },
+      },
+      // The upgrades are their own rows rather than a clause in the level-9
+      // text. `featuresGained` de-dupes on `level:name`, so a second Brutal
+      // Critical at 13 is a distinct feature granted at the right level, where
+      // prose in the earlier row scrolled past unread.
+      {
+        level: 13,
+        name: 'Brutal Critical (2 dice)',
+        text: 'Roll two additional weapon damage dice on a critical hit.',
+      },
+      {
         level: 15,
         name: 'Persistent Rage',
         text: 'Your rage ends early only if you fall unconscious or choose to end it.',
+      },
+      {
+        level: 17,
+        name: 'Brutal Critical (3 dice)',
+        text: 'Roll three additional weapon damage dice on a critical hit.',
+      },
+      {
+        level: 17,
+        name: 'Rage (6/day)',
+        text: 'You can rage six times per long rest.',
+        resource: { name: 'Rage', total: 6, resets: 'long' },
       },
       {
         level: 18,
@@ -414,7 +487,7 @@ export const SRD_CLASS_KITS: Array<ClassKit> = [
       {
         level: 20,
         name: 'Primal Champion',
-        text: 'Your Strength and Constitution increase by 4, to a maximum of 24.',
+        text: 'Your Strength and Constitution increase by 4, to a maximum of 24. You can rage as many times as you like — your Rage counter no longer limits you.',
       },
     ],
   },
@@ -425,8 +498,60 @@ export const SRD_CLASS_KITS: Array<ClassKit> = [
     hitDie: 8,
     subclassLabel: 'Bard College',
     subclasses: [
-      { id: 'college-of-lore', name: 'College of Lore', features: [] },
-      { id: 'college-of-valor', name: 'College of Valor', features: [] },
+      {
+        id: 'college-of-lore',
+        name: 'College of Lore',
+        summary: 'Knowledge gathered everywhere, and used as a weapon.',
+        features: [
+          {
+            level: 3,
+            name: 'Bonus Proficiencies',
+            text: 'You gain proficiency with three skills of your choice.',
+            picks: [
+              {
+                // The file's first `kind: 'skill'` pick on a feature rather
+                // than a class's `skillChoices`. Every skill is offered because
+                // the book says "three skills of your choice" without
+                // qualification — unlike an expertise pick, which is bounded by
+                // what the character is already proficient in.
+                id: 'college-of-lore-3-skills',
+                kind: 'skill',
+                label: 'Three skills of your choice',
+                count: 3,
+                options: ALL_SKILLS,
+              },
+            ],
+          },
+          {
+            level: 3,
+            name: 'Cutting Words',
+            text: 'When a creature within 60 feet makes an attack, ability check or damage roll, you can use your reaction to spend a Bardic Inspiration die and subtract it from the roll.',
+          },
+          {
+            level: 6,
+            name: 'Additional Magical Secrets',
+            // Two spells from any list, and they are *known* rather than
+            // prepared — a Bard is not a preparer. Left as prose rather than a
+            // `kind: 'spell'` pick because the spells step already asks how
+            // many spells this level grants, and a pick here would ask the
+            // same question twice with no way to reconcile the two answers.
+            text: 'You learn two spells from any class’s spell list. They count as bard spells for you and do not count against the number of bard spells you know.',
+          },
+          {
+            level: 14,
+            name: 'Peerless Skill',
+            text: 'When you make an ability check, you can spend a Bardic Inspiration die and add it to the roll.',
+          },
+        ],
+      },
+      {
+        id: 'college-of-valor',
+        name: 'College of Valor',
+        // A PHB archetype, not SRD 5.1: the name is seeded here so a player who
+        // picks it gets a working sheet, and its features live in
+        // lib/subclasses/publishedSubclasses.ts. See that file's header.
+        features: [],
+      },
     ],
     saves: ['dex', 'cha'],
     subclassAtLevel1: false,
@@ -564,9 +689,17 @@ export const SRD_CLASS_KITS: Array<ClassKit> = [
     },
     features: [
       {
+        // The one counter here whose total the table genuinely does not know:
+        // it is the Charisma modifier, not a number the book prints. The
+        // suggestion is 3 — a +3 Charisma is what a Bard starts with under
+        // every ability method this app offers — and the step puts the number
+        // in an editable box beside the row, which is exactly the bargain
+        // `Character.resources` documents. Better a figure the player corrects
+        // once than a feature that never reaches the sheet.
         level: 1,
         name: 'Bardic Inspiration',
-        text: 'As a bonus action, give one creature within 60 feet a d6 they can add to one ability check, attack roll or saving throw within the next 10 minutes. Uses equal to your Charisma modifier, regained on a long rest.',
+        text: 'As a bonus action, give one creature within 60 feet a d6 they can add to one ability check, attack roll or saving throw within the next 10 minutes. You have a number of uses equal to your Charisma modifier, regained on a long rest.',
+        resource: { name: 'Bardic Inspiration', total: 3, resets: 'long' },
       },
       {
         level: 1,
@@ -577,6 +710,10 @@ export const SRD_CLASS_KITS: Array<ClassKit> = [
         level: 2,
         name: 'Jack of All Trades',
         text: 'Add half your proficiency bonus, rounded down, to any ability check you make that doesn’t already include it.',
+        // Reaches the eighteen skill rows via `skillBonus`. The bare ability
+        // checks the text also covers have no row on the sheet, so the prose
+        // stays broader than what computes — see `HalfProficiency`.
+        halfProficiency: 'all',
       },
       {
         level: 2,
@@ -589,14 +726,43 @@ export const SRD_CLASS_KITS: Array<ClassKit> = [
         text: 'Choose a college that shapes your practice of bardic magic.',
       },
       {
+        // A real pick rather than prose, for the reason CLAUDE.md gives: the
+        // sheet has a field for the answer (`Character.expertise`, which
+        // `skillBonus` doubles), so recording the click is not a lie. The
+        // options are every skill because a Bard chooses their three freely;
+        // `eligibleExpertiseAt` narrows this to what the character actually
+        // has when the step renders.
         level: 3,
         name: 'Expertise',
-        text: 'Choose two of your skill proficiencies; your proficiency bonus is doubled for them. Two more at 10th level.',
+        text: 'Choose two of your skill proficiencies. Your proficiency bonus is doubled for any ability check you make using them.',
+        picks: [
+          {
+            id: 'bard-expertise-3',
+            kind: 'expertise',
+            label: 'Expertise in two of your skill proficiencies',
+            count: 2,
+            options: ALL_SKILLS,
+          },
+        ],
       },
       {
         level: 5,
         name: 'Font of Inspiration',
-        text: 'You regain all expended Bardic Inspiration uses on a short or long rest, not just a long one.',
+        // The reset changes from long to short here, and `resourcesOffered`
+        // gates purely on `total` — an offer whose number is unchanged is
+        // dropped, so this cannot reach the sheet as a tracker update. The row
+        // says so instead, and the player edits the counter they already have.
+        text: 'You regain all expended Bardic Inspiration uses on a short or long rest, not just a long one. Change your Bardic Inspiration tracker to reset on a short rest.',
+      },
+      // The die's own rows, for the reason every other upgrade here has one:
+      // "a d8 at 5th" inside the level-1 text is prose the level-up wizard
+      // cannot grant, and the Battle Master's superiority dice already scale
+      // this way. The die is not a `resource` — it has no `used` count; the
+      // counter beside it is the uses.
+      {
+        level: 5,
+        name: 'Bardic Inspiration (d8)',
+        text: 'Your Bardic Inspiration die becomes a d8.',
       },
       {
         level: 6,
@@ -605,8 +771,49 @@ export const SRD_CLASS_KITS: Array<ClassKit> = [
       },
       {
         level: 10,
+        name: 'Bardic Inspiration (d10)',
+        text: 'Your Bardic Inspiration die becomes a d10.',
+      },
+      {
+        level: 10,
+        name: 'Expertise (2)',
+        text: 'Choose two more of your skill proficiencies. Your proficiency bonus is doubled for any ability check you make using them.',
+        picks: [
+          {
+            // Its own id: pick ids are one global keyspace, and this is a
+            // different question asked at a different level. `grantedAlreadyAt`
+            // greys out anything doubled at 3rd rather than removing it.
+            id: 'bard-expertise-10',
+            kind: 'expertise',
+            label: 'Expertise in two more of your skill proficiencies',
+            count: 2,
+            options: ALL_SKILLS,
+          },
+        ],
+      },
+      {
+        level: 10,
         name: 'Magical Secrets',
-        text: 'Learn two spells from any class’s spell list. Two more at 14th and 18th level.',
+        // Three separate rows rather than "two more at 14th and 18th" in this
+        // one's prose: de-dupe is keyed on `level:name`, so each is a distinct
+        // feature the wizard grants at the right level, where prose in the
+        // level-10 row scrolls past unread.
+        text: 'Learn two spells from any class’s spell list. They count as bard spells for you and do not count against the number you know.',
+      },
+      {
+        level: 14,
+        name: 'Magical Secrets (2)',
+        text: 'Learn two more spells from any class’s spell list, on the same terms.',
+      },
+      {
+        level: 15,
+        name: 'Bardic Inspiration (d12)',
+        text: 'Your Bardic Inspiration die becomes a d12.',
+      },
+      {
+        level: 18,
+        name: 'Magical Secrets (3)',
+        text: 'Learn two more spells from any class’s spell list, on the same terms.',
       },
       {
         level: 20,
@@ -981,6 +1188,10 @@ export const SRD_CLASS_KITS: Array<ClassKit> = [
             level: 7,
             name: 'Remarkable Athlete',
             text: 'Add half your proficiency bonus, rounded up, to any Strength, Dexterity or Constitution check that does not already use it. Your running long jump increases by a number of feet equal to your Strength modifier.',
+            // Rounds *up* and covers only STR/DEX/CON, which is why
+            // `HalfProficiency` is a mode rather than a boolean. The long-jump
+            // half is prose: the sheet has no jump distance to raise.
+            halfProficiency: 'physical',
           },
           {
             level: 10,

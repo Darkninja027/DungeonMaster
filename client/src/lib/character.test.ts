@@ -1820,3 +1820,134 @@ describe('resources', () => {
     expect(parseCharacter(text).character.resources).toHaveLength(MAX_RESOURCES)
   })
 })
+
+describe('half proficiency', () => {
+  const bard = (level: number): Character => ({
+    ...emptyCharacter(),
+    class: 'Bard',
+    level,
+    // Arcana is INT, Athletics is STR, Acrobatics is DEX, Medicine is WIS.
+    abilities: { str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 10 },
+    halfProficiency: 'all',
+  })
+
+  it('adds nothing when the character has none', () => {
+    const c = { ...bard(5), halfProficiency: null }
+    expect(skillBonus(c, 'arcana')).toBe(0)
+  })
+
+  it('adds half the proficiency bonus, rounded down, to any skill', () => {
+    // Level 5 is a +3 proficiency bonus, so Jack of All Trades gives +1.
+    expect(proficiencyBonus(5)).toBe(3)
+    expect(skillBonus(bard(5), 'arcana')).toBe(1)
+    expect(skillBonus(bard(5), 'athletics')).toBe(1)
+  })
+
+  it('never stacks on top of proficiency or expertise', () => {
+    // The book says "that doesn't already include it", so the half is what you
+    // get *instead of* nothing — not a bonus on top of a real proficiency.
+    const c = { ...bard(5), skills: ['arcana'], expertise: ['athletics'] }
+    expect(skillBonus(c, 'arcana')).toBe(3)
+    expect(skillBonus(c, 'athletics')).toBe(6)
+  })
+
+  it('tracks the proficiency bonus as the character levels', () => {
+    // Proficiency is +2/+3/+4/+5/+6 in four-level bands, halved and rounded
+    // down: 1, 1, 2, 2, 3. The bands do not line up with the proficiency ones,
+    // which is exactly the off-by-one a spot check would miss.
+    const printed: Record<number, number> = {
+      1: 1,
+      2: 1,
+      3: 1,
+      4: 1,
+      5: 1,
+      6: 1,
+      7: 1,
+      8: 1,
+      9: 2,
+      10: 2,
+      11: 2,
+      12: 2,
+      13: 2,
+      14: 2,
+      15: 2,
+      16: 2,
+      17: 3,
+      18: 3,
+      19: 3,
+      20: 3,
+    }
+    for (let level = 1; level <= 20; level++) {
+      expect(skillBonus(bard(level), 'arcana'), `level ${level}`).toBe(
+        printed[level],
+      )
+    }
+  })
+
+  it('rounds up and covers only Str/Dex/Con for Remarkable Athlete', () => {
+    const fighter = (level: number): Character => ({
+      ...emptyCharacter(),
+      class: 'Fighter',
+      level,
+      abilities: { str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 10 },
+      halfProficiency: 'physical',
+    })
+    // +3 proficiency at 5th: a Fighter gets +2 where a Bard gets +1.
+    expect(skillBonus(fighter(5), 'athletics')).toBe(2)
+    expect(skillBonus(fighter(5), 'acrobatics')).toBe(2)
+    // INT, WIS and CHA skills get nothing at all.
+    expect(skillBonus(fighter(5), 'arcana')).toBe(0)
+    expect(skillBonus(fighter(5), 'medicine')).toBe(0)
+    expect(skillBonus(fighter(5), 'persuasion')).toBe(0)
+  })
+
+  it('differs from Jack of All Trades exactly where the books differ', () => {
+    // The whole reason this is a mode rather than a boolean. At an odd
+    // proficiency bonus the two features round opposite ways.
+    for (const level of [1, 5, 9, 13, 17]) {
+      const prof = proficiencyBonus(level)
+      if (prof % 2 === 0) continue
+      const jack = {
+        ...emptyCharacter(),
+        level,
+        halfProficiency: 'all' as const,
+      }
+      const athlete = {
+        ...emptyCharacter(),
+        level,
+        halfProficiency: 'physical' as const,
+      }
+      expect(skillBonus(athlete, 'athletics'), `level ${level}`).toBe(
+        skillBonus(jack, 'athletics') + 1,
+      )
+    }
+  })
+
+  it('reaches passive perception, which routes through skillBonus', () => {
+    // WIS skill, so a Bard gets the half and a Fighter does not.
+    const b = { ...bard(5), abilities: { ...bard(5).abilities, wis: 10 } }
+    expect(passivePerception(b)).toBe(11)
+    expect(passivePerception({ ...b, halfProficiency: null })).toBe(10)
+    expect(passivePerception({ ...b, halfProficiency: 'physical' })).toBe(10)
+  })
+
+  it('round-trips through the frontmatter', () => {
+    const c = bard(5)
+    const text = serializeCharacter(c, 'body')
+    expect(text).toContain('halfProficiency: all')
+    expect(parseCharacter(text).character.halfProficiency).toBe('all')
+  })
+
+  it('writes no key at all when absent', () => {
+    // Same bargain as `resources`: opening and saving an old sheet must not
+    // add anything to its frontmatter.
+    const text = serializeCharacter(emptyCharacter(), 'body')
+    expect(text).not.toContain('halfProficiency')
+    expect(parseCharacter(text).character.halfProficiency).toBeNull()
+  })
+
+  it('reads an unknown value as none rather than throwing', () => {
+    const text = '---\ntype: character\nhalfProficiency: sideways\n---\n'
+    expect(parseCharacter(text).character.halfProficiency).toBeNull()
+  })
+})

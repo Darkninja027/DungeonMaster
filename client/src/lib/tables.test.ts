@@ -237,21 +237,27 @@ describe('mergeTables', () => {
     }
   })
 
-  it('a seeded legacy list leaves every SRD subclass intact', () => {
+  it('a seeded legacy list leaves every built-in subclass intact', () => {
     // The same bug one level down, and the reason the test above wasn't
     // enough: it asserts on the kit, so it stayed green while the overlay
     // replaced every rich subclass with a name-only one.
+    //
+    // The baseline is `SRD_TABLES.kits` rather than `SRD_CLASS_KITS`, because
+    // a subclass's features no longer all come from `lib/srd/`: the published
+    // tier fills in stubs like Path of the Totem Warrior, and the raw list is
+    // the *pre-merge* shape nothing actually reads. Comparing against it would
+    // assert that the legacy overlay strips the published tier back out.
     const world = { classes: PHB_CLASSES }
     const tables = mergeTables(EMPTY_HOMEBREW, world)
-    for (const srd of SRD_CLASS_KITS) {
-      const kit = findKit(tables.kits, srd.name)
+    for (const builtin of SRD_TABLES.kits) {
+      const kit = findKit(tables.kits, builtin.name)
       expect(
         kit?.subclasses.map((sub) => sub.name),
-        srd.name,
-      ).toEqual(srd.subclasses.map((sub) => sub.name))
-      for (const expected of srd.subclasses) {
+        builtin.name,
+      ).toEqual(builtin.subclasses.map((sub) => sub.name))
+      for (const expected of builtin.subclasses) {
         const sub = kit?.subclasses.find((s) => s.name === expected.name)
-        expect(sub?.features.length, `${srd.name}/${expected.name}`).toBe(
+        expect(sub?.features.length, `${builtin.name}/${expected.name}`).toBe(
           expected.features.length,
         )
       }

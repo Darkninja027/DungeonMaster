@@ -881,3 +881,51 @@ describe('grant tokens are normalised to ids', () => {
     expect(race?.grant.weapons).toEqual(['simple'])
   })
 })
+
+describe('an authored subclass survives a round trip', () => {
+  /**
+   * The editor can now author a subclass's summary and features, so what was
+   * previously only *readable* is now something a user can create. This is the
+   * path their work takes to disk and back.
+   */
+  const authored = {
+    kits: [
+      {
+        name: 'Blood Hunter',
+        hitDie: 10,
+        subclassLabel: 'Order',
+        subclasses: [
+          {
+            name: 'Order of the Lycan',
+            summary: 'A curse, harnessed.',
+            features: [
+              { level: 3, name: 'Hybrid Transformation', text: 'Shift.' },
+            ],
+          },
+        ],
+      },
+    ],
+  }
+
+  it('keeps the name, summary and features', () => {
+    const round = parseHomebrew(serializeHomebrew(parseHomebrew(authored)))
+    const sub = round.kits[0].subclasses[0]
+    expect(sub.name).toBe('Order of the Lycan')
+    expect(sub.summary).toBe('A curse, harnessed.')
+    expect(sub.features).toEqual([
+      { level: 3, name: 'Hybrid Transformation', text: 'Shift.' },
+    ])
+  })
+
+  it('writes a subclass that carries nothing back as a bare string', () => {
+    // `serializeSubclass`'s rule: a file only gains objects for entries that
+    // genuinely hold something, so an untouched list stays as it was on disk.
+    const bare = parseHomebrew({
+      kits: [{ name: 'Warden', subclasses: ['Oak'] }],
+    })
+    const raw = serializeHomebrew(bare) as {
+      kits: Array<{ subclasses: Array<unknown> }>
+    }
+    expect(raw.kits[0].subclasses).toEqual(['Oak'])
+  })
+})

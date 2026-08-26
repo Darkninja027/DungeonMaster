@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   abilityMod,
   emptyCharacter,
+  skillBonus,
   spellAttackBonus,
   spellSaveDc,
   hitDiceArePinned,
@@ -33,6 +34,7 @@ import {
   emptyLevelUpDraft,
   featuresGained,
   grantedAlreadyAt,
+  halfProficiencyGained,
   levelUpPicks,
   resourcesOffered,
   hpGained,
@@ -2240,5 +2242,559 @@ describe('ASI levels are answered in order', () => {
     expect(canAdvance(draft, 'asi')).toBe(
       firstIncompleteAsi(draft) === undefined,
     )
+  })
+})
+
+describe('barbarian archetype features', () => {
+  it('grants the Path its features when the archetype is chosen', () => {
+    const c = characterAt(2, 'Barbarian')
+    const after = applyLevelUp(
+      c,
+      draftFor(c, 3, { subclassName: 'Path of the Berserker' }),
+    )
+    expect(after.subclass).toBe('Path of the Berserker')
+    expect(after.features.map((f) => f.name)).toContain('Frenzy')
+  })
+
+  it('keeps granting them at later levels', () => {
+    const c = {
+      ...characterAt(5, 'Barbarian'),
+      subclass: 'Path of the Berserker',
+    }
+    const after = applyLevelUp(c, draftFor(c, 6))
+    expect(after.features.map((f) => f.name)).toContain('Mindless Rage')
+  })
+
+  it('grants a Totem Warrior its ritual feature alongside the totem choice', () => {
+    const c = characterAt(2, 'Barbarian')
+    const after = applyLevelUp(
+      c,
+      draftFor(c, 3, { subclassName: 'Path of the Totem Warrior' }),
+    )
+    expect(after.features.map((f) => f.name)).toContain('Spirit Seeker')
+  })
+
+  it('grants nothing extra for a Path the tables do not know', () => {
+    const c = characterAt(2, 'Barbarian')
+    const after = applyLevelUp(
+      c,
+      draftFor(c, 3, { subclassName: 'Path of the Screaming Gopher' }),
+    )
+    expect(after.subclass).toBe('Path of the Screaming Gopher')
+    // The class's own level-3 row still lands; homebrew just adds nothing.
+    expect(after.features.map((f) => f.name)).toContain('Primal Path')
+  })
+
+  it('scales Brutal Critical with its own row rather than prose', () => {
+    const c = {
+      ...characterAt(12, 'Barbarian'),
+      subclass: 'Path of the Berserker',
+    }
+    const after = applyLevelUp(c, draftFor(c, 13))
+    expect(after.features.map((f) => f.name)).toContain(
+      'Brutal Critical (2 dice)',
+    )
+  })
+})
+
+describe('totem spirits already chosen', () => {
+  /**
+   * A Totem Warrior chooses at 3rd, 6th and 14th, and 5e lets the same animal
+   * be taken every time. Each level therefore writes its own row name — a
+   * shared "Totem Spirit" label would grey Bear out at 6th for anyone who took
+   * Bear at 3rd, and `applyFeaturePick` would swallow the row if they chose it
+   * regardless, losing the level-6 benefit silently.
+   */
+  const totem = (level: number, features: Array<string>): Character => ({
+    ...characterAt(level, 'Barbarian'),
+    subclass: 'Path of the Totem Warrior',
+    features: features.map((name) => ({ level: 3, name })),
+  })
+
+  const totemPick = (draft: LevelUpDraft, at: string) =>
+    levelUpPicks(draft).find((p) => p.pick.id.startsWith(at))!.pick
+
+  it('poses a separate pick for each level that grants one', () => {
+    const c = totem(2, [])
+    const ids = levelUpPicks(
+      draftFor(c, 14, { subclassName: 'Path of the Totem Warrior' }),
+    )
+      .map((p) => p.pick.id)
+      .filter((id) => id.includes('totem'))
+    expect(new Set(ids).size).toBe(ids.length)
+    expect(ids.length).toBe(3)
+  })
+
+  it('lets the same animal be taken again at a later level', () => {
+    // The whole reason the labels differ per level. Bear at 3rd must not block
+    // Bear at 6th, and the 6th-level benefit must actually reach the sheet.
+    const c = totem(5, ['Totem Spirit: Bear'])
+    const draft = draftFor(c, 6)
+    const pick = totemPick(draft, 'totem-warrior-6')
+    expect(grantedAlreadyAt(c, draft, pick).has('Bear')).toBe(false)
+    const after = applyLevelUp(c, {
+      ...draft,
+      picks: { [pick.id]: ['Bear'] },
+    })
+    const names = after.features.map((f) => f.name)
+    expect(names).toContain('Totem Spirit: Bear')
+    expect(names).toContain('Aspect of the Beast: Bear')
+  })
+
+  it('never writes a second row for the same choice at the same level', () => {
+    const c = totem(5, ['Aspect of the Beast: Wolf'])
+    const draft = draftFor(c, 6)
+    const pick = totemPick(draft, 'totem-warrior-6')
+    // Already on the sheet under the row this very pick would write.
+    expect(grantedAlreadyAt(c, draft, pick).get('Wolf')).toBe('your sheet')
+    const after = applyLevelUp(c, { ...draft, picks: { [pick.id]: ['Wolf'] } })
+    expect(
+      after.features.filter((f) => f.name === 'Aspect of the Beast: Wolf'),
+    ).toHaveLength(1)
+  })
+
+  it('accepts an animal outside the SRD three', () => {
+    // `open` is the point: three closed options across three picks would leave
+    // the 14th-level choice with exactly one legal answer.
+    const c = totem(2, [])
+    const draft = draftFor(c, 3, {
+      subclassName: 'Path of the Totem Warrior',
+    })
+    const pick = totemPick(draft, 'totem-warrior-3')
+    expect(pick.open).toBe(true)
+    const after = applyLevelUp(c, { ...draft, picks: { [pick.id]: ['Tiger'] } })
+    expect(after.features.map((f) => f.name)).toContain('Totem Spirit: Tiger')
+  })
+})
+
+describe('rage as a counter that grows with the class', () => {
+  const barb = (
+    level: number,
+    resources: Character['resources'],
+  ): Character => ({
+    ...characterAt(level, 'Barbarian'),
+    subclass: 'Path of the Berserker',
+    resources,
+  })
+
+  /** Accept every resource the level-up offers, as the step's UI would. */
+  const accepting = (draft: LevelUpDraft): LevelUpDraft => ({
+    ...draft,
+    resources: Object.fromEntries(
+      resourcesOffered(draft).map((o) => [
+        o.name,
+        o.resets ? { total: o.total, resets: o.resets } : { total: o.total },
+      ]),
+    ),
+  })
+
+  it('offers a Rage counter to a barbarian who has none', () => {
+    const c = barb(2, [])
+    const after = applyLevelUp(
+      c,
+      accepting(draftFor(c, 3, { subclassName: 'Path of the Berserker' })),
+    )
+    const rage = after.resources.find((r) => r.name === 'Rage')
+    expect(rage?.total).toBe(3)
+    expect(rage?.resets).toBe('long')
+  })
+
+  it('raises a counter already on the sheet rather than adding a second', () => {
+    const c = barb(5, [{ name: 'Rage', used: 0, total: 3, resets: 'long' }])
+    const after = applyLevelUp(c, accepting(draftFor(c, 6)))
+    expect(after.resources.find((r) => r.name === 'Rage')?.total).toBe(4)
+    expect(after.resources).toHaveLength(1)
+  })
+
+  it('shows the raise as a change from what the sheet says', () => {
+    const c = barb(5, [{ name: 'Rage', used: 0, total: 3, resets: 'long' }])
+    const offer = resourcesOffered(draftFor(c, 6)).find(
+      (o) => o.name === 'Rage',
+    )
+    expect(offer?.from).toBe(3)
+    expect(offer?.total).toBe(4)
+  })
+
+  it('keeps spent rages spent — a new one is not a regained one', () => {
+    const c = barb(5, [{ name: 'Rage', used: 2, total: 3, resets: 'long' }])
+    const after = applyLevelUp(c, accepting(draftFor(c, 6)))
+    const rage = after.resources.find((r) => r.name === 'Rage')
+    expect(rage?.used).toBe(2)
+    expect(rage?.total).toBe(4)
+  })
+
+  it('never lowers a total the player tuned higher than the table', () => {
+    const c = barb(5, [{ name: 'Rage', used: 0, total: 9, resets: 'long' }])
+    const after = applyLevelUp(c, accepting(draftFor(c, 6)))
+    expect(after.resources[0]?.total).toBe(9)
+    expect(
+      resourcesOffered(draftFor(c, 6)).some((o) => o.name === 'Rage'),
+    ).toBe(false)
+  })
+
+  it('offers nothing when the number has not changed', () => {
+    // 7 -> 8 gains no rages; an unchanged number is not worth a row.
+    const c = barb(7, [{ name: 'Rage', used: 0, total: 4, resets: 'long' }])
+    expect(
+      resourcesOffered(draftFor(c, 8)).some((o) => o.name === 'Rage'),
+    ).toBe(false)
+  })
+
+  it('offers the highest step when several levels are crossed at once', () => {
+    // 2 -> 12 crosses the grants at 3, 6 and 12. The player should be offered
+    // five rages, not three.
+    const c = barb(2, [])
+    const offer = resourcesOffered(
+      draftFor(c, 12, { subclassName: 'Path of the Berserker' }),
+    ).find((o) => o.name === 'Rage')
+    expect(offer?.total).toBe(5)
+  })
+
+  it('matches the printed rage count at every level', () => {
+    // The table is sparse — only levels where the number changes carry a row —
+    // so an off-by-one is invisible unless every level is walked.
+    const printed: Record<number, number> = {
+      1: 2,
+      2: 2,
+      3: 3,
+      4: 3,
+      5: 3,
+      6: 4,
+      7: 4,
+      8: 4,
+      9: 4,
+      10: 4,
+      11: 4,
+      12: 5,
+      13: 5,
+      14: 5,
+      15: 5,
+      16: 5,
+      17: 6,
+      18: 6,
+      19: 6,
+      20: 6,
+    }
+    const kit = kitFor('Barbarian')!
+    for (let level = 1; level <= 20; level++) {
+      // The highest Rage row at or below this level, the same walk-back every
+      // progression lookup in the app performs.
+      let best: number | undefined
+      let bestLevel = 0
+      for (const f of kit.features) {
+        if (f.resource?.name !== 'Rage') continue
+        if (f.level <= level && f.level > bestLevel) {
+          bestLevel = f.level
+          best = f.resource.total
+        }
+      }
+      expect(best, `rages at level ${level}`).toBe(printed[level])
+    }
+  })
+})
+
+describe('totem text completeness', () => {
+  it('every totem option carries the text its row will show', () => {
+    // The generic invariant in srd.test.ts skips `open` picks, and these are
+    // open on purpose — so the check has to exist somewhere, and this is it.
+    const kit = kitFor('Barbarian')!
+    const sub = kit.subclasses.find(
+      (s) => s.name === 'Path of the Totem Warrior',
+    )!
+    let picks = 0
+    for (const feature of sub.features) {
+      for (const pick of feature.picks ?? []) {
+        picks++
+        expect(pick.options.length, `${feature.name} options`).toBeGreaterThan(
+          0,
+        )
+        for (const option of pick.options) {
+          expect(
+            pick.featureText?.[option],
+            `${feature.name}: option "${option}" has no text`,
+          ).toBeTruthy()
+        }
+      }
+    }
+    // The loop above passes vacuously if the picks ever stop being authored.
+    expect(picks).toBe(3)
+  })
+
+  it('writes a distinct row name for each level that chooses a totem', () => {
+    // Shared labels would collide in `Character.features` and lose a benefit.
+    const kit = kitFor('Barbarian')!
+    const sub = kit.subclasses.find(
+      (s) => s.name === 'Path of the Totem Warrior',
+    )!
+    const labels = sub.features
+      .flatMap((f) => f.picks ?? [])
+      .map((p) => p.featureLabel)
+    expect(new Set(labels).size).toBe(labels.length)
+  })
+})
+
+describe('bard college features', () => {
+  it('grants the College its features when it is chosen', () => {
+    const c = characterAt(2, 'Bard')
+    const after = applyLevelUp(
+      c,
+      draftFor(c, 3, { subclassName: 'College of Lore' }),
+    )
+    expect(after.subclass).toBe('College of Lore')
+    const names = after.features.map((f) => f.name)
+    expect(names).toContain('Cutting Words')
+    expect(names).toContain('Bonus Proficiencies')
+  })
+
+  it('keeps granting them at later levels', () => {
+    const c = { ...characterAt(5, 'Bard'), subclass: 'College of Lore' }
+    const after = applyLevelUp(c, draftFor(c, 6))
+    expect(after.features.map((f) => f.name)).toContain(
+      'Additional Magical Secrets',
+    )
+  })
+
+  it('grants a Valor bard its armour and weapon proficiencies', () => {
+    // The subclass `grant`, applied on the level-up that chooses the archetype.
+    // College of Valor comes from the published tier, so this also proves that
+    // tier reaches the level-up path and not just the settings list.
+    const c = characterAt(2, 'Bard')
+    const after = applyLevelUp(
+      c,
+      draftFor(c, 3, { subclassName: 'College of Valor' }),
+    )
+    expect(after.armor).toContain('medium')
+    expect(after.armor).toContain('shields')
+    expect(after.weapons).toContain('martial')
+    expect(after.features.map((f) => f.name)).toContain('Combat Inspiration')
+  })
+
+  it('applies the Valor grant once and never again', () => {
+    const c = characterAt(2, 'Bard')
+    const at3 = applyLevelUp(
+      c,
+      draftFor(c, 3, { subclassName: 'College of Valor' }),
+    )
+    expect(at3.armor.filter((a) => a === 'medium')).toHaveLength(1)
+    const at4 = applyLevelUp(at3, draftFor(at3, 4))
+    expect(at4.armor.filter((a) => a === 'medium')).toHaveLength(1)
+  })
+
+  it('gives a Valor bard Extra Attack at 6, where the class has none', () => {
+    const c = { ...characterAt(5, 'Bard'), subclass: 'College of Valor' }
+    const after = applyLevelUp(c, draftFor(c, 6))
+    expect(after.features.map((f) => f.name)).toContain('Extra Attack')
+  })
+
+  it('grants nothing extra for a College the tables do not know', () => {
+    const c = characterAt(2, 'Bard')
+    const after = applyLevelUp(
+      c,
+      draftFor(c, 3, { subclassName: 'College of the Unpaid Bar Tab' }),
+    )
+    expect(after.subclass).toBe('College of the Unpaid Bar Tab')
+    expect(after.features.map((f) => f.name)).toContain('Bard College')
+  })
+})
+
+describe('bard expertise', () => {
+  it('poses a real pick at 3 rather than prose', () => {
+    const c = { ...characterAt(2, 'Bard'), skills: ['performance', 'stealth'] }
+    const draft = draftFor(c, 3, { subclassName: 'College of Lore' })
+    const pick = levelUpPicks(draft).find(
+      (p) => p.pick.id === 'bard-expertise-3',
+    )
+    expect(pick).toBeDefined()
+    expect(pick!.pick.kind).toBe('expertise')
+    expect(pick!.pick.count).toBe(2)
+  })
+
+  it('offers expertise only over skills the bard actually has', () => {
+    const c = { ...characterAt(2, 'Bard'), skills: ['performance', 'stealth'] }
+    const draft = draftFor(c, 3, { subclassName: 'College of Lore' })
+    const pick = levelUpPicks(draft).find(
+      (p) => p.pick.id === 'bard-expertise-3',
+    )!.pick
+    const offered = eligibleExpertiseAt(c, draft, pick)
+    expect(offered).toContain('performance')
+    expect(offered).toContain('stealth')
+    expect(offered).not.toContain('arcana')
+  })
+
+  it('writes the chosen skills to Character.expertise', () => {
+    const c = { ...characterAt(2, 'Bard'), skills: ['performance', 'stealth'] }
+    const draft = draftFor(c, 3, { subclassName: 'College of Lore' })
+    const after = applyLevelUp(c, {
+      ...draft,
+      picks: { 'bard-expertise-3': ['performance', 'stealth'] },
+    })
+    expect(after.expertise).toContain('performance')
+    expect(after.expertise).toContain('stealth')
+  })
+
+  it('poses a second, distinct pick at 10', () => {
+    // Two questions at two levels, so two ids — the level-3 answer must not be
+    // mistaken for this one.
+    const c = {
+      ...characterAt(9, 'Bard'),
+      subclass: 'College of Lore',
+      skills: ['performance', 'stealth', 'arcana', 'history'],
+      expertise: ['performance', 'stealth'],
+    }
+    const draft = draftFor(c, 10)
+    const ids = levelUpPicks(draft)
+      .map((p) => p.pick.id)
+      .filter((id) => id.startsWith('bard-expertise'))
+    expect(ids).toEqual(['bard-expertise-10'])
+  })
+
+  it('greys out a skill already doubled at 3', () => {
+    const c = {
+      ...characterAt(9, 'Bard'),
+      subclass: 'College of Lore',
+      skills: ['performance', 'stealth', 'arcana'],
+      expertise: ['performance'],
+    }
+    const draft = draftFor(c, 10)
+    const pick = levelUpPicks(draft).find(
+      (p) => p.pick.id === 'bard-expertise-10',
+    )!.pick
+    expect(grantedAlreadyAt(c, draft, pick).get('performance')).toBe(
+      'your sheet',
+    )
+  })
+})
+
+describe('bardic inspiration', () => {
+  const bard = (
+    level: number,
+    resources: Character['resources'] = [],
+  ): Character => ({
+    ...characterAt(level, 'Bard'),
+    resources,
+  })
+
+  const accepting = (draft: LevelUpDraft): LevelUpDraft => ({
+    ...draft,
+    resources: Object.fromEntries(
+      resourcesOffered(draft).map((o) => [
+        o.name,
+        o.resets ? { total: o.total, resets: o.resets } : { total: o.total },
+      ]),
+    ),
+  })
+
+  it('is offered as a counter, since the sheet has a field for it', () => {
+    const c = bard(1)
+    const after = applyLevelUp(c, accepting(draftFor(c, 2)))
+    // Gained at level 1, so a 1 -> 2 level-up does not re-offer it; the offer
+    // belongs to creation. What matters here is that the row exists at all.
+    const kit = kitFor('Bard')!
+    const inspiration = kit.features.find(
+      (f) => f.name === 'Bardic Inspiration',
+    )
+    expect(inspiration?.resource?.name).toBe('Bardic Inspiration')
+    expect(inspiration?.resource?.resets).toBe('long')
+    expect(after.level).toBe(2)
+  })
+
+  it('never lowers a total the player set from their own Charisma', () => {
+    // The table's 3 is a suggestion — the real number is the CHA modifier, and
+    // a bard with +5 must not be talked back down to 3.
+    const c = {
+      ...bard(2, [
+        { name: 'Bardic Inspiration', used: 0, total: 5, resets: 'long' },
+      ]),
+    }
+    const after = applyLevelUp(c, accepting(draftFor(c, 3)))
+    expect(
+      after.resources.find((r) => r.name === 'Bardic Inspiration')?.total,
+    ).toBe(5)
+  })
+
+  it('scales its die with its own rows rather than prose', () => {
+    const c = { ...characterAt(4, 'Bard'), subclass: 'College of Lore' }
+    const after = applyLevelUp(c, draftFor(c, 5))
+    expect(after.features.map((f) => f.name)).toContain(
+      'Bardic Inspiration (d8)',
+    )
+  })
+
+  it('scales again at 10 and 15', () => {
+    const kit = kitFor('Bard')!
+    const names = kit.features.map((f) => `${f.level}:${f.name}`)
+    expect(names).toContain('10:Bardic Inspiration (d10)')
+    expect(names).toContain('15:Bardic Inspiration (d12)')
+  })
+})
+
+describe('bard magical secrets', () => {
+  it('grants each helping as its own row', () => {
+    const c = { ...characterAt(13, 'Bard'), subclass: 'College of Lore' }
+    const after = applyLevelUp(c, draftFor(c, 14))
+    expect(after.features.map((f) => f.name)).toContain('Magical Secrets (2)')
+  })
+
+  it('lists all three at the levels the book gives them', () => {
+    const kit = kitFor('Bard')!
+    const at = kit.features
+      .filter((f) => f.name.startsWith('Magical Secrets'))
+      .map((f) => f.level)
+      .sort((a, b) => a - b)
+    expect(at).toEqual([10, 14, 18])
+  })
+})
+
+describe('half proficiency at level-up', () => {
+  it('sets it when a Bard reaches Jack of All Trades', () => {
+    const c = characterAt(1, 'Bard')
+    expect(c.halfProficiency).toBeNull()
+    const after = applyLevelUp(c, draftFor(c, 2))
+    expect(after.halfProficiency).toBe('all')
+  })
+
+  it('sets the narrower mode for a Champion’s Remarkable Athlete', () => {
+    const c = { ...characterAt(6, 'Fighter'), subclass: 'Champion' }
+    const after = applyLevelUp(c, draftFor(c, 7))
+    expect(after.halfProficiency).toBe('physical')
+  })
+
+  it('leaves a class without the feature alone', () => {
+    const c = characterAt(1, 'Barbarian')
+    expect(applyLevelUp(c, draftFor(c, 2)).halfProficiency).toBeNull()
+  })
+
+  it('does not set it when the player unticks the feature', () => {
+    // Everything in this wizard is opt-in; a player who dropped the row has
+    // said they do not want it, and setting the field anyway overrules them.
+    const c = characterAt(1, 'Bard')
+    const after = applyLevelUp(c, draftFor(c, 2, { takeFeatures: [] }))
+    expect(after.halfProficiency).toBeNull()
+  })
+
+  it('never narrows a mode the character already has', () => {
+    // `applyLevelUp` only ever adds. A Bard who somehow reaches Remarkable
+    // Athlete keeps the broader `all` rather than being cut back to physical.
+    const c = {
+      ...characterAt(6, 'Fighter'),
+      subclass: 'Champion',
+      halfProficiency: 'all' as const,
+    }
+    expect(applyLevelUp(c, draftFor(c, 7)).halfProficiency).toBe('all')
+  })
+
+  it('shows up in the skill bonus straight after applying', () => {
+    // The point of the whole exercise: a level-2 Bard's non-proficient skills
+    // are no longer a flat ability modifier.
+    const c = characterAt(1, 'Bard')
+    const before = skillBonus(c, 'arcana')
+    const after = applyLevelUp(c, draftFor(c, 2))
+    expect(skillBonus(after, 'arcana')).toBe(before + 1)
+  })
+
+  it('is reported by halfProficiencyGained without applying anything', () => {
+    const c = characterAt(1, 'Bard')
+    const draft = draftFor(c, 2)
+    expect(halfProficiencyGained(draft, levelUpPlan(c, draft))).toBe('all')
   })
 })

@@ -45,6 +45,7 @@ import {
   resolveSpellDamage,
   saveBonus,
   scaleSpellDamage,
+  halfProficiencyFor,
   signed,
   skillBonus,
   sortedSpells,
@@ -58,6 +59,7 @@ import type {
   Ability,
   Character,
   DamageStance,
+  HalfProficiency,
   Spell,
   SpellSlots,
 } from '#/lib/character'
@@ -760,21 +762,64 @@ export function SheetTab({
           <p className="text-muted-foreground mb-1 text-xs">
             Click the dot to cycle: none → proficient → expertise
           </p>
+          {/*
+            Half proficiency is a rule about how the numbers below are computed,
+            so it belongs here rather than buried in the Features tab — a bonus
+            that appears on twelve rows with no visible cause reads as a bug.
+            Editable because every derived number on this sheet is: the wizard
+            sets it, and the player overrules it.
+          */}
+          <label className="text-muted-foreground mb-2 flex items-center gap-1.5 text-xs">
+            <span>Half proficiency</span>
+            <select
+              className="bg-background text-foreground h-6 rounded border px-1 text-xs"
+              value={c.halfProficiency ?? ''}
+              onChange={(e) =>
+                set({
+                  halfProficiency:
+                    e.target.value === ''
+                      ? null
+                      : (e.target.value as HalfProficiency),
+                })
+              }
+            >
+              <option value="">None</option>
+              <option value="all">All skills (Jack of All Trades)</option>
+              <option value="physical">Str/Dex/Con (Remarkable Athlete)</option>
+            </select>
+          </label>
           <div className="grid gap-y-1">
             {SKILLS.map((skill) => {
               const expert = c.expertise.includes(skill.id)
               const proficient = c.skills.includes(skill.id)
+              // `halfProficiencyFor` already returns 0 for a proficient
+              // character's ability, but the guards keep the intent readable:
+              // this dot is only ever a *hint* on a row with no proficiency.
+              const half =
+                !expert &&
+                !proficient &&
+                halfProficiencyFor(c, skill.ability) > 0
               return (
                 <div key={skill.id} className="flex items-center gap-2 text-sm">
                   <button
                     type="button"
                     title={
-                      expert ? 'Expertise' : proficient ? 'Proficient' : '—'
+                      expert
+                        ? 'Expertise'
+                        : proficient
+                          ? 'Proficient'
+                          : half
+                            ? 'Half proficiency'
+                            : '—'
                     }
                     className={cn(
                       'size-3.5 shrink-0 rounded-full border',
                       expert && 'bg-primary ring-primary/40 ring-2',
                       proficient && !expert && 'bg-primary',
+                      // Half proficiency is not a step in the click cycle — it
+                      // comes from a feature, not from this dot — so it reads
+                      // as a hint rather than a filled state.
+                      half && 'bg-primary/30',
                     )}
                     onClick={() => cycleSkill(skill.id)}
                   />

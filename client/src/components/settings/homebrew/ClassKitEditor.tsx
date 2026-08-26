@@ -2,12 +2,28 @@ import { Plus, X } from 'lucide-react'
 import { ABILITIES, HIT_DIE_SIZES } from '#/lib/character'
 import type { Ability } from '#/lib/character'
 import type { ClassKit, EquipmentChoice } from '#/lib/srd'
-import { isBareSubclass, reconcileSubclasses } from '#/lib/tables'
+import { subclassLevelOf } from '#/lib/tables'
 import { homebrewId } from '#/lib/homebrew'
 import { Input } from '#/components/ui/input'
-import { Textarea } from '#/components/ui/textarea'
 import { Button } from '#/components/ui/button'
 import { Field, GrantEditor, TokenField } from './GrantEditor'
+import { FeatureRows } from './FeatureRows'
+import { SubclassEditor } from './SubclassEditor'
+
+/**
+ * A class's subclass label, pluralised for the section heading — "Martial
+ * Archetypes", "Bard Colleges".
+ *
+ * The naive `+ 's'` gave "Subclasss" for the default label, which is the one
+ * every newly-created class starts with, so it was the first thing anybody
+ * would see. Free text, so this stays a rule of thumb rather than grammar: a
+ * label already ending in s is left alone.
+ */
+function pluralLabel(label: string): string {
+  const trimmed = label.trim()
+  if (trimmed === '') return 'Subclasses'
+  return /s$/i.test(trimmed) ? `${trimmed}es` : `${trimmed}s`
+}
 
 export function blankKit(): ClassKit {
   return {
@@ -115,27 +131,12 @@ export function ClassKitEditor({
         </Field>
       </div>
 
-      <TokenField
-        label="Subclasses"
-        placeholder="Champion"
-        values={kit.subclasses.map((sub) => sub.name)}
-        onChange={(names) =>
-          patch({ subclasses: reconcileSubclasses(kit.subclasses, names) })
-        }
+      <SubclassEditor
+        subclasses={kit.subclasses}
+        label={pluralLabel(kit.subclassLabel)}
+        subclassLevel={subclassLevelOf(kit)}
+        onChange={(subclasses) => patch({ subclasses })}
       />
-      {/*
-        Only shown when there is actually something at stake. A subclass can
-        carry features, bonus spells and a grant, none of which this field can
-        show — `reconcileSubclasses` keeps them across an edit, but only by
-        matching on the name, so renaming one drops what it was carrying.
-      */}
-      {kit.subclasses.some((sub) => !isBareSubclass(sub)) && (
-        <p className="text-muted-foreground -mt-1 text-xs">
-          Some of these carry features or bonus spells that can&rsquo;t be
-          edited here yet. They&rsquo;re kept as you edit — but renaming one
-          discards them.
-        </p>
-      )}
 
       <Field label="Skill choice" hint="The class's own skill list">
         <div className="flex items-center gap-1.5">
@@ -299,90 +300,12 @@ export function ClassKitEditor({
         Subclass is chosen at 1st level
       </label>
 
-      <div className="space-y-2 border-t pt-3">
-        <div className="flex items-center justify-between">
-          <span className="text-xs font-medium">Features by level</span>
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-7 text-xs"
-            onClick={() =>
-              patch({ features: [...kit.features, { level: 1, name: '' }] })
-            }
-          >
-            <Plus className="size-3" /> Add feature
-          </Button>
-        </div>
-        {kit.features.map((feature, i) => (
-          <div key={i} className="flex items-start gap-1.5">
-            <div className="min-w-0 flex-1 space-y-1">
-              <div className="flex items-center gap-1.5">
-                <label
-                  className="text-muted-foreground flex shrink-0 items-center gap-1 text-xs"
-                  title="Character level this feature is gained at"
-                >
-                  Lv
-                  <Input
-                    value={String(feature.level)}
-                    inputMode="numeric"
-                    className="h-7 w-12 text-center text-sm"
-                    onChange={(e) => {
-                      const n = Number(e.target.value)
-                      patch({
-                        features: kit.features.map((f, j) =>
-                          j === i
-                            ? {
-                                ...f,
-                                level:
-                                  Number.isFinite(n) && n >= 1 && n <= 20
-                                    ? Math.round(n)
-                                    : 1,
-                              }
-                            : f,
-                        ),
-                      })
-                    }}
-                  />
-                </label>
-                <Input
-                  value={feature.name}
-                  placeholder="Rage"
-                  className="h-7 min-w-0 flex-1 text-sm"
-                  onChange={(e) =>
-                    patch({
-                      features: kit.features.map((f, j) =>
-                        j === i ? { ...f, name: e.target.value } : f,
-                      ),
-                    })
-                  }
-                />
-              </div>
-              <Textarea
-                value={feature.text ?? ''}
-                rows={2}
-                placeholder="What it does."
-                className="text-sm"
-                onChange={(e) =>
-                  patch({
-                    features: kit.features.map((f, j) =>
-                      j === i ? { ...f, text: e.target.value } : f,
-                    ),
-                  })
-                }
-              />
-            </div>
-            <button
-              type="button"
-              aria-label={`Remove ${feature.name || 'feature'}`}
-              onClick={() =>
-                patch({ features: kit.features.filter((_, j) => j !== i) })
-              }
-              className="text-muted-foreground hover:text-destructive mt-1.5"
-            >
-              <X className="size-3.5" />
-            </button>
-          </div>
-        ))}
+      <div className="border-t pt-3">
+        <FeatureRows
+          features={kit.features}
+          placeholder="Rage"
+          onChange={(features) => patch({ features })}
+        />
       </div>
 
       <div className="space-y-2 border-t pt-3">

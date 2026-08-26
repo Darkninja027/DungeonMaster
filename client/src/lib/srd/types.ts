@@ -40,7 +40,7 @@
  * `SubraceInfo.hpPerLevel` remains a one-off; see its doc comment.
  */
 
-import type { Ability, EquipSlot } from '../character'
+import type { Ability, EquipSlot, HalfProficiency } from '../character'
 
 /**
  * A bundle of things granted by a race, background, class kit or equipment
@@ -324,6 +324,19 @@ export interface ClassFeatureInfo {
    * player owns the number once it is on their sheet.
    */
   resource?: { name: string; total: number; resets?: 'short' | 'long' }
+  /**
+   * Half proficiency this feature confers — a Bard's Jack of All Trades, a
+   * Fighter's Remarkable Athlete. Sets `Character.halfProficiency`.
+   *
+   * On the feature rather than on `ClassKit` (where `unarmoredDefense` lives)
+   * because it is gained at a *level*: a Bard has it from 2nd and a Fighter
+   * from 7th, so a kit-level flag would hand it to a 1st-level character.
+   *
+   * Unlike `resource`, this is applied rather than offered. It is not a number
+   * the player tunes — it is a rule about how another number is computed, and
+   * the sheet already lets them override the result if they disagree.
+   */
+  halfProficiency?: HalfProficiency
 }
 
 /** Racial ability score increases, e.g. `{ con: 2 }` for a Dwarf. */

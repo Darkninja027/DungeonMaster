@@ -29,6 +29,7 @@ import type {
   Character,
   CharacterResource,
   ClassFeature,
+  HalfProficiency,
 } from './character'
 import { applyFeaturePick, applyPick } from './buildCharacter'
 import {
@@ -712,6 +713,40 @@ export function resourcesOffered(draft: LevelUpDraft): Array<{
     })
 }
 
+/**
+ * The half proficiency a feature taken in this level-up confers, or undefined.
+ *
+ * Mirrors `resourcesOffered` in how it looks: the plan's features are
+ * `ClassFeature` rows carrying only level/name/text, so the flag has to be read
+ * off the kit and subclass tables the wizard is working from.
+ *
+ * Gated on the feature actually being *taken*. Everything in this wizard is
+ * opt-in, and a player who unticked Jack of All Trades has said they do not
+ * want it — quietly setting the field anyway would be the app overruling them.
+ *
+ * `all` wins over `physical` when a level-up somehow grants both, because it is
+ * strictly broader and the alternative is deciding by array order.
+ */
+export function halfProficiencyGained(
+  draft: LevelUpDraft,
+  plan: Pick<LevelUpPlan, 'features'>,
+): HalfProficiency | undefined {
+  const kit = draft.kit
+  if (!kit) return undefined
+  const taking = new Set(plan.features.map((f) => f.name.trim().toLowerCase()))
+  const subclass = findSubclass(kit, draft.subclassName || draft.base.subclass)
+  const range = new Set(levelsGained(draft.from, draft.to))
+  let found: HalfProficiency | undefined
+  for (const feature of [...kit.features, ...(subclass?.features ?? [])]) {
+    if (!feature.halfProficiency) continue
+    if (!range.has(feature.level)) continue
+    if (!taking.has(feature.name.trim().toLowerCase())) continue
+    if (feature.halfProficiency === 'all') return 'all'
+    found = feature.halfProficiency
+  }
+  return found
+}
+
 // --- The plan ---------------------------------------------------------------
 
 export interface SlotChange {
@@ -1250,6 +1285,22 @@ export function applyLevelUp(c: Character, draft: LevelUpDraft): Character {
 
   if (plan.features.length > 0) {
     next = { ...next, features: [...next.features, ...plan.features] }
+  }
+
+  // Half proficiency, if a feature taken here confers it — Jack of All Trades,
+  // Remarkable Athlete. Applied rather than offered: it is a rule about how
+  // `skillBonus` computes, not a number the player tunes, and the sheet still
+  // lets them change it afterwards.
+  //
+  // Read off the *table* features rather than `plan.features`, which are
+  // `ClassFeature` rows and carry only level/name/text. Same reason
+  // `resourcesOffered` reaches back to the kit.
+  const conferred = halfProficiencyGained(draft, plan)
+  // Never cleared here, only set: `applyLevelUp` does not take things away, and
+  // a character who already has the broader `all` is not narrowed to `physical`
+  // by multiclass-ish homebrew that grants both.
+  if (conferred && next.halfProficiency === null) {
+    next = { ...next, halfProficiency: conferred }
   }
 
   if (Object.keys(plan.abilityIncreases).length > 0) {

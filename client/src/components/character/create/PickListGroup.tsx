@@ -1,6 +1,8 @@
+import { useState } from 'react'
 import { SKILLS } from '#/lib/character'
 import type { PickList } from '#/lib/srd'
 import { Combobox } from '#/components/ui/combobox'
+import { Input } from '#/components/ui/input'
 import { Chip } from './OptionCard'
 
 /**
@@ -241,6 +243,13 @@ export function PickListGroup({
 }
 
 /**
+ * The sentinel `<option>` value that reveals the free-text box on an `open`
+ * feature pick. Not a legal answer — it never reaches `chosen`, which holds
+ * either a listed option or whatever the player typed.
+ */
+const OTHER = '__other__'
+
+/**
  * One `<select>` per slot the pick asks for, each with the chosen option's
  * rules text below it.
  *
@@ -249,6 +258,12 @@ export function PickListGroup({
  * select excludes what the *others* have taken, so the same answer cannot be
  * given twice, and excludes anything `alreadyGranted` names — a style or
  * manoeuvre already on the sheet.
+ *
+ * An `open` pick also gets an "Other…" entry that swaps in a text box, the
+ * same affordance the chip branch above gives every other kind. Without it
+ * `open` silently meant nothing here: a Totem Warrior's spirit is open so a
+ * player can bring an Elk or a Tiger from a book this app does not ship, and a
+ * closed dropdown is exactly the wall that was meant to avoid.
  */
 function FeatureSelects({
   pick,
@@ -270,17 +285,37 @@ function FeatureSelects({
     onChange(next.filter(Boolean))
   }
 
+  // Slots the player has switched to free text. Tracked rather than derived,
+  // because "Other… selected but nothing typed yet" is a real state and an
+  // empty `chosen` entry cannot tell it apart from an untouched slot.
+  const [typing, setTyping] = useState<Record<number, boolean>>({})
+
   return (
     <div className="space-y-3">
       {Array.from({ length: pick.count }, (_, i) => {
         const value = chosen[i] ?? ''
         const text = value ? pick.featureText?.[value] : undefined
+        // A value the list doesn't offer can only have been typed, so the box
+        // stays open on re-render — reopening the dialog must not silently
+        // convert a custom answer back into "Choose…".
+        const custom = Boolean(value) && !offered.includes(value)
+        const showOther = pick.open === true && (typing[i] === true || custom)
         return (
           <div key={i} className="space-y-1">
             <select
               className="bg-background text-foreground h-8 w-full rounded border px-2 text-sm"
-              value={value}
-              onChange={(e) => setAt(i, e.target.value)}
+              value={showOther ? OTHER : value}
+              onChange={(e) => {
+                if (e.target.value === OTHER) {
+                  setTyping((t) => ({ ...t, [i]: true }))
+                  // Clear the slot so the pick reads as unanswered until
+                  // something is actually typed into it.
+                  setAt(i, '')
+                  return
+                }
+                setTyping((t) => ({ ...t, [i]: false }))
+                setAt(i, e.target.value)
+              }}
             >
               <option value="">Choose…</option>
               {offered.map((option) => {
@@ -305,7 +340,21 @@ function FeatureSelects({
                   </option>
                 )
               })}
+              {pick.open === true && (
+                <option value={OTHER} className="bg-background text-foreground">
+                  Other…
+                </option>
+              )}
             </select>
+            {showOther && (
+              <Input
+                value={value}
+                autoFocus
+                onChange={(e) => setAt(i, e.target.value)}
+                placeholder="Type your own…"
+                className="h-7 text-sm"
+              />
+            )}
             {text && (
               <p className="text-muted-foreground text-xs leading-snug">
                 {text}
