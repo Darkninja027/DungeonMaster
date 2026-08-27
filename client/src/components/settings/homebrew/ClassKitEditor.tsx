@@ -1,6 +1,5 @@
 import { Plus, X } from 'lucide-react'
 import { ABILITIES, HIT_DIE_SIZES } from '#/lib/character'
-import type { Ability } from '#/lib/character'
 import type { ClassKit, EquipmentChoice } from '#/lib/srd'
 import { subclassLevelOf } from '#/lib/tables'
 import { homebrewId } from '#/lib/homebrew'
@@ -8,6 +7,7 @@ import { Input } from '#/components/ui/input'
 import { Button } from '#/components/ui/button'
 import { Field, GrantEditor, TokenField } from './GrantEditor'
 import { FeatureRows } from './FeatureRows'
+import { SpellcastingFields } from './SpellcastingFields'
 import { SubclassEditor } from './SubclassEditor'
 
 /**
@@ -177,96 +177,12 @@ export function ClassKitEditor({
       </Field>
 
       <Field label="Spellcasting">
-        <label className="flex items-center gap-1.5 text-xs">
-          <input
-            type="checkbox"
-            checked={kit.spellcasting !== undefined}
-            className="accent-primary size-3.5"
-            onChange={(e) =>
-              patch({
-                spellcasting: e.target.checked
-                  ? {
-                      ability: 'int',
-                      slotsAtLevel1: 2,
-                      cantripsKnown: 2,
-                      spellsKnown: 2,
-                      prepares: false,
-                      listLabel: `${kit.name || 'Class'} spells`,
-                    }
-                  : undefined,
-              })
-            }
-          />
-          Casts spells at 1st level
-        </label>
-        {kit.spellcasting && (
-          <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs">
-            <label className="flex items-center gap-1">
-              <span className="text-muted-foreground">Ability</span>
-              <select
-                value={kit.spellcasting.ability}
-                className="border-input bg-background h-7 rounded-md border px-1"
-                onChange={(e) =>
-                  patch({
-                    spellcasting: {
-                      ...kit.spellcasting!,
-                      ability: e.target.value as Ability,
-                    },
-                  })
-                }
-              >
-                {ABILITIES.map((a) => (
-                  <option key={a} value={a}>
-                    {a.toUpperCase()}
-                  </option>
-                ))}
-              </select>
-            </label>
-            {(
-              [
-                ['slotsAtLevel1', 'Slots'],
-                ['cantripsKnown', 'Cantrips'],
-                ['spellsKnown', 'Spells'],
-              ] as const
-            ).map(([key, label]) => (
-              <label key={key} className="flex items-center gap-1">
-                <span className="text-muted-foreground">{label}</span>
-                <Input
-                  value={String(kit.spellcasting![key])}
-                  inputMode="numeric"
-                  className="h-7 w-12 text-center"
-                  onChange={(e) => {
-                    const n = Number(e.target.value)
-                    patch({
-                      spellcasting: {
-                        ...kit.spellcasting!,
-                        [key]: Number.isFinite(n)
-                          ? Math.max(0, Math.round(n))
-                          : 0,
-                      },
-                    })
-                  }}
-                />
-              </label>
-            ))}
-            <label className="flex items-center gap-1.5">
-              <input
-                type="checkbox"
-                checked={kit.spellcasting.prepares}
-                className="accent-primary size-3.5"
-                onChange={(e) =>
-                  patch({
-                    spellcasting: {
-                      ...kit.spellcasting!,
-                      prepares: e.target.checked,
-                    },
-                  })
-                }
-              />
-              Prepares from a list
-            </label>
-          </div>
-        )}
+        <SpellcastingFields
+          value={kit.spellcasting}
+          ownerName={kit.name}
+          enableLabel="Casts spells at 1st level"
+          onChange={(spellcasting) => patch({ spellcasting })}
+        />
       </Field>
 
       <Field label="Unarmored defense" hint="Barbarian and Monk style AC">

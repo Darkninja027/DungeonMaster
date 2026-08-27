@@ -223,7 +223,27 @@ list and covered directly by `tables.test.ts`.
 
 Editors live in `components/settings/homebrew/` (a Homebrew settings section,
 app-wide like Library) and `components/character/create/HomebrewDialog.tsx`
-(inline creation from the wizard). The inline path is the **only** sanctioned
+(inline creation from the wizard).
+
+A **subclass is fully authorable** there: `SubclassEditor` expands each one to
+edit summary, features (`FeatureRows`), always-prepared spells
+(`SubclassSpellRows`), its `grant` (the shared `GrantEditor`) and a third-caster
+`spellcasting` block (`SpellcastingFields`, shared with the kit's own). Two
+rules hold the whole thing together. Every field empties back to `undefined`
+rather than `{}` or `[]`, because `isBareSubclass` is what decides whether
+`serializeSubclass` writes a plain name or an object — a stray empty array turns
+every subclass into noise in a file people hand-edit. And an edit **spreads the
+original** so what a form cannot show (`picks`, `resource`, `halfProficiency`)
+survives it; dropping those silently would be worse than not offering the edit.
+`isBareSubclass` therefore has to name every field `SubclassInfo` can carry. It
+was duplicated in `tables.ts` and `homebrew.ts` once and the copies drifted the
+moment `spellcasting` arrived — one counted it, the other wrote such a subclass
+back as a bare string and lost it. It lives in `homebrew.ts` now, beside its
+most important caller, and `tables.ts` re-exports it.
+
+Only the spell *progression tables* stay JSON-only — twenty rows of numbers
+each, wanting a table editor rather than a form. They round-trip untouched and
+`SpellcastingFields` says so where an author will see it. The inline path is the **only** sanctioned
 refresh of the draft's captured tables — see the ref in `CreateCharacterDialog`,
 which exists so a background refetch can't wipe work in progress.
 

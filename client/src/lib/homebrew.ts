@@ -546,6 +546,22 @@ function parseSpellcasting(raw: unknown): ClassKit['spellcasting'] {
       : null,
   )
   if (cantrips) out.cantripsByLevel = cantrips
+  // Spells known and the wizard's spellbook rate. Both were declared on
+  // `SpellcastingInfo` and read straight past here, so a homebrew "known"
+  // caster round-tripped without the one table the level-up wizard uses to
+  // ask how many spells it owes them.
+  const known = parseLevelTable(r.spellsKnownByLevel, (v) =>
+    typeof v === 'number' && Number.isFinite(v)
+      ? Math.max(0, Math.round(v))
+      : null,
+  )
+  if (known) out.spellsKnownByLevel = known
+  if (typeof r.spellbook === 'object' && r.spellbook !== null) {
+    const perLevel = (r.spellbook as Record<string, unknown>).perLevel
+    if (typeof perLevel === 'number' && Number.isFinite(perLevel)) {
+      out.spellbook = { perLevel: Math.max(0, Math.round(perLevel)) }
+    }
+  }
   return out
 }
 
@@ -687,6 +703,12 @@ export function parseSubclasses(
       // `parsePickList` builds globally-unique pick ids from this.
       sub.grant = parseGrant(r.grant, `${ownerId}-${id}`)
     }
+    // A third caster's own progression — the Arcane Trickster shape.
+    // `serializeSubclass` has always *written* this (it spreads the whole
+    // object), so a file could hold one while this parser walked straight past
+    // it: the block survived a save and vanished on the next load.
+    const spellcasting = parseSpellcasting(r.spellcasting)
+    if (spellcasting) sub.spellcasting = spellcasting
     return [sub]
   })
 }
@@ -715,13 +737,55 @@ function stripPicks(grant: Grant): unknown {
  * character who took it is unaffected, because `Character.subclass` is free
  * text.
  */
-export function serializeSubclass(sub: SubclassInfo): unknown {
-  const bare =
+/**
+ * Whether a grant hands over nothing at all.
+ *
+ * The editor always has a `Grant` object to bind to, so an untouched one is
+ * `{}` rather than absent. Storing that would make `isBareSubclass` judge a
+ * subclass non-bare on the strength of an empty object, which then serializes
+ * as `{ name, grant: {} }` instead of a plain string — noise in a file the user
+ * hand-edits. Checked structurally rather than by key count, because a field
+ * present but empty (`skills: []`) is still nothing.
+ */
+export function isEmptyGrant(grant: Grant): boolean {
+  return Object.values(grant).every(
+    (value) =>
+      value === undefined ||
+      (Array.isArray(value) && value.length === 0) ||
+      (typeof value === 'object' &&
+        value !== null &&
+        Object.keys(value).length === 0),
+  )
+}
+
+/**
+ * Whether a subclass carries anything beyond its name.
+ *
+ * Owned here because `serializeSubclass` below is its most important caller:
+ * a bare entry is written back as a plain string, which is what keeps a file
+ * from gaining objects for subclasses that hold nothing. `tables.ts`
+ * re-exports it for the editor and for `layerSubclasses`.
+ *
+ * Every field `SubclassInfo` can carry has to be listed. It was duplicated in
+ * `tables.ts` once, and the copies drifted the moment `spellcasting` arrived —
+ * one counted it, the other called such a subclass bare and discarded it.
+ */
+export function isBareSubclass(sub: SubclassInfo): boolean {
+  return (
     sub.features.length === 0 &&
     sub.summary === undefined &&
     sub.spells === undefined &&
-    sub.grant === undefined
-  if (bare) return sub.name
+    sub.grant === undefined &&
+    sub.spellcasting === undefined
+  )
+}
+
+export function serializeSubclass(sub: SubclassInfo): unknown {
+  // The predicate itself lives in tables.ts and is shared rather than copied.
+  // It was duplicated here, and the two drifted the moment `spellcasting` was
+  // added: this half still called such a subclass bare and wrote it back as a
+  // plain string, discarding the block.
+  if (isBareSubclass(sub)) return sub.name
   const { id: _id, grant, ...rest } = sub
   return grant ? { ...rest, grant: stripPicks(grant) } : rest
 }

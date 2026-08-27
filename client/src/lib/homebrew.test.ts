@@ -3,6 +3,8 @@ import {
   EMPTY_HOMEBREW,
   HOMEBREW_VERSION,
   homebrewId,
+  isBareSubclass,
+  isEmptyGrant,
   parseBackground,
   parseFeat,
   parseHomebrew,
@@ -927,5 +929,121 @@ describe('an authored subclass survives a round trip', () => {
       kits: Array<{ subclasses: Array<unknown> }>
     }
     expect(raw.kits[0].subclasses).toEqual(['Oak'])
+  })
+})
+
+describe('a third caster subclass survives a round trip', () => {
+  /**
+   * `serializeSubclass` has always written this block — it spreads the whole
+   * object — but `parseSubclasses` walked straight past it, so the progression
+   * survived a save and vanished on the next load. Worse, `isBareSubclass` did
+   * not count it, so a subclass whose *only* content was a spellcasting block
+   * was written back as a plain string and lost outright.
+   */
+  const trickster = {
+    kits: [
+      {
+        name: 'Warden',
+        subclasses: [
+          {
+            name: 'Oak',
+            features: [{ level: 3, name: 'Bark Skin' }],
+            spellcasting: {
+              ability: 'int',
+              slotsAtLevel1: 0,
+              cantripsKnown: 2,
+              spellsKnown: 3,
+              prepares: false,
+              listLabel: 'Wizard spells',
+              slotsByLevel: { 3: [2], 7: [4, 2] },
+              cantripsByLevel: { 3: 2, 10: 3 },
+              spellsKnownByLevel: { 3: 3, 4: 4 },
+            },
+          },
+        ],
+      },
+    ],
+  }
+
+  it('reads the block back', () => {
+    const sub = parseHomebrew(trickster).kits[0].subclasses[0]
+    expect(sub.spellcasting?.ability).toBe('int')
+    expect(sub.spellcasting?.listLabel).toBe('Wizard spells')
+    expect(sub.spellcasting?.slotsByLevel).toEqual({ 3: [2], 7: [4, 2] })
+  })
+
+  it('keeps it through serialize and back', () => {
+    const round = parseHomebrew(serializeHomebrew(parseHomebrew(trickster)))
+    expect(round.kits[0].subclasses[0].spellcasting?.slotsByLevel).toEqual({
+      3: [2],
+      7: [4, 2],
+    })
+  })
+
+  it('is not bare when spellcasting is all it has', () => {
+    const only = parseHomebrew({
+      kits: [
+        {
+          name: 'Warden',
+          subclasses: [
+            {
+              name: 'Oak',
+              spellcasting: {
+                ability: 'int',
+                listLabel: 'Wizard spells',
+                slotsByLevel: { 3: [2] },
+              },
+            },
+          ],
+        },
+      ],
+    })
+    const sub = only.kits[0].subclasses[0]
+    expect(isBareSubclass(sub)).toBe(false)
+    // And so it serializes as an object rather than collapsing to a name.
+    const raw = serializeHomebrew(only) as {
+      kits: Array<{ subclasses: Array<unknown> }>
+    }
+    expect(typeof raw.kits[0].subclasses[0]).toBe('object')
+  })
+
+  it('reads spellsKnownByLevel and spellbook, which were dropped', () => {
+    // Declared on `SpellcastingInfo` and never parsed, so a homebrew "known"
+    // caster round-tripped without the table the level-up wizard reads.
+    const hb = parseHomebrew({
+      kits: [
+        {
+          name: 'Warden',
+          spellcasting: {
+            ability: 'wis',
+            listLabel: 'Warden spells',
+            spellsKnownByLevel: { 1: 2, 5: 6 },
+            spellbook: { perLevel: 2 },
+          },
+        },
+      ],
+    })
+    expect(hb.kits[0].spellcasting?.spellsKnownByLevel).toEqual({ 1: 2, 5: 6 })
+    expect(hb.kits[0].spellcasting?.spellbook).toEqual({ perLevel: 2 })
+  })
+})
+
+describe('isEmptyGrant', () => {
+  /**
+   * The editor always has an object to bind to, so an untouched grant is `{}`.
+   * Storing that would make `isBareSubclass` judge the subclass non-bare on the
+   * strength of nothing, and it would serialize as `{ name, grant: {} }`
+   * instead of a plain string — noise in a file people hand-edit.
+   */
+  it('is true for nothing, and for fields present but empty', () => {
+    expect(isEmptyGrant({})).toBe(true)
+    expect(isEmptyGrant({ skills: [], languages: [] })).toBe(true)
+    expect(isEmptyGrant({ currency: {} })).toBe(true)
+  })
+
+  it('is false as soon as anything is actually granted', () => {
+    expect(isEmptyGrant({ skills: ['stealth'] })).toBe(false)
+    expect(isEmptyGrant({ armor: ['medium'] })).toBe(false)
+    expect(isEmptyGrant({ currency: { gp: 10 } })).toBe(false)
   })
 })

@@ -20,7 +20,7 @@ import { PUBLISHED_FEATS } from './feats'
 import { PUBLISHED_RACES } from './races'
 import { publishedSubclassesFor } from './subclasses'
 import type { Homebrew } from './homebrew'
-import { EMPTY_HOMEBREW } from './homebrew'
+import { EMPTY_HOMEBREW, isBareSubclass } from './homebrew'
 import { SRD_BACKGROUNDS, SRD_CLASS_KITS, SRD_FEATS, SRD_RACES } from './srd'
 import type {
   BackgroundInfo,
@@ -184,18 +184,12 @@ export function reconcileSubclasses(
 /**
  * Whether a subclass carries anything beyond its name.
  *
- * Exported for the kit editor, which warns only when there is something to
- * lose. Same predicate `serializeSubclass` uses to decide whether an entry can
- * be written back as a bare string — keep them in step.
+ * Re-exported from `homebrew.ts`, which owns it because `serializeSubclass`
+ * needs the same answer and that module sits below this one. It was a second
+ * copy here, and the two drifted the moment `spellcasting` was added: one half
+ * counted it and the other wrote such a subclass back as a bare string.
  */
-export function isBareSubclass(sub: SubclassInfo): boolean {
-  return (
-    sub.features.length === 0 &&
-    sub.summary === undefined &&
-    sub.spells === undefined &&
-    sub.grant === undefined
-  )
-}
+export { isBareSubclass } from './homebrew'
 
 /**
  * Overlay a legacy subclass list onto a richer one, by name.

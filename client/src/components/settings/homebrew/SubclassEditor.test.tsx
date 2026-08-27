@@ -148,3 +148,72 @@ describe('editing a subclass', () => {
     expect(screen.getByText('1 feature')).toBeDefined()
   })
 })
+
+describe('a fully custom subclass', () => {
+  /** Expand the single row these tests render. */
+  const expand = () => fireEvent.click(screen.getByLabelText('Expand'))
+
+  it('adds an always-prepared spell row at the right two levels', () => {
+    // `grantedAt` is a *character* level and `level` is a *spell* level. They
+    // are different numbers and conflating them is the easy mistake, so the
+    // defaults have to be right: a Cleric row starts at character level 1 for
+    // 1st-level spells.
+    render(<Harness initial={[rich]} />)
+    expand()
+    fireEvent.click(screen.getByLabelText('Add spell row'))
+    expect(state()[0].spells).toEqual([{ grantedAt: 3, level: 1, names: [] }])
+  })
+
+  it('empties bonus spells back to undefined', () => {
+    // Not `[]`: `isBareSubclass` checks for undefined, so an emptied list would
+    // otherwise keep the subclass looking like it carries something and stop it
+    // serializing as a plain name.
+    render(<Harness initial={[rich]} />)
+    expand()
+    fireEvent.click(screen.getByLabelText('Add spell row'))
+    expect(state()[0].spells).toHaveLength(1)
+    fireEvent.click(screen.getByLabelText(/^Remove level 1 spells$/))
+    expect(state()[0].spells).toBeUndefined()
+  })
+
+  it('turns spellcasting on with a usable default', () => {
+    render(<Harness initial={[rich]} />)
+    expand()
+    fireEvent.click(screen.getByLabelText(/^Casts spells from level/))
+    const sc = state()[0].spellcasting
+    expect(sc.ability).toBe('int')
+    // The list label is seeded from the subclass name, because
+    // `spellListClass` derives "whose spell list?" from exactly this string.
+    expect(sc.listLabel).toBe('Champion spells')
+  })
+
+  it('turns spellcasting back off to undefined', () => {
+    render(<Harness initial={[rich]} />)
+    expand()
+    const box = screen.getByLabelText(/^Casts spells from level/)
+    fireEvent.click(box)
+    expect(state()[0].spellcasting).toBeDefined()
+    fireEvent.click(box)
+    expect(state()[0].spellcasting).toBeUndefined()
+  })
+
+  it('lets the spell list be renamed, for a third caster', () => {
+    // An Arcane Trickster is a Rogue casting *wizard* spells. Without this the
+    // label was fixed to the owner's name and suggestions came back empty.
+    render(<Harness initial={[rich]} />)
+    expand()
+    fireEvent.click(screen.getByLabelText(/^Casts spells from level/))
+    fireEvent.change(screen.getByPlaceholderText('Wizard spells'), {
+      target: { value: 'Wizard spells' },
+    })
+    expect(state()[0].spellcasting.listLabel).toBe('Wizard spells')
+  })
+
+  it('says the subclass casts from its own archetype level', () => {
+    // A class casts "at 1st level"; a subclass casts from the level the
+    // archetype is chosen, which is what the harness passes as 3.
+    render(<Harness initial={[rich]} />)
+    expand()
+    expect(screen.getByLabelText('Casts spells from level 3')).toBeDefined()
+  })
+})

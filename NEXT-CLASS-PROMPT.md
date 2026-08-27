@@ -274,7 +274,7 @@ Restore with a Python round-trip (`newline=''`, `.replace('\r\n','\n')` then
 
 ## Where things stand
 
-1341 tests passing (`spellCard.test.ts` still flakes under full-suite parallel
+1353 tests passing (`spellCard.test.ts` still flakes under full-suite parallel
 load — re-run it alone). Done and tested — do not rebuild:
 
 - Subclass features flow through `featuresGained` (class + subclass, one path).
@@ -317,11 +317,26 @@ work?" rather than data authoring:
   bonus. Editable on the sheet, omitted from frontmatter when absent.
   It reaches the eighteen skill rows and stops there — 5e applies it to bare
   ability checks too, and the sheet has no row for those.
-- **Custom subclasses are editable.** `SubclassEditor` + `FeatureRows` replace
-  the old names-only `TokenField`, which lost a subclass's features on rename.
-  The data layer already round-tripped all of this; only the UI was missing.
-  Bonus spells and a subclass `grant` still have no editor — they are *kept*
-  across an edit and the panel says so. Domain spells will want one; see Cleric.
+- **Subclasses are fully authorable.** Every field `SubclassInfo` has now has an
+  editor: summary and features (`FeatureRows`), always-prepared spells
+  (`SubclassSpellRows`), the `grant` (the existing `GrantEditor`, reused) and a
+  third-caster block (`SpellcastingFields`, extracted from the kit editor so
+  both share it). Each empties back to `undefined` rather than `{}` or `[]`, so
+  `isBareSubclass` still recognises a cleared subclass and it serializes as a
+  plain name. Only the progression *tables* stay JSON-only — twenty rows of
+  numbers each — and the panel says where to put them.
+
+  Three data-layer bugs fell out of building it, all silent data loss:
+  `parseSubclasses` never read `spellcasting` back though `serializeSubclass`
+  wrote it; `isBareSubclass` did not count it, so a subclass carrying only that
+  was written back as a bare string and lost outright; and
+  `parseSpellcasting` dropped `spellsKnownByLevel` and `spellbook` for kits too.
+  `isBareSubclass` was also duplicated in `tables.ts` and `homebrew.ts` and the
+  copies had drifted — it now lives in `homebrew.ts` and is re-exported.
+
+  **Relevant to Cleric:** domain spells are `SubclassInfo.spells`, and
+  `grantedAt` (character level) and `level` (spell level) are different numbers.
+  The editor labels them as such because conflating them is the easy mistake.
 
 Known gaps, deliberately left:
 

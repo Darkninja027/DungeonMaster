@@ -3,25 +3,31 @@ import { ChevronRight, Plus, X } from 'lucide-react'
 
 import type { SubclassInfo } from '#/lib/srd'
 import { isBareSubclass } from '#/lib/tables'
-import { homebrewId } from '#/lib/homebrew'
+import { homebrewId, isEmptyGrant } from '#/lib/homebrew'
 import { cn } from '#/lib/utils'
 import { Button } from '#/components/ui/button'
 import { Input } from '#/components/ui/input'
 import { FeatureRows } from './FeatureRows'
+import { GrantEditor } from './GrantEditor'
+import { SpellcastingFields } from './SpellcastingFields'
+import { SubclassSpellRows } from './SubclassSpellRows'
 
 /**
  * The subclasses a class offers, each expandable to edit its summary and
  * features.
  *
- * This replaces a `TokenField` of bare names. The data layer has always been
- * able to carry a subclass's features, summary, bonus spells and grant —
- * `parseSubclasses` reads all four and `serializeSubclass` writes them — so a
- * homebrew subclass could be *represented* on disk but not *authored* anywhere.
- * The kit editor listed the names and apologised for the rest.
+ * This replaces a `TokenField` of bare names. The data layer could always
+ * carry a subclass's features, summary, bonus spells, grant and spellcasting —
+ * so a homebrew subclass was *representable* on disk but not *authorable*
+ * anywhere. The kit editor listed the names and apologised for the rest.
  *
- * Two things it still does not edit: bonus spells and a subclass `grant`. Both
- * are kept across an edit rather than dropped, and the row says so. Domain
- * spells in particular want a table-shaped editor of their own.
+ * Every field `SubclassInfo` has is editable here now, which is what makes a
+ * fully custom subclass possible. Each one empties back to `undefined` rather
+ * than to `{}` or `[]`, so `isBareSubclass` still recognises a subclass that
+ * has been cleared out and `serializeSubclass` writes it back as a plain name.
+ *
+ * The one thing left in JSON is the progression *tables* — twenty rows of
+ * numbers each. `SpellcastingFields` says so where an author will see it.
  *
  * Renaming is safe here in a way it was not before. The old field rebuilt the
  * list from names via `reconcileSubclasses`, which matches on name — so a
@@ -79,10 +85,6 @@ export function SubclassEditor({
 
       {subclasses.map((sub, i) => {
         const expanded = open === i
-        const extras = [
-          sub.spells?.length ? 'bonus spells' : null,
-          sub.grant ? 'a grant' : null,
-        ].filter(Boolean)
         return (
           <div key={i} className="rounded-md border">
             <div className="flex items-center gap-1.5 p-1.5">
@@ -161,12 +163,45 @@ export function SubclassEditor({
                   onChange={(features) => patchAt(i, { features })}
                 />
 
-                {extras.length > 0 && (
-                  <p className="text-muted-foreground border-t pt-2 text-xs">
-                    This also carries {extras.join(' and ')}, which can&rsquo;t
-                    be edited here yet. They&rsquo;re kept as you edit.
+                <div className="border-t pt-3">
+                  <SubclassSpellRows
+                    spells={sub.spells ?? []}
+                    minLevel={subclassLevel}
+                    onChange={(spells) =>
+                      // Back to undefined when emptied, so `isBareSubclass`
+                      // still recognises a subclass that now carries nothing.
+                      patchAt(i, {
+                        spells: spells.length > 0 ? spells : undefined,
+                      })
+                    }
+                  />
+                </div>
+
+                <div className="space-y-1.5 border-t pt-3">
+                  <span className="text-xs font-medium">Grants</span>
+                  <p className="text-muted-foreground text-xs">
+                    Proficiencies and the like, applied on the level-up that
+                    chooses this archetype.
                   </p>
-                )}
+                  <GrantEditor
+                    grant={sub.grant ?? {}}
+                    onChange={(grant) =>
+                      patchAt(i, {
+                        grant: isEmptyGrant(grant) ? undefined : grant,
+                      })
+                    }
+                  />
+                </div>
+
+                <div className="space-y-1.5 border-t pt-3">
+                  <span className="text-xs font-medium">Spellcasting</span>
+                  <SpellcastingFields
+                    value={sub.spellcasting}
+                    ownerName={sub.name}
+                    enableLabel={`Casts spells from level ${subclassLevel}`}
+                    onChange={(spellcasting) => patchAt(i, { spellcasting })}
+                  />
+                </div>
               </div>
             )}
           </div>
