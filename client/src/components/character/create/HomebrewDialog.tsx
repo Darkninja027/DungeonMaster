@@ -2,7 +2,12 @@ import { useEffect, useState } from 'react'
 import { Sparkles } from 'lucide-react'
 import type { BackgroundInfo, ClassKit, FeatInfo, RaceInfo } from '#/lib/srd'
 import type { Homebrew } from '#/lib/homebrew'
-import { homebrewId, parseHomebrew, serializeHomebrew } from '#/lib/homebrew'
+import {
+  homebrewId,
+  parseHomebrew,
+  serializeHomebrew,
+  upsert,
+} from '#/lib/homebrew'
 import { useHomebrew, useSaveHomebrew } from '#/lib/useHomebrew'
 import {
   BackgroundEditor,
@@ -31,30 +36,10 @@ import {
 } from '#/components/ui/dialog'
 import { ScrollArea } from '#/components/ui/scroll-area'
 
-export type HomebrewKind = 'race' | 'background' | 'kit' | 'feat'
+// Re-exported for the callers that imported it from here before it moved.
+export { upsert }
 
-/**
- * Add an entry, or replace the one that already has its name.
- *
- * **Appending a same-named entry silently loses it.** A homebrew `id` is derived
- * from the name and stripped on write, so two entries with one name collide on
- * reload — and `parseHomebrew`'s dedupe keeps the *first*, discarding the one
- * just authored. The footer promises "saving replaces it"; this is what makes
- * that true.
- *
- * Replacing in place also keeps the entry's position, matching `layer()` in
- * tables.ts: overriding something shouldn't make it jump down the list.
- */
-export function upsert<T extends { name: string }>(
-  list: Array<T>,
-  entry: T,
-): Array<T> {
-  const key = entry.name.trim().toLowerCase()
-  const at = list.findIndex((e) => e.name.trim().toLowerCase() === key)
-  return at === -1
-    ? [...list, entry]
-    : list.map((e, i) => (i === at ? entry : e))
-}
+export type HomebrewKind = 'race' | 'background' | 'kit' | 'feat'
 
 /**
  * Create a race, class or background without leaving the wizard.

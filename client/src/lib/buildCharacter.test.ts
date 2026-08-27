@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
   abilityMod,
+  alwaysPreparedCount,
   hitDiceArePinned,
   parseCharacter,
+  preparedCount,
   serializeCharacter,
   ABILITIES,
 } from './character'
@@ -138,7 +140,15 @@ describe('a fully specified Hill Dwarf Cleric', () => {
     // Preparers get mod + level.
     expect(character.preparedLimit).toBe(abilityMod(16) + 1)
     expect(character.spells.map((s) => s.name)).toContain('Sacred Flame')
-    expect(character.spells.every((s) => s.level === 0)).toBe(true)
+    // A preparer chooses no spells at creation, so nothing here was *picked*
+    // above cantrip level. The domain's own rows are the one exception and
+    // arrive always-prepared — see 'a subclass chosen at creation' below.
+    expect(
+      character.spells.every((s) => s.level === 0 || s.alwaysPrepared),
+    ).toBe(true)
+    expect(
+      character.spells.filter((s) => s.level > 0 && !s.alwaysPrepared),
+    ).toEqual([])
   })
 
   it('collects languages from race and background without duplicates', () => {
@@ -1292,5 +1302,101 @@ describe('AC is derived once at creation', () => {
     ).character
     // Chain mail is AC 16 flat, no Dexterity. Defense makes it 17 — never 18.
     expect(withDefense.ac).toBe(17)
+  })
+})
+
+/**
+ * A class that picks its subclass at level 1 — Cleric, Sorcerer, Warlock.
+ *
+ * No class before the Cleric exercised this at all: every archetype done
+ * previously is chosen at 3rd, so the level-up wizard owned the whole path and
+ * creation could ignore subclasses entirely. It did, and a Life Domain cleric
+ * built here got Spellcasting, Divine Domain, and nothing else.
+ */
+describe('a subclass chosen at creation', () => {
+  it('grants the domain’s own level-1 features', () => {
+    const c = buildCharacter(hillDwarfCleric()).character
+    const names = c.features.map((f) => f.name)
+    expect(names).toContain('Disciple of Life')
+    expect(names).toContain('Bonus Proficiency')
+    // The class's own are still there and still first.
+    expect(names).toContain('Divine Domain')
+  })
+
+  it('grants nothing from a later level', () => {
+    // The same line `featuresUpToLevel` draws for the class. Blessed Healer is
+    // 6th; a level-1 cleric has not earned it.
+    const c = buildCharacter(hillDwarfCleric()).character
+    const names = c.features.map((f) => f.name)
+    expect(names).not.toContain('Blessed Healer')
+    expect(names).not.toContain('Divine Strike')
+  })
+
+  it('applies the domain’s grant', () => {
+    // Life Domain's heavy armour — the case `SubclassInfo.grant`'s own doc
+    // comment names. It rides `draftGrants`, so it lands the same way a race's
+    // does rather than through a special case.
+    const c = buildCharacter(hillDwarfCleric()).character
+    expect(c.armor).toContain('heavy')
+    // The class's own proficiencies survive it.
+    expect(c.armor).toContain('light')
+    expect(c.armor).toContain('medium')
+  })
+
+  it('puts the 1st-level domain spells on the sheet, always prepared', () => {
+    const c = buildCharacter(hillDwarfCleric()).character
+    const bless = c.spells.find((sp) => sp.name === 'Bless')
+    const cure = c.spells.find((sp) => sp.name === 'Cure Wounds')
+    expect(bless?.level).toBe(1)
+    expect(bless?.alwaysPrepared).toBe(true)
+    expect(cure?.alwaysPrepared).toBe(true)
+  })
+
+  it('grants only the rows a level-1 character has reached', () => {
+    // `grantedAt` is the character level, not the spell level. A level-1
+    // cleric has the 1st-level row and none of the four above it.
+    const c = buildCharacter(hillDwarfCleric()).character
+    const names = c.spells.map((sp) => sp.name)
+    expect(names).not.toContain('Spiritual Weapon') // grantedAt 3
+    expect(names).not.toContain('Revivify') // grantedAt 5
+  })
+
+  it('keeps domain spells outside the prepared limit', () => {
+    // The whole reason `alwaysPrepared` exists. A cleric prepares Wisdom
+    // modifier + level spells; the domain's two are on top of that, not part
+    // of it, so they must not be counted by `preparedCount`.
+    const c = buildCharacter(hillDwarfCleric()).character
+    expect(alwaysPreparedCount(c)).toBe(2)
+    expect(preparedCount(c)).toBe(0)
+    expect(c.preparedLimit).toBe(Math.max(1, abilityMod(c.abilities.wis) + 1))
+  })
+
+  it('leaves a class that picks its archetype later alone', () => {
+    // A Fighter names an archetype at 3rd. Typing one during creation still
+    // records the name, and still grants nothing — the level-up wizard owns
+    // that, and creation must not front-run it.
+    const draft = {
+      ...hillDwarfCleric(),
+      className: 'Fighter',
+      subclassName: 'Champion',
+      picks: {},
+      equipment: {},
+      cantrips: [],
+    }
+    const c = buildCharacter(draft).character
+    expect(c.subclass).toBe('Champion')
+    expect(c.features.map((f) => f.name)).not.toContain('Improved Critical')
+  })
+
+  it('records a domain the tables have never heard of', () => {
+    // The standing bargain: a name the tables don't know reaches the sheet and
+    // grants nothing, rather than erroring.
+    const c = buildCharacter({
+      ...hillDwarfCleric(),
+      subclassName: 'Domain of the Screaming Moon',
+    }).character
+    expect(c.subclass).toBe('Domain of the Screaming Moon')
+    expect(c.features.map((f) => f.name)).not.toContain('Disciple of Life')
+    expect(c.armor).not.toContain('heavy')
   })
 })

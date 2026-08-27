@@ -20,7 +20,7 @@ import {
   DialogTitle,
 } from '#/components/ui/dialog'
 import { ScrollArea } from '#/components/ui/scroll-area'
-import { cn } from '#/lib/utils'
+import { WizardRail } from '../create/WizardRail'
 import { LevelUpSummary } from './LevelUpSummary'
 import {
   AsiStep,
@@ -172,34 +172,15 @@ export function LevelUpDialog({
             {/* min-h-0 on the grid and every scrolling child, or the panes grow
                 the dialog past the viewport instead of scrolling inside it. */}
             <div className="grid min-h-0 flex-1 grid-cols-[10rem_1fr] lg:grid-cols-[10rem_1fr_17rem]">
-              <nav className="flex h-full min-h-0 flex-col gap-0.5 overflow-y-auto border-r p-2">
-                {steps.map((id, i) => {
-                  const reachable =
-                    i <= index ||
-                    steps.slice(0, i).every((s) => canAdvance(draft, s))
-                  return (
-                    <button
-                      key={id}
-                      type="button"
-                      disabled={!reachable}
-                      onClick={() => setStep(id)}
-                      className={cn(
-                        'flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors',
-                        id === step && 'bg-accent font-medium',
-                        id !== step && reachable && 'hover:bg-accent/50',
-                        !reachable && 'cursor-not-allowed opacity-40',
-                      )}
-                    >
-                      <span className="text-muted-foreground text-[10px] tabular-nums">
-                        {i + 1}
-                      </span>
-                      <span className="min-w-0 truncate">
-                        {STEP_TITLES[id]}
-                      </span>
-                    </button>
-                  )
-                })}
-              </nav>
+              {/* No `summary` prop: this rail is the compact single-line
+                  variant, which is what it always was inline. */}
+              <WizardRail
+                steps={steps}
+                current={step}
+                onGo={setStep}
+                isComplete={(s) => canAdvance(draft, s)}
+                label={(s) => STEP_TITLES[s]}
+              />
 
               <ScrollArea className="min-h-0 min-w-0">
                 <div className="p-5">

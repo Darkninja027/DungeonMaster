@@ -1047,3 +1047,209 @@ describe('isEmptyGrant', () => {
     expect(isEmptyGrant({ currency: { gp: 10 } })).toBe(false)
   })
 })
+
+describe('standalone subclasses on disk', () => {
+  const swords = {
+    className: 'Bard',
+    name: 'College of Swords',
+    summary: 'A blade as an instrument.',
+    features: [{ level: 3, name: 'Blade Flourish', text: 'Flourish.' }],
+  }
+
+  it('round-trips with its class attached', () => {
+    const round = parseHomebrew(
+      serializeHomebrew(parseHomebrew({ subclasses: [swords] })),
+    )
+    expect(round.subclasses).toHaveLength(1)
+    expect(round.subclasses[0].className).toBe('Bard')
+    expect(round.subclasses[0].name).toBe('College of Swords')
+    expect(round.subclasses[0].features).toEqual([
+      { level: 3, name: 'Blade Flourish', text: 'Flourish.' },
+    ])
+  })
+
+  it('drops an entry with no class to attach to', () => {
+    // It would have nowhere to go and would silently never appear.
+    expect(
+      parseHomebrew({ subclasses: [{ name: 'Orphan' }] }).subclasses,
+    ).toEqual([])
+    expect(
+      parseHomebrew({ subclasses: [{ ...swords, className: '  ' }] })
+        .subclasses,
+    ).toEqual([])
+  })
+
+  it('drops a nameless entry', () => {
+    expect(
+      parseHomebrew({ subclasses: [{ className: 'Bard' }] }).subclasses,
+    ).toEqual([])
+  })
+
+  it('de-dupes on class and name together, not name alone', () => {
+    // Two classes may each offer a "Hunter"; the shared id-based de-dupe would
+    // have thrown one away.
+    const both = parseHomebrew({
+      subclasses: [
+        { className: 'Ranger', name: 'Hunter', features: [] },
+        { className: 'Bard', name: 'Hunter', features: [] },
+        { className: 'ranger', name: 'hunter', features: [] },
+      ],
+    })
+    expect(both.subclasses.map((s) => s.className)).toEqual(['Ranger', 'Bard'])
+  })
+
+  it('keeps a class the tables do not know', () => {
+    // It may be defined in a world this global file cannot see.
+    const hb = parseHomebrew({
+      subclasses: [{ ...swords, className: 'Blood Hunter' }],
+    })
+    expect(hb.subclasses[0].className).toBe('Blood Hunter')
+  })
+
+  it('reads everything a subclass can carry', () => {
+    const full = parseHomebrew({
+      subclasses: [
+        {
+          ...swords,
+          spells: [{ grantedAt: 3, level: 1, names: ['Bless'] }],
+          grant: { armor: ['medium'] },
+          spellcasting: {
+            ability: 'cha',
+            listLabel: 'Bard spells',
+            slotsByLevel: { 3: [2] },
+          },
+        },
+      ],
+    })
+    const sub = full.subclasses[0]
+    expect(sub.spells).toEqual([{ grantedAt: 3, level: 1, names: ['Bless'] }])
+    expect(sub.grant?.armor).toEqual(['medium'])
+    expect(sub.spellcasting?.ability).toBe('cha')
+  })
+
+  it('treats a missing key as none', () => {
+    expect(parseHomebrew({}).subclasses).toEqual([])
+    expect(parseHomebrew({ subclasses: 'nope' }).subclasses).toEqual([])
+  })
+})
+
+/**
+ * A per-level choice on a feature — the College of Swords offering two Fighting
+ * Styles at 3rd level.
+ *
+ * `parseFeatures` used to return `{ level, name, text }` and nothing else, so
+ * `picks` and `resource` were destroyed on load. That made this unauthorable by
+ * *any* route: hand-writing it into homebrew.json parsed to nothing, and the
+ * next save wrote the loss back out. The data model always supported it — the
+ * Champion's second Fighting Style at 10th ships in `classKits.ts`.
+ */
+describe('a choice on a feature', () => {
+  const swordsWithPick = {
+    className: 'Bard',
+    name: 'College of Swords',
+    features: [
+      {
+        level: 3,
+        name: 'Fighting Style',
+        text: 'You adopt a style.',
+        picks: [
+          {
+            kind: 'feature',
+            label: 'Choose a Fighting Style',
+            count: 1,
+            options: ['Dueling', 'Two-Weapon Fighting'],
+            featureLabel: 'Fighting Style',
+            featureText: { Dueling: '+2 damage with one one-handed weapon.' },
+            featureGrant: { Dueling: { skills: ['athletics'] } },
+          },
+        ],
+        resource: { name: 'Bardic Inspiration', total: 3, resets: 'long' },
+      },
+    ],
+  }
+
+  it('survives the parse it used to be destroyed by', () => {
+    const feature = parseHomebrew({ subclasses: [swordsWithPick] })
+      .subclasses[0].features[0]
+    expect(feature.picks).toHaveLength(1)
+    expect(feature.resource).toEqual({
+      name: 'Bardic Inspiration',
+      total: 3,
+      resets: 'long',
+    })
+  })
+
+  it('keeps the feature kind rather than coercing it to other', () => {
+    // `PICK_KINDS` omitted 'feature', so it parsed as 'other' — which
+    // `applyPicks` records and then discards.
+    const pick = parseHomebrew({ subclasses: [swordsWithPick] }).subclasses[0]
+      .features[0].picks![0]
+    expect(pick.kind).toBe('feature')
+    expect(pick.featureLabel).toBe('Fighting Style')
+    expect(pick.featureText).toEqual({
+      Dueling: '+2 damage with one one-handed weapon.',
+    })
+    expect(pick.featureGrant).toEqual({ Dueling: { skills: ['athletics'] } })
+  })
+
+  it('namespaces the pick id through the subclass, not the class', () => {
+    // Ids share one keyspace across every table; two archetypes of one class
+    // can each pose a choice.
+    const pick = parseHomebrew({ subclasses: [swordsWithPick] }).subclasses[0]
+      .features[0].picks![0]
+    expect(pick.id).toContain('college-of-swords')
+    expect(pick.id).toContain('fighting-style')
+  })
+
+  it('round-trips without leaking the derived id to disk', () => {
+    const parsed = parseHomebrew({ subclasses: [swordsWithPick] })
+    const written = serializeHomebrew(parsed) as {
+      subclasses: Array<{ features: Array<{ picks: Array<{ id?: string }> }> }>
+    }
+    const pick = written.subclasses[0].features[0].picks[0]
+    expect(pick.id).toBeUndefined()
+    expect(pick).toMatchObject({ kind: 'feature', featureLabel: 'Fighting Style' })
+  })
+
+  it('is stable across a second parse', () => {
+    // A file that changes shape every time it is opened would churn on disk.
+    const once = parseHomebrew({ subclasses: [swordsWithPick] })
+    const twice = parseHomebrew(serializeHomebrew(once))
+    expect(twice.subclasses[0].features[0]).toEqual(
+      once.subclasses[0].features[0],
+    )
+  })
+
+  it('carries picks on a class kit’s features too', () => {
+    const kit = parseHomebrew({
+      kits: [{ name: 'Warden', features: swordsWithPick.features }],
+    }).kits[0]
+    expect(kit.features[0].picks).toHaveLength(1)
+  })
+
+  it('keeps halfProficiency, the third field with no editor', () => {
+    const feature = parseHomebrew({
+      kits: [
+        {
+          name: 'Warden',
+          features: [{ level: 2, name: 'Jack of All Trades', halfProficiency: 'all' }],
+        },
+      ],
+    }).kits[0].features[0]
+    expect(feature.halfProficiency).toBe('all')
+  })
+
+  it('drops a closed choice with no options, which can never be answered', () => {
+    const feature = parseHomebrew({
+      kits: [
+        {
+          name: 'Warden',
+          features: [
+            { level: 1, name: 'Nothing', picks: [{ kind: 'feature', label: 'X', count: 1, options: [] }] },
+          ],
+        },
+      ],
+    }).kits[0].features[0]
+    expect(feature.picks).toBeUndefined()
+  })
+})

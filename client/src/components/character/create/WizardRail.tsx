@@ -1,72 +1,57 @@
 import { Check } from 'lucide-react'
-import type { CharacterDraft, StepId } from '#/lib/characterDraft'
-import { canAdvance } from '#/lib/characterDraft'
 import { cn } from '#/lib/utils'
 
-const STEP_TITLES: Record<StepId, string> = {
-  name: 'Name',
-  race: 'Race',
-  class: 'Class',
-  abilities: 'Ability scores',
-  background: 'Background',
-  skills: 'Skills',
-  spells: 'Spells',
-  equipment: 'Equipment',
-  review: 'Review',
-}
-
-/** The one-line answer a completed step gives, shown under its title. */
-function summaryFor(draft: CharacterDraft, step: StepId): string | null {
-  switch (step) {
-    case 'name':
-      return draft.name.trim() || null
-    case 'race':
-      return draft.subraceName || draft.raceName || null
-    case 'class':
-      return (
-        [draft.className, draft.subclassName].filter(Boolean).join(' · ') ||
-        null
-      )
-    case 'abilities':
-      return canAdvance(draft, 'abilities') ? 'Set' : null
-    case 'background':
-      return draft.backgroundName || null
-    case 'skills':
-      return canAdvance(draft, 'skills') ? 'Chosen' : null
-    case 'spells':
-      return draft.cantrips.length + draft.spells.length > 0
-        ? `${draft.cantrips.length + draft.spells.length} picked`
-        : null
-    case 'equipment':
-      return canAdvance(draft, 'equipment') ? 'Packed' : null
-    case 'review':
-      return null
-  }
-}
-
-export function WizardRail({
-  draft,
+/**
+ * The step rail every wizard shares.
+ *
+ * Generic over the step id because there are three wizards now — character
+ * creation, level-up, and authoring a homebrew subclass — and they agreed on
+ * this shape long before they shared any code. The reachability rule below was
+ * duplicated character-for-character in `LevelUpDialog`, which is what made the
+ * third copy worth avoiding.
+ *
+ * The one thing that used to weld this to characters was a module-level
+ * `import { canAdvance } from '#/lib/characterDraft'`. It is a prop now, so the
+ * rail knows nothing about drafts at all: a caller closes over whatever its own
+ * gate function is. Each wizard keeps its own `Record<StepId, string>` label map
+ * rather than passing one in, because that map's exhaustiveness check is what
+ * errors when a step is added — a `Record<string, string>` here would lose it.
+ */
+export function WizardRail<T extends string>({
   steps,
   current,
   onGo,
+  isComplete,
+  label,
+  summary,
 }: {
-  draft: CharacterDraft
-  steps: Array<StepId>
-  current: StepId
-  onGo: (step: StepId) => void
+  steps: Array<T>
+  current: T
+  onGo: (step: T) => void
+  /** Whether a step's requirements are met — the caller's own gate, curried. */
+  isComplete: (step: T) => boolean
+  /** The short rail label for a step. */
+  label: (step: T) => string
+  /**
+   * The one-line answer a completed step gives, shown under its title.
+   *
+   * Optional: omitting it renders the compact single-line row, which is exactly
+   * what level-up's hand-rolled rail did. One conditional rather than a fork.
+   */
+  summary?: (step: T) => string | null
 }) {
   const currentIndex = steps.indexOf(current)
 
   return (
     <nav className="flex h-full min-h-0 flex-col gap-0.5 overflow-y-auto border-r p-2">
       {steps.map((step, i) => {
-        const done = canAdvance(draft, step) && i < currentIndex
+        const done = isComplete(step) && i < currentIndex
         const active = step === current
         // Steps ahead of the furthest satisfied point stay unreachable, so the
         // rail can't be used to skip a gate the Next button enforces.
         const reachable =
-          i <= currentIndex ||
-          steps.slice(0, i).every((s) => canAdvance(draft, s))
+          i <= currentIndex || steps.slice(0, i).every((s) => isComplete(s))
+        const line = summary?.(step) ?? null
         return (
           <button
             key={step}
@@ -74,21 +59,28 @@ export function WizardRail({
             disabled={!reachable}
             onClick={() => onGo(step)}
             className={cn(
-              'flex items-start gap-2 rounded-md px-2 py-1.5 text-left transition-colors',
+              'flex gap-2 rounded-md px-2 py-1.5 text-left transition-colors',
+              summary ? 'items-start' : 'items-center',
               active && 'bg-accent',
               !active && reachable && 'hover:bg-accent/50',
               !reachable && 'cursor-not-allowed opacity-40',
             )}
           >
-            <span
-              className={cn(
-                'mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full border text-[10px] tabular-nums',
-                done && 'border-primary bg-primary text-primary-foreground',
-                active && !done && 'border-primary',
-              )}
-            >
-              {done ? <Check className="size-2.5" /> : i + 1}
-            </span>
+            {summary ? (
+              <span
+                className={cn(
+                  'mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full border text-[10px] tabular-nums',
+                  done && 'border-primary bg-primary text-primary-foreground',
+                  active && !done && 'border-primary',
+                )}
+              >
+                {done ? <Check className="size-2.5" /> : i + 1}
+              </span>
+            ) : (
+              <span className="text-muted-foreground text-[10px] tabular-nums">
+                {i + 1}
+              </span>
+            )}
             <span className="min-w-0">
               <span
                 className={cn(
@@ -96,11 +88,11 @@ export function WizardRail({
                   active && 'font-medium',
                 )}
               >
-                {STEP_TITLES[step]}
+                {label(step)}
               </span>
-              {summaryFor(draft, step) && (
+              {line && (
                 <span className="text-muted-foreground block truncate text-xs">
-                  {summaryFor(draft, step)}
+                  {line}
                 </span>
               )}
             </span>

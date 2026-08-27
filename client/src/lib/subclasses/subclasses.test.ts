@@ -119,6 +119,93 @@ describe('published subclasses', () => {
   })
 })
 
+describe('the cleric domains', () => {
+  // A cleric picks at level 1, so these are the first subclasses that have to
+  // work at *creation* rather than only at level-up. All seven are checked
+  // together because they were authored together and the split between the
+  // SRD one and the six published ones is invisible from the merged tables.
+  const cleric = findKit(SRD_TABLES.kits, 'Cleric')
+  const DOMAINS = [
+    'Knowledge Domain',
+    'Life Domain',
+    'Light Domain',
+    'Nature Domain',
+    'Tempest Domain',
+    'Trickery Domain',
+    'War Domain',
+  ]
+
+  it('all seven carry features and a domain spell table', () => {
+    for (const name of DOMAINS) {
+      const sub = cleric?.subclasses.find((s) => s.name === name)
+      expect(sub, name).toBeDefined()
+      expect(sub?.features.length, name).toBeGreaterThan(0)
+      expect(sub?.spells?.length, name).toBe(5)
+    }
+  })
+
+  it('grant their domain spells at 1, 3, 5, 7 and 9', () => {
+    // The shape 5e uses for every domain. A row at the wrong character level
+    // is silent — it just arrives on the wrong level-up.
+    for (const name of DOMAINS) {
+      const sub = cleric?.subclasses.find((s) => s.name === name)
+      expect(
+        sub?.spells?.map((row) => row.grantedAt),
+        name,
+      ).toEqual([1, 3, 5, 7, 9])
+      // Spell level tracks character level: 1st-level spells at 1, 2nd at 3.
+      expect(
+        sub?.spells?.map((row) => row.level),
+        name,
+      ).toEqual([1, 2, 3, 4, 5])
+      for (const row of sub?.spells ?? []) {
+        expect(row.names.length, name + ' at ' + row.grantedAt).toBe(2)
+      }
+    }
+  })
+
+  it('each offer a Channel Divinity option at 2nd', () => {
+    // The class grants the counter at 2; the domain is what it is spent on.
+    for (const name of DOMAINS) {
+      const sub = cleric?.subclasses.find((s) => s.name === name)
+      const at2 = sub?.features.filter((f) => f.level === 2) ?? []
+      expect(
+        at2.some((f) => f.name.startsWith('Channel Divinity')),
+        name,
+      ).toBe(true)
+    }
+  })
+
+  it('never author a counter of their own', () => {
+    // Channel Divinity is the cleric's counter and only three fit on a sheet.
+    // A domain adding a second would crowd it out for that domain alone.
+    for (const name of DOMAINS) {
+      const sub = cleric?.subclasses.find((s) => s.name === name)
+      for (const f of sub?.features ?? []) {
+        expect(f.resource, name + '/' + f.name).toBeUndefined()
+      }
+    }
+  })
+
+  it('scale Divine Strike as its own row rather than prose', () => {
+    // Every domain that has it upgrades at 14. Folded into the level-8 text it
+    // would be prose the level-up wizard cannot grant.
+    for (const name of DOMAINS) {
+      const sub = cleric?.subclasses.find((s) => s.name === name)
+      const has8 = sub?.features.some(
+        (f) => f.level === 8 && f.name === 'Divine Strike',
+      )
+      if (!has8) continue
+      expect(
+        sub?.features.some(
+          (f) => f.level === 14 && f.name.startsWith('Divine Strike'),
+        ),
+        name,
+      ).toBe(true)
+    }
+  })
+})
+
 describe('the SRD boundary', () => {
   it('keeps every published subclass out of lib/srd', () => {
     // The promise in `lib/srd/index.ts` is that only SRD 5.1 content lives
@@ -149,6 +236,7 @@ describe('the SRD boundary', () => {
       [
         'Barbarian/Path of the Berserker',
         'Bard/College of Lore',
+        'Cleric/Life Domain',
         'Fighter/Champion',
         'Rogue/Thief',
         // Not SRD 5.1, and knowingly here: these four predate the published

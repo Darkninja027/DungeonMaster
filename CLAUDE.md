@@ -92,6 +92,12 @@ rule; the number only claims what it can honestly compute.
 `srd.test.ts` asserts data integrity — every skill
 id real, every `PickList.id` globally unique — because a transcription error
 here is silent: a mistyped skill just vanishes when the sheet parses it back.
+Its two walkers are the thing to keep honest: `allPickLists()` missed
+`features[].picks` for as long as those existed, and `allGrants()` missed
+`SubclassInfo.grant` the same way, so every subclass grant in the tables went
+unchecked until domain spells made it matter. A new place a `Grant` or a
+`PickList` can hang needs adding to the walker, or the invariants quietly stop
+covering it.
 
 `lib/srd/` carries **per-level progression** — features by level, spell slot
 tables, ASI levels — and there is a line. What a class gains as it levels is in,
@@ -196,6 +202,35 @@ It never rewrites `hp.current`, never edits an existing feature, never lowers a
 slot total. A character is somebody's work. The draft carries its own `base`
 snapshot so the step list can't change shape while the dialog is open.
 
+**A subclass applies at creation, not only at level-up.** Cleric, Sorcerer and
+Warlock choose at level 1, so `buildCharacter` has to do what the level-up
+wizard does for an archetype picked at 3rd. The subclass rides `draftGrants` and
+`draftOwnedPickLists` in `characterDraft.ts` — two functions documented as
+mirrors, and a source added to one and not the other is a draft that grants
+something it never asked about. Going through them is deliberate: a subclass's
+`acBonus`, `speedBonus`, `initiativeBonus` and `hpPerLevel` are summed over
+exactly that list, so a grant applied anywhere else is silently missed by all
+four. `buildCharacter` then folds in `featuresUpToLevel(subclass.features, 1)`
+and reads **`spellcastingFor(kit, subclassName)`**, never `kit.spellcasting`.
+
+**`SubclassInfo.spells` is the always-prepared table** — domain, oath and circle
+spells — and is not `Grant.spells`. The two are different fields for different
+things and have separate appliers on purpose: `applyGrantSpells` is a fixed
+spell handed over once and its doc comment *forbids* `alwaysPrepared`, while
+`applySubclassSpells` writes rows that are always prepared and exempt from
+`preparedLimit` (`preparedCount` counts only `'prepared'`, which is what makes
+the exemption real). `grantedAt` is the **character** level and `level` the
+**spell** level; conflating them is the easy mistake. At level-up the rows ride
+`alwaysPreparedGained` on the plan, computed over the levels *gained* and
+deliberately **outside** the `plan.subclassName` branch — that field is null on
+every level-up after the archetype is chosen, so keying off it would deliver the
+first row and silently drop the rest.
+
+Related: `needsSubclass` gates on `at <= to`, not `at > from`. The latter asks
+only on the level-up that crosses the threshold, which can never fire for a
+class picking at 1 — a domainless cleric was stuck that way forever. The
+"already has one" guard is what prevents re-asking.
+
 A `ClassKit` is the **whole definition of a class** — hit die and subclasses for
 the character sheet, starting gear and features for the wizard. These were two
 tables once (`ClassInfo` per-world, kits global, joined by name); they were
@@ -240,6 +275,68 @@ was duplicated in `tables.ts` and `homebrew.ts` once and the copies drifted the
 moment `spellcasting` arrived — one counted it, the other wrote such a subclass
 back as a bare string and lost it. It lives in `homebrew.ts` now, beside its
 most important caller, and `tables.ts` re-exports it.
+
+**Creating one is a wizard; editing one is not.** Add on the Subclasses tab
+opens `SubclassWizard` — class, then name, then features, extras and a review —
+while selecting an existing entry still opens the all-at-once form. The split is
+the point: a wizard orders questions well and traps you badly, so coming back to
+change one damage resistance must not cost five clicks. Every step body is an
+existing component, so the wizard adds no second way to author a field.
+
+Two things it is really for. Only **class and name** gate, which is the spine
+the flat form lacked — every field there was optional and nothing said which two
+mattered; these are exactly the two `parseHomebrewSubclasses` drops an entry for.
+And the draft lives in the dialog, so cancelling leaves nothing: the old Add
+appended a blank row immediately, which on cancel left an "Untitled" entry that
+marked the file dirty and then vanished on the next load, because every parser
+drops a nameless entry. Commit goes through `upsert` (now in `lib/homebrew.ts`,
+shared with the inline `HomebrewDialog`) rather than appending, since a
+same-named entry is the *newer* one `parseHomebrew`'s dedupe discards.
+
+The review step warns about the one case that is silently inert: a **bare**
+subclass whose name a class already has. `layerSubclasses` skips it, so it would
+save to disk and never appear anywhere — bare under a *new* name is fine and
+simply appends. That warning is the whole reason the review step earns its place.
+
+`SubclassPanel` is now composed from `SubclassSummaryField`,
+`SubclassFeatureRows` and `SubclassExtras` so the wizard can put features on
+their own step. They are parts of the same panel rather than a copy of it,
+which is what still stops the tab, the kit editor and the wizard from drifting.
+
+The **step rail is shared**. `WizardRail` is generic over the step id and takes
+`isComplete`, `label` and an optional `summary` as props; it used to import
+`canAdvance` from `characterDraft` at module scope, which was the one thing
+welding it to characters. Character creation, level-up and this wizard all render
+it — level-up had hand-rolled a character-for-character copy of its reachability
+rule. Omitting `summary` gives the compact single-line variant, which is exactly
+what level-up's copy was. Each wizard keeps its own `Record<StepId, string>`
+label map, because that map's exhaustiveness check is what errors when a step is
+added.
+
+**A feature's per-level choice is authorable.** `ClassFeatureInfo.picks` is how
+a College of Swords offers two Fighting Styles at 3rd level, and it was
+**unauthorable by any route** until recently: `parseFeatures` returned
+`{ level, name, text }` and nothing else, so hand-writing one into
+`homebrew.json` parsed to nothing and the next save wrote the loss back out.
+`FeatureRows` meanwhile promised "kept as you edit", which was true only of
+built-in data held in memory. Three layers each dropped part of it: the
+features parser, `PICK_KINDS` (which omitted `'feature'`, so the kind whose
+answer *is* a sheet row silently became `'other'` — recorded then discarded),
+and `parsePickList` (which dropped `featureLabel`, `featureText` and
+`featureGrant`). All three read now, and `resource` and `halfProficiency` come
+with them, since dropping those while fixing the others is the same bug.
+
+Pick ids are namespaced by **owner**, and for a subclass that owner is the
+subclass rather than its class — two archetypes of one class can each pose a
+choice. `serializeFeatures` strips the derived id on the way out, the same rule
+`stripPicks` follows for a grant.
+
+`PickEditor` is shared by `GrantEditor`'s creation-time choices and
+`FeatureRows`' per-level ones, so the two cannot drift — a choice is a choice
+wherever it is authored, and only the owner differs. It offers every kind,
+including the three the old dropdown omitted. `featureGrant` stays JSON-only:
+it is a `Grant` per option, and nearly every real one is empty because "+2 to
+ranged attack rolls" is a combat rule this app does not model.
 
 Only the spell *progression tables* stay JSON-only — twenty rows of numbers
 each, wanting a table editor rather than a form. They round-trip untouched and

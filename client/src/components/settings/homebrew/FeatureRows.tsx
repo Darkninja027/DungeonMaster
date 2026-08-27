@@ -4,6 +4,7 @@ import type { ClassFeatureInfo } from '#/lib/srd'
 import { Button } from '#/components/ui/button'
 import { Input } from '#/components/ui/input'
 import { Textarea } from '#/components/ui/textarea'
+import { PickRows } from './PickEditor'
 
 /**
  * The level/name/text rows a class or subclass gains as it levels.
@@ -96,24 +97,52 @@ export function FeatureRows({
               onChange={(e) => patchAt(i, { text: e.target.value })}
             />
             {/*
-              Says what this form is keeping but cannot show, so an editor who
-              sees a feature they authored elsewhere knows their picks and
-              counters are still there rather than assuming they were lost.
+              Choices this feature poses — a Fighting Style at 3rd, a manoeuvre
+              at 7th. Collapsed until there is one, so a feature that asks
+              nothing still reads as two fields and a textarea.
+
+              These were unauthorable by any route until recently:
+              `parseFeatures` dropped `picks` outright, so hand-writing one into
+              homebrew.json parsed to nothing and the next save wrote the loss
+              back out.
             */}
-            {(feature.picks?.length || feature.resource) && (
+            {feature.picks?.length ? (
+              <div className="space-y-1.5 border-l-2 pl-2">
+                <span className="text-muted-foreground text-xs">
+                  Choices this poses
+                </span>
+                <PickRows
+                  picks={feature.picks}
+                  onChange={(picks) =>
+                    patchAt(i, { picks: picks.length > 0 ? picks : undefined })
+                  }
+                  addLabel="Add another choice"
+                />
+              </div>
+            ) : (
+              <button
+                type="button"
+                className="text-muted-foreground hover:text-foreground text-xs underline-offset-2 hover:underline"
+                onClick={() =>
+                  patchAt(i, {
+                    picks: [
+                      { id: '', kind: 'feature', label: '', count: 1, options: [] },
+                    ],
+                  })
+                }
+              >
+                + Add a choice
+              </button>
+            )}
+
+            {/*
+              Says what this form still cannot show, so an editor who sees a
+              feature they authored elsewhere knows it is intact.
+            */}
+            {feature.resource && (
               <p className="text-muted-foreground text-xs">
-                Also carries{' '}
-                {[
-                  feature.picks?.length
-                    ? `${feature.picks.length} choice${feature.picks.length > 1 ? 's' : ''}`
-                    : null,
-                  feature.resource
-                    ? `a ${feature.resource.name} counter`
-                    : null,
-                ]
-                  .filter(Boolean)
-                  .join(' and ')}
-                , kept as you edit.
+                Also carries a {feature.resource.name} counter, kept as you
+                edit.
               </p>
             )}
           </div>

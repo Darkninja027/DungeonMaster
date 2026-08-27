@@ -1,22 +1,25 @@
 import { useEffect, useRef, useState } from 'react'
 import { Plus, Save, Trash2 } from 'lucide-react'
-import type { Homebrew } from '#/lib/homebrew'
-import { homebrewId } from '#/lib/homebrew'
+import type { Homebrew, HomebrewSubclass } from '#/lib/homebrew'
+import { homebrewId, upsert } from '#/lib/homebrew'
 import { useHomebrew, useSaveHomebrew, useTables } from '#/lib/useHomebrew'
-import { SRD_TABLES, nameKey } from '#/lib/tables'
+import { SRD_TABLES, isBareSubclass, nameKey } from '#/lib/tables'
 import type { BackgroundInfo, ClassKit, FeatInfo, RaceInfo } from '#/lib/srd'
 import { Button } from '#/components/ui/button'
 import { cn } from '#/lib/utils'
 import { BackgroundEditor, blankBackground } from './BackgroundEditor'
 import { BuiltInPreview } from './BuiltInPreview'
+import type { BuiltInSubclass } from './BuiltInPreview'
 import { ClassKitEditor, blankKit } from './ClassKitEditor'
 import { DuplicateDialog } from './DuplicateDialog'
 import { FeatEditor, blankFeat } from './FeatEditor'
+import { StandaloneSubclassEditor } from './StandaloneSubclassEditor'
 import { RaceEditor, blankRace } from './RaceEditor'
+import { SubclassWizard } from './SubclassWizard'
 
-type Tab = 'races' | 'backgrounds' | 'kits' | 'feats'
+type Tab = 'races' | 'backgrounds' | 'kits' | 'subclasses' | 'feats'
 
-type Entry = RaceInfo | BackgroundInfo | ClassKit | FeatInfo
+type Entry = RaceInfo | BackgroundInfo | ClassKit | FeatInfo | HomebrewSubclass
 
 /**
  * Which row the detail pane is showing.
@@ -27,15 +30,35 @@ type Entry = RaceInfo | BackgroundInfo | ClassKit | FeatInfo
  * would edit or delete an unrelated homebrew entry.
  */
 type Selection =
-  | { source: 'homebrew'; index: number }
-  | { source: 'srd'; index: number }
+  { source: 'homebrew'; index: number } | { source: 'srd'; index: number }
 
 /** Singular noun for a tab, for prose. */
 const KIND_LABEL: Record<Tab, string> = {
   races: 'race',
   backgrounds: 'background',
   kits: 'class',
+  subclasses: 'subclass',
   feats: 'feat',
+}
+
+/**
+ * Every built-in subclass, flattened out of the classes that offer them.
+ *
+ * There is no top-level subclass table to read — a subclass lives inside its
+ * kit — so this is what lets the Subclasses tab show the built-ins at all, and
+ * with them the "duplicate College of Lore and edit it" path that every other
+ * tab already has.
+ *
+ * Only the ones that actually carry something. `classKits.ts` seeds every
+ * archetype 5e offers as a bare name, and listing eighty empty rows would bury
+ * the dozen with content in them.
+ */
+function builtInSubclasses(): Array<BuiltInSubclass> {
+  return SRD_TABLES.kits.flatMap((kit) =>
+    kit.subclasses
+      .filter((sub) => !isBareSubclass(sub))
+      .map((sub) => ({ ...sub, className: kit.name })),
+  )
 }
 
 const TABS: Array<{ id: Tab; label: string; blurb: string }> = [
@@ -48,6 +71,11 @@ const TABS: Array<{ id: Tab; label: string; blurb: string }> = [
     id: 'kits',
     label: 'Classes',
     blurb: 'Hit die, subclasses, and what the class starts with.',
+  },
+  {
+    id: 'subclasses',
+    label: 'Subclasses',
+    blurb: 'Added to a class you name, without duplicating it.',
   },
   {
     id: 'backgrounds',
@@ -84,6 +112,7 @@ export function HomebrewSection({ worldId }: { worldId: string }) {
     index: 0,
   })
   const [duplicating, setDuplicating] = useState<Entry | null>(null)
+  const [wizard, setWizard] = useState(false)
 
   // Adopt the file's contents whenever a *different* one arrives — first load,
   // and every later external edit. Keyed on the last value adopted rather than
@@ -103,7 +132,11 @@ export function HomebrewSection({ worldId }: { worldId: string }) {
   if (!homebrew) return null
 
   const list = homebrew[tab]
-  const builtIns = SRD_TABLES[tab]
+  // Subclasses have no top-level built-in list — they live inside kits — so the
+  // built-in column is flattened out of every class that offers one. That is
+  // what makes "duplicate College of Lore and edit it" possible here.
+  const builtIns: Array<Entry> =
+    tab === 'subclasses' ? builtInSubclasses() : SRD_TABLES[tab]
   const srdCount = builtIns.length
 
   const current =
@@ -121,6 +154,14 @@ export function HomebrewSection({ worldId }: { worldId: string }) {
   }
 
   const add = () => {
+    // Subclasses are authored through a wizard rather than a blank row: the
+    // class is a genuine first question, and nothing should reach the list
+    // until it has been answered. The other tabs still append and edit in
+    // place — see `SubclassWizard` on why create and edit differ.
+    if (tab === 'subclasses') {
+      setWizard(true)
+      return
+    }
     const blank =
       tab === 'races'
         ? blankRace()
@@ -324,8 +365,9 @@ export function HomebrewSection({ worldId }: { worldId: string }) {
               entry={currentBuiltIn}
               kind={tab}
               shadowedBy={
-                list.find((e) => nameKey(e.name) === nameKey(currentBuiltIn.name))
-                  ?.name
+                list.find(
+                  (e) => nameKey(e.name) === nameKey(currentBuiltIn.name),
+                )?.name
               }
               onDuplicate={() => setDuplicating(currentBuiltIn)}
             />
@@ -344,7 +386,16 @@ export function HomebrewSection({ worldId }: { worldId: string }) {
               onChange={replace}
             />
           ) : tab === 'feats' ? (
-            <FeatEditor feat={homebrew.feats[selected.index]} onChange={replace} />
+            <FeatEditor
+              feat={homebrew.feats[selected.index]}
+              onChange={replace}
+            />
+          ) : tab === 'subclasses' ? (
+            <StandaloneSubclassEditor
+              subclass={homebrew.subclasses[selected.index]}
+              kits={tables.kits}
+              onChange={replace}
+            />
           ) : (
             <ClassKitEditor
               kit={homebrew.kits[selected.index]}
@@ -354,6 +405,24 @@ export function HomebrewSection({ worldId }: { worldId: string }) {
           )}
         </div>
       </div>
+
+      <SubclassWizard
+        open={wizard}
+        kits={tables.kits}
+        onCancel={() => setWizard(false)}
+        onCreate={(sub) => {
+          // `upsert` rather than append: ids derive from names, so a
+          // same-named entry would be dropped by `parseHomebrew`'s dedupe on
+          // the next load — the newer one, at that.
+          const next = upsert(homebrew.subclasses, sub)
+          patchList(next)
+          setSelected({
+            source: 'homebrew',
+            index: next.findIndex((e) => e === sub),
+          })
+          setWizard(false)
+        }}
+      />
 
       <DuplicateDialog
         open={duplicating !== null}

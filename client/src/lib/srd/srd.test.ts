@@ -56,6 +56,16 @@ function allGrants(): Array<{ where: string; grant: Grant }> {
   }
   for (const kit of SRD_CLASS_KITS) {
     out.push({ where: `kit ${kit.name}`, grant: kit.grant })
+    // Subclass grants — Life Domain's heavy armour, a Valor Bard's martial
+    // weapons. Missed for as long as they existed, exactly as `features[].picks`
+    // was below: every check here (real skill ids, real armour and weapon
+    // categories, the banned fields) walked straight past them, so a typo in a
+    // subclass grant was silent.
+    for (const sub of kit.subclasses) {
+      if (sub.grant) {
+        out.push({ where: `kit ${kit.name}/${sub.name}`, grant: sub.grant })
+      }
+    }
     for (const choice of kit.equipment) {
       for (const [i, option] of choice.options.entries()) {
         out.push({
@@ -1265,6 +1275,37 @@ describe('subclasses', () => {
         )
         expect(row.grantedAt, `${kit.name}/${sub.name}`).toBeLessThanOrEqual(20)
         expect(row.names.length, `${kit.name}/${sub.name}`).toBeGreaterThan(0)
+      }
+    }
+  })
+
+  it('never grants a bonus spell before its class picks a subclass', () => {
+    // The sibling of the feature-level check below, and missing until domain
+    // spells first made it matter: a row at `grantedAt` 1 on a class that
+    // chooses at 3 would be reachable only by a character who cannot exist,
+    // so the spells would simply never arrive.
+    for (const { kit, sub } of all) {
+      for (const row of sub.spells ?? []) {
+        expect(
+          row.grantedAt,
+          `${kit.name}/${sub.name} grants at ${row.grantedAt}`,
+        ).toBeGreaterThanOrEqual(subclassLevelOf(kit))
+      }
+    }
+  })
+
+  it('names no spell twice in one subclass table', () => {
+    // A duplicate would be dropped silently by the name+level de-dupe in
+    // `applySubclassSpells`, making the table read as though it granted more
+    // than it does.
+    for (const { kit, sub } of all) {
+      const seen = new Set<string>()
+      for (const row of sub.spells ?? []) {
+        for (const name of row.names) {
+          const key = name.trim().toLowerCase()
+          expect(seen.has(key), `${kit.name}/${sub.name}: ${name}`).toBe(false)
+          seen.add(key)
+        }
       }
     }
   })

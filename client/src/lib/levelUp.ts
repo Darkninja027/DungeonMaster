@@ -336,13 +336,22 @@ export const SUBCLASS_LEVEL = DEFAULT_SUBCLASS_LEVEL
 
 export function needsSubclass(
   c: Character,
-  from: number,
+  // Unused since the gate stopped keying on the crossing level-up — see below.
+  // Kept because every caller passes a range and dropping it would churn them
+  // all to say less.
+  _from: number,
   to: number,
   kit: ClassKit | undefined,
 ): boolean {
   if (!kit || c.subclass.trim() !== '') return false
   const at = subclassLevelOf(kit)
-  return at > from && at <= to
+  // `at > from` alone asks only on the level-up that crosses the threshold,
+  // which silently excluded every class that picks at level 1: a Cleric's `at`
+  // is 1 and every level-up starts at 1 or above, so the step could never
+  // appear and a domainless cleric was stuck that way forever. A subclass owed
+  // at or below the level being reached is still owed, however late it is
+  // noticed. The guard above is what stops it re-asking once one is set.
+  return at <= to
 }
 
 /**
@@ -747,6 +756,45 @@ export function halfProficiencyGained(
   return found
 }
 
+/**
+ * The subclass's always-prepared rows falling inside this level-up.
+ *
+ * A domain table unfolds across a career — a Life Domain cleric gains two
+ * spells at each of 1, 3, 5, 7 and 9 — so this is keyed on the levels being
+ * *gained*, not on whether the archetype was chosen just now. `levelsGained`
+ * is exclusive of `from`, so levelling 3 to 5 collects the 5th-level row and
+ * not the 3rd the character already has.
+ *
+ * Rows the sheet already carries are dropped here rather than at apply, so the
+ * step shows what is genuinely new: a player who typed Bless in by hand should
+ * not be told their domain is handing it over. Matched on name and level, the
+ * same key `applySubclassSpells` dedupes on.
+ */
+export function alwaysPreparedGained(
+  draft: LevelUpDraft,
+  subclassName: string,
+): Array<{ name: string; level: number }> {
+  const subclass = findSubclass(draft.kit, subclassName)
+  if (!subclass?.spells) return []
+  const range = new Set(levelsGained(draft.from, draft.to))
+  const have = new Set(
+    draft.base.spells.map(
+      (sp) => `${sp.level}:${sp.name.trim().toLowerCase()}`,
+    ),
+  )
+  const out: Array<{ name: string; level: number }> = []
+  for (const row of subclass.spells) {
+    if (!range.has(row.grantedAt)) continue
+    for (const name of row.names) {
+      const key = `${row.level}:${name.trim().toLowerCase()}`
+      if (have.has(key)) continue
+      have.add(key)
+      out.push({ name, level: row.level })
+    }
+  }
+  return out
+}
+
 // --- The plan ---------------------------------------------------------------
 
 export interface SlotChange {
@@ -805,6 +853,19 @@ export interface LevelUpPlan {
    * land until Apply.
    */
   spellsGranted: Array<{ name: string; level: number }>
+  /**
+   * Domain, oath and circle spells reaching the sheet on this level-up —
+   * always prepared and outside the prepared limit.
+   *
+   * Separate from `spellsGranted` because the two fields they come from mean
+   * different things. `grant.spells` is a fixed spell handed over once, on the
+   * level-up that chooses the archetype. This is a *table* that unfolds as the
+   * character grows: a Life Domain cleric's rows arrive at 1, 3, 5, 7 and 9,
+   * long after the domain was chosen and every one of those level-ups has a
+   * null `subclassName`. Keying this off the chosen-archetype branch would
+   * deliver the first row and silently drop the other four.
+   */
+  alwaysPreparedGained: Array<{ name: string; level: number }>
   subclassName: string | null
   /**
    * Counters to add, already filtered to the ones the player kept. Named rows
@@ -1105,6 +1166,7 @@ export function levelUpPlan(c: Character, draft: LevelUpDraft): LevelUpPlan {
         : (findSubclass(draft.kit, subclassChosen)?.grant?.spells ?? []).map(
             (sp) => ({ name: sp.name, level: sp.level }),
           ),
+    alwaysPreparedGained: alwaysPreparedGained(draft, castingAs),
     subclassName: subclassChosen,
     // Only the offers the player kept — `draft.resources` is keyed by name and
     // a dropped row is deleted from it, so an offer with no entry is one they
@@ -1436,11 +1498,29 @@ export function applyLevelUp(c: Character, draft: LevelUpDraft): Character {
     // here: it merges into the character's own lists and never overwrites, and
     // it drops `traits`, `items` and `currency` exactly as it does for a feat.
     //
-    // Creation applies this via `applyGrant` instead. For a subclass chosen
-    // after level 1 that path never runs, which is why the field was inert for
-    // every archetype chosen at 3 until this existed.
+    // Creation applies this through `draftGrants` instead, so a class picking
+    // its subclass at level 1 gets it there and this branch never sees one.
     const granted = findSubclass(draft.kit, plan.subclassName)?.grant
     if (granted) next = applyFeatGrants(next, [granted])
+  }
+
+  // The domain table. Outside the `plan.subclassName` branch above on purpose:
+  // these rows keep arriving for the rest of the character's career, long after
+  // the archetype was chosen, and `plan.subclassName` is null on every one of
+  // those level-ups. Already filtered against the sheet by `alwaysPreparedGained`,
+  // so this appends without re-checking.
+  if (plan.alwaysPreparedGained.length > 0) {
+    next = {
+      ...next,
+      spells: [
+        ...next.spells,
+        ...plan.alwaysPreparedGained.map((sp) => ({
+          name: sp.name,
+          level: sp.level,
+          alwaysPrepared: true,
+        })),
+      ],
+    }
   }
 
   if (plan.spellAbilityTo !== undefined) {

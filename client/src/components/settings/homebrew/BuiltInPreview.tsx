@@ -7,6 +7,7 @@ import type {
   FeatInfo,
   Grant,
   RaceInfo,
+  SubclassInfo,
   SubraceInfo,
 } from '#/lib/srd'
 import { describeFlexibleAsi, featuresUpToLevel } from '#/lib/srd'
@@ -32,8 +33,8 @@ export function BuiltInPreview({
   shadowedBy,
   onDuplicate,
 }: {
-  entry: RaceInfo | BackgroundInfo | ClassKit | FeatInfo
-  kind: 'races' | 'backgrounds' | 'kits' | 'feats'
+  entry: RaceInfo | BackgroundInfo | ClassKit | FeatInfo | BuiltInSubclass
+  kind: 'races' | 'backgrounds' | 'kits' | 'subclasses' | 'feats'
   /** Name of the homebrew entry overriding this one, when there is one. */
   shadowedBy?: string
   onDuplicate: () => void
@@ -77,6 +78,9 @@ export function BuiltInPreview({
       )}
       {kind === 'kits' && <KitPreview kit={entry as ClassKit} />}
       {kind === 'feats' && <FeatPreview feat={entry as FeatInfo} />}
+      {kind === 'subclasses' && (
+        <SubclassPreview sub={entry as BuiltInSubclass} />
+      )}
     </div>
   )
 }
@@ -433,4 +437,50 @@ function skillName(id: string): string {
 /** Token ids are stored lowercase-hyphenated; show them as words. */
 function title(value: string): string {
   return value.replace(/-/g, ' ').replace(/^./, (c) => c.toUpperCase())
+}
+
+/**
+ * A built-in subclass, listed with the class it belongs to.
+ *
+ * These have no top-level table — they live inside kits — so the Subclasses tab
+ * flattens them out of every class. `className` is added there rather than
+ * being a real field, which is why this is its own shape.
+ */
+export type BuiltInSubclass = SubclassInfo & { className: string }
+
+function SubclassPreview({ sub }: { sub: BuiltInSubclass }) {
+  return (
+    <div className="space-y-3 text-sm">
+      <Row label="Class">{sub.className}</Row>
+      {sub.features.length > 0 && (
+        <div className="space-y-1">
+          <p className="text-muted-foreground text-xs font-medium">Features</p>
+          {[...sub.features]
+            .sort((a, b) => a.level - b.level)
+            .map((f, i) => (
+              <p key={i} className="text-xs">
+                <span className="text-muted-foreground">Lv {f.level}</span>{' '}
+                {f.name}
+              </p>
+            ))}
+        </div>
+      )}
+      {sub.spells && sub.spells.length > 0 && (
+        <div className="space-y-1">
+          <p className="text-muted-foreground text-xs font-medium">
+            Always-prepared spells
+          </p>
+          {sub.spells.map((row, i) => (
+            <p key={i} className="text-xs">
+              <span className="text-muted-foreground">Lv {row.grantedAt}</span>{' '}
+              {row.names.join(', ')}
+            </p>
+          ))}
+        </div>
+      )}
+      {sub.spellcasting && (
+        <Row label="Casts">{sub.spellcasting.listLabel}</Row>
+      )}
+    </div>
+  )
 }

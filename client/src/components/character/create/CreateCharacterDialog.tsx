@@ -52,6 +52,54 @@ const STEP_HEADINGS: Record<StepId, { title: string; blurb: string }> = {
   review: { title: 'Review', blurb: 'A few last details, then create.' },
 }
 
+/** Short labels for the rail, distinct from the headings above. */
+const STEP_TITLES: Record<StepId, string> = {
+  name: 'Name',
+  race: 'Race',
+  class: 'Class',
+  abilities: 'Ability scores',
+  background: 'Background',
+  skills: 'Skills',
+  spells: 'Spells',
+  equipment: 'Equipment',
+  review: 'Review',
+}
+
+/**
+ * The one-line answer a completed step gives, shown under its title in the rail.
+ *
+ * Lived in `WizardRail` until that became generic. It reads draft fields
+ * directly and switches on every `StepId`, so it was never the rail's business —
+ * the rail takes it as a closure now.
+ */
+function summaryFor(draft: CharacterDraft, step: StepId): string | null {
+  switch (step) {
+    case 'name':
+      return draft.name.trim() || null
+    case 'race':
+      return draft.subraceName || draft.raceName || null
+    case 'class':
+      return (
+        [draft.className, draft.subclassName].filter(Boolean).join(' · ') ||
+        null
+      )
+    case 'abilities':
+      return canAdvance(draft, 'abilities') ? 'Set' : null
+    case 'background':
+      return draft.backgroundName || null
+    case 'skills':
+      return canAdvance(draft, 'skills') ? 'Chosen' : null
+    case 'spells':
+      return draft.cantrips.length + draft.spells.length > 0
+        ? `${draft.cantrips.length + draft.spells.length} picked`
+        : null
+    case 'equipment':
+      return canAdvance(draft, 'equipment') ? 'Packed' : null
+    case 'review':
+      return null
+  }
+}
+
 /**
  * Guided character creation.
  *
@@ -186,10 +234,12 @@ export function CreateCharacterDialog({
         */}
         <div className="grid min-h-0 flex-1 grid-cols-[11rem_1fr] lg:grid-cols-[11rem_1fr_17rem]">
           <WizardRail
-            draft={draft}
             steps={steps}
             current={step}
             onGo={setStep}
+            isComplete={(s) => canAdvance(draft, s)}
+            label={(s) => STEP_TITLES[s]}
+            summary={(s) => summaryFor(draft, s)}
           />
 
           <ScrollArea className="min-h-0 min-w-0">

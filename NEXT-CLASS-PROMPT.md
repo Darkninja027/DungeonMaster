@@ -7,29 +7,55 @@ Paste this into a fresh Claude Code context in `c:\Projects\DungeonMaster`.
 ## The task
 
 Author per-level subclass features for **one class at a time**. Fighter,
-Rogue, Barbarian and Bard are done; the other eight ship `features: []` on
-every subclass:
+Rogue, Barbarian, Bard and **Cleric** are done; the other seven ship
+`features: []` on every subclass:
 
 ```
-Cleric 0/7      Druid 0/2     Monk 0/3      Paladin 0/3
-Ranger 0/2      Sorcerer 0/2  Warlock 0/3   Wizard 0/8
+Druid 0/2     Monk 0/3      Paladin 0/3   Ranger 0/2
+Sorcerer 0/2  Warlock 0/3   Wizard 0/8
 ```
 
-**Next up: Cleric.** Two things make it unlike the four done so far:
+**Next up: your pick of the seven.** Sorcerer or Warlock is the natural
+follow-on — they choose at level 1 like the Cleric, and the mechanism that
+needed building for the Cleric now exists and is proven, so they are back to
+being pure data authoring.
 
-- **Its subclass is chosen at level 1**, so every domain feature starts at 1
-  and the wizard offers the choice during *creation* as well as level-up.
-  `subclassLevelOf` returns 1 — check your feature levels against it, not 3.
-- **Domain spells.** `SubclassInfo.spells` is authored nowhere yet, and Cleric
-  is what it was designed for: `{ grantedAt, level, names }` rows that land as
-  `alwaysPrepared` and are exempt from `preparedLimit`. Read
-  `alwaysPreparedCount` before authoring, and note `srd.test.ts` already asserts
-  every bonus-spell row has something that can cast it.
+Do one class completely, then stop. Do not batch.
 
-Seven domains is a lot; Life Domain is the SRD one, so start there and see
-"Which subclasses belong in `lib/srd/`" below before doing the other six.
+### What the Cleric pass changed (read if you touch creation)
 
-Do that one class completely, then stop. Do not batch.
+The Cleric needed mechanism, not just data, and both gaps are now closed:
+
+- **A level-1 subclass reaches the sheet at creation.** The subclass rides
+  `draftGrants` / `draftOwnedPickLists` in `characterDraft.ts` — the two
+  documented mirrors — so its `grant` lands the way a race's does and its
+  level-1 feature picks are offered in the wizard's Class step.
+  `buildCharacter` folds in `featuresUpToLevel(subclass.features, 1)` and reads
+  `spellcastingFor(kit, subclassName)` rather than `kit.spellcasting`.
+- **`SubclassInfo.spells` is wired.** `applySubclassSpells` in
+  `buildCharacter.ts` writes always-prepared rows at creation;
+  `alwaysPreparedGained` on the level-up plan does the same for rows arriving at
+  `grantedAt` 3/5/7/9. It is deliberately *outside* the `plan.subclassName`
+  branch — that field is null on every level-up after the archetype is chosen,
+  so keying off it delivers the first row and silently drops the rest.
+
+Three further bugs were found by reading the code and fixed with it:
+
+- **`needsSubclass` could never fire for a level-1 class.** It gated on
+  `at > from`, and a Cleric's `at` is 1 while every level-up starts at 1 or
+  above — so a cleric created without a domain was never asked again, at any
+  level, forever. Now gates on `at <= to`; the existing "already has one" guard
+  is what stops it re-asking.
+- **The creation picker gated on the deprecated `subclassAtLevel1` flag** while
+  level-up used `subclassLevelOf`. A homebrew kit setting only
+  `subclassLevel: 1` got no picker. Now both use `subclassLevelOf`.
+- **"chooses their subclass at 3rd level" was hardcoded** — wrong for a Wizard.
+  Now reads the real level (verified in the app: "at 2nd level").
+
+And one test blind spot: **`allGrants()` in `srd.test.ts` never walked
+`SubclassInfo.grant`**, so every subclass grant in the tables was unchecked by
+the "real ids" invariants. It walks them now — the same class of miss as the
+`features[].picks` one before it.
 
 ## Which subclasses belong in `lib/srd/`
 
@@ -65,6 +91,11 @@ This is **data authoring against a finished mechanism**. If you find yourself
 rewriting `levelUp.ts` or `buildCharacter.ts`, stop and re-read this document —
 though see "Bugs found by using the app", because the seam between data and
 sheet has been where every real bug hid.
+
+**That exception has now been paid off.** Cleric, Sorcerer and Warlock choose
+at level 1, and the creation path used to ignore subclasses entirely. The Cleric
+pass built that mechanism, so Sorcerer and Warlock are ordinary data authoring
+now — see "What the Cleric pass changed" above.
 
 ## Start here
 
@@ -124,8 +155,9 @@ auto-applied. A later feature naming the same resource **raises** it (4 → 5,
 shown as `4 → 5`, `used` untouched); it never lowers one the player tuned
 higher. Cap is `MAX_RESOURCES = 3`.
 
-**Several classes still have no `resource` anywhere** — Monk has no Ki,
-Sorcerer no Sorcery Points, Warlock no Mystic Arcanum. Those are class-level
+**Several classes still have no `resource` anywhere** — Cleric has no Channel
+Divinity, Monk no Ki, Sorcerer no Sorcery Points, Warlock no Mystic Arcanum.
+Those are class-level
 gaps rather than subclass ones; fixing one while you are in that class is
 reasonable (Rogue's level-6 Expertise, Barbarian's Rage and Bard's Bardic
 Inspiration were all fixed that way), but say so explicitly rather than sliding
@@ -193,7 +225,7 @@ Not relevant to Barbarian, but the pattern to copy if a subclass ever casts.
 cd client
 npx vitest run src/lib/srd/srd.test.ts      # the data invariants
 npx vitest run src/lib/levelUp.test.ts      # the mechanism
-npx vitest run                              # all 1259
+npx vitest run                              # all 1377
 npx tsc --noEmit -p tsconfig.json
 npm run lint                                # NOTE: 14 pre-existing problems
 ```
@@ -250,6 +282,14 @@ there (an "Other…" entry that swaps in a text box), with
 in `lib/` proves nothing about whether the control honours it. Grep the
 component for the field before trusting it.
 
+The Cleric pass drove the app and found no new bug of that kind — but only
+because the whole point of the pass was the creation path, which it exercised
+directly. Two notes for the next driver: the wizard's rail buttons are
+`disabled` until their step is reachable, so navigate with real Playwright
+clicks on **Next** rather than a DOM `.click()` (which does not advance), and
+the Class step's live summary panel re-renders on every keystroke, so typing a
+subclass name is enough to see its grant appear in Proficiencies.
+
 The memory note `driving-dungeonmaster-e2e` has a verified Playwright recipe —
 lock patch by regex, poll for the non-DevTools window, hash-history deep links.
 Also: the level-up wizard opens by **typing a higher number into the `Lvl`
@@ -274,15 +314,26 @@ Restore with a Python round-trip (`newline=''`, `.replace('\r\n','\n')` then
 
 ## Where things stand
 
-1353 tests passing (`spellCard.test.ts` still flakes under full-suite parallel
-load — re-run it alone). Done and tested — do not rebuild:
+1450 tests passing (`spellCard.test.ts` and `electron/main/*.test.ts` still
+flake under full-suite parallel load — re-run alone before investigating; a
+`recents.test.ts` failure did exactly that during the Cleric pass). Done and
+tested — do not rebuild:
 
 - Subclass features flow through `featuresGained` (class + subclass, one path).
 - A shared picks step at level-up; `feature` pick kind rendered as a `<select>`,
   which now honours `open` with an "Other…" free-text entry.
 - `Character.resources` — up to 3 counters, on the sheet and the printed page.
-- **Fighter** 3/3, **Rogue** 3/3, **Barbarian** 2/2 and **Bard** 2/2 archetypes
-  authored.
+- **Fighter** 3/3, **Rogue** 3/3, **Barbarian** 2/2, **Bard** 2/2 and
+  **Cleric** 7/7 archetypes authored.
+- **Cleric**: Life Domain in `lib/srd/` (SRD), the six PHB domains in
+  `publishedSubclasses.ts`, all with domain-spell tables at `grantedAt`
+  1/3/5/7/9. Channel Divinity is a real counter (1/2/3 at 2/6/18, short rest) —
+  a class-level gap fixed alongside, replacing prose that folded the upgrades
+  into the level-2 row. Knowledge's Blessings of Knowledge is a real
+  `kind: 'expertise'` pick; War Priest is deliberately prose, not a second
+  counter.
+- **Subclasses reach the sheet at creation**, and `SubclassInfo.spells` is no
+  longer inert — see "What the Cleric pass changed" at the top.
 - Barbarian class-level fixes that came with it: Rage is a real counter
   (2/3/4/5/6 at 1/3/6/12/17, unlimited at 20 left as prose — `total` is a
   number), and Brutal Critical is three rows at 9/13/17 instead of one row
@@ -337,6 +388,23 @@ work?" rather than data authoring:
   **Relevant to Cleric:** domain spells are `SubclassInfo.spells`, and
   `grantedAt` (character level) and `level` (spell level) are different numbers.
   The editor labels them as such because conflating them is the easy mistake.
+
+- **Standalone subclasses.** `Homebrew.subclasses` (and the world-level twin)
+  attaches a subclass to a class *by name*, merged by `attachSubclasses` in
+  `lib/tables.ts`. Adding one College to the Bard no longer means duplicating
+  the Bard and inheriting a frozen copy of its features and spell tables. It has
+  its own **Subclasses tab**, whose built-in column is every subclass carrying
+  content, flattened out of every kit.
+
+## The other open threads
+
+Two sibling handoffs, neither overlapping this one:
+
+- **`NEXT-CLERIC-PROMPT.md`** — the Cleric in detail. Read it before planning
+  this class; it is where the two mechanism gaps above are worked through.
+- **`NEXT-WIZARD-PROMPT.md`** — making the homebrew editors a guided wizard.
+  Pure UX, but it touches `components/settings/homebrew/`, so check
+  `git status` before starting either.
 
 Known gaps, deliberately left:
 

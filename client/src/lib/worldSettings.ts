@@ -4,10 +4,12 @@ import {
   EMPTY_HOMEBREW,
   parseBackground,
   parseFeat,
+  parseHomebrew,
   parseKit,
   parseRace,
   serializeHomebrew,
 } from './homebrew'
+import type { HomebrewSubclass } from './homebrew'
 import type { BackgroundInfo, ClassKit, FeatInfo, RaceInfo } from './srd'
 
 /**
@@ -78,6 +80,13 @@ export interface WorldSettings {
   backgrounds?: Array<BackgroundInfo>
   kits?: Array<ClassKit>
   feats?: Array<FeatInfo>
+  /**
+   * Subclasses attached to a class by name, rather than defined inside a copy
+   * of it — the world-level twin of `Homebrew.subclasses`. A world that adds
+   * one College to the Bard travels with just that College, not a fork of the
+   * whole class.
+   */
+  subclasses?: Array<HomebrewSubclass>
 }
 
 /** What a world gets before it has a file of its own. */
@@ -209,6 +218,11 @@ export function parseWorldSettings(raw: unknown): WorldSettings {
   const backgrounds = homebrewList(r.backgrounds, parseBackground)
   const kits = homebrewList(r.kits, parseKit)
   const feats = homebrewList(r.feats, parseFeat)
+  // Through the global parser, so one shape is read one way in both tiers.
+  const parsedSubclasses = parseHomebrew({
+    subclasses: r.subclasses,
+  }).subclasses
+  const subclasses = Array.isArray(r.subclasses) ? parsedSubclasses : undefined
 
   return {
     version:
@@ -222,6 +236,7 @@ export function parseWorldSettings(raw: unknown): WorldSettings {
     ...(backgrounds && { backgrounds }),
     ...(kits && { kits }),
     ...(feats && { feats }),
+    ...(subclasses && { subclasses }),
   }
 }
 
@@ -284,6 +299,14 @@ export function serializeWorldSettings(settings: WorldSettings): unknown {
           feats: unknown
         }
       ).feats,
+    }),
+    ...(settings.subclasses && {
+      subclasses: (
+        serializeHomebrew({
+          ...EMPTY_HOMEBREW,
+          subclasses: settings.subclasses,
+        }) as { subclasses: unknown }
+      ).subclasses,
     }),
   }
 }

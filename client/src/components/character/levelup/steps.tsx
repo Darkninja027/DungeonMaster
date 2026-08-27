@@ -651,7 +651,8 @@ export function SpellsStep({
   const before = slotsAtLevel(draft.kit, draft.from, castingAs) ?? []
   const after = slotsAtLevel(draft.kit, draft.to, castingAs) ?? []
   const plan = levelUpPlan(character, draft)
-  const { cantripsToPick, spellsToPick, spellsGranted } = plan
+  const { cantripsToPick, spellsToPick, spellsGranted, alwaysPreparedGained } =
+    plan
   // Every spell level the character now has slots for, not just the highest:
   // "a spell of a level for which you have spell slots" means a 7th-level
   // Arcane Trickster may learn a 1st *or* a 2nd level spell. `filterSpells`
@@ -677,6 +678,10 @@ export function SpellsStep({
     const have = new Set([
       ...character.spells.map((sp) => sp.name.trim().toLowerCase()),
       ...spellsGranted.map((sp) => sp.name.trim().toLowerCase()),
+      // Domain spells too — they land at Apply like the archetype's grant, and
+      // spending a choice on one you are about to be given anyway is the same
+      // waste.
+      ...alwaysPreparedGained.map((sp) => sp.name.trim().toLowerCase()),
     ])
     return suggestionsFor(level, upTo).filter(
       (name) => !have.has(name.trim().toLowerCase()),
@@ -723,7 +728,10 @@ export function SpellsStep({
           )
         })}
       </div>
-      {(cantripsToPick > 0 || spellsToPick > 0 || spellsGranted.length > 0) && (
+      {(cantripsToPick > 0 ||
+        spellsToPick > 0 ||
+        spellsGranted.length > 0 ||
+        alwaysPreparedGained.length > 0) && (
         <div className="space-y-4">
           <p className="text-muted-foreground text-sm">
             What you learn at this level. Suggestions come from this
@@ -755,6 +763,33 @@ export function SpellsStep({
               </div>
               <p className="text-muted-foreground text-xs">
                 Already yours — it doesn&rsquo;t use up a choice below.
+              </p>
+            </div>
+          )}
+
+          {/*
+            Domain, oath and circle spells. Shown for the same reason as the
+            grant above, but they are a different thing and say so: these are
+            always prepared and sit outside the prepared limit, which is the
+            whole point of the field and not obvious from a chip.
+          */}
+          {alwaysPreparedGained.length > 0 && (
+            <div className="space-y-1.5">
+              <span className="text-sm font-medium">Always prepared</span>
+              <div className="flex flex-wrap gap-1.5">
+                {alwaysPreparedGained.map((spell) => (
+                  <span
+                    key={`${spell.level}:${spell.name}`}
+                    className="bg-muted text-muted-foreground rounded-full px-2.5 py-1 text-xs"
+                  >
+                    {spell.name}
+                    {spell.level === 0 && ' · cantrip'}
+                  </span>
+                ))}
+              </div>
+              <p className="text-muted-foreground text-xs">
+                Always prepared, and they don&rsquo;t count against how many
+                spells you can prepare.
               </p>
             </div>
           )}

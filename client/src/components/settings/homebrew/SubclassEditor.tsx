@@ -137,76 +137,168 @@ export function SubclassEditor({
             </div>
 
             {expanded && (
-              <div className="space-y-3 border-t p-2">
-                <label className="block space-y-1">
-                  <span className="text-muted-foreground text-xs">Summary</span>
-                  <Input
-                    value={sub.summary ?? ''}
-                    placeholder="One line, shown on the option card."
-                    className="h-7 text-sm"
-                    onChange={(e) => {
-                      const value = e.target.value
-                      // Cleared back to undefined rather than an empty string,
-                      // so `isBareSubclass` still recognises an emptied entry
-                      // and it serializes as a bare name again.
-                      patchAt(i, {
-                        summary: value.trim() === '' ? undefined : value,
-                      })
-                    }}
-                  />
-                </label>
-
-                <FeatureRows
-                  features={sub.features}
-                  minLevel={subclassLevel}
-                  placeholder="Improved Critical"
-                  onChange={(features) => patchAt(i, { features })}
+              <div className="border-t p-2">
+                <SubclassPanel
+                  subclass={sub}
+                  subclassLevel={subclassLevel}
+                  onChange={(next) => patchAt(i, next)}
                 />
-
-                <div className="border-t pt-3">
-                  <SubclassSpellRows
-                    spells={sub.spells ?? []}
-                    minLevel={subclassLevel}
-                    onChange={(spells) =>
-                      // Back to undefined when emptied, so `isBareSubclass`
-                      // still recognises a subclass that now carries nothing.
-                      patchAt(i, {
-                        spells: spells.length > 0 ? spells : undefined,
-                      })
-                    }
-                  />
-                </div>
-
-                <div className="space-y-1.5 border-t pt-3">
-                  <span className="text-xs font-medium">Grants</span>
-                  <p className="text-muted-foreground text-xs">
-                    Proficiencies and the like, applied on the level-up that
-                    chooses this archetype.
-                  </p>
-                  <GrantEditor
-                    grant={sub.grant ?? {}}
-                    onChange={(grant) =>
-                      patchAt(i, {
-                        grant: isEmptyGrant(grant) ? undefined : grant,
-                      })
-                    }
-                  />
-                </div>
-
-                <div className="space-y-1.5 border-t pt-3">
-                  <span className="text-xs font-medium">Spellcasting</span>
-                  <SpellcastingFields
-                    value={sub.spellcasting}
-                    ownerName={sub.name}
-                    enableLabel={`Casts spells from level ${subclassLevel}`}
-                    onChange={(spellcasting) => patchAt(i, { spellcasting })}
-                  />
-                </div>
               </div>
             )}
           </div>
         )
       })}
+    </div>
+  )
+}
+
+/**
+ * Everything a subclass carries, as one editable panel.
+ *
+ * Extracted so the two places a subclass can be authored offer exactly the same
+ * fields: inline inside a class kit, and standalone in the Subclasses tab where
+ * it attaches to a class by name. They were going to drift otherwise, and a
+ * field present in one and missing in the other is the kind of gap nobody
+ * notices until their work is silently not saved.
+ *
+ * The rule every handler here follows: **empty back to `undefined`**, never to
+ * `{}` or `[]`. `isBareSubclass` decides whether `serializeSubclass` writes a
+ * plain name or an object, so a stray empty array turns a cleared subclass into
+ * noise in a file people hand-edit.
+ */
+export function SubclassPanel({
+  subclass,
+  subclassLevel,
+  onChange,
+}: {
+  subclass: SubclassInfo
+  /** The level this class chooses an archetype at — the feature-level floor. */
+  subclassLevel: number
+  onChange: (next: SubclassInfo) => void
+}) {
+  return (
+    <div className="space-y-3">
+      <SubclassSummaryField subclass={subclass} onChange={onChange} />
+
+      <SubclassFeatureRows
+        subclass={subclass}
+        subclassLevel={subclassLevel}
+        onChange={onChange}
+      />
+
+      <SubclassExtras
+        subclass={subclass}
+        subclassLevel={subclassLevel}
+        onChange={onChange}
+      />
+    </div>
+  )
+}
+
+/**
+ * The pieces of a subclass, as parts both callers compose.
+ *
+ * Split out for the creation wizard, which puts features on their own step and
+ * everything else on the next one. They are *parts of the same panel* rather
+ * than a copy of its contents, so the tab, the inline kit editor and the wizard
+ * still cannot drift — which is the whole reason `SubclassPanel` exists.
+ *
+ * Every handler keeps the panel's rule: **empty back to `undefined`**, never
+ * `{}` or `[]`, or `isBareSubclass` stops recognising a cleared subclass.
+ */
+export function SubclassSummaryField({
+  subclass,
+  onChange,
+}: {
+  subclass: SubclassInfo
+  onChange: (next: SubclassInfo) => void
+}) {
+  return (
+    <label className="block space-y-1">
+      <span className="text-muted-foreground text-xs">Summary</span>
+      <Input
+        value={subclass.summary ?? ''}
+        placeholder="One line, shown on the option card."
+        className="h-7 text-sm"
+        onChange={(e) => {
+          const value = e.target.value
+          onChange({
+            ...subclass,
+            summary: value.trim() === '' ? undefined : value,
+          })
+        }}
+      />
+    </label>
+  )
+}
+
+export function SubclassFeatureRows({
+  subclass,
+  subclassLevel,
+  onChange,
+}: {
+  subclass: SubclassInfo
+  subclassLevel: number
+  onChange: (next: SubclassInfo) => void
+}) {
+  return (
+    <FeatureRows
+      features={subclass.features}
+      minLevel={subclassLevel}
+      placeholder="Improved Critical"
+      onChange={(features) => onChange({ ...subclass, features })}
+    />
+  )
+}
+
+/** Bonus spells, grants and spellcasting — everything past the features list. */
+export function SubclassExtras({
+  subclass,
+  subclassLevel,
+  onChange,
+}: {
+  subclass: SubclassInfo
+  subclassLevel: number
+  onChange: (next: SubclassInfo) => void
+}) {
+  const patch = (changes: Partial<SubclassInfo>) =>
+    onChange({ ...subclass, ...changes })
+
+  return (
+    <div className="space-y-3">
+      <div className="border-t pt-3">
+        <SubclassSpellRows
+          spells={subclass.spells ?? []}
+          minLevel={subclassLevel}
+          onChange={(spells) =>
+            patch({ spells: spells.length > 0 ? spells : undefined })
+          }
+        />
+      </div>
+
+      <div className="space-y-1.5 border-t pt-3">
+        <span className="text-xs font-medium">Grants</span>
+        <p className="text-muted-foreground text-xs">
+          Proficiencies and the like, applied on the level-up that chooses this
+          archetype.
+        </p>
+        <GrantEditor
+          grant={subclass.grant ?? {}}
+          onChange={(grant) =>
+            patch({ grant: isEmptyGrant(grant) ? undefined : grant })
+          }
+        />
+      </div>
+
+      <div className="space-y-1.5 border-t pt-3">
+        <span className="text-xs font-medium">Spellcasting</span>
+        <SpellcastingFields
+          value={subclass.spellcasting}
+          ownerName={subclass.name}
+          enableLabel={`Casts spells from level ${subclassLevel}`}
+          onChange={(spellcasting) => patch({ spellcasting })}
+        />
+      </div>
     </div>
   )
 }

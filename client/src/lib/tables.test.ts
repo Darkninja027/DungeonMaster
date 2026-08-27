@@ -597,3 +597,125 @@ describe('spellListClass', () => {
     expect(spellListClass(undefined, 'Arcane Trickster')).toBeUndefined()
   })
 })
+
+describe('standalone subclasses', () => {
+  /**
+   * The point of the whole feature. A homebrew kit *replaces* the built-in of
+   * the same name, so adding one College to the Bard used to mean duplicating
+   * the Bard — and inheriting a frozen copy of its features and spell tables
+   * that would never see another fix. Attaching by name keeps the class where
+   * it was and adds only the archetype.
+   */
+  const swords = {
+    className: 'Bard',
+    id: 'college-of-swords',
+    name: 'College of Swords',
+    summary: 'A blade as an instrument.',
+    features: [{ level: 3, name: 'Blade Flourish' }],
+  }
+
+  it('adds a college to the Bard without touching the Bard', () => {
+    const tables = mergeTables({ ...EMPTY_HOMEBREW, subclasses: [swords] })
+    const bard = findKit(tables.kits, 'Bard')!
+    const names = bard.subclasses.map((s) => s.name)
+    expect(names).toContain('College of Swords')
+    // The built-in colleges are still there, with their features intact.
+    expect(names).toContain('College of Lore')
+    const lore = bard.subclasses.find((s) => s.name === 'College of Lore')!
+    expect(lore.features.length).toBeGreaterThan(0)
+    // And the class itself is untouched — this is what duplicating it cost.
+    const srdBard = findKit(SRD_TABLES.kits, 'Bard')!
+    expect(bard.features.length).toBe(srdBard.features.length)
+    expect(bard.spellcasting?.slotsByLevel).toEqual(
+      srdBard.spellcasting?.slotsByLevel,
+    )
+  })
+
+  it('carries the subclass features through', () => {
+    const tables = mergeTables({ ...EMPTY_HOMEBREW, subclasses: [swords] })
+    const sub = findKit(tables.kits, 'Bard')!.subclasses.find(
+      (s) => s.name === 'College of Swords',
+    )!
+    expect(sub.summary).toBe('A blade as an instrument.')
+    expect(sub.features).toEqual([{ level: 3, name: 'Blade Flourish' }])
+  })
+
+  it('overrides a built-in subclass of the same name', () => {
+    const tables = mergeTables({
+      ...EMPTY_HOMEBREW,
+      subclasses: [
+        { ...swords, name: 'College of Lore', id: 'college-of-lore' },
+      ],
+    })
+    const lore = findKit(tables.kits, 'Bard')!.subclasses.find(
+      (s) => s.name === 'College of Lore',
+    )!
+    expect(lore.summary).toBe('A blade as an instrument.')
+    expect(lore.features).toEqual([{ level: 3, name: 'Blade Flourish' }])
+  })
+
+  it('lets a world beat the global store', () => {
+    const tables = mergeTables(
+      { ...EMPTY_HOMEBREW, subclasses: [swords] },
+      {
+        subclasses: [
+          { ...swords, summary: 'The world says otherwise.', features: [] },
+        ],
+      },
+    )
+    const sub = findKit(tables.kits, 'Bard')!.subclasses.find(
+      (s) => s.name === 'College of Swords',
+    )!
+    expect(sub.summary).toBe('The world says otherwise.')
+  })
+
+  it('matches its class case-insensitively', () => {
+    const tables = mergeTables({
+      ...EMPTY_HOMEBREW,
+      subclasses: [{ ...swords, className: '  bard  ' }],
+    })
+    expect(
+      findKit(tables.kits, 'Bard')!.subclasses.map((s) => s.name),
+    ).toContain('College of Swords')
+  })
+
+  it('leaves every other class alone', () => {
+    const tables = mergeTables({ ...EMPTY_HOMEBREW, subclasses: [swords] })
+    for (const kit of SRD_TABLES.kits) {
+      if (kit.name === 'Bard') continue
+      expect(findKit(tables.kits, kit.name)!.subclasses.length, kit.name).toBe(
+        kit.subclasses.length,
+      )
+    }
+  })
+
+  it('drops one naming a class nothing defines, without erroring', () => {
+    const tables = mergeTables({
+      ...EMPTY_HOMEBREW,
+      subclasses: [{ ...swords, className: 'Blood Hunter' }],
+    })
+    expect(tables.kits.every((k) => k.name !== 'Blood Hunter')).toBe(true)
+    // The Bard is untouched by an entry that was not for it.
+    expect(
+      findKit(tables.kits, 'Bard')!.subclasses.map((s) => s.name),
+    ).not.toContain('College of Swords')
+  })
+
+  it('attaches to a homebrew class too', () => {
+    const tables = mergeTables({
+      ...EMPTY_HOMEBREW,
+      kits: [
+        {
+          ...findKit(SRD_TABLES.kits, 'Bard')!,
+          id: 'blood-hunter',
+          name: 'Blood Hunter',
+          subclasses: [],
+        },
+      ],
+      subclasses: [{ ...swords, className: 'Blood Hunter' }],
+    })
+    expect(
+      findKit(tables.kits, 'Blood Hunter')!.subclasses.map((s) => s.name),
+    ).toEqual(['College of Swords'])
+  })
+})

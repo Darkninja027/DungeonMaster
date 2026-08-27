@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
   abilityMod,
+  alwaysPreparedCount,
   emptyCharacter,
+  preparedCount,
   skillBonus,
   spellAttackBonus,
   spellSaveDc,
@@ -581,12 +583,32 @@ describe('subclass', () => {
     const c = characterAt(2, 'Fighter')
     expect(needsSubclass(c, 2, 3, kitFor('Fighter'))).toBe(true)
     expect(needsSubclass(c, 2, 2, kitFor('Fighter'))).toBe(false)
-    expect(needsSubclass(c, 4, 5, kitFor('Fighter'))).toBe(false)
+  })
+
+  it('is still needed after the level that should have granted it', () => {
+    // A subclass owed is owed however late it is noticed. This used to be
+    // `at > from`, which asked only on the crossing level-up and so could
+    // never fire at all for a class picking at level 1 — a Cleric's `at` is 1
+    // and every level-up starts at 1 or above, leaving a domainless cleric
+    // stuck that way forever.
+    const fighter = characterAt(4, 'Fighter')
+    expect(needsSubclass(fighter, 4, 5, kitFor('Fighter'))).toBe(true)
+    const cleric = characterAt(1, 'Cleric')
+    expect(needsSubclass(cleric, 1, 2, kitFor('Cleric'))).toBe(true)
+  })
+
+  it('is not needed before the class picks one', () => {
+    const c = characterAt(1, 'Fighter')
+    expect(needsSubclass(c, 1, 2, kitFor('Fighter'))).toBe(false)
   })
 
   it('is not needed when the character already has one', () => {
     const c = { ...characterAt(2, 'Fighter'), subclass: 'Champion' }
     expect(needsSubclass(c, 2, 3, kitFor('Fighter'))).toBe(false)
+    // Including well past the level it was due, which is what stops the fix
+    // above from re-asking a character who answered long ago.
+    const later = { ...characterAt(9, 'Fighter'), subclass: 'Champion' }
+    expect(needsSubclass(later, 9, 10, kitFor('Fighter'))).toBe(false)
   })
 
   it('is set when chosen', () => {
@@ -2796,5 +2818,173 @@ describe('half proficiency at level-up', () => {
     const c = characterAt(1, 'Bard')
     const draft = draftFor(c, 2)
     expect(halfProficiencyGained(draft, levelUpPlan(c, draft))).toBe('all')
+  })
+})
+
+/**
+ * Domain, oath and circle spells — `SubclassInfo.spells`.
+ *
+ * The field was declared-but-inert for as long as it existed: authored in the
+ * homebrew editor, parsed, previewed, validated, and read by nothing. A Life
+ * Domain cleric is the reason it exists, so these assert it reaches the sheet
+ * and stays outside the prepared limit once there.
+ */
+describe('domain spells', () => {
+  /** A cleric who already has their domain, at a given level. */
+  const cleric = (level: number, spells: Character['spells'] = []) => ({
+    ...characterAt(level, 'Cleric'),
+    subclass: 'Life Domain',
+    spellAbility: 'wis' as const,
+    spells,
+  })
+
+  it('arrive on the level-up that reaches their row', () => {
+    // grantedAt 3: Lesser Restoration and Spiritual Weapon, both 2nd level.
+    const after = applyLevelUp(cleric(2), draftFor(cleric(2), 3))
+    const names = after.spells.map((sp) => sp.name)
+    expect(names).toContain('Lesser Restoration')
+    expect(names).toContain('Spiritual Weapon')
+    const weapon = after.spells.find((sp) => sp.name === 'Spiritual Weapon')
+    expect(weapon?.level).toBe(2)
+    expect(weapon?.alwaysPrepared).toBe(true)
+  })
+
+  it('keep arriving long after the domain was chosen', () => {
+    // The bug this guards: keying the apply off `plan.subclassName` delivers
+    // the 1st-level row and silently drops every one above it, because that
+    // field is null on every level-up after the archetype is picked.
+    const after = applyLevelUp(cleric(4), draftFor(cleric(4), 5))
+    expect(after.spells.map((sp) => sp.name)).toContain('Revivify')
+    expect(
+      after.spells.find((sp) => sp.name === 'Beacon of Hope')?.alwaysPrepared,
+    ).toBe(true)
+  })
+
+  it('collect every row a multi-level jump passes through', () => {
+    const after = applyLevelUp(cleric(2), draftFor(cleric(2), 5))
+    const names = after.spells.map((sp) => sp.name)
+    expect(names).toContain('Spiritual Weapon') // grantedAt 3
+    expect(names).toContain('Revivify') // grantedAt 5
+  })
+
+  it('are not re-added on a later level-up', () => {
+    // `Character.spells` is flat with no per-source grouping, so a domain
+    // spell is indistinguishable from a hand-typed one and a second copy would
+    // be silent. Idempotency is the only thing standing between the two.
+    const at3 = applyLevelUp(cleric(2), draftFor(cleric(2), 3))
+    const at4 = applyLevelUp(at3, draftFor(at3, 4))
+    expect(
+      at4.spells.filter((sp) => sp.name === 'Spiritual Weapon'),
+    ).toHaveLength(1)
+  })
+
+  it('leave a spell the player already had alone', () => {
+    // Somebody who prepared Bless by hand keeps the row they made. This
+    // appends what is missing rather than restating the table over the top.
+    const c = cleric(2, [
+      { name: 'Spiritual Weapon', level: 2, prepared: true },
+    ])
+    const after = applyLevelUp(c, draftFor(c, 3))
+    const rows = after.spells.filter((sp) => sp.name === 'Spiritual Weapon')
+    expect(rows).toHaveLength(1)
+    expect(rows[0]?.prepared).toBe(true)
+    expect(rows[0]?.alwaysPrepared).toBe(undefined)
+  })
+
+  it('do not count against the prepared limit', () => {
+    const after = applyLevelUp(cleric(2), draftFor(cleric(2), 3))
+    expect(alwaysPreparedCount(after)).toBe(2)
+    expect(preparedCount(after)).toBe(0)
+  })
+
+  it('are shown in the plan before they land', () => {
+    // The Rogue pass shipped a bug where a granted spell was invisible during
+    // selection, so the picker read as though it were still owed.
+    const plan = levelUpPlan(cleric(2), draftFor(cleric(2), 3))
+    expect(plan.alwaysPreparedGained.map((sp) => sp.name)).toEqual([
+      'Lesser Restoration',
+      'Spiritual Weapon',
+    ])
+  })
+
+  it('are not offered again once the sheet has them', () => {
+    const c = cleric(4, [{ name: 'Revivify', level: 3, alwaysPrepared: true }])
+    const plan = levelUpPlan(c, draftFor(c, 5))
+    expect(plan.alwaysPreparedGained.map((sp) => sp.name)).toEqual([
+      'Beacon of Hope',
+    ])
+  })
+
+  it('grant nothing for a domain the tables do not know', () => {
+    const c = { ...cleric(2), subclass: 'Domain of the Screaming Moon' }
+    const plan = levelUpPlan(c, draftFor(c, 3))
+    expect(plan.alwaysPreparedGained).toEqual([])
+  })
+})
+
+describe('channel divinity', () => {
+  const accepting = (draft: LevelUpDraft): LevelUpDraft => ({
+    ...draft,
+    resources: Object.fromEntries(
+      resourcesOffered(draft).map((o) => [
+        o.name,
+        o.resets ? { total: o.total, resets: o.resets } : { total: o.total },
+      ]),
+    ),
+  })
+
+  const cleric = (level: number, resources: Character['resources'] = []) => ({
+    ...characterAt(level, 'Cleric'),
+    subclass: 'Life Domain',
+    resources,
+  })
+
+  it('is offered as a counter at 2nd', () => {
+    const offer = resourcesOffered(draftFor(cleric(1), 2)).find(
+      (o) => o.name === 'Channel Divinity',
+    )
+    expect(offer?.total).toBe(1)
+    expect(offer?.resets).toBe('short')
+  })
+
+  it('rises to two uses at 6th', () => {
+    const c = cleric(5, [
+      { name: 'Channel Divinity', used: 0, total: 1, resets: 'short' },
+    ])
+    const after = applyLevelUp(c, accepting(draftFor(c, 6)))
+    const row = after.resources.find((r) => r.name === 'Channel Divinity')
+    expect(row?.total).toBe(2)
+    expect(after.resources).toHaveLength(1)
+  })
+
+  it('rises to three uses at 18th', () => {
+    const c = cleric(17, [
+      { name: 'Channel Divinity', used: 0, total: 2, resets: 'short' },
+    ])
+    const after = applyLevelUp(c, accepting(draftFor(c, 18)))
+    expect(
+      after.resources.find((r) => r.name === 'Channel Divinity')?.total,
+    ).toBe(3)
+  })
+
+  it('keeps spent uses spent when it grows', () => {
+    const c = cleric(5, [
+      { name: 'Channel Divinity', used: 1, total: 1, resets: 'short' },
+    ])
+    const after = applyLevelUp(c, accepting(draftFor(c, 6)))
+    const row = after.resources.find((r) => r.name === 'Channel Divinity')
+    expect(row?.total).toBe(2)
+    expect(row?.used).toBe(1)
+  })
+
+  it('offers nothing at a level that does not change the number', () => {
+    const c = cleric(6, [
+      { name: 'Channel Divinity', used: 0, total: 2, resets: 'short' },
+    ])
+    expect(
+      resourcesOffered(draftFor(c, 7)).find(
+        (o) => o.name === 'Channel Divinity',
+      ),
+    ).toBe(undefined)
   })
 })

@@ -20,6 +20,7 @@ import {
   findKit,
   findFeat,
   findRace,
+  findSubclass,
   findSubrace,
   kitFromClassInfo,
   SRD_TABLES,
@@ -194,6 +195,22 @@ export function draftKit(draft: CharacterDraft) {
 }
 
 /**
+ * The chosen subclass entry, if the class offers one by that name.
+ *
+ * Only meaningful for a class that picks at level 1 — Cleric, Sorcerer,
+ * Warlock — because that is the only case where creation knows the answer. A
+ * Fighter's archetype is chosen at 3rd and the level-up wizard resolves it
+ * there instead.
+ *
+ * Undefined for a subclass nobody has authored, which is a supported case and
+ * the same bargain `draftFeat` makes: the name still reaches the sheet, it
+ * simply grants nothing.
+ */
+export function draftSubclass(draft: CharacterDraft) {
+  return findSubclass(draftKit(draft), draft.subclassName)
+}
+
+/**
  * The chosen class in the shape the sheet-facing code wants. Derived from the
  * kit, which *is* the class now — kept as its own helper because callers only
  * want the hit die and the subclass label, and shouldn't have to know a kit
@@ -214,9 +231,18 @@ export function draftClassInfo(draft: CharacterDraft): ClassInfo | undefined {
 
 /**
  * Every grant this draft has accrued, in the fixed order they must be merged:
- * race, subrace, background, class kit, then each resolved equipment option.
+ * race, subrace, background, class kit, subclass, then each resolved equipment
+ * option.
  *
  * Order matters only for de-duplication, which keeps the first spelling it saw.
+ *
+ * The subclass sits directly after the kit because it is part of the class: a
+ * Life Domain cleric's heavy armour is the class's grant plus the domain's, and
+ * only a class picking its subclass at level 1 has one to contribute here at
+ * all. Routing it through this list rather than special-casing it in
+ * `buildCharacter` is what makes a subclass's `acBonus`, `speedBonus`,
+ * `initiativeBonus` and `hpPerLevel` work: those are summed over exactly this
+ * list, and a grant applied anywhere else is silently missed by all four.
  */
 export function draftGrants(draft: CharacterDraft): Array<Grant> {
   const out: Array<Grant> = []
@@ -233,6 +259,8 @@ export function draftGrants(draft: CharacterDraft): Array<Grant> {
   const kit = draftKit(draft)
   if (kit) {
     out.push(kit.grant)
+    const subclass = draftSubclass(draft)
+    if (subclass?.grant) out.push(subclass.grant)
     for (const choice of kit.equipment) {
       // `equipment` is a sparse record: an unanswered choice has no key,
       // and an index is only ever written by clicking a rendered option.
@@ -295,6 +323,11 @@ export interface OwnedPickList {
  * Mirrors `draftGrants` deliberately: same sources, same order, so the two
  * cannot disagree about what a draft grants. `draftPickLists` is this with the
  * owners dropped, kept because most callers only need the picks.
+ *
+ * The mirror is a maintenance obligation, not just a description — a source
+ * added to one and not the other is a draft that grants something it never
+ * asked about, or asks something it never grants. The subclass was added to
+ * both together for that reason.
  */
 export function draftOwnedPickLists(
   draft: CharacterDraft,
@@ -333,6 +366,25 @@ export function draftOwnedPickLists(
     for (const feature of featuresUpToLevel(kit.features, 1)) {
       for (const pick of feature.picks ?? []) {
         out.push({ pick, owner: feature.name, ownerKind: 'class' })
+      }
+    }
+    // The subclass, mirroring `draftGrants` — its own grant, then the choices
+    // posed by whichever of its features a level-1 character has. Only a class
+    // picking at level 1 reaches this: `featuresUpToLevel` draws the same line
+    // it draws for the kit above, so a domain feature gained at 6th is not
+    // asked about during creation.
+    //
+    // Owner is the subclass's own name rather than the class's — "Knowledge
+    // Domain" is what a player would call the thing that handed them their
+    // expertise, and `ownerKind` has no subclass member because the distinction
+    // buys nothing they'd recognise, exactly as subrace collapses into 'race'.
+    const subclass = draftSubclass(draft)
+    if (subclass) {
+      add(subclass.grant, subclass.name, 'class')
+      for (const feature of featuresUpToLevel(subclass.features, 1)) {
+        for (const pick of feature.picks ?? []) {
+          out.push({ pick, owner: feature.name, ownerKind: 'class' })
+        }
       }
     }
     for (const choice of kit.equipment) {

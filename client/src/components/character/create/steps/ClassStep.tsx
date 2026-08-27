@@ -4,10 +4,33 @@ import type { ClassKit } from '#/lib/srd'
 import { featuresUpToLevel } from '#/lib/srd'
 import type { CharacterDraft } from '#/lib/characterDraft'
 import { draftClassInfo, draftKit } from '#/lib/characterDraft'
+import { subclassLevelOf } from '#/lib/tables'
 import { Input } from '#/components/ui/input'
 import { Label } from '#/components/ui/label'
 import { OptionCard } from '../OptionCard'
 import { HomebrewDialog } from '../HomebrewDialog'
+
+/**
+ * "3rd", "2nd" — for the line telling a player when their class chooses.
+ *
+ * Local because it exists to render one sentence. The level came from
+ * `subclassLevelOf`, so it is 1-20 and any homebrew number in that range reads
+ * correctly rather than being hardcoded to the 5e default of 3.
+ */
+function ordinal(n: number): string {
+  const tens = n % 100
+  if (tens >= 11 && tens <= 13) return `${n}th`
+  switch (n % 10) {
+    case 1:
+      return `${n}st`
+    case 2:
+      return `${n}nd`
+    case 3:
+      return `${n}rd`
+    default:
+      return `${n}th`
+  }
+}
 
 export function ClassStep({
   draft,
@@ -20,6 +43,18 @@ export function ClassStep({
   const kit = draftKit(draft)
   const classInfo = draftClassInfo(draft)
   const subclasses = classInfo?.subclasses ?? []
+  /**
+   * Whether this class names its subclass during creation.
+   *
+   * Through `subclassLevelOf`, not the deprecated `subclassAtLevel1` boolean
+   * this used to read: `subclassLevelOf` resolves `subclassLevel` first and
+   * falls back to the flag, and it is what the level-up wizard already uses.
+   * Reading the flag directly meant a homebrew kit setting only
+   * `subclassLevel: 1` got no picker here while level-up agreed it should have
+   * one — the two halves of the app disagreeing about the same class.
+   */
+  const subclassLevel = subclassLevelOf(kit)
+  const picksSubclassNow = Boolean(kit) && subclassLevel === 1
   /**
    * Whether the class brings anything to creation beyond a hit die. A legacy
    * class carries only the three sheet fields, so its kit is otherwise empty.
@@ -131,7 +166,7 @@ export function ClassStep({
         </p>
       )}
 
-      {kit?.subclassAtLevel1 === true && (
+      {picksSubclassNow && (
         <div className="grid max-w-sm gap-2">
           <Label htmlFor="wizard-subclass">
             {classInfo?.subclassLabel ?? 'Subclass'}
@@ -157,10 +192,11 @@ export function ClassStep({
         </div>
       )}
 
-      {hasStartingKit && kit && kit.subclassAtLevel1 !== true && (
+      {hasStartingKit && kit && !picksSubclassNow && (
         <p className="text-muted-foreground text-sm">
           A {kit.name} chooses their{' '}
-          {classInfo?.subclassLabel.toLowerCase() ?? 'subclass'} at 3rd level.
+          {classInfo?.subclassLabel.toLowerCase() ?? 'subclass'} at{' '}
+          {ordinal(subclassLevel)} level.
         </p>
       )}
 

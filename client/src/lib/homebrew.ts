@@ -21,6 +21,7 @@ import type { ClassInfo } from './classes'
 import { classId } from './worldSettings'
 import type {
   BackgroundInfo,
+  ClassFeatureInfo,
   ClassKit,
   FeatInfo,
   FlexibleAsiMode,
@@ -67,6 +68,27 @@ export interface Homebrew {
    */
   feats: Array<FeatInfo>
   /**
+   * Subclasses that attach to a class rather than living inside a copy of it.
+   *
+   * The reason this exists: a `ClassKit` in `kits` above *replaces* the
+   * built-in of the same name. So adding one College to the Bard used to mean
+   * duplicating the whole Bard — and inheriting a frozen snapshot of its
+   * features, equipment and spell tables, which then never sees another fix.
+   * A player wanting one extra archetype should not have to fork the class.
+   *
+   * Keyed by class name, merged into that kit's own list, which is exactly how
+   * `lib/subclasses/publishedSubclasses.ts` already works — same `layerSubclasses`
+   * overlay, one tier higher. A name that matches an existing subclass
+   * overrides it; a new name is appended.
+   *
+   * `className` is free text and matched case-insensitively, like every other
+   * name in these tables. One that matches no class is kept rather than
+   * dropped: the class may be defined in a world this global file knows
+   * nothing about, and silently discarding somebody's work is not this app's
+   * habit.
+   */
+  subclasses: Array<HomebrewSubclass>
+  /**
    * Legacy class list, from files written while classes and kits were separate
    * tables. Still read and re-written so an older build opening the same file
    * finds what it expects, and folded into `kits` by `mergeTables`. Nothing
@@ -75,12 +97,19 @@ export interface Homebrew {
   classes?: Array<ClassInfo>
 }
 
+/** A subclass plus the class it belongs to. */
+export interface HomebrewSubclass extends SubclassInfo {
+  /** The class that offers it. Free text, matched case-insensitively. */
+  className: string
+}
+
 export const EMPTY_HOMEBREW: Homebrew = {
   version: HOMEBREW_VERSION,
   races: [],
   backgrounds: [],
   kits: [],
   feats: [],
+  subclasses: [],
 }
 
 // --- shared coercion (same shapes as worldSettings.ts) ----------------------
@@ -116,6 +145,31 @@ function int(v: unknown, fallback: number, min: number, max: number): number {
  * stored, exactly as `classId` does for classes. Matches the slug convention
  * srd.test.ts asserts for the built-in tables.
  */
+/**
+ * Add an entry, or replace the one that already has its name.
+ *
+ * **Appending a same-named entry silently loses it.** A homebrew `id` is
+ * derived from the name and stripped on write, so two entries with one name
+ * collide on reload — and `parseHomebrew`'s dedupe keeps the *first*,
+ * discarding the one just authored.
+ *
+ * Replacing in place also keeps the entry's position, matching `layer()` in
+ * tables.ts: overriding something shouldn't make it jump down the list.
+ *
+ * Lives here rather than beside one of its callers because there are three now
+ * — the inline `HomebrewDialog`, the subclass wizard, and the settings list.
+ */
+export function upsert<T extends { name: string }>(
+  list: Array<T>,
+  entry: T,
+): Array<T> {
+  const key = entry.name.trim().toLowerCase()
+  const at = list.findIndex((e) => e.name.trim().toLowerCase() === key)
+  return at === -1
+    ? [...list, entry]
+    : list.map((e, i) => (i === at ? entry : e))
+}
+
 export function homebrewId(name: string): string {
   return name
     .trim()
@@ -230,6 +284,10 @@ const PICK_KINDS: Array<PickKind> = [
   'armor',
   'spell',
   'cantrip',
+  // Omitting this coerced a homebrew `feature` pick to `'other'`, which
+  // `applyPicks` records and then discards — the click was taken and the answer
+  // thrown away. It is the one kind whose answer lands in `Character.features`.
+  'feature',
   'other',
 ]
 
@@ -251,7 +309,7 @@ function parsePickList(raw: unknown, ownerId: string): PickList | null {
   const kind = PICK_KINDS.includes(r.kind as PickKind)
     ? (r.kind as PickKind)
     : 'other'
-  return {
+  const pick: PickList = {
     id,
     kind,
     label: label === '' ? 'Choose' : label,
@@ -259,6 +317,42 @@ function parsePickList(raw: unknown, ownerId: string): PickList | null {
     options,
     ...(open && { open: true }),
   }
+
+  // `feature` picks carry three more fields, and without them the kind does
+  // nothing useful: the chosen option lands on the sheet as a bare row with no
+  // rules text and no prefix. Read only for that kind, because they mean
+  // nothing on any other and storing them would be noise.
+  if (kind === 'feature') {
+    const featureLabel = str(r.featureLabel).trim()
+    if (featureLabel !== '') pick.featureLabel = featureLabel
+
+    const text = strRecord(r.featureText)
+    if (Object.keys(text).length > 0) pick.featureText = text
+
+    if (typeof r.featureGrant === 'object' && r.featureGrant !== null) {
+      const grants: Record<string, Grant> = {}
+      for (const [option, entry] of Object.entries(
+        r.featureGrant as Record<string, unknown>,
+      )) {
+        const grant = parseGrant(entry, `${id}-${homebrewId(option)}`)
+        if (!isEmptyGrant(grant)) grants[option] = grant
+      }
+      if (Object.keys(grants).length > 0) pick.featureGrant = grants
+    }
+  }
+
+  return pick
+}
+
+/** A `Record<string, string>` off disk, dropping anything that isn't one. */
+function strRecord(raw: unknown): Record<string, string> {
+  if (typeof raw !== 'object' || raw === null) return {}
+  const out: Record<string, string> = {}
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    const text = str(value).trim()
+    if (text !== '') out[key] = text
+  }
+  return out
 }
 
 function parsePicks(raw: unknown, ownerId: string): Array<PickList> {
@@ -615,23 +709,70 @@ function parseEquipment(raw: unknown, ownerId: string): ClassKit['equipment'] {
  * Shared by classes and subclasses because they are the same shape and the
  * same rules — a second copy is how the three `parseClass` variants happened.
  */
+/**
+ * Features off disk, with everything `ClassFeatureInfo` can carry.
+ *
+ * `picks`, `resource` and `halfProficiency` used to be dropped here — the
+ * return type was literally `{ level, name, text }`. That made a per-level
+ * choice **unauthorable by any route**: hand-writing one into `homebrew.json`
+ * parsed to nothing and the next save wrote the loss back out. `FeatureRows`
+ * meanwhile promised "kept as you edit", which was true only of built-in data
+ * held in memory.
+ *
+ * `ownerId` namespaces the pick ids. They share one keyspace across every
+ * table — `srd.test.ts` asserts it — so a subclass's features must namespace
+ * through the *subclass*, not its class, or two archetypes of one class would
+ * collide.
+ */
 export function parseFeatures(
   raw: unknown,
-): Array<{ level: number; name: string; text?: string }> {
+  ownerId = 'feature',
+): Array<ClassFeatureInfo> {
   if (!Array.isArray(raw)) return []
-  return raw.flatMap(
-    (entry): Array<{ level: number; name: string; text?: string }> => {
-      if (typeof entry !== 'object' || entry === null) return []
-      const f = entry as Record<string, unknown>
-      const fname = str(f.name).trim()
-      if (fname === '') return []
-      const text = str(f.text).trim()
-      // Defaults to 1: a file written before features had levels, or a
-      // homebrew author who didn't say, means "you have it from the start".
-      const level = int(f.level, 1, 1, 20)
-      return [text ? { level, name: fname, text } : { level, name: fname }]
-    },
-  )
+  return raw.flatMap((entry, i): Array<ClassFeatureInfo> => {
+    if (typeof entry !== 'object' || entry === null) return []
+    const f = entry as Record<string, unknown>
+    const fname = str(f.name).trim()
+    if (fname === '') return []
+    const text = str(f.text).trim()
+    // Defaults to 1: a file written before features had levels, or a
+    // homebrew author who didn't say, means "you have it from the start".
+    const level = int(f.level, 1, 1, 20)
+
+    const feature: ClassFeatureInfo = { level, name: fname }
+    if (text) feature.text = text
+
+    // Namespaced by owner *and* index: two features on one subclass can each
+    // pose a choice, and `${ownerId}-${homebrewId(name)}` alone would collide
+    // for two same-named features at different levels.
+    const picks = parsePicks(f.picks, `${ownerId}-${homebrewId(fname) || i}`)
+    if (picks.length > 0) feature.picks = picks
+
+    const resource = parseResource(f.resource)
+    if (resource) feature.resource = resource
+
+    const half = str(f.halfProficiency).trim()
+    if (half === 'all' || half === 'physical') feature.halfProficiency = half
+
+    return [feature]
+  })
+}
+
+/**
+ * A counter a feature implies. Offered at level-up as a pre-filled row the
+ * player can accept, edit or ignore — so a nameless one is nothing to offer.
+ */
+function parseResource(raw: unknown): ClassFeatureInfo['resource'] | undefined {
+  if (typeof raw !== 'object' || raw === null) return undefined
+  const r = raw as Record<string, unknown>
+  const name = str(r.name).trim()
+  if (name === '') return undefined
+  const resets = str(r.resets).trim()
+  return {
+    name,
+    total: int(r.total, 1, 0, 999),
+    ...((resets === 'short' || resets === 'long') && { resets }),
+  }
 }
 
 /** A subclass's always-prepared spell rows. */
@@ -693,7 +834,13 @@ export function parseSubclasses(
     seen.add(key)
 
     const id = homebrewId(name)
-    const sub: SubclassInfo = { id, name, features: parseFeatures(r.features) }
+    // Namespaced through the subclass: two archetypes of one class can each
+    // pose a choice, and the class id alone would collide.
+    const sub: SubclassInfo = {
+      id,
+      name,
+      features: parseFeatures(r.features, `${ownerId}-${id}`),
+    }
     const summary = str(r.summary).trim()
     if (summary !== '') sub.summary = summary
     const spells = parseSubclassSpells(r.spells)
@@ -714,6 +861,24 @@ export function parseSubclasses(
 }
 
 /** A grant without its pick ids, which are derived rather than stored. */
+/**
+ * Features on the way out, with the derived ids stripped from their picks.
+ *
+ * Same rule `stripPicks` follows for a grant: a pick id is built from its
+ * owner on the way in, so writing it back would create a second source of
+ * truth that a hand-edit could contradict.
+ */
+function serializeFeatures(
+  features: Array<ClassFeatureInfo>,
+): Array<unknown> {
+  return features.map(({ picks, ...rest }) => ({
+    ...rest,
+    ...(picks && {
+      picks: picks.map(({ id: _id, ...pick }) => pick),
+    }),
+  }))
+}
+
 function stripPicks(grant: Grant): unknown {
   const { picks, ...rest } = grant
   return {
@@ -737,6 +902,44 @@ function stripPicks(grant: Grant): unknown {
  * character who took it is unaffected, because `Character.subclass` is free
  * text.
  */
+/**
+ * The standalone subclass list — the ones attached to a class by name rather
+ * than defined inside a copy of it.
+ *
+ * De-duped on **class + name**, not on id alone: two classes can each offer a
+ * "Hunter", and the shared `list` helper above would throw one away. That is
+ * also why the id is namespaced by class, since pick ids inside a grant are
+ * derived from it and share one global keyspace.
+ *
+ * An entry naming no class is dropped — it has nowhere to attach and would
+ * silently never appear. An entry naming a class the tables do not know is
+ * *kept*: the class may live in a world this global file cannot see.
+ */
+function parseHomebrewSubclasses(raw: unknown): Array<HomebrewSubclass> {
+  if (!Array.isArray(raw)) return []
+  const seen = new Set<string>()
+  return raw.flatMap((entry): Array<HomebrewSubclass> => {
+    if (typeof entry !== 'object' || entry === null) return []
+    const r = entry as Record<string, unknown>
+    const className = str(r.className).trim()
+    if (className === '') return []
+    const key = `${className.toLowerCase()}/${str(r.name).trim().toLowerCase()}`
+    if (key.endsWith('/')) return []
+    if (seen.has(key)) return []
+    seen.add(key)
+    // Through the same parser the in-kit list uses, so one shape is read one
+    // way. The owner id namespaces this subclass's pick ids by class.
+    //
+    // Mapped rather than destructured: `parseSubclasses` returns an empty array
+    // for an entry it rejects, and a `const [sub] =` types as always-defined
+    // while being undefined at runtime — the compiler cannot see the drop.
+    return parseSubclasses([entry], homebrewId(className)).map((sub) => ({
+      ...sub,
+      className,
+    }))
+  })
+}
+
 /**
  * Whether a grant hands over nothing at all.
  *
@@ -786,8 +989,9 @@ export function serializeSubclass(sub: SubclassInfo): unknown {
   // added: this half still called such a subclass bare and wrote it back as a
   // plain string, discarding the block.
   if (isBareSubclass(sub)) return sub.name
-  const { id: _id, grant, ...rest } = sub
-  return grant ? { ...rest, grant: stripPicks(grant) } : rest
+  const { id: _id, grant, features, ...rest } = sub
+  const out = { ...rest, features: serializeFeatures(features) }
+  return grant ? { ...out, grant: stripPicks(grant) } : out
 }
 
 export function parseKit(raw: unknown): ClassKit | null {
@@ -810,7 +1014,7 @@ export function parseKit(raw: unknown): ClassKit | null {
     open: true,
   }
 
-  const features = parseFeatures(r.features)
+  const features = parseFeatures(r.features, id)
 
   const priority = strList(r.abilityPriority)
     .map((a) => a.trim().toLowerCase())
@@ -919,6 +1123,7 @@ export function parseHomebrew(raw: unknown): Homebrew {
     backgrounds: list(r.backgrounds, parseBackground),
     kits: list(r.kits, parseKit),
     feats: list(r.feats, parseFeat),
+    subclasses: parseHomebrewSubclasses(r.subclasses),
     // Only carried when the file has one; nothing writes a new legacy list.
     ...(Array.isArray(r.classes) && { classes: list(r.classes, parseClass) }),
   }
@@ -955,8 +1160,17 @@ export function serializeHomebrew(homebrew: Homebrew): unknown {
       grant: stripPicks(grant),
     })),
     kits: homebrew.kits.map(
-      ({ id: _id, grant, equipment, skillChoices, subclasses, ...kit }) => ({
+      ({
+        id: _id,
+        grant,
+        equipment,
+        skillChoices,
+        subclasses,
+        features,
+        ...kit
+      }) => ({
         ...kit,
+        features: serializeFeatures(features),
         // Downgraded to bare strings wherever a subclass is just a name, so an
         // older build's `strList` still reads them instead of dropping the lot.
         subclasses: subclasses.map(serializeSubclass),
@@ -969,6 +1183,16 @@ export function serializeHomebrew(homebrew: Homebrew): unknown {
             grant: stripPicks(o.grant),
           })),
         })),
+      }),
+    ),
+    // Standalone subclasses. Always an object, never downgraded to a bare
+    // string the way an in-kit one is: the `className` has to survive, and a
+    // bare name has nowhere to carry it.
+    subclasses: homebrew.subclasses.map(
+      ({ id: _id, grant, features, ...sub }) => ({
+        ...sub,
+        features: serializeFeatures(features),
+        ...(grant && { grant: stripPicks(grant) }),
       }),
     ),
     ...(homebrew.classes && {

@@ -19,7 +19,7 @@ import type { ClassInfo } from './classes'
 import { PUBLISHED_FEATS } from './feats'
 import { PUBLISHED_RACES } from './races'
 import { publishedSubclassesFor } from './subclasses'
-import type { Homebrew } from './homebrew'
+import type { Homebrew, HomebrewSubclass } from './homebrew'
 import { EMPTY_HOMEBREW, isBareSubclass } from './homebrew'
 import { SRD_BACKGROUNDS, SRD_CLASS_KITS, SRD_FEATS, SRD_RACES } from './srd'
 import type {
@@ -61,6 +61,8 @@ export interface WorldTables {
   backgrounds?: Array<BackgroundInfo>
   kits?: Array<ClassKit>
   feats?: Array<FeatInfo>
+  /** Subclasses attached to a class by name — see `Homebrew.subclasses`. */
+  subclasses?: Array<HomebrewSubclass>
   /**
    * Legacy per-world class list, from files written before kits absorbed it.
    * Upgraded in place rather than migrated on disk: a world folder is the
@@ -113,6 +115,41 @@ function withPublishedSubclasses(kits: Array<ClassKit>): Array<ClassKit> {
     const published = publishedSubclassesFor(kit.name)
     if (published.length === 0) return kit
     return { ...kit, subclasses: layerSubclasses(kit.subclasses, published) }
+  })
+}
+
+/**
+ * Fold user-authored standalone subclasses into the kits they name.
+ *
+ * The same overlay `withPublishedSubclasses` does, one tier up, and it exists
+ * for a sharper reason. A `ClassKit` in the homebrew `kits` list *replaces* the
+ * built-in of the same name, so adding one College to the Bard used to mean
+ * duplicating the whole Bard — inheriting a frozen copy of its features,
+ * equipment and spell tables that would never see another fix. Attaching by
+ * name instead means the class keeps coming from wherever it came from, and
+ * only the archetype is yours.
+ *
+ * Order is the caller's: later entries win, so world beats global. A subclass
+ * naming a class nothing defines is dropped *here* rather than at parse — the
+ * file keeps it, because the class may be defined in a world this merge was
+ * not given, and losing somebody's work to a merge is worse than it not
+ * appearing in one list.
+ */
+function attachSubclasses(
+  kits: Array<ClassKit>,
+  subclasses: Array<HomebrewSubclass>,
+): Array<ClassKit> {
+  if (subclasses.length === 0) return kits
+  const byClass = new Map<string, Array<SubclassInfo>>()
+  for (const { className, ...sub } of subclasses) {
+    const key = nameKey(className)
+    if (key === '') continue
+    byClass.set(key, [...(byClass.get(key) ?? []), sub])
+  }
+  return kits.map((kit) => {
+    const mine = byClass.get(nameKey(kit.name))
+    if (!mine) return kit
+    return { ...kit, subclasses: layerSubclasses(kit.subclasses, mine) }
   })
 }
 
@@ -301,10 +338,14 @@ function layerClasses(global: Homebrew, world: WorldTables): Array<ClassKit> {
   // wrote, so it is folded in *before* `layer` runs: a homebrew kit that
   // replaces Barbarian outright is still allowed to say there is no Totem
   // Warrior, which is the whole point of world > global > published > SRD.
-  const kits = layer(
-    withPublishedSubclasses(SRD_CLASS_KITS),
-    global.kits,
-    world.kits ?? [],
+  const kits = attachSubclasses(
+    layer(
+      withPublishedSubclasses(SRD_CLASS_KITS),
+      global.kits,
+      world.kits ?? [],
+    ),
+    // Global first, world second, so a world's subclass of the same name wins.
+    [...global.subclasses, ...(world.subclasses ?? [])],
   )
   const byName = new Map(kits.map((kit) => [nameKey(kit.name), kit]))
   const order = kits.map((kit) => nameKey(kit.name))

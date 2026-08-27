@@ -830,7 +830,78 @@ export const SRD_CLASS_KITS: Array<ClassKit> = [
     subclassLabel: 'Divine Domain',
     subclasses: [
       { id: 'knowledge-domain', name: 'Knowledge Domain', features: [] },
-      { id: 'life-domain', name: 'Life Domain', features: [] },
+      {
+        id: 'life-domain',
+        name: 'Life Domain',
+        summary: 'Healing and the vigour of the living, channelled.',
+        // Bonus Proficiency's actual effect. On the subclass rather than the
+        // level-1 feature row because `ClassFeatureInfo` has no `grant` — the
+        // row is the reminder, this is what lands. The Cleric already grants
+        // light, medium and shields, so `heavy` is a real addition.
+        grant: { armor: ['heavy'] },
+        // The domain table. `grantedAt` is the *character* level and `level`
+        // the *spell* level: two different numbers, and conflating them is the
+        // easy mistake here.
+        spells: [
+          { grantedAt: 1, level: 1, names: ['Bless', 'Cure Wounds'] },
+          {
+            grantedAt: 3,
+            level: 2,
+            names: ['Lesser Restoration', 'Spiritual Weapon'],
+          },
+          { grantedAt: 5, level: 3, names: ['Beacon of Hope', 'Revivify'] },
+          {
+            grantedAt: 7,
+            level: 4,
+            names: ['Death Ward', 'Guardian of Faith'],
+          },
+          {
+            grantedAt: 9,
+            level: 5,
+            names: ['Mass Cure Wounds', 'Raise Dead'],
+          },
+        ],
+        features: [
+          {
+            level: 1,
+            name: 'Bonus Proficiency',
+            text: 'You gain proficiency with heavy armour.',
+          },
+          {
+            level: 1,
+            name: 'Disciple of Life',
+            text: 'Whenever you restore hit points with a spell of 1st level or higher, the creature regains an extra 2 + the spell’s level.',
+          },
+          {
+            level: 2,
+            name: 'Channel Divinity: Preserve Life',
+            text: 'You restore hit points equal to five times your cleric level, divided as you choose among creatures within 30 feet, up to half a creature’s maximum each.',
+          },
+          {
+            level: 6,
+            name: 'Blessed Healer',
+            text: 'When you heal someone else with a spell of 1st level or higher, you regain hit points equal to 2 + the spell’s level.',
+          },
+          {
+            level: 8,
+            name: 'Divine Strike',
+            text: 'Once on each of your turns, a weapon hit deals an extra 1d8 radiant damage.',
+          },
+          {
+            // Its own row rather than a clause in the level-8 prose: de-dupe
+            // is keyed on `level:name`, so this is a feature the wizard grants
+            // at 14 where prose in the earlier row scrolls past unread.
+            level: 14,
+            name: 'Divine Strike (2d8)',
+            text: 'Your Divine Strike damage rises to 2d8.',
+          },
+          {
+            level: 17,
+            name: 'Supreme Healing',
+            text: 'When you would roll dice to restore hit points with a spell, use the highest number possible for each die instead.',
+          },
+        ],
+      },
       { id: 'light-domain', name: 'Light Domain', features: [] },
       { id: 'nature-domain', name: 'Nature Domain', features: [] },
       { id: 'tempest-domain', name: 'Tempest Domain', features: [] },
@@ -972,9 +1043,27 @@ export const SRD_CLASS_KITS: Array<ClassKit> = [
         text: 'You choose a domain related to your deity, granting you domain spells and other features at 1st level.',
       },
       {
+        // A real counter, and the class's only one: Channel Divinity is what a
+        // cleric actually spends. The uses were prose here — "twice at 6th,
+        // three times at 18th" — which the level-up wizard cannot grant, so
+        // each step is its own row, the way the Battle Master's superiority
+        // dice and the Bard's inspiration die already scale.
         level: 2,
         name: 'Channel Divinity',
-        text: 'You can channel divine energy to fuel magical effects, using it once per rest — twice at 6th level, three times at 18th.',
+        text: 'You can channel divine energy to fuel magical effects, expending a use and regaining it on a short or long rest. Your domain grants its own options.',
+        resource: { name: 'Channel Divinity', total: 1, resets: 'short' },
+      },
+      {
+        level: 6,
+        name: 'Channel Divinity (2/rest)',
+        text: 'You can use Channel Divinity twice between rests.',
+        resource: { name: 'Channel Divinity', total: 2, resets: 'short' },
+      },
+      {
+        level: 18,
+        name: 'Channel Divinity (3/rest)',
+        text: 'You can use Channel Divinity three times between rests.',
+        resource: { name: 'Channel Divinity', total: 3, resets: 'short' },
       },
       {
         level: 5,

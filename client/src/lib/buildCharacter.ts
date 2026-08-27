@@ -37,6 +37,7 @@ import {
   draftKit,
   draftPickLists,
   draftRace,
+  draftSubclass,
   draftSubrace,
   picked,
   racialAsi,
@@ -50,7 +51,14 @@ import {
   weaponCategory,
   weaponEntry,
 } from './srd'
-import type { Grant, GrantItem, PickKind, PickList } from './srd'
+import type {
+  Grant,
+  GrantItem,
+  PickKind,
+  PickList,
+  SubclassSpells,
+} from './srd'
+import { spellcastingFor } from './tables'
 
 /** Ability scores after racial increases, clamped to the parser's 1-30 range. */
 export function finalScores(draft: CharacterDraft): Record<Ability, number> {
@@ -164,6 +172,46 @@ export function applyGrantSpells(c: Character, grant: Grant): void {
       !c.spells.some((s) => s.name === spell.name && s.level === spell.level)
     ) {
       c.spells.push({ name: spell.name, level: spell.level })
+    }
+  }
+}
+
+/**
+ * A subclass's always-prepared table — domain, oath and circle spells.
+ *
+ * The counterpart to `applyGrantSpells` above and deliberately *not* the same
+ * function, because the two fields mean different things. `Grant.spells` is a
+ * fixed spell handed over once; `SubclassInfo.spells` is a table that unfolds
+ * with the character, and its rows are **always prepared and exempt from the
+ * prepared limit** — which is what `alwaysPrepared` models and the entire
+ * reason a Life Domain cleric can carry Bless without spending a preparation
+ * on it. `preparedCount` counts only `'prepared'`, so setting the flag is what
+ * makes the exemption real.
+ *
+ * `grantedAt` is the **character** level and `level` the **spell** level; they
+ * are different numbers and conflating them is the easy mistake here.
+ *
+ * Idempotent, and it has to be: `Character.spells` is a flat list with no
+ * per-source grouping, so a domain spell is indistinguishable from a
+ * hand-typed one and re-running this at every level-up must not duplicate a
+ * row. Deduped on name and level exactly as `applyGrantSpells` is.
+ *
+ * Never lowers or unsets anything. A spell the player already had as an
+ * ordinary prepared spell keeps whatever they set — this appends what is
+ * missing rather than restating the table, because a character is somebody's
+ * work.
+ */
+export function applySubclassSpells(
+  c: Character,
+  subclass: { spells?: Array<SubclassSpells> } | undefined,
+  level: number,
+): void {
+  for (const row of subclass?.spells ?? []) {
+    if (row.grantedAt > level) continue
+    for (const name of row.names) {
+      if (!c.spells.some((s) => s.name === name && s.level === row.level)) {
+        c.spells.push({ name, level: row.level, alwaysPrepared: true })
+      }
     }
   }
 }
@@ -573,15 +621,34 @@ export function buildCharacter(draft: CharacterDraft): {
     // Overwriting the list here silently threw the player's choice away, so the
     // pick was offered, gated on, and then discarded. The class's own features
     // come first because they are what the answers hang off.
+    //
+    // The subclass's own level-1 features follow the class's, for a class that
+    // picks at level 1 — Cleric, Sorcerer, Warlock. Every other class chooses
+    // an archetype at 3rd and `findSubclass` finds nothing here, so this is
+    // inert for them rather than special-cased. Its *grant* is not applied
+    // here: that rides `draftGrants` with everything else, so a subclass's
+    // armour, speed and AC land through the same path a race's do.
+    const subclass = draftSubclass(draft)
     c.features = [
       ...featuresUpToLevel(kit.features, 1).map((f): ClassFeature => ({
         level: f.level,
         name: f.name,
         ...(f.text ? { text: f.text } : {}),
       })),
+      ...featuresUpToLevel(subclass?.features ?? [], 1).map(
+        (f): ClassFeature => ({
+          level: f.level,
+          name: f.name,
+          ...(f.text ? { text: f.text } : {}),
+        }),
+      ),
       ...c.features,
     ]
-    const sc = kit.spellcasting
+    // Through `spellcastingFor`, never `kit.spellcasting` directly — a subclass
+    // may carry its own block, and reading past it leaves a level-1 archetype
+    // caster silently non-casting. No SRD class needs this today; a homebrew
+    // one can, and the type's own doc comment requires it.
+    const sc = spellcastingFor(kit, draft.subclassName)
     if (sc) {
       c.spellAbility = sc.ability
       c.spellSlots = { 1: { total: sc.slotsAtLevel1, used: 0 } }
@@ -599,6 +666,11 @@ export function buildCharacter(draft: CharacterDraft): {
           })
         }
       }
+      // The domain table, after the player's own picks so a spell they chose
+      // themselves keeps the row they made — this only appends what is missing.
+      // Deliberately outside `preparedLimit`, which is computed below and never
+      // counts these: `preparedCount` looks at `'prepared'` alone.
+      applySubclassSpells(c, subclass, c.level)
       c.preparedLimit = sc.prepares
         ? Math.max(1, abilityMod(c.abilities[sc.ability]) + c.level)
         : 0

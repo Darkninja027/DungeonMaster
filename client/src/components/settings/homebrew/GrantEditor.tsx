@@ -6,6 +6,7 @@ import { Input } from '#/components/ui/input'
 import { Textarea } from '#/components/ui/textarea'
 import { Button } from '#/components/ui/button'
 import { cn } from '#/lib/utils'
+import { PickRows } from './PickEditor'
 
 /**
  * The `Grant` sub-form — the "what does this hand out" block shared by races,
@@ -343,99 +344,11 @@ function PicksField({
   picks: Array<PickList>
   onChange: (next: Array<PickList>) => void
 }) {
-  const patch = (i: number, changes: Partial<PickList>) => {
-    onChange(picks.map((p, j) => (i === j ? { ...p, ...changes } : p)))
-  }
   return (
     <Field label="Choices" hint="Things the player picks at creation">
-      <div className="space-y-2">
-        {picks.map((pick, i) => (
-          <div key={i} className="space-y-1.5 rounded-md border p-2">
-            <div className="flex items-center gap-1.5">
-              <Input
-                value={pick.label}
-                placeholder="Choose one tool"
-                className="h-7 min-w-0 flex-1 text-sm"
-                onChange={(e) => patch(i, { label: e.target.value })}
-              />
-              <Input
-                value={String(pick.count)}
-                inputMode="numeric"
-                title="How many to choose"
-                className="h-7 w-12 text-center text-sm"
-                onChange={(e) => {
-                  const n = Number(e.target.value)
-                  patch(i, {
-                    count: Number.isFinite(n) && n > 0 ? Math.round(n) : 1,
-                  })
-                }}
-              />
-              <select
-                value={pick.kind}
-                className="border-input bg-background h-7 rounded-md border px-1 text-xs"
-                onChange={(e) =>
-                  patch(i, { kind: e.target.value as PickList['kind'] })
-                }
-              >
-                {[
-                  'skill',
-                  'skillOrTool',
-                  'expertise',
-                  'tool',
-                  'language',
-                  'weapon',
-                  'armor',
-                  'other',
-                ].map((kind) => (
-                  <option key={kind} value={kind}>
-                    {kind}
-                  </option>
-                ))}
-              </select>
-              <button
-                type="button"
-                aria-label="Remove choice"
-                onClick={() => onChange(picks.filter((_, j) => j !== i))}
-                className="text-muted-foreground hover:text-destructive"
-              >
-                <X className="size-3.5" />
-              </button>
-            </div>
-            <TokenField
-              label="Options"
-              placeholder={
-                pick.kind === 'skill' ? 'stealth (skill id)' : 'An option'
-              }
-              values={pick.options}
-              onChange={(options) => patch(i, { options })}
-            />
-            <label className="text-muted-foreground flex items-center gap-1.5 text-xs">
-              <input
-                type="checkbox"
-                checked={pick.open === true}
-                className="accent-primary size-3.5"
-                onChange={(e) =>
-                  patch(i, { open: e.target.checked || undefined })
-                }
-              />
-              Allow anything else to be typed in
-            </label>
-          </div>
-        ))}
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-7 text-xs"
-          onClick={() =>
-            onChange([
-              ...picks,
-              { id: '', kind: 'tool', label: '', count: 1, options: [] },
-            ])
-          }
-        >
-          <Plus className="size-3" /> Add choice
-        </Button>
-      </div>
+      {/* The same editor the per-level feature choices use, so the two cannot
+          drift — a choice is a choice wherever it is authored. */}
+      <PickRows picks={picks} onChange={onChange} />
     </Field>
   )
 }
