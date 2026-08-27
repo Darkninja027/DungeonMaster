@@ -13,6 +13,7 @@ import { api } from '#/lib/api'
 import { emitPaletteAction } from '#/lib/paletteActions'
 import { clearRollLog } from '#/lib/rollLog'
 import { isDark, setTheme } from '#/lib/theme'
+import type { WorldMode } from '#/lib/worldMode'
 
 /**
  * What a command can reach. Everything a command needs is passed in rather
@@ -25,12 +26,27 @@ export interface CommandContext {
   navigate: (to: string) => void
 }
 
+/**
+ * The open world's mode, so the palette can't offer a command whose surface is
+ * hidden — "New folder" in a mode with no content tree would appear to do
+ * nothing. Passed in rather than read here, keeping this file a plain data
+ * array with no React dependencies.
+ */
+export interface CommandFilter {
+  mode: WorldMode
+}
+
 export interface Command {
   id: string
   label: string
   /** Extra words matched against the query beyond the label. */
   keywords: Array<string>
   icon: LucideIcon
+  /**
+   * Modes this command applies to. Absent means every mode — most commands
+   * (theme, reveal, go home) are about the app rather than a surface.
+   */
+  modes?: Array<WorldMode>
   run: (ctx: CommandContext) => void
 }
 
@@ -40,6 +56,7 @@ export const commands: Array<Command> = [
     label: 'New article',
     keywords: ['create', 'page', 'note', 'add'],
     icon: FilePlus,
+    modes: ['worldbuilder', 'dm'],
     run: () => emitPaletteAction({ kind: 'new-article' }),
   },
   {
@@ -47,6 +64,7 @@ export const commands: Array<Command> = [
     label: 'New folder',
     keywords: ['create', 'directory', 'add'],
     icon: FolderPlus,
+    modes: ['worldbuilder', 'dm'],
     run: () => emitPaletteAction({ kind: 'new-folder' }),
   },
   {
@@ -54,6 +72,7 @@ export const commands: Array<Command> = [
     label: 'New character',
     keywords: ['create', 'pc', 'player', 'sheet', 'add'],
     icon: UserPlus,
+    modes: ['dm', 'player'],
     run: () => emitPaletteAction({ kind: 'new-character' }),
   },
   {
@@ -84,6 +103,7 @@ export const commands: Array<Command> = [
     label: 'Clear roll history',
     keywords: ['dice', 'log', 'reset', 'empty'],
     icon: Eraser,
+    modes: ['dm', 'player'],
     run: () => clearRollLog(),
   },
   {
@@ -100,11 +120,17 @@ export const commands: Array<Command> = [
  * fuzzier article scoring — a command list is short and exact wording is
  * predictable, so subsequence matching would only add noise.
  */
-export function matchCommands(query: string): Array<Command> {
+export function matchCommands(
+  query: string,
+  filter?: CommandFilter,
+): Array<Command> {
+  const available = filter
+    ? commands.filter((c) => !c.modes || c.modes.includes(filter.mode))
+    : commands
   const q = query.trim().toLowerCase()
-  if (!q) return commands
+  if (!q) return available
   const scored: Array<{ command: Command; score: number }> = []
-  for (const command of commands) {
+  for (const command of available) {
     const label = command.label.toLowerCase()
     let score = 0
     if (label.startsWith(q)) score = 100

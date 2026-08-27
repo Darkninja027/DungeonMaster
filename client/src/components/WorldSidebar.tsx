@@ -23,6 +23,7 @@ import { onPaletteAction } from '#/lib/paletteActions'
 import { useShortcut } from '#/lib/useShortcut'
 import type { ArticleSummary, FolderNode, WorldTree } from '#/lib/api'
 import { isLibraryFolder } from '#/lib/libraryFolders'
+import { useWorldMode } from '#/lib/useWorldSettings'
 import { REVEAL_LABEL, revealer } from '#/lib/reveal'
 import { articleTemplates, newArticleContent } from '#/lib/templates'
 import { cn } from '#/lib/utils'
@@ -54,6 +55,9 @@ interface NameDialogState {
 }
 
 export function WorldSidebar({ worldId }: { worldId: string }) {
+  // Which sections this world's mode shows. Hiding only — the routes behind
+  // each one stay reachable, so a [[wiki link]] into a hidden tree still opens.
+  const shows = useWorldMode(worldId).shows
   const queryClient = useQueryClient()
   const navigate = useNavigate()
   const params = useParams({ strict: false })
@@ -488,199 +492,209 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
 
   return (
     <div className="bg-muted/30 flex h-full w-72 shrink-0 flex-col border-r">
-      <div className="border-b">
-        <div className="flex items-center justify-between px-3 pt-2">
-          <span className="text-muted-foreground text-xs font-semibold uppercase tracking-wide">
-            Characters
-          </span>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-7"
-            title="New character"
-            onClick={openWizard}
-          >
-            <UserPlus className="size-4" />
-          </Button>
-        </div>
-        <div className="px-2 pb-1.5">
-          {characters.data?.length === 0 && (
-            <p className="text-muted-foreground px-2 pb-1 text-xs">
-              No characters yet.
-            </p>
-          )}
-          {characters.data?.map((ch) => (
-            <div
-              key={ch.id}
-              className={cn(
-                'group hover:bg-accent flex items-center rounded pr-1 text-sm',
-                activeArticleId === ch.id && 'bg-accent font-medium',
-              )}
+      {shows.characters && (
+        <div className="border-b">
+          <div className="flex items-center justify-between px-3 pt-2">
+            <span className="text-muted-foreground text-xs font-semibold uppercase tracking-wide">
+              Characters
+            </span>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-7"
+              title="New character"
+              onClick={openWizard}
             >
-              <Link
-                to="/worlds/$worldId/characters/$articleId"
-                params={{ worldId, articleId: ch.id }}
-                className="flex min-w-0 flex-1 items-center gap-1.5 px-2 py-1"
-              >
-                <Users className="text-muted-foreground size-3.5 shrink-0" />
-                <span className="truncate">{ch.title}</span>
-              </Link>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="size-6 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100"
-                  >
-                    <MoreHorizontal className="size-3.5" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start">
-                  <DropdownMenuItem onClick={() => reveal(`${ch.id}.md`)}>
-                    <FolderOpen /> {REVEAL_LABEL}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    variant="destructive"
-                    onClick={() => {
-                      if (
-                        confirm(
-                          `Delete "${ch.title}"? It goes to the Recycle Bin.`,
-                        )
-                      ) {
-                        // A character is an article on disk, so this is the
-                        // same mutation the content tree uses — including the
-                        // navigate-away when the open one is the one deleted.
-                        deleteArticle.mutate(ch.id)
-                      }
-                    }}
-                  >
-                    <Trash2 /> Delete
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-          ))}
-        </div>
-      </div>
-      <SmartViews worldId={worldId} activeArticleId={activeArticleId} />
-      <div className="flex items-center justify-between border-b px-3 py-2">
-        <span className="text-muted-foreground text-xs font-semibold uppercase tracking-wide">
-          Content
-        </span>
-        <div className="flex gap-1">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-7"
-            title="New article"
-            onClick={() =>
-              openDialog({ mode: 'new-article', parentFolderId: null })
-            }
-          >
-            <FilePlus2 className="size-4" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-7"
-            title="New folder"
-            onClick={() =>
-              openDialog({ mode: 'new-folder', parentFolderId: null })
-            }
-          >
-            <FolderPlus className="size-4" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-7"
-            title="Open the world folder"
-            onClick={() => reveal()}
-          >
-            <FolderOpen className="size-4" />
-          </Button>
-        </div>
-      </div>
-      <div className="border-b px-2 py-1.5">
-        <div className="relative">
-          <Search className="text-muted-foreground absolute left-2 top-1/2 size-3.5 -translate-y-1/2" />
-          <Input
-            ref={searchInputRef}
-            value={searchInput}
-            placeholder="Search this world…"
-            className="h-7 px-7 text-sm"
-            onChange={(e) => setSearchInput(e.target.value)}
-          />
-          {searchInput && (
-            <button
-              type="button"
-              className="text-muted-foreground hover:text-foreground absolute right-2 top-1/2 -translate-y-1/2"
-              onClick={() => setSearchInput('')}
-            >
-              <X className="size-3.5" />
-            </button>
-          )}
-        </div>
-      </div>
-      {searchTerm ? (
-        <ScrollArea className="min-h-0 flex-1">
-          <div className="p-2">
-            {search.isLoading && (
-              <p className="text-muted-foreground px-2 text-sm">Searching…</p>
-            )}
-            {search.data?.length === 0 && (
-              <p className="text-muted-foreground px-2 py-4 text-sm">
-                No matches.
+              <UserPlus className="size-4" />
+            </Button>
+          </div>
+          <div className="px-2 pb-1.5">
+            {characters.data?.length === 0 && (
+              <p className="text-muted-foreground px-2 pb-1 text-xs">
+                No characters yet.
               </p>
             )}
-            {search.data?.map((result) => (
-              <Link
-                key={result.id}
-                to="/worlds/$worldId/articles/$articleId"
-                params={{ worldId, articleId: result.id }}
-                className="hover:bg-accent block rounded px-2 py-1.5"
-                onClick={() => setSearchInput('')}
-              >
-                <span className="flex items-center gap-1.5 text-sm font-medium">
-                  <FileText className="text-muted-foreground size-3.5 shrink-0" />
-                  <span className="truncate">{result.title}</span>
-                </span>
-                {result.snippet && (
-                  <span className="text-muted-foreground line-clamp-2 block text-xs">
-                    {result.snippet}
-                  </span>
+            {characters.data?.map((ch) => (
+              <div
+                key={ch.id}
+                className={cn(
+                  'group hover:bg-accent flex items-center rounded pr-1 text-sm',
+                  activeArticleId === ch.id && 'bg-accent font-medium',
                 )}
-              </Link>
+              >
+                <Link
+                  to="/worlds/$worldId/characters/$articleId"
+                  params={{ worldId, articleId: ch.id }}
+                  className="flex min-w-0 flex-1 items-center gap-1.5 px-2 py-1"
+                >
+                  <Users className="text-muted-foreground size-3.5 shrink-0" />
+                  <span className="truncate">{ch.title}</span>
+                </Link>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-6 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100"
+                    >
+                      <MoreHorizontal className="size-3.5" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start">
+                    <DropdownMenuItem onClick={() => reveal(`${ch.id}.md`)}>
+                      <FolderOpen /> {REVEAL_LABEL}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      variant="destructive"
+                      onClick={() => {
+                        if (
+                          confirm(
+                            `Delete "${ch.title}"? It goes to the Recycle Bin.`,
+                          )
+                        ) {
+                          // A character is an article on disk, so this is the
+                          // same mutation the content tree uses — including the
+                          // navigate-away when the open one is the one deleted.
+                          deleteArticle.mutate(ch.id)
+                        }
+                      }}
+                    >
+                      <Trash2 /> Delete
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
             ))}
           </div>
-        </ScrollArea>
-      ) : (
-        <ScrollArea className="min-h-0 flex-1">
-          <div
-            className={cn(
-              'min-h-full p-2',
-              dragItem &&
-                dropTarget === null &&
-                'bg-accent/40 rounded ring-primary/30 ring-1',
-            )}
-            {...dropHandlers(null)}
-          >
-            {tree.isLoading && (
-              <p className="text-muted-foreground px-2 text-sm">Loading…</p>
-            )}
-            {tree.data && (
-              <>
-                {rootFolders.map((f) => renderFolder(tree.data, f, 0))}
-                {rootArticles.map((a) => renderArticle(a, 0))}
-                {rootFolders.length === 0 && rootArticles.length === 0 && (
-                  <p className="text-muted-foreground px-2 py-4 text-sm">
-                    Nothing here yet. Create an article or folder above.
+        </div>
+      )}
+      {shows.smartViews && (
+        <SmartViews worldId={worldId} activeArticleId={activeArticleId} />
+      )}
+      {shows.contentTree && (
+        <>
+          <div className="flex items-center justify-between border-b px-3 py-2">
+            <span className="text-muted-foreground text-xs font-semibold uppercase tracking-wide">
+              Content
+            </span>
+            <div className="flex gap-1">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-7"
+                title="New article"
+                onClick={() =>
+                  openDialog({ mode: 'new-article', parentFolderId: null })
+                }
+              >
+                <FilePlus2 className="size-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-7"
+                title="New folder"
+                onClick={() =>
+                  openDialog({ mode: 'new-folder', parentFolderId: null })
+                }
+              >
+                <FolderPlus className="size-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-7"
+                title="Open the world folder"
+                onClick={() => reveal()}
+              >
+                <FolderOpen className="size-4" />
+              </Button>
+            </div>
+          </div>
+          <div className="border-b px-2 py-1.5">
+            <div className="relative">
+              <Search className="text-muted-foreground absolute left-2 top-1/2 size-3.5 -translate-y-1/2" />
+              <Input
+                ref={searchInputRef}
+                value={searchInput}
+                placeholder="Search this world…"
+                className="h-7 px-7 text-sm"
+                onChange={(e) => setSearchInput(e.target.value)}
+              />
+              {searchInput && (
+                <button
+                  type="button"
+                  className="text-muted-foreground hover:text-foreground absolute right-2 top-1/2 -translate-y-1/2"
+                  onClick={() => setSearchInput('')}
+                >
+                  <X className="size-3.5" />
+                </button>
+              )}
+            </div>
+          </div>
+          {searchTerm ? (
+            <ScrollArea className="min-h-0 flex-1">
+              <div className="p-2">
+                {search.isLoading && (
+                  <p className="text-muted-foreground px-2 text-sm">
+                    Searching…
                   </p>
                 )}
-              </>
-            )}
-          </div>
-        </ScrollArea>
+                {search.data?.length === 0 && (
+                  <p className="text-muted-foreground px-2 py-4 text-sm">
+                    No matches.
+                  </p>
+                )}
+                {search.data?.map((result) => (
+                  <Link
+                    key={result.id}
+                    to="/worlds/$worldId/articles/$articleId"
+                    params={{ worldId, articleId: result.id }}
+                    className="hover:bg-accent block rounded px-2 py-1.5"
+                    onClick={() => setSearchInput('')}
+                  >
+                    <span className="flex items-center gap-1.5 text-sm font-medium">
+                      <FileText className="text-muted-foreground size-3.5 shrink-0" />
+                      <span className="truncate">{result.title}</span>
+                    </span>
+                    {result.snippet && (
+                      <span className="text-muted-foreground line-clamp-2 block text-xs">
+                        {result.snippet}
+                      </span>
+                    )}
+                  </Link>
+                ))}
+              </div>
+            </ScrollArea>
+          ) : (
+            <ScrollArea className="min-h-0 flex-1">
+              <div
+                className={cn(
+                  'min-h-full p-2',
+                  dragItem &&
+                    dropTarget === null &&
+                    'bg-accent/40 rounded ring-primary/30 ring-1',
+                )}
+                {...dropHandlers(null)}
+              >
+                {tree.isLoading && (
+                  <p className="text-muted-foreground px-2 text-sm">Loading…</p>
+                )}
+                {tree.data && (
+                  <>
+                    {rootFolders.map((f) => renderFolder(tree.data, f, 0))}
+                    {rootArticles.map((a) => renderArticle(a, 0))}
+                    {rootFolders.length === 0 && rootArticles.length === 0 && (
+                      <p className="text-muted-foreground px-2 py-4 text-sm">
+                        Nothing here yet. Create an article or folder above.
+                      </p>
+                    )}
+                  </>
+                )}
+              </div>
+            </ScrollArea>
+          )}
+        </>
       )}
 
       <Dialog

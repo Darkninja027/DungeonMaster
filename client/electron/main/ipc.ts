@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import { addRecentWorld, readConfig, removeRecentWorld } from './recents'
+import { ensureVault, findVault, isVaultPath } from './vault'
 import {
   atomicWrite,
   countArticles,
@@ -154,8 +155,13 @@ async function trash(abs: string) {
 
 export function registerIpcHandlers() {
   // Worlds ------------------------------------------------------------------
+  // The vault is a real world and belongs in recents — reopening it from the
+  // sidebar's world list should work — but the home screen gives it its own
+  // section, so it is filtered out here to avoid listing it twice.
   ipcMain.handle('worlds:list', () =>
-    readConfig().recentWorlds.filter(isWorldFolder).map(worldSummary),
+    readConfig()
+      .recentWorlds.filter((p) => isWorldFolder(p) && !isVaultPath(p))
+      .map(worldSummary),
   )
 
   ipcMain.handle('worlds:pickAndOpen', async () => {
@@ -642,6 +648,11 @@ export function registerIpcHandlers() {
   )
 
   // Global library ------------------------------------------------------------
+  // The personal character vault. `get` never creates, so the home screen can
+  // ask without conjuring a folder for someone who has never used the feature.
+  ipcMain.handle('vault:get', () => findVault())
+  ipcMain.handle('vault:ensure', () => ensureVault())
+
   ipcMain.handle('library:get', () => getLibrary())
 
   ipcMain.handle('library:pick', async () => {

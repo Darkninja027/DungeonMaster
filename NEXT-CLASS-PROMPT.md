@@ -163,9 +163,13 @@ auto-applied. A later feature naming the same resource **raises** it (4 → 5,
 shown as `4 → 5`, `used` untouched); it never lowers one the player tuned
 higher. Cap is `MAX_RESOURCES = 3`.
 
-**Several classes still have no `resource` anywhere** — Monk has no Ki,
-Sorcerer no Sorcery Points, Warlock no Mystic Arcanum. (Cleric's Channel
-Divinity and Druid's Wild Shape were both fixed in their passes.)
+**Six classes still have no `resource` anywhere** — Monk (Ki), Paladin (Lay on
+Hands, Divine Sense), Ranger, Sorcerer (Sorcery Points), Warlock (Mystic
+Arcanum) and Wizard (Arcane Recovery). Barbarian, Bard, Cleric, Druid and
+Fighter each have a class-level one; Cleric's Channel Divinity and Druid's Wild
+Shape were added in their own passes. The Rogue's only counter is the Arcane
+Trickster's level-17 Spell Thief, so a Thief still has none — a *subclass*
+resource does not close a class's gap.
 Those are class-level
 gaps rather than subclass ones; fixing one while you are in that class is
 reasonable (Rogue's level-6 Expertise, Barbarian's Rage and Bard's Bardic
@@ -204,16 +208,21 @@ Never fold "three times at 11th level" into the level-5 row's prose.
 ## Rules that will bite you
 
 - **Every subclass feature must be at `level >= subclassLevelOf(kit)`.**
-  Barbarian is 3; Cleric/Sorcerer/Warlock are 1; Wizard is 2.
+  Cleric/Sorcerer/Warlock are 1; Druid and Wizard are 2; everything else is 3.
+  Check the kit rather than trusting that list — see the warning above.
 - **`sub.spells` needs a `spellcasting` block** — on the class *or* the
   subclass. See "Third casters" below.
 - **Ids never reach disk.** `Character.subclass` stores the display name.
 - **No rules text you do not own.** Summaries are one line, in our own words.
 - **`traits`, `items`, `currency` and nested `picks` are banned in a
   `featureGrant`** — the apply paths drop them.
-- A subclass **`grant`** *is* applied now (`applyFeatGrants`, on the level-up
-  that chooses the archetype) — see the Assassin's tool proficiencies. It drops
-  `traits`/`items`/`currency` just like a feat's.
+- A subclass **`grant`** is applied on **both** paths now. At level-up it goes
+  through `applyFeatGrants` on the level-up that chooses the archetype (see the
+  Assassin's tool proficiencies), which drops `traits`/`items`/`currency` just
+  like a feat's. At creation — for a class picking at level 1 — it rides
+  `draftGrants` instead and goes through `applyGrant`, which keeps all three.
+  The asymmetry is real: do not author `items` on a subclass and expect them at
+  3rd.
 
 ## Third casters — `SubclassInfo.spellcasting`
 
@@ -226,7 +235,9 @@ Related: **`spellListClass(kit, subclassName)`** answers "whose spell list?" —
 an Arcane Trickster is a Rogue casting *wizard* spells, and filtering
 suggestions by "Rogue" returned an empty list. Derived from `listLabel`.
 
-Not relevant to Barbarian, but the pattern to copy if a subclass ever casts.
+The pattern to copy if a subclass ever casts. Note `buildCharacter` reads
+through `spellcastingFor` too, so a level-1 archetype with its own block works
+at creation as well.
 
 ## Verification
 
@@ -234,7 +245,7 @@ Not relevant to Barbarian, but the pattern to copy if a subclass ever casts.
 cd client
 npx vitest run src/lib/srd/srd.test.ts      # the data invariants
 npx vitest run src/lib/levelUp.test.ts      # the mechanism
-npx vitest run                              # all 1377
+npx vitest run                              # all 1461
 npx tsc --noEmit -p tsconfig.json
 npm run lint                                # NOTE: 14 pre-existing problems
 ```
@@ -298,6 +309,17 @@ directly. Two notes for the next driver: the wizard's rail buttons are
 clicks on **Next** rather than a DOM `.click()` (which does not advance), and
 the Class step's live summary panel re-renders on every keystroke, so typing a
 subclass name is enough to see its grant appear in Proficiencies.
+
+The Druid pass found its bug by **reading** rather than driving, and it is the
+kind worth looking for first: the kit declared no `subclassLevel` while its own
+feature row sat at 2, so four level-2 circle features could not be authored at
+all. A class's own data disagreeing with itself is cheap to check and blocks
+everything downstream — do it before you write a line.
+
+Its one driving lesson is about the probe, not the app: `levelUpSteps(draft)`
+takes the draft alone, not `(character, draft)`. A wrong-arity call inside
+`page.evaluate` throws `Cannot read properties of undefined`, which reads
+exactly like an app crash. Check the signature before believing the app broke.
 
 The memory note `driving-dungeonmaster-e2e` has a verified Playwright recipe —
 lock patch by regex, poll for the non-DevTools window, hash-history deep links.
@@ -422,13 +444,14 @@ work?" rather than data authoring:
 
 ## The other open threads
 
-Two sibling handoffs, neither overlapping this one:
-
-- **`NEXT-CLERIC-PROMPT.md`** — the Cleric in detail. Read it before planning
-  this class; it is where the two mechanism gaps above are worked through.
+- **`NEXT-CLERIC-PROMPT.md`** — **done**, kept for its reasoning. It works
+  through the two mechanism gaps a level-1 subclass exposed, which still
+  applies to Sorcerer and Warlock — but as background, not as work: they need
+  data only.
 - **`NEXT-WIZARD-PROMPT.md`** — making the homebrew editors a guided wizard.
   Pure UX, but it touches `components/settings/homebrew/`, so check
-  `git status` before starting either.
+  `git status` before starting. Partly landed already (`PickEditor`,
+  `PickRows`), so read the diff before assuming it is untouched.
 
 Known gaps, deliberately left:
 

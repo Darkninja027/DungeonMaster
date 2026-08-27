@@ -4,6 +4,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Pencil, Settings2 } from 'lucide-react'
 import { api } from '#/lib/api'
 import { WorldSidebar } from '#/components/WorldSidebar'
+import { WorldModeSwitcher } from '#/components/WorldModeSwitcher'
+import { useWorldMode } from '#/lib/useWorldSettings'
 import { SessionPanel } from '#/components/SessionPanel'
 import { CommandPalette } from '#/components/CommandPalette'
 import { Button } from '#/components/ui/button'
@@ -15,6 +17,7 @@ import {
   DialogTitle,
 } from '#/components/ui/dialog'
 import { Input } from '#/components/ui/input'
+import { cn } from '#/lib/utils'
 
 export const Route = createFileRoute('/worlds/$worldId')({
   component: WorldLayout,
@@ -22,6 +25,7 @@ export const Route = createFileRoute('/worlds/$worldId')({
 
 function WorldLayout() {
   const { worldId } = Route.useParams()
+  const shows = useWorldMode(worldId).shows
   const queryClient = useQueryClient()
   const world = useQuery({
     queryKey: ['worlds', worldId],
@@ -82,6 +86,7 @@ function WorldLayout() {
               </p>
             )}
           </div>
+          <WorldModeSwitcher worldId={worldId} />
           <Button
             variant="ghost"
             size="icon"
@@ -94,8 +99,14 @@ function WorldLayout() {
           <Button
             variant="ghost"
             size="icon"
-            className="size-6 shrink-0 opacity-0 group-hover:opacity-100"
-            title="World settings — classes and subclasses"
+            className={cn(
+              'size-6 shrink-0',
+              // Hover-to-reveal is fine while the sidebar offers other ways in,
+              // but a mode with no content tree reaches homebrew and the spell
+              // library only through here — so it stays on screen.
+              shows.contentTree && 'opacity-0 group-hover:opacity-100',
+            )}
+            title="World settings — homebrew, library and editor"
             asChild
           >
             <Link to="/worlds/$worldId/settings" params={{ worldId }}>

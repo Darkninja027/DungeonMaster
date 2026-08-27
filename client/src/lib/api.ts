@@ -202,6 +202,18 @@ export interface LibraryInfo {
   available: boolean
 }
 
+/**
+ * The personal character vault — a world folder holding characters that aren't
+ * tied to a campaign. Same shape as LibraryInfo: both are app-wide folders
+ * addressed by a normal worldId.
+ */
+export interface VaultInfo {
+  worldId: string
+  path: string
+  /** False when the folder has been moved, deleted, or is on a drive that's away. */
+  available: boolean
+}
+
 export interface ImportSkip {
   /** Path relative to the folder the user picked. */
   file: string
@@ -406,6 +418,17 @@ export const api = {
     get: () => invoke<unknown>('homebrew:get'),
     set: (state: unknown) => invoke<void>('homebrew:set', { state }),
   },
+  vault: {
+    /**
+     * The vault, or null if there has never been one. Never creates — the home
+     * screen asks on every load and must not conjure a folder for someone who
+     * has not used the feature.
+     */
+    get: () => invoke<VaultInfo | null>('vault:get'),
+    /** The vault, creating it on first use. */
+    ensure: () => invoke<VaultInfo>('vault:ensure'),
+  },
+
   library: {
     /** The configured global library, or null if the user hasn't chosen one. */
     get: () => invoke<LibraryInfo | null>('library:get'),

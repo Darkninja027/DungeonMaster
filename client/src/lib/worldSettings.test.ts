@@ -186,7 +186,12 @@ describe('serializeWorldSettings', () => {
   })
 
   it('round-trips an emptied list as empty, not as the defaults', () => {
-    const emptied = { version: 1, liveEdit: 'remember' as const, classes: [] }
+    const emptied = {
+      version: 1,
+      liveEdit: 'remember' as const,
+      mode: 'dm' as const,
+      classes: [],
+    }
     const again = parseWorldSettings(
       JSON.parse(JSON.stringify(serializeWorldSettings(emptied))),
     )
@@ -204,9 +209,9 @@ describe('liveEdit', () => {
   })
 
   it.each(['remember', 'always', 'never'] as const)('accepts %j', (mode) => {
-    expect(
-      parseWorldSettings({ liveEdit: mode, classes: [] }).liveEdit,
-    ).toBe(mode)
+    expect(parseWorldSettings({ liveEdit: mode, classes: [] }).liveEdit).toBe(
+      mode,
+    )
   })
 
   it('falls back to remember for an unrecognised value', () => {
@@ -237,5 +242,65 @@ describe('liveEdit', () => {
       JSON.parse(JSON.stringify(serializeWorldSettings(parsed))),
     )
     expect(again.liveEdit).toBe('always')
+  })
+})
+
+describe('mode', () => {
+  it('defaults to dm when absent', () => {
+    // A file written before the field existed. No key means today's behaviour
+    // — everything on — so an existing world is untouched until someone opts in.
+    expect(parseWorldSettings({ version: 4, classes: [] }).mode).toBe('dm')
+  })
+
+  it('reads each of the three modes', () => {
+    for (const mode of ['worldbuilder', 'dm', 'player'] as const) {
+      expect(parseWorldSettings({ version: 5, mode, classes: [] }).mode).toBe(
+        mode,
+      )
+    }
+  })
+
+  it('falls back to the default for an unrecognised value', () => {
+    // Hand-edited nonsense must not strand someone in a view they can't leave.
+    expect(
+      parseWorldSettings({ version: 5, mode: 'wizard', classes: [] }).mode,
+    ).toBe('dm')
+    expect(parseWorldSettings({ version: 5, mode: 7, classes: [] }).mode).toBe(
+      'dm',
+    )
+  })
+
+  it('survives a malformed class list', () => {
+    // The trap this test exists for: parseWorldSettings early-returns when
+    // `classes` isn't an array, so a `mode` read after that guard would be
+    // silently dropped for exactly the worlds most likely to be hand-edited.
+    expect(
+      parseWorldSettings({ version: 5, mode: 'player', classes: 'nope' }).mode,
+    ).toBe('player')
+    expect(parseWorldSettings({ version: 5, mode: 'player' }).mode).toBe(
+      'player',
+    )
+  })
+
+  it('round-trips through serialize', () => {
+    // The second trap: serializeWorldSettings is an explicit whitelist, so a
+    // field it doesn't name is erased the next time settings are saved.
+    const once = parseWorldSettings({
+      version: 5,
+      mode: 'worldbuilder',
+      classes: [{ name: 'Bard', hitDie: 8 }],
+    })
+    const twice = parseWorldSettings(
+      JSON.parse(JSON.stringify(serializeWorldSettings(once))),
+    )
+    expect(twice.mode).toBe('worldbuilder')
+    expect(twice).toEqual(once)
+  })
+
+  it('is written to disk even when it is the default', () => {
+    // Always present in the output, so the file documents its own mode rather
+    // than relying on a reader knowing what absence means.
+    const out = serializeWorldSettings(DEFAULT_SETTINGS) as { mode: string }
+    expect(out.mode).toBe('dm')
   })
 })
