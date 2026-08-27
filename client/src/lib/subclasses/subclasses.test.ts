@@ -237,6 +237,7 @@ describe('the SRD boundary', () => {
         'Barbarian/Path of the Berserker',
         'Bard/College of Lore',
         'Cleric/Life Domain',
+        'Druid/Circle of the Land',
         'Fighter/Champion',
         'Rogue/Thief',
         // Not SRD 5.1, and knowingly here: these four predate the published

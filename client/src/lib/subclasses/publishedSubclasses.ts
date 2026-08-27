@@ -205,6 +205,53 @@ export const PUBLISHED_SUBCLASSES: Record<string, Array<SubclassInfo>> = {
     },
   ],
   /**
+   * A druid picks their circle at **2nd** level, not 3rd — the kit says so via
+   * `subclassLevel: 2`, so these features may sit at 2. Circle of the Land is
+   * the SRD one and is authored in `lib/srd/classKits.ts` instead.
+   */
+  Druid: [
+    {
+      id: 'circle-of-the-moon',
+      name: 'Circle of the Moon',
+      summary: 'Wild shape as a weapon, and shapes that fight back.',
+      features: [
+        {
+          level: 2,
+          name: 'Combat Wild Shape',
+          text: 'You can use Wild Shape as a bonus action, and while transformed you can spend a spell slot as a bonus action to regain 1d8 hit points per level of the slot.',
+        },
+        {
+          level: 2,
+          name: 'Circle Forms',
+          text: 'You can transform into a beast with a challenge rating as high as 1, ignoring the Max CR column of the Beast Shapes table.',
+        },
+        {
+          // Its own row rather than a clause in the level-2 prose: de-dupe is
+          // keyed on `level:name`, so an upgrade the wizard should grant at 6
+          // has to be a feature at 6. Same rule as Extra Attack (2).
+          level: 6,
+          name: 'Circle Forms (CR)',
+          text: 'The maximum challenge rating of your beast forms becomes your druid level divided by 3, rounded down.',
+        },
+        {
+          level: 6,
+          name: 'Primal Strike',
+          text: 'Your attacks in beast form count as magical for overcoming resistance and immunity to nonmagical attacks.',
+        },
+        {
+          level: 10,
+          name: 'Elemental Wild Shape',
+          text: 'You can expend two uses of Wild Shape at once to transform into an air, earth, fire or water elemental.',
+        },
+        {
+          level: 14,
+          name: 'Thousand Forms',
+          text: 'You can cast alter self at will.',
+        },
+      ],
+    },
+  ],
+  /**
    * The six PHB domains. Life Domain is the SRD one and is authored in
    * `lib/srd/classKits.ts` instead — see the provenance header above.
    *

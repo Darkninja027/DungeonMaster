@@ -2988,3 +2988,128 @@ describe('channel divinity', () => {
     ).toBe(undefined)
   })
 })
+
+describe('druid circles', () => {
+  const druid = (level: number, subclass = 'Circle of the Land') => ({
+    ...characterAt(level, 'Druid'),
+    subclass,
+  })
+
+  it('is asked for at 2nd, not 3rd', () => {
+    // The kit's `Druid Circle` feature has always sat at level 2, but with no
+    // `subclassLevel` the default of 3 won and the wizard asked a level late.
+    const c = characterAt(1, 'Druid')
+    expect(needsSubclass(c, 1, 2, kitFor('Druid'))).toBe(true)
+  })
+
+  it('grants the circle its level-2 features', () => {
+    const c = characterAt(1, 'Druid')
+    const after = applyLevelUp(
+      c,
+      draftFor(c, 2, { subclassName: 'Circle of the Land' }),
+    )
+    const names = after.features.map((f) => f.name)
+    expect(names).toContain('Bonus Cantrip')
+    expect(names).toContain('Natural Recovery')
+  })
+
+  it('grants the moon circle its own level-2 features', () => {
+    const c = characterAt(1, 'Druid')
+    const after = applyLevelUp(
+      c,
+      draftFor(c, 2, { subclassName: 'Circle of the Moon' }),
+    )
+    const names = after.features.map((f) => f.name)
+    expect(names).toContain('Combat Wild Shape')
+    expect(names).toContain('Circle Forms')
+  })
+
+  it('scales Circle Forms with its own row rather than prose', () => {
+    const c = druid(5, 'Circle of the Moon')
+    const after = applyLevelUp(c, draftFor(c, 6))
+    const names = after.features.map((f) => f.name)
+    expect(names).toContain('Circle Forms (CR)')
+    expect(names).toContain('Primal Strike')
+  })
+
+  it('poses the land choice at 3rd', () => {
+    const c = druid(2)
+    const pick = levelUpPicks(draftFor(c, 3)).find(
+      (p) => p.pick.id === 'circle-of-the-land-3-terrain',
+    )
+    expect(pick).toBeDefined()
+    expect(pick?.pick.options).toHaveLength(8)
+    expect(pick?.pick.options).toContain('Underdark')
+  })
+
+  it('writes the chosen land as a feature row', () => {
+    const c = druid(2)
+    const draft = draftFor(c, 3)
+    const after = applyLevelUp(c, {
+      ...draft,
+      picks: { ...draft.picks, 'circle-of-the-land-3-terrain': ['Swamp'] },
+    })
+    const row = after.features.find((f) => f.name === 'Land: Swamp')
+    expect(row).toBeDefined()
+    expect(row?.text).toContain('darkness')
+  })
+
+  it('offers the Wild Shape counter the level it is gained', () => {
+    // Level 2 is when a druid can first wild shape, so that is when the
+    // tracker has to appear — a counter offered later is one the player spent
+    // a level unable to tick.
+    const c = characterAt(1, 'Druid')
+    const offer = resourcesOffered(draftFor(c, 2)).find(
+      (o) => o.name === 'Wild Shape',
+    )
+    expect(offer?.total).toBe(2)
+    expect(offer?.resets).toBe('short')
+  })
+
+  it('does not offer Wild Shape before 2nd', () => {
+    const c = characterAt(1, 'Druid')
+    expect(
+      resourcesOffered(draftFor(c, 1)).find((o) => o.name === 'Wild Shape'),
+    ).toBe(undefined)
+  })
+
+  it('puts the counter on the sheet when accepted', () => {
+    const c = characterAt(1, 'Druid')
+    const draft = draftFor(c, 2, { subclassName: 'Circle of the Moon' })
+    const after = applyLevelUp(c, {
+      ...draft,
+      resources: { 'Wild Shape': { total: 2, resets: 'short' } },
+    })
+    const row = after.resources.find((r) => r.name === 'Wild Shape')
+    expect(row?.total).toBe(2)
+    expect(row?.used).toBe(0)
+  })
+
+  it('leaves the count alone at 20, where it becomes unlimited', () => {
+    // Archdruid makes Wild Shape unlimited, which `total` cannot express — so
+    // it stays prose rather than becoming a made-up number, exactly as the
+    // Barbarian's Rage does.
+    const c = {
+      ...characterAt(19, 'Druid'),
+      subclass: 'Circle of the Moon',
+      resources: [
+        { name: 'Wild Shape', used: 1, total: 2, resets: 'short' as const },
+      ],
+    }
+    const after = applyLevelUp(c, draftFor(c, 20))
+    const row = after.resources.find((r) => r.name === 'Wild Shape')
+    expect(row?.total).toBe(2)
+    expect(row?.used).toBe(1)
+    expect(after.features.map((f) => f.name)).toContain('Archdruid')
+  })
+
+  it('grants a circle nothing the tables do not know', () => {
+    const c = { ...characterAt(1, 'Druid'), subclass: '' }
+    const after = applyLevelUp(
+      c,
+      draftFor(c, 2, { subclassName: 'Circle of the Screaming Moon' }),
+    )
+    expect(after.subclass).toBe('Circle of the Screaming Moon')
+    expect(after.features.map((f) => f.name)).not.toContain('Circle Forms')
+  })
+})

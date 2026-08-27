@@ -1089,10 +1089,95 @@ export const SRD_CLASS_KITS: Array<ClassKit> = [
     hitDie: 8,
     subclassLabel: 'Druid Circle',
     subclasses: [
-      { id: 'circle-of-the-land', name: 'Circle of the Land', features: [] },
+      {
+        id: 'circle-of-the-land',
+        name: 'Circle of the Land',
+        summary: 'A druid of one landscape, and the magic it lends.',
+        features: [
+          {
+            level: 2,
+            name: 'Bonus Cantrip',
+            text: 'You learn one additional druid cantrip of your choice.',
+          },
+          {
+            level: 2,
+            name: 'Natural Recovery',
+            text: 'During a short rest you can recover expended spell slots with a combined level up to half your druid level, rounded up. None may be 6th level or higher. Once per long rest.',
+          },
+          {
+            // The terrain is a real pick because the *choice* is what the sheet
+            // can hold — it lands as a feature row naming the land the druid is
+            // bound to. The spells it unlocks stay in the option's text rather
+            // than in `spells`: that field is one flat table and has no way to
+            // branch on a pick's answer, so eight terrains cannot live there.
+            // Prose that promises nothing beats a table that would silently
+            // grant the wrong land's magic.
+            level: 3,
+            name: 'Circle Spells',
+            text: 'Choose a land you are connected to. You gain its circle spells at 3rd, 5th, 7th and 9th level. They are always prepared and do not count against the number of spells you can prepare.',
+            picks: [
+              {
+                id: 'circle-of-the-land-3-terrain',
+                kind: 'feature',
+                label: 'Your land',
+                count: 1,
+                options: [
+                  'Arctic',
+                  'Coast',
+                  'Desert',
+                  'Forest',
+                  'Grassland',
+                  'Mountain',
+                  'Swamp',
+                  'Underdark',
+                ],
+                featureLabel: 'Land',
+                featureText: {
+                  Arctic:
+                    'Circle spells: hold person and spike growth at 3rd, sleet storm and slow at 5th, freedom of movement and ice storm at 7th, commune with nature and cone of cold at 9th.',
+                  Coast:
+                    'Circle spells: mirror image and misty step at 3rd, water breathing and water walk at 5th, control water and freedom of movement at 7th, conjure elemental and scrying at 9th.',
+                  Desert:
+                    'Circle spells: blur and silence at 3rd, create food and water and protection from energy at 5th, blight and hallucinatory terrain at 7th, insect plague and wall of stone at 9th.',
+                  Forest:
+                    'Circle spells: barkskin and spider climb at 3rd, call lightning and plant growth at 5th, divination and freedom of movement at 7th, commune with nature and tree stride at 9th.',
+                  Grassland:
+                    'Circle spells: invisibility and pass without trace at 3rd, daylight and haste at 5th, divination and freedom of movement at 7th, dream and insect plague at 9th.',
+                  Mountain:
+                    'Circle spells: spider climb and spike growth at 3rd, lightning bolt and meld into stone at 5th, stone shape and stoneskin at 7th, passwall and wall of stone at 9th.',
+                  Swamp:
+                    'Circle spells: darkness and Melf’s acid arrow at 3rd, water walk and stinking cloud at 5th, freedom of movement and locate creature at 7th, insect plague and scrying at 9th.',
+                  Underdark:
+                    'Circle spells: spider climb and web at 3rd, gaseous form and stinking cloud at 5th, greater invisibility and stone shape at 7th, cloudkill and insect plague at 9th.',
+                },
+              },
+            ],
+          },
+          {
+            level: 6,
+            name: 'Land’s Stride',
+            text: 'Moving through nonmagical difficult terrain costs you no extra movement, and you can pass through nonmagical plants without being slowed or damaged by them.',
+          },
+          {
+            level: 10,
+            name: 'Nature’s Ward',
+            text: 'You cannot be charmed or frightened by elementals or fey, and you are immune to poison and disease.',
+          },
+          {
+            level: 14,
+            name: 'Nature’s Sanctuary',
+            text: 'A beast or plant that tries to attack you must make a Wisdom save against your spell save DC or choose a different target.',
+          },
+        ],
+      },
       { id: 'circle-of-the-moon', name: 'Circle of the Moon', features: [] },
     ],
     saves: ['int', 'wis'],
+    // A druid picks their circle at 2, not 3 — the `Druid Circle` feature row
+    // below has always said so, but with no `subclassLevel` the default of 3
+    // won, so the level-up wizard asked a level late and a legitimate level-2
+    // circle feature failed `subclasses.test.ts`. Same miss the Wizard had.
+    subclassLevel: 2,
     abilityPriority: ['wis', 'con', 'dex', 'int', 'cha', 'str'],
     skillChoices: {
       id: 'druid-skills',
@@ -1230,9 +1315,16 @@ export const SRD_CLASS_KITS: Array<ClassKit> = [
         text: 'Drawing on the divine essence of nature, you can cast druid spells. Wisdom is your spellcasting ability.',
       },
       {
+        // A real counter, and the class's only one: Wild Shape is what a druid
+        // spends. The uses were prose — "twice per short or long rest" — which
+        // the level-up wizard cannot grant, so a druid's sheet had nothing to
+        // tick. The number never changes with level, so this is the single row
+        // it needs; Archdruid's "unlimited" at 20 stays prose because `total`
+        // is a number, exactly as the Barbarian's Rage leaves it.
         level: 2,
         name: 'Wild Shape',
-        text: 'As an action, you can magically assume the shape of a beast you have seen before, twice per short or long rest.',
+        text: 'As an action, you can magically assume the shape of a beast you have seen before. You revert on a short or long rest, or when you drop to 0 hit points.',
+        resource: { name: 'Wild Shape', total: 2, resets: 'short' },
       },
       {
         level: 2,

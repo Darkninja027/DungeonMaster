@@ -7,18 +7,26 @@ Paste this into a fresh Claude Code context in `c:\Projects\DungeonMaster`.
 ## The task
 
 Author per-level subclass features for **one class at a time**. Fighter,
-Rogue, Barbarian, Bard and **Cleric** are done; the other seven ship
+Rogue, Barbarian, Bard, **Cleric** and **Druid** are done; the other six ship
 `features: []` on every subclass:
 
 ```
-Druid 0/2     Monk 0/3      Paladin 0/3   Ranger 0/2
+Monk 0/3      Paladin 0/3   Ranger 0/2
 Sorcerer 0/2  Warlock 0/3   Wizard 0/8
 ```
 
-**Next up: your pick of the seven.** Sorcerer or Warlock is the natural
+**Next up: your pick of the six.** Sorcerer or Warlock is the natural
 follow-on — they choose at level 1 like the Cleric, and the mechanism that
 needed building for the Cleric now exists and is proven, so they are back to
 being pure data authoring.
+
+**Check `subclassLevel` before you author anything.** Two classes have now had
+the same bug: the kit declared no `subclassLevel`, so `subclassLevelOf` returned
+the default 3 while the class's own `... Circle` / `... School` feature row sat
+at 2. The Wizard was fixed earlier; the **Druid** was fixed in its pass. If the
+class you are authoring picks at anything other than 3, confirm the kit says so
+— `subclasses.test.ts` will reject a legitimate feature below the declared
+level, and the level-up wizard asks a level late.
 
 Do one class completely, then stop. Do not batch.
 
@@ -155,8 +163,9 @@ auto-applied. A later feature naming the same resource **raises** it (4 → 5,
 shown as `4 → 5`, `used` untouched); it never lowers one the player tuned
 higher. Cap is `MAX_RESOURCES = 3`.
 
-**Several classes still have no `resource` anywhere** — Cleric has no Channel
-Divinity, Monk no Ki, Sorcerer no Sorcery Points, Warlock no Mystic Arcanum.
+**Several classes still have no `resource` anywhere** — Monk has no Ki,
+Sorcerer no Sorcery Points, Warlock no Mystic Arcanum. (Cleric's Channel
+Divinity and Druid's Wild Shape were both fixed in their passes.)
 Those are class-level
 gaps rather than subclass ones; fixing one while you are in that class is
 reasonable (Rogue's level-6 Expertise, Barbarian's Rage and Bard's Bardic
@@ -314,7 +323,7 @@ Restore with a Python round-trip (`newline=''`, `.replace('\r\n','\n')` then
 
 ## Where things stand
 
-1450 tests passing (`spellCard.test.ts` and `electron/main/*.test.ts` still
+1461 tests passing (`spellCard.test.ts` and `electron/main/*.test.ts` still
 flake under full-suite parallel load — re-run alone before investigating; a
 `recents.test.ts` failure did exactly that during the Cleric pass). Done and
 tested — do not rebuild:
@@ -323,8 +332,23 @@ tested — do not rebuild:
 - A shared picks step at level-up; `feature` pick kind rendered as a `<select>`,
   which now honours `open` with an "Other…" free-text entry.
 - `Character.resources` — up to 3 counters, on the sheet and the printed page.
-- **Fighter** 3/3, **Rogue** 3/3, **Barbarian** 2/2, **Bard** 2/2 and
-  **Cleric** 7/7 archetypes authored.
+- **Fighter** 3/3, **Rogue** 3/3, **Barbarian** 2/2, **Bard** 2/2,
+  **Cleric** 7/7 and **Druid** 2/2 archetypes authored.
+- **Druid**: Circle of the Land in `lib/srd/` (SRD), Circle of the Moon in
+  `publishedSubclasses.ts`. The kit gained **`subclassLevel: 2`** — a druid
+  picks their circle at 2nd and the kit's own feature row always said so, but
+  with no declaration the default of 3 won, so four level-2 circle features
+  could not be authored at all. Circle Forms scales at 6 as its own row.
+  Circle of the Land's terrain is a closed `kind: 'feature'` pick with all
+  eight lands; its circle *spells* stay in the option text because
+  `SubclassInfo.spells` is one flat table with no way to branch on a pick's
+  answer — see the note in the entry.
+- Druid class-level fix that came with it: **Wild Shape is a real counter**
+  (2 uses, short rest), offered on the level-2 level-up that grants it. It was
+  prose — "twice per short or long rest" inside the feature text — so a druid's
+  sheet had nothing to tick. The number never changes with level, so it is one
+  row; Archdruid's "unlimited" at 20 stays prose because `total` is a number,
+  the same call the Barbarian's Rage makes.
 - **Cleric**: Life Domain in `lib/srd/` (SRD), the six PHB domains in
   `publishedSubclasses.ts`, all with domain-spell tables at `grantedAt`
   1/3/5/7/9. Channel Divinity is a real counter (1/2/3 at 2/6/18, short rest) —
