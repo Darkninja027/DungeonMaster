@@ -1400,3 +1400,125 @@ describe('a subclass chosen at creation', () => {
     expect(c.armor).not.toContain('heavy')
   })
 })
+
+/**
+ * The Sorcerer's origins, also chosen at level 1.
+ *
+ * The Cleric proved the path; these cover what is different about it. A
+ * Draconic Bloodline's grant is `hpPerLevel` rather than armour, and its
+ * level-1 feature poses a *pick* — which only reaches the wizard if the
+ * subclass rides `draftOwnedPickLists` as well as `draftGrants`.
+ */
+describe('a sorcerous origin chosen at creation', () => {
+  function draconicSorcerer(): CharacterDraft {
+    let draft = emptyDraft(SRD_TABLES)
+    draft = {
+      ...draft,
+      name: 'Vaerys Emberkin',
+      raceName: 'Human',
+      className: 'Sorcerer',
+      subclassName: 'Draconic Bloodline',
+      backgroundName: 'Acolyte',
+      alignment: 'CN',
+      picks: {
+        'acolyte-languages': ['Draconic', 'Celestial'],
+        'sorcerer-skills': ['arcana', 'persuasion'],
+        'draconic-bloodline-ancestor': ['Fire'],
+      },
+      equipment: {
+        'sorcerer-weapon': 0,
+        'sorcerer-focus': 0,
+        'sorcerer-pack': 0,
+      },
+      cantrips: ['Fire Bolt', 'Prestidigitation', 'Light', 'Shocking Grasp'],
+    }
+    return withScores(draft, {
+      str: 8,
+      dex: 14,
+      con: 14,
+      int: 10,
+      wis: 12,
+      cha: 16,
+    })
+  }
+
+  it('grants the origin’s level-1 features', () => {
+    const names = buildCharacter(draconicSorcerer()).character.features.map(
+      (f) => f.name,
+    )
+    expect(names).toContain('Dragon Ancestor')
+    expect(names).toContain('Draconic Resilience')
+    // The class's own survive.
+    expect(names).toContain('Sorcerous Origin')
+  })
+
+  it('grants nothing from a later level', () => {
+    const names = buildCharacter(draconicSorcerer()).character.features.map(
+      (f) => f.name,
+    )
+    expect(names).not.toContain('Elemental Affinity') // 6th
+    expect(names).not.toContain('Dragon Wings') // 14th
+  })
+
+  it('offers the ancestry pick during creation', () => {
+    // The pick lives on a subclass *feature*, so it only reaches the wizard
+    // if the subclass rides `draftOwnedPickLists` — the documented mirror of
+    // `draftGrants`. A source added to one and not the other is a draft that
+    // grants something it never asked about.
+    const owned = draftOwnedPickLists(draconicSorcerer())
+    const ids = owned.map((o) => o.pick.id)
+    expect(ids).toContain('draconic-bloodline-ancestor')
+    // Owner is the subclass's own name, not the class's — two origins of one
+    // class can each pose a choice.
+    const ancestry = owned.find(
+      (o) => o.pick.id === 'draconic-bloodline-ancestor',
+    )
+    expect(ancestry?.owner).toBe('Dragon Ancestor')
+  })
+
+  it('writes the chosen ancestry as its own labelled row', () => {
+    const names = buildCharacter(draconicSorcerer()).character.features.map(
+      (f) => f.name,
+    )
+    expect(names).toContain('Draconic Ancestry: Fire')
+  })
+
+  it('applies Draconic Resilience’s extra hit point per level', () => {
+    // `hpPerLevel: 1` on the subclass grant. At level 1 that is exactly one
+    // hit point over the same sorcerer without the origin.
+    const withOrigin = buildCharacter(draconicSorcerer()).character
+    const without = buildCharacter({
+      ...draconicSorcerer(),
+      subclassName: '',
+      picks: {
+        'acolyte-languages': ['Draconic', 'Celestial'],
+        'sorcerer-skills': ['arcana', 'persuasion'],
+      },
+    }).character
+    expect(withOrigin.hp.max).toBe(without.hp.max + 1)
+  })
+
+  it('records an origin the tables have never heard of', () => {
+    const c = buildCharacter({
+      ...draconicSorcerer(),
+      subclassName: 'Bloodline of the Screaming Moon',
+    }).character
+    expect(c.subclass).toBe('Bloodline of the Screaming Moon')
+    expect(c.features.map((f) => f.name)).not.toContain('Draconic Resilience')
+  })
+
+  it('leaves Wild Magic with no grant to apply', () => {
+    // No grant and no picks is the authored shape; the features still land.
+    const c = buildCharacter({
+      ...draconicSorcerer(),
+      subclassName: 'Wild Magic',
+      picks: {
+        'acolyte-languages': ['Draconic', 'Celestial'],
+        'sorcerer-skills': ['arcana', 'persuasion'],
+      },
+    }).character
+    const names = c.features.map((f) => f.name)
+    expect(names).toContain('Wild Magic Surge')
+    expect(names).toContain('Tides of Chaos')
+  })
+})

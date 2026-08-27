@@ -8,10 +8,14 @@ import {
 } from './publishedSubclasses'
 
 /**
- * The published tier's own invariants. `srd.test.ts` walks the *merged*
- * `SRD_TABLES`, so the shape checks — pick ids, skill ids, feature levels —
- * already cover these entries. What it cannot see is the thing this file
- * exists for: the boundary between what is SRD 5.1 and what is not.
+ * The published tier's own invariants. `srd.test.ts`'s two walkers iterate
+ * `SRD_TABLES.kits`, which folds this tier in, so the shape checks — pick ids,
+ * skill ids, `featureText` completeness — already cover these entries. That
+ * dependency is worth knowing: those walkers read the raw `SRD_CLASS_KITS` for
+ * a long time, and while they did, nothing here was shape-checked at all.
+ *
+ * What they cannot see is the thing this file exists for: the boundary between
+ * what is SRD 5.1 and what is not.
  */
 const published = Object.entries(PUBLISHED_SUBCLASSES).flatMap(
   ([className, subs]) => subs.map((sub) => ({ className, sub })),
@@ -203,6 +207,82 @@ describe('the cleric domains', () => {
         name,
       ).toBe(true)
     }
+  })
+})
+
+describe('the sorcerous origins', () => {
+  // A sorcerer picks at level 1, like a cleric, so these reach the sheet
+  // through creation as well as level-up.
+  const sorcerer = findKit(SRD_TABLES.kits, 'Sorcerer')
+  const ORIGINS = ['Draconic Bloodline', 'Wild Magic']
+
+  it('both carry features', () => {
+    for (const name of ORIGINS) {
+      const sub = sorcerer?.subclasses.find((x) => x.name === name)
+      expect(sub, `${name} missing from the merged tables`).toBeDefined()
+      expect(sub!.features.length, `${name} has no features`).toBeGreaterThan(0)
+    }
+  })
+
+  it('offer the draconic ancestry as a closed pick with complete text', () => {
+    // Closed rather than open, unlike a totem: the five damage types are the
+    // whole list, and the choice is made once so nothing greys out. Closed
+    // means `srd.test.ts` checks featureText completeness for it — but only
+    // because its walkers read the merged tables, so assert it here too.
+    const sub = sorcerer?.subclasses.find(
+      (x) => x.name === 'Draconic Bloodline',
+    )
+    const pick = sub?.features
+      .flatMap((f) => f.picks ?? [])
+      .find((p) => p.id === 'draconic-bloodline-ancestor')
+    expect(pick, 'the ancestry pick is missing').toBeDefined()
+    expect(pick!.open).toBeFalsy()
+    expect(pick!.count).toBe(1)
+    expect(pick!.options).toEqual([
+      'Acid',
+      'Cold',
+      'Fire',
+      'Lightning',
+      'Poison',
+    ])
+    for (const option of pick!.options) {
+      expect(pick!.featureText?.[option], `${option} has no text`).toBeTruthy()
+    }
+    // The label prefixes the row it writes, so it must be there.
+    expect(pick!.featureLabel).toBeTruthy()
+  })
+
+  it('give Draconic Resilience its hit points and nothing it cannot compute', () => {
+    const sub = sorcerer?.subclasses.find(
+      (x) => x.name === 'Draconic Bloodline',
+    )
+    expect(sub?.grant?.hpPerLevel).toBe(1)
+    // Deliberately absent: the feature *replaces* 10 + Dex with 13 + Dex while
+    // unarmoured, and `acBonus` is additive — any value here would be wrong the
+    // moment the character wears armour. See the note on the grant.
+    expect(sub?.grant?.acBonus).toBeUndefined()
+  })
+
+  it('never author a counter of their own', () => {
+    // Sorcery Points is the class's counter, granted at 2nd by the kit. Same
+    // division the cleric domains keep with Channel Divinity.
+    for (const name of ORIGINS) {
+      const sub = sorcerer?.subclasses.find((x) => x.name === name)
+      for (const f of sub?.features ?? []) {
+        expect(
+          f.resource,
+          `${name}/${f.name} authors a counter`,
+        ).toBeUndefined()
+      }
+    }
+  })
+
+  it('leave the Wild Magic surge table as prose', () => {
+    // A d100 of effects this app does not model and is not ours to reproduce.
+    // No grant and no picks is the honest shape, not an incomplete one.
+    const sub = sorcerer?.subclasses.find((x) => x.name === 'Wild Magic')
+    expect(sub?.grant).toBeUndefined()
+    expect(sub?.features.flatMap((f) => f.picks ?? [])).toEqual([])
   })
 })
 

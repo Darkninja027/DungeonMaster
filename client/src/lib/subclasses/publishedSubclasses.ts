@@ -23,13 +23,22 @@
  * in our own words**, the same editor affordance the SRD tables are. Rules text
  * is never reproduced.
  *
- * Sources: Player's Handbook (Path of the Totem Warrior, College of Valor).
+ * Sources: Player's Handbook (Path of the Totem Warrior, College of Valor,
+ * the six non-Life cleric domains, Circle of the Moon, Draconic Bloodline and
+ * Wild Magic).
  * ---------------------------------------------------------------------------
  *
  * Authoring rules are the SRD tables' rules, and `srd.test.ts` enforces them
  * over this list too: `id` is the slugified name and never reaches disk, skills
  * are kebab ids, feature levels sit at or above the class's `subclassLevelOf`,
  * and pick ids share one global keyspace with every other table.
+ *
+ * That last sentence is only true because the walkers in `srd.test.ts` read
+ * `SRD_TABLES.kits` — the *merged* tables — rather than `SRD_CLASS_KITS`. They
+ * read the raw array once, and this whole tier went unchecked: pick ids outside
+ * the uniqueness keyspace, skill ids unvalidated, `featureText` completeness
+ * never asserted. If you ever narrow those walkers back, everything below stops
+ * being covered and nothing fails to tell you.
  *
  * Keyed by **class name**, matched case-insensitively, because a subclass has
  * no meaning apart from the class that offers it — see `layerSubclasses` in
@@ -605,6 +614,133 @@ export const PUBLISHED_SUBCLASSES: Record<string, Array<SubclassInfo>> = {
           level: 17,
           name: 'Avatar of Battle',
           text: 'You have resistance to bludgeoning, piercing and slashing damage from nonmagical attacks.',
+        },
+      ],
+    },
+  ],
+  /**
+   * Both sorcerous origins. SRD 5.1 licenses Draconic Bloodline as the
+   * Sorcerer's one archetype, but `classKits.ts` seeds it as a *name only* and
+   * that is where it stays — a name is not what the licence is about, and the
+   * features below are PHB content, so they belong here with the rest.
+   *
+   * A sorcerer picks at **level 1**, like a cleric, so these reach the sheet
+   * through creation as well as level-up: the level-1 grant and the Dragon
+   * Ancestor pick are offered in the wizard's Class step.
+   *
+   * Neither origin has a `resource`. Sorcery Points is the *class's* counter,
+   * granted at 2nd by the Sorcerer kit — the same division the cleric domains
+   * keep with Channel Divinity.
+   */
+  Sorcerer: [
+    {
+      id: 'draconic-bloodline',
+      name: 'Draconic Bloodline',
+      summary: 'A dragon somewhere in the blood, surfacing as scale and flame.',
+      /**
+       * Draconic Resilience is what actually lands, and it lands here rather
+       * than on the level-1 feature row because `ClassFeatureInfo` has no
+       * `grant` — the row below is the reminder.
+       *
+       * `hpPerLevel: 1` is exact: the feature reads "your hit point maximum
+       * increases by 1 and increases by 1 again whenever you gain a level".
+       *
+       * `acBonus` is **not** exact and is deliberately omitted. The feature
+       * sets AC to 13 + Dexterity while wearing no armour, which is a *floor
+       * that replaces* the usual 10 + Dex, not a bonus added to it. `acBonus`
+       * is additive, so any number here would be wrong the moment the
+       * character puts on armour — +3 on top of a breastplate is a lie the
+       * sheet would tell silently. The text says what the number cannot, and
+       * the player sets AC themselves, which is the same call `flexibleAsi`
+       * and Bardic Inspiration's total make: a figure a player corrects once
+       * beats a wrong one computed forever.
+       */
+      grant: { hpPerLevel: 1 },
+      features: [
+        {
+          level: 1,
+          name: 'Dragon Ancestor',
+          text: 'Choose a dragon as your ancestor. You can speak Draconic, and double your proficiency bonus on Charisma checks when dealing with dragons.',
+          picks: [
+            {
+              // Closed: the five damage types are the whole list 5e offers,
+              // and unlike a totem this choice is made once and never again,
+              // so nothing greys out and no factory is needed.
+              id: 'draconic-bloodline-ancestor',
+              kind: 'feature',
+              label: 'Choose your draconic ancestry',
+              count: 1,
+              options: ['Acid', 'Cold', 'Fire', 'Lightning', 'Poison'],
+              featureLabel: 'Draconic Ancestry',
+              featureText: {
+                Acid: 'Black or copper ancestry. Your Dragon Ancestor damage type is acid.',
+                Cold: 'Silver or white ancestry. Your Dragon Ancestor damage type is cold.',
+                Fire: 'Brass, gold or red ancestry. Your Dragon Ancestor damage type is fire.',
+                Lightning:
+                  'Blue or bronze ancestry. Your Dragon Ancestor damage type is lightning.',
+                Poison:
+                  'Green ancestry. Your Dragon Ancestor damage type is poison.',
+              },
+            },
+          ],
+        },
+        {
+          level: 1,
+          name: 'Draconic Resilience',
+          text: 'Your hit point maximum increases by 1 per sorcerer level. Parts of you are scaled, and while you wear no armour your AC is 13 + your Dexterity modifier — set it on the sheet, as it replaces the usual calculation rather than adding to it.',
+        },
+        {
+          level: 6,
+          name: 'Elemental Affinity',
+          text: 'When you cast a spell dealing your ancestry’s damage type, add your Charisma modifier to one damage roll. You can spend a sorcery point to gain resistance to that type for an hour.',
+        },
+        {
+          level: 14,
+          name: 'Dragon Wings',
+          text: 'As a bonus action, sprout wings and gain a flying speed equal to your walking speed until you dismiss them.',
+        },
+        {
+          level: 18,
+          name: 'Draconic Presence',
+          text: 'Spend 5 sorcery points to radiate awe or fear for a minute; creatures within 60 feet are charmed or frightened unless they succeed on a Wisdom save.',
+        },
+      ],
+    },
+    {
+      id: 'wild-magic',
+      name: 'Wild Magic',
+      summary: 'Raw chaos as a birthright, and it does not always behave.',
+      // No `grant` and no `picks`. The surge table is a d100 of effects this
+      // app does not model and is not ours to reproduce, and the feature it
+      // hangs off grants no number the sheet holds — so it stays a reminder,
+      // which is honest rather than incomplete. Tides of Chaos is likewise not
+      // a `resource`: it refreshes when the DM decides to trigger a surge, not
+      // on a rest, and `resets` has no value for that.
+      features: [
+        {
+          level: 1,
+          name: 'Wild Magic Surge',
+          text: 'Once per turn, the DM may have you roll a d20 after you cast a sorcerer spell of 1st level or higher; on a 1, roll on the Wild Magic Surge table.',
+        },
+        {
+          level: 1,
+          name: 'Tides of Chaos',
+          text: 'Gain advantage on one attack roll, ability check or saving throw. You regain the use when the DM has you roll on the Wild Magic Surge table.',
+        },
+        {
+          level: 6,
+          name: 'Bend Luck',
+          text: 'Spend 2 sorcery points as a reaction to add or subtract 1d4 from another creature’s attack roll, ability check or saving throw.',
+        },
+        {
+          level: 14,
+          name: 'Controlled Chaos',
+          text: 'When you roll on the Wild Magic Surge table, roll twice and choose either result.',
+        },
+        {
+          level: 18,
+          name: 'Spell Bombardment',
+          text: 'When you roll the highest possible number on a damage die for a spell, roll that die again and add it to the damage.',
         },
       ],
     },

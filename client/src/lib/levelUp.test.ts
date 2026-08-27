@@ -3113,3 +3113,108 @@ describe('druid circles', () => {
     expect(after.features.map((f) => f.name)).not.toContain('Circle Forms')
   })
 })
+
+describe('sorcerous origins', () => {
+  /**
+   * A sorcerer picks at level 1, so unlike a Battle Master the archetype is
+   * already on the sheet before any level-up happens. These cover the levels
+   * where an origin's later features arrive, and the class-level counter that
+   * was prose until this pass.
+   */
+  const sorc = (level: number, subclass?: string): Character => ({
+    ...characterAt(level, 'Sorcerer'),
+    ...(subclass ? { subclass } : {}),
+  })
+
+  it('grants a Draconic Bloodline its later features', () => {
+    const c = sorc(5, 'Draconic Bloodline')
+    const after = applyLevelUp(c, draftFor(c, 6))
+    expect(after.features.map((f) => f.name)).toContain('Elemental Affinity')
+  })
+
+  it('keeps granting them at 14 and 18', () => {
+    const at13 = sorc(13, 'Draconic Bloodline')
+    expect(
+      applyLevelUp(at13, draftFor(at13, 14)).features.map((f) => f.name),
+    ).toContain('Dragon Wings')
+    const at17 = sorc(17, 'Draconic Bloodline')
+    expect(
+      applyLevelUp(at17, draftFor(at17, 18)).features.map((f) => f.name),
+    ).toContain('Draconic Presence')
+  })
+
+  it('grants a Wild Magic sorcerer its own line', () => {
+    const c = sorc(13, 'Wild Magic')
+    const after = applyLevelUp(c, draftFor(c, 14))
+    expect(after.features.map((f) => f.name)).toContain('Controlled Chaos')
+    // And not the other origin's, which shares the level.
+    expect(after.features.map((f) => f.name)).not.toContain('Dragon Wings')
+  })
+
+  it('grants nothing extra for an origin the tables do not know', () => {
+    const c = sorc(5, 'Bloodline of the Ninth Hell')
+    const after = applyLevelUp(c, draftFor(c, 6))
+    expect(after.subclass).toBe('Bloodline of the Ninth Hell')
+    expect(after.features.map((f) => f.name)).not.toContain(
+      'Elemental Affinity',
+    )
+  })
+
+  it('scales Metamagic with its own rows rather than prose', () => {
+    // Folded into the level-3 text, the 10th and 17th options were prose the
+    // wizard could never grant.
+    const at9 = sorc(9, 'Wild Magic')
+    expect(
+      applyLevelUp(at9, draftFor(at9, 10)).features.map((f) => f.name),
+    ).toContain('Metamagic (3rd option)')
+    const at16 = sorc(16, 'Wild Magic')
+    expect(
+      applyLevelUp(at16, draftFor(at16, 17)).features.map((f) => f.name),
+    ).toContain('Metamagic (4th option)')
+  })
+
+  it('offers Sorcery Points as a counter on the level-up that grants it', () => {
+    // The class is built around spending these and the sheet had nothing to
+    // tick. `total` ships as the value at the granting level; the text tells
+    // the player to raise it, because no static table can track their level.
+    const c = sorc(1, 'Wild Magic')
+    const offer = resourcesOffered(draftFor(c, 2)).find(
+      (o) => o.name === 'Sorcery Points',
+    )
+    expect(offer).toBeDefined()
+    expect(offer?.total).toBe(2)
+    expect(offer?.resets).toBe('long')
+  })
+
+  it('lands the counter on the sheet when accepted', () => {
+    const c = sorc(1, 'Wild Magic')
+    const draft = draftFor(c, 2)
+    const after = applyLevelUp(c, {
+      ...draft,
+      resources: Object.fromEntries(
+        resourcesOffered(draft).map((o) => [
+          o.name,
+          o.resets ? { total: o.total, resets: o.resets } : { total: o.total },
+        ]),
+      ),
+    })
+    const points = after.resources.find((r) => r.name === 'Sorcery Points')
+    expect(points?.total).toBe(2)
+    expect(points?.used).toBe(0)
+  })
+
+  it('never lowers a total the player raised themselves', () => {
+    // The whole reason the counter ships a suggestion rather than a formula: a
+    // 9th-level sorcerer sets 9, and no later level-up may walk it back.
+    const c: Character = {
+      ...sorc(9, 'Wild Magic'),
+      resources: [
+        { name: 'Sorcery Points', used: 3, total: 9, resets: 'long' },
+      ],
+    }
+    const after = applyLevelUp(c, draftFor(c, 10))
+    const points = after.resources.find((r) => r.name === 'Sorcery Points')
+    expect(points?.total).toBe(9)
+    expect(points?.used).toBe(3)
+  })
+})

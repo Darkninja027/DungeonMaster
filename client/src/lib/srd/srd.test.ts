@@ -16,7 +16,13 @@ import { SRD_BACKGROUNDS } from './backgrounds'
 import { SRD_CLASS_KITS } from './classKits'
 import { ARMOR_AC, WEAPON_STATS } from './equipment'
 import { SRD_RACES } from './races'
-import { spellcastingFor, subclassLevelOf } from '../tables'
+// The *merged* built-in tables, and the walkers below read them rather than
+// `SRD_CLASS_KITS` on purpose. `SRD_TABLES.kits` folds in
+// `lib/subclasses/publishedSubclasses.ts`, which the raw array does not, so
+// walking the raw one left every published subclass's picks and grants
+// unchecked — same class of miss as `features[].picks` and `SubclassInfo.grant`
+// before it, and the same fix: widen the walker.
+import { SRD_TABLES, spellcastingFor, subclassLevelOf } from '../tables'
 import type { Grant, PickList } from './types'
 
 /**
@@ -54,7 +60,7 @@ function allGrants(): Array<{ where: string; grant: Grant }> {
   for (const bg of SRD_BACKGROUNDS) {
     out.push({ where: `background ${bg.name}`, grant: bg.grant })
   }
-  for (const kit of SRD_CLASS_KITS) {
+  for (const kit of SRD_TABLES.kits) {
     out.push({ where: `kit ${kit.name}`, grant: kit.grant })
     // Subclass grants — Life Domain's heavy armour, a Valor Bard's martial
     // weapons. Missed for as long as they existed, exactly as `features[].picks`
@@ -87,7 +93,7 @@ function allPickLists(): Array<{ where: string; pick: PickList }> {
   for (const { where, grant } of allGrants()) {
     for (const pick of grant.picks ?? []) out.push({ where, pick })
   }
-  for (const kit of SRD_CLASS_KITS) {
+  for (const kit of SRD_TABLES.kits) {
     out.push({ where: `kit ${kit.name} skillChoices`, pick: kit.skillChoices })
     // Feature picks, class and subclass. These were missed for as long as they
     // have existed: a Fighting Style and a Battle Master's manoeuvres live on

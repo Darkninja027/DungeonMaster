@@ -7,18 +7,19 @@ Paste this into a fresh Claude Code context in `c:\Projects\DungeonMaster`.
 ## The task
 
 Author per-level subclass features for **one class at a time**. Fighter,
-Rogue, Barbarian, Bard, **Cleric** and **Druid** are done; the other six ship
-`features: []` on every subclass:
+Rogue, Barbarian, Bard, **Cleric**, **Druid** and **Sorcerer** are done; the
+other five ship `features: []` on every subclass:
 
 ```
 Monk 0/3      Paladin 0/3   Ranger 0/2
-Sorcerer 0/2  Warlock 0/3   Wizard 0/8
+Warlock 0/3   Wizard 0/8
 ```
 
-**Next up: your pick of the six.** Sorcerer or Warlock is the natural
-follow-on — they choose at level 1 like the Cleric, and the mechanism that
-needed building for the Cleric now exists and is proven, so they are back to
-being pure data authoring.
+**Next up: your pick of the five.** The Warlock is the obvious-looking
+follow-on and is **not** a pure data pass — read "The Warlock needs a decision
+first" below before starting it. Paladin is the better next data-only class:
+its oath spells are genuinely always-prepared, so they fit
+`SubclassInfo.spells` exactly as the cleric domains do.
 
 **Check `subclassLevel` before you author anything.** Two classes have now had
 the same bug: the kit declared no `subclassLevel`, so `subclassLevelOf` returned
@@ -29,6 +30,22 @@ class you are authoring picks at anything other than 3, confirm the kit says so
 level, and the level-up wizard asks a level late.
 
 Do one class completely, then stop. Do not batch.
+
+### The Warlock needs a decision first
+
+It looks like the natural next class — it picks at level 1 like the Cleric and
+the Sorcerer — but a patron's **expanded spell list is not always-prepared**. In
+5e those spells are "added to your spell list", i.e. choosable as spells known;
+`applySubclassSpells` writes every `SubclassInfo.spells` row with
+`alwaysPrepared: true` (`buildCharacter.ts`), which is right for a domain, an
+oath and a circle, and wrong here. Authored as-is, a warlock would get ~10 free
+spells they never spent a known-slot on.
+
+Three options, none of them chosen yet: omit the expanded lists and keep them as
+feature-text reminders; give `SubclassSpells` an opt-out flag and teach both
+appliers about it; or model "added to your list" as suggestions in the picker.
+The first is cheap and honest, the third is probably right. **This is a
+mechanism question, so it is its own pass** — do not slide it into a data one.
 
 ### What the Cleric pass changed (read if you touch creation)
 
@@ -74,16 +91,32 @@ not belong under that folder's CC BY 4.0 attribution.
 
 So there are two homes, and `subclasses.test.ts` enforces the split:
 
-| Class | SRD (author in `lib/srd/`) | Everything else |
+| Class | The SRD-licensed one | Everything else |
 |---|---|---|
-| Cleric | Life Domain | `lib/subclasses/publishedSubclasses.ts` |
-| Druid | Circle of the Land | ” |
+| Cleric | Life Domain — authored in `lib/srd/` | `lib/subclasses/publishedSubclasses.ts` |
+| Druid | Circle of the Land — authored in `lib/srd/` | ” |
+| Sorcerer | Draconic Bloodline — **published tier**, see below | ” |
 | Monk | Way of the Open Hand | ” |
 | Paladin | Oath of Devotion | ” |
 | Ranger | Hunter | ” |
-| Sorcerer | Draconic Bloodline | ” |
 | Warlock | The Fiend | ” |
 | Wizard | School of Evocation | ” |
+
+**Being the SRD one does not oblige you to author it in `lib/srd/`.** The
+Sorcerer pass put Draconic Bloodline in the published tier instead, and that is
+the better default from here on. The reasoning: `classKits.ts` seeded it as a
+*name only*, and the licence is about the features, not the name — so once
+written, its features are the PHB's text restated in our words and sit perfectly
+well beside Wild Magic under the published tier's own provenance. Keeping the two
+origins of one class in one file also means a reader sees the class whole, and
+`layerSubclasses` overlays the bare stub either way.
+
+The rule that actually binds is narrower: **anything you author in `lib/srd/`
+must be SRD 5.1, and the pinned list in `subclasses.test.ts` is the gate.** That
+list has no Sorcerer entry, so authoring Draconic Bloodline into `classKits.ts`
+now *fails* — which is the tripwire doing its job. If you do choose `lib/srd/`
+for a future class's licensed archetype, you must add the `Class/Subclass` string
+to that list deliberately.
 
 `publishedSubclasses.ts` is keyed by class name and overlays the stub via
 `layerSubclasses`; it is wired into **both** `SRD_TABLES` and `mergeTables`
@@ -102,8 +135,10 @@ sheet has been where every real bug hid.
 
 **That exception has now been paid off.** Cleric, Sorcerer and Warlock choose
 at level 1, and the creation path used to ignore subclasses entirely. The Cleric
-pass built that mechanism, so Sorcerer and Warlock are ordinary data authoring
-now — see "What the Cleric pass changed" above.
+pass built that mechanism and the Sorcerer pass confirmed it holds for a second
+class without a line of new mechanism — see "What the Cleric pass changed"
+above. The Warlock is level-1 too, but its blocker is its spell lists rather
+than the creation path; see the warning near the top.
 
 ## Start here
 
@@ -163,11 +198,11 @@ auto-applied. A later feature naming the same resource **raises** it (4 → 5,
 shown as `4 → 5`, `used` untouched); it never lowers one the player tuned
 higher. Cap is `MAX_RESOURCES = 3`.
 
-**Six classes still have no `resource` anywhere** — Monk (Ki), Paladin (Lay on
-Hands, Divine Sense), Ranger, Sorcerer (Sorcery Points), Warlock (Mystic
-Arcanum) and Wizard (Arcane Recovery). Barbarian, Bard, Cleric, Druid and
-Fighter each have a class-level one; Cleric's Channel Divinity and Druid's Wild
-Shape were added in their own passes. The Rogue's only counter is the Arcane
+**Five classes still have no `resource` anywhere** — Monk (Ki), Paladin (Lay on
+Hands, Divine Sense), Ranger, Warlock (Mystic Arcanum) and Wizard (Arcane
+Recovery). Barbarian, Bard, Cleric, Druid, Fighter and Sorcerer each have a
+class-level one; Cleric's Channel Divinity, Druid's Wild Shape and the
+Sorcerer's Sorcery Points were added in their own passes. The Rogue's only counter is the Arcane
 Trickster's level-17 Spell Thief, so a Thief still has none — a *subclass*
 resource does not close a class's gap.
 Those are class-level
@@ -244,8 +279,10 @@ at creation as well.
 ```sh
 cd client
 npx vitest run src/lib/srd/srd.test.ts      # the data invariants
+npx vitest run src/lib/subclasses/          # the SRD/published boundary
 npx vitest run src/lib/levelUp.test.ts      # the mechanism
-npx vitest run                              # all 1461
+npx vitest run src/lib/buildCharacter.test.ts   # creation, for a level-1 class
+npx vitest run                              # all 1501
 npx tsc --noEmit -p tsconfig.json
 npm run lint                                # NOTE: 14 pre-existing problems
 ```
@@ -310,6 +347,31 @@ clicks on **Next** rather than a DOM `.click()` (which does not advance), and
 the Class step's live summary panel re-renders on every keystroke, so typing a
 subclass name is enough to see its grant appear in Proficiencies.
 
+The Sorcerer pass found its by **reading a comment and not believing it**, and
+it is the widest-reaching one yet: `srd.test.ts`'s two walkers iterated
+`SRD_CLASS_KITS`, the *raw* table, while both `publishedSubclasses.ts`'s header
+and `subclasses.test.ts`'s own doc comment claimed the merged `SRD_TABLES` were
+walked and that "pick ids, skill ids, feature levels" were therefore covered.
+They were not. `SRD_TABLES.kits` is `withPublishedSubclasses(SRD_CLASS_KITS)` — a
+different array — so for **every entry in the published tier** pick-id global
+uniqueness, skill-id validity, `featureText` completeness, the closed-pick
+option-count rule and the banned-`featureGrant`-fields rule all silently skipped.
+Nine subclasses' worth of data, including the `totem-warrior-*` pick ids, had
+never been shape-checked at all.
+
+Both walkers now read `SRD_TABLES.kits`, which was a two-line change, and the
+four invariants started covering the tier at once. Verified by planting a
+duplicate pick id and confirming the failure named
+`kit Cleric/Knowledge Domain`, then by deleting one `featureText` entry and
+confirming it named the option. Scoped to those two walkers deliberately: the
+~30 other `SRD_CLASS_KITS` loops assert things *about the SRD table* — the pinned
+"authored in lib/srd" list among them — and switching those would change what
+they mean. Two comments corrected to describe what is now true, with a note that
+narrowing the walkers back silently un-covers the whole tier.
+
+The lesson is the one this file keeps relearning at a new altitude: a comment
+asserting that a test covers something is not a test. Grep for the import.
+
 The Druid pass found its bug by **reading** rather than driving, and it is the
 kind worth looking for first: the kit declared no `subclassLevel` while its own
 feature row sat at 2, so four level-2 circle features could not be authored at
@@ -345,7 +407,7 @@ Restore with a Python round-trip (`newline=''`, `.replace('\r\n','\n')` then
 
 ## Where things stand
 
-1461 tests passing (`spellCard.test.ts` and `electron/main/*.test.ts` still
+1501 tests passing (`spellCard.test.ts` and `electron/main/*.test.ts` still
 flake under full-suite parallel load — re-run alone before investigating; a
 `recents.test.ts` failure did exactly that during the Cleric pass). Done and
 tested — do not rebuild:
@@ -355,7 +417,27 @@ tested — do not rebuild:
   which now honours `open` with an "Other…" free-text entry.
 - `Character.resources` — up to 3 counters, on the sheet and the printed page.
 - **Fighter** 3/3, **Rogue** 3/3, **Barbarian** 2/2, **Bard** 2/2,
-  **Cleric** 7/7 and **Druid** 2/2 archetypes authored.
+  **Cleric** 7/7, **Druid** 2/2 and **Sorcerer** 2/2 archetypes authored.
+- **Sorcerer**: both origins in `publishedSubclasses.ts` — SRD 5.1 licenses
+  Draconic Bloodline, but `classKits.ts` only ever seeded it as a name, so the
+  features are PHB content and belong in the published tier. Both kit stubs stay
+  bare and the pinned list in `subclasses.test.ts` needed no edit.
+  Dragon Ancestor is a **closed** `kind: 'feature'` pick over the five damage
+  types — closed rather than open because the choice is made once, so nothing
+  ever greys out and no per-level `featureLabel` dance is needed. Draconic
+  Resilience's grant carries `hpPerLevel: 1` and **deliberately no `acBonus`**:
+  the feature *replaces* 10 + Dex with 13 + Dex while unarmoured, and `acBonus`
+  is additive, so any value would be a lie the moment armour goes on. The text
+  says what the number cannot. Wild Magic has no grant and no picks — a d100
+  surge table is not modelled here and not ours to reproduce.
+- Sorcerer class-level fixes that came with it: **Sorcery Points is a real
+  counter** (2, long rest, offered at the level-2 level-up that grants it) — the
+  class is built around spending them and the sheet had nothing to tick. `total`
+  is the sorcerer *level*, which no static table can track, so it ships the value
+  at the granting level and the text says to raise it, the same call Bardic
+  Inspiration makes. And **Metamagic is three rows** at 3/10/17 instead of one
+  whose prose mentioned the upgrades; which options you take stays prose, because
+  `Character` has no field for the answer.
 - **Druid**: Circle of the Land in `lib/srd/` (SRD), Circle of the Moon in
   `publishedSubclasses.ts`. The kit gained **`subclassLevel: 2`** — a druid
   picks their circle at 2nd and the kit's own feature row always said so, but
@@ -399,8 +481,12 @@ tested — do not rebuild:
   `SpellList` control and `useSpellSuggestions` hook.
 - `spellsKnownByLevel` authored for Bard, Sorcerer, Warlock, Arcane Trickster
   and Eldritch Knight, each with an all-levels test.
-- `srd.test.ts`'s `allPickLists()` now walks `features[].picks` — those escaped
-  four invariants for as long as they existed.
+- `srd.test.ts`'s walkers have been widened three times, each time because a
+  whole category was silently unchecked: `allPickLists()` gained
+  `features[].picks`, `allGrants()` gained `SubclassInfo.grant`, and both now
+  iterate **`SRD_TABLES.kits`** rather than the raw `SRD_CLASS_KITS` so the
+  published tier is covered at all. Assume the next category is also unwalked
+  and check before trusting a green suite.
 
 Two things landed alongside the Bard pass, both answers to "does that actually
 work?" rather than data authoring:
@@ -445,9 +531,11 @@ work?" rather than data authoring:
 ## The other open threads
 
 - **`NEXT-CLERIC-PROMPT.md`** — **done**, kept for its reasoning. It works
-  through the two mechanism gaps a level-1 subclass exposed, which still
-  applies to Sorcerer and Warlock — but as background, not as work: they need
-  data only.
+  through the two mechanism gaps a level-1 subclass exposed. The Sorcerer pass
+  has since confirmed that mechanism holds for a second level-1 class with no
+  new code, so read it as background rather than as work. It still describes the
+  creation path the Warlock will use — but the Warlock's blocker is its spell
+  lists, not creation; see the warning near the top.
 - **`NEXT-WIZARD-PROMPT.md`** — making the homebrew editors a guided wizard.
   Pure UX, but it touches `components/settings/homebrew/`, so check
   `git status` before starting. Partly landed already (`PickEditor`,

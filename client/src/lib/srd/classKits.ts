@@ -2828,12 +2828,43 @@ export const SRD_CLASS_KITS: Array<ClassKit> = [
       {
         level: 2,
         name: 'Font of Magic',
-        text: 'You have sorcery points equal to your sorcerer level, which you can convert into spell slots and back.',
+        text: 'You have sorcery points equal to your sorcerer level, which you can convert into spell slots and back. The counter starts at 2 and rises by one per level — raise it on the sheet as you go.',
+        // The counter the class is built around spending, and it was prose
+        // until now: a sorcerer's sheet had nothing to tick.
+        //
+        // `total` is the sorcerer *level*, which no static table can track —
+        // `resource` is a fixed number offered once at the level that grants
+        // it, and `resourcesOffered` gates on `total` changing, so a row per
+        // level would be twenty offers of the same counter. Same call Bardic
+        // Inspiration makes for the Charisma modifier: ship the value at the
+        // granting level, say so in the text, and let the player edit the box.
+        // A figure corrected once beats a feature that never reaches the sheet.
+        resource: { name: 'Sorcery Points', total: 2, resets: 'long' },
       },
       {
+        // Three rows rather than one whose prose mentions the upgrades — the
+        // same call Brutal Critical, Magical Secrets and Divine Strike (2d8)
+        // make. De-dupe is keyed on `level:name`, so distinct names at
+        // distinct levels each get granted; folded into the level-3 text, the
+        // 10th and 17th options are prose that scrolls past unread.
+        //
+        // Which options are chosen stays prose deliberately: a metamagic pick
+        // would need `Character` to have a field for the answer, and it has
+        // none — as a `kind: 'other'` pick `applyPicks` would record the click
+        // and then discard it, which is worse than a reminder.
         level: 3,
         name: 'Metamagic',
-        text: 'You can twist your spells with two Metamagic options; a third at 10th level and a fourth at 17th.',
+        text: 'You gain two Metamagic options of your choice, and can use only one per spell unless stated otherwise.',
+      },
+      {
+        level: 10,
+        name: 'Metamagic (3rd option)',
+        text: 'You learn a third Metamagic option of your choice.',
+      },
+      {
+        level: 17,
+        name: 'Metamagic (4th option)',
+        text: 'You learn a fourth Metamagic option of your choice.',
       },
       {
         level: 20,
