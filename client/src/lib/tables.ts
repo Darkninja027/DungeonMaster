@@ -484,6 +484,39 @@ export function spellcastingFor(
 }
 
 /**
+ * Whether a character casts *at level 1* — which is not the same question as
+ * whether their class has a `spellcasting` block, and conflating the two is
+ * what kept the half casters from having one at all.
+ *
+ * A Paladin and a Ranger gain spells at 2nd level. Their tables therefore start
+ * at level 2, and `slotsAtLevel1` is 0 — the same convention a third caster
+ * already uses, where the table starts at the level the archetype is chosen.
+ * But the creation wizard used to gate its spells step on
+ * `kit.spellcasting` being *truthy*, so any block at all — even one whose first
+ * row is at 2 — pushed a spells step onto a level-1 paladin, which then read
+ * "you have 0 level 1 slots". That is why the block could not simply be added,
+ * and why the gate had to learn a better question first.
+ *
+ * So this asks the table, not the block: is there anything to cast with at
+ * level 1? Read through `spellcastingFor`, so a *subclass* that casts from
+ * level 1 answers true even when its class does not cast at all — the mirror
+ * of the same bug, latent until a homebrew kit hits it.
+ *
+ * The `slotsAtLevel1 > 0` arm is for a block with no progression table:
+ * `slotsByLevel` is optional and absent means "no table", which is what a
+ * homebrew caster authored through the settings UI ships. Its `slotsAtLevel1`
+ * defaults to 2, so it still gets its spells step.
+ */
+export function castsAtLevel1(
+  kit: ClassKit | undefined,
+  subclassName = '',
+): boolean {
+  const sc = spellcastingFor(kit, subclassName)
+  if (!sc) return false
+  return sc.slotsByLevel?.[1] !== undefined || sc.slotsAtLevel1 > 0
+}
+
+/**
  * The class whose spell list a character casts from — which is not always their
  * own class.
  *

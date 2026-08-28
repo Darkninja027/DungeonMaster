@@ -230,6 +230,18 @@ describe('stepsFor', () => {
     expect(stepsFor(draft)).toContain('spells')
   })
 
+  it('omits it for a half caster, who has a block but no level-1 table', () => {
+    // The regression guard for the whole half-caster change. Paladin and Ranger
+    // now carry a `spellcasting` block so their subclasses can hold spells and
+    // so they can cast at all — but the block's table starts at 2nd. This step
+    // is gated on `castsAtLevel1`, not on the block existing; gating on the
+    // block would render a step reading "you have 0 level 1 slots".
+    for (const className of ['Paladin', 'Ranger']) {
+      const draft = { ...emptyDraft(SRD_TABLES), className }
+      expect(stepsFor(draft), className).not.toContain('spells')
+    }
+  })
+
   it('omits it for a homebrew class with no kit', () => {
     const draft = { ...emptyDraft(PHB_CLASSES), className: 'Blood Hunter' }
     expect(stepsFor(draft)).not.toContain('spells')

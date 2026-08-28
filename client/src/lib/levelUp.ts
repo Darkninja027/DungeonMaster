@@ -1129,15 +1129,21 @@ export function levelUpPlan(c: Character, draft: LevelUpDraft): LevelUpPlan {
   // `mod + level`, the same formula buildCharacter uses at creation — the two
   // must agree or a levelled character drifts from a freshly built one. Never
   // lowered: a sheet with a higher limit has been deliberately house-ruled.
-  const preparedLimitTo =
-    sc?.prepares && c.preparedLimit > 0
-      ? Math.max(
-          c.preparedLimit,
-          abilityMod(
-            c.abilities[sc.ability] + (abilityIncreases[sc.ability] ?? 0),
-          ) + draft.to,
-        )
-      : undefined
+  // `c.preparedLimit > 0` used to gate this, which silently excluded every
+  // half caster: a paladin is built at level 1 with a limit of 0 because they
+  // do not cast yet, so the guard could never open and the limit stayed 0
+  // forever — at 2nd, at 20th, at every level in between. `sc?.prepares` is
+  // already the check that matters; a class that does not prepare has no
+  // limit to set. The `Math.max` below is what keeps a house-ruled number
+  // safe, so nothing is lowered by opening this up.
+  const preparedLimitTo = sc?.prepares
+    ? Math.max(
+        c.preparedLimit,
+        abilityMod(
+          c.abilities[sc.ability] + (abilityIncreases[sc.ability] ?? 0),
+        ) + draft.to,
+      )
+    : undefined
 
   return {
     from: draft.from,

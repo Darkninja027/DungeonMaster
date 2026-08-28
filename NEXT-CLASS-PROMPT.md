@@ -7,19 +7,47 @@ Paste this into a fresh Claude Code context in `c:\Projects\DungeonMaster`.
 ## The task
 
 Author per-level subclass features for **one class at a time**. Fighter,
-Rogue, Barbarian, Bard, **Cleric**, **Druid** and **Sorcerer** are done; the
-other five ship `features: []` on every subclass:
+Rogue, Barbarian, Bard, **Cleric**, **Druid**, **Sorcerer**, **Paladin**,
+**Monk** and **Ranger** are done; the other two ship `features: []` on every
+subclass:
 
 ```
-Monk 0/3      Paladin 0/3   Ranger 0/2
 Warlock 0/3   Wizard 0/8
 ```
 
-**Next up: your pick of the five.** The Warlock is the obvious-looking
-follow-on and is **not** a pure data pass — read "The Warlock needs a decision
-first" below before starting it. Paladin is the better next data-only class:
-its oath spells are genuinely always-prepared, so they fit
-`SubclassInfo.spells` exactly as the cleric domains do.
+**Next up: your pick of the two.** The **Warlock** is not a pure data pass —
+its patron spell lists are "added to your spell list" rather than always
+prepared, which is a mechanism question; see below. **The Wizard is data-only**,
+and is the larger job at eight schools; its `subclassLevel: 2` is already
+declared correctly, and the inert `spellbook.perLevel` gap sits next to it as
+its own separate job.
+
+> **The Paladin pass corrected this section's advice, and the half-caster pass
+> then closed the hole it found.** Paladin was recommended as the data-only
+> class because "its oath spells are genuinely always-prepared, so they fit
+> `SubclassInfo.spells` exactly as the cleric domains do" — true of the *field*
+> and false of the *tests*: a Paladin had no `spellcasting` block, one invariant
+> required `spellcastingFor` be defined for any subclass carrying `spells`, and
+> another required the block stay undefined. The oaths' features shipped first
+> and their spells followed once **both half casters gained a real casting
+> table**. The lesson stands even though the blocker is gone: check that the
+> mechanism a data pass assumes actually exists before trusting the advice.
+
+> **The Ranger pass then found the mirror image of that mistake, in this
+> document's own advice.** This section used to say "the Ranger's conclaves can
+> carry `spells` because the half-caster pass gave it a real casting table" —
+> every word true of the *mechanism*, and false of the *book*. The PHB gives
+> Hunter and Beast Master **no bonus spells at all**; a conclave spell list is a
+> Xanathar's feature (Gloom Stalker, Horizon Walker, Monster Slayer), and this
+> repo ships no Xanathar's content.
+>
+> What makes it worth recording is that **nothing would have caught it**. The
+> invariant "only spellcasting classes grant bonus spells" asks only that
+> `spellcastingFor(kit, sub)` be *defined* — and for a Ranger it now is, so a
+> fabricated table would have passed a fully green suite and quietly handed the
+> character ten free always-prepared spells. So the Paladin's lesson has a
+> second half: having checked the mechanism exists, check the *source* actually
+> says the data exists too. `subclasses.test.ts` now pins the absence.
 
 **Check `subclassLevel` before you author anything.** Two classes have now had
 the same bug: the kit declared no `subclassLevel`, so `subclassLevelOf` returned
@@ -198,11 +226,17 @@ auto-applied. A later feature naming the same resource **raises** it (4 → 5,
 shown as `4 → 5`, `used` untouched); it never lowers one the player tuned
 higher. Cap is `MAX_RESOURCES = 3`.
 
-**Five classes still have no `resource` anywhere** — Monk (Ki), Paladin (Lay on
-Hands, Divine Sense), Ranger, Warlock (Mystic Arcanum) and Wizard (Arcane
-Recovery). Barbarian, Bard, Cleric, Druid, Fighter and Sorcerer each have a
-class-level one; Cleric's Channel Divinity, Druid's Wild Shape and the
-Sorcerer's Sorcery Points were added in their own passes. The Rogue's only counter is the Arcane
+**Two classes still have no `resource` anywhere** — Warlock
+(Mystic Arcanum) and Wizard (Arcane Recovery). The **Ranger** also has none,
+and its pass deliberately *declined* to add one rather than leaving a gap:
+Primeval Awareness spends a spell slot the sheet already tracks, Foe Slayer is
+a once-per-turn rule with no pool, and a Beast Master companion's hit points
+are a scaling number. Not every class has a counter to find — a pass that goes
+looking should be willing to come back empty and say so. The Paladin's were added in its
+own pass (Channel Divinity at 3, Divine Sense at 1), and the Monk's Ki in its
+own. Barbarian, Bard, Cleric, Druid, Fighter, Monk and Sorcerer each have a
+class-level one; Cleric's Channel Divinity, Druid's Wild Shape, the
+Sorcerer's Sorcery Points and the Monk's Ki were added in their own passes. The Rogue's only counter is the Arcane
 Trickster's level-17 Spell Thief, so a Thief still has none — a *subclass*
 resource does not close a class's gap.
 Those are class-level
@@ -213,9 +247,16 @@ it in. Only three counters fit on a sheet, so pick the one the class spends.
 
 A counter is for something with a `used` count. A *scaling number* is not one:
 Barbarian's rage damage (+2/+3/+4) and the Bardic Inspiration **die** (d6 → d12)
-both stayed out, and so should Monk's martial arts die. The die still gets its
-own feature rows at 5/10/15 — a scaling number is not a counter, but it is
-still not prose either.
+both stayed out, and so did Monk's martial arts die. The die still gets its
+own feature rows — a scaling number is not a counter, but it is still not prose
+either.
+
+> This paragraph said those rows sat at **5/10/15** until the Monk pass, and
+> that was simply wrong: the die scales at **5/11/17**, and unarmored movement
+> at 2/6/10/14/18. The repo had no monk table to check it against, so the guess
+> sat here unchallenged. Two lessons, both old ones: a number written while
+> documenting a *rule* still needs the same sourcing as a number written into
+> the tables, and where the repo has no source of truth, go and get one.
 
 Two limits worth knowing before you author one:
 
@@ -282,10 +323,13 @@ npx vitest run src/lib/srd/srd.test.ts      # the data invariants
 npx vitest run src/lib/subclasses/          # the SRD/published boundary
 npx vitest run src/lib/levelUp.test.ts      # the mechanism
 npx vitest run src/lib/buildCharacter.test.ts   # creation, for a level-1 class
-npx vitest run                              # all 1501
+npx vitest run                              # all 1569
 npx tsc --noEmit -p tsconfig.json
 npm run lint                                # NOTE: 14 pre-existing problems
 ```
+
+`--reporter=basic` was **removed in Vitest 4** (the repo is on 4.1.10) and fails
+with "Failed to load url basic". Use `--reporter=dot` or the default.
 
 `npm run lint` **does not reach zero on a clean tree** — 9 errors and 5 warnings
 in unrelated files. Grep for the files you touched; do not fix the rest.
@@ -383,6 +427,45 @@ takes the draft alone, not `(character, draft)`. A wrong-arity call inside
 `page.evaluate` throws `Cannot read properties of undefined`, which reads
 exactly like an app crash. Check the signature before believing the app broke.
 
+The Monk pass found a **mechanism** hole by reading, and fixed it — the one
+place this pass went past pure data. `Grant.spells` on a subclass is applied by
+`applyFeatGrants` and reaches the sheet, but `levelUpSteps` opens the spells
+step only when slots, cantrips known or spells known change, all of which read a
+`spellcasting` block. For a class that does not cast, the step never opens — and
+the spells step was the **only** renderer of `plan.spellsGranted`.
+`LevelUpSummary`, which is visible on every step including Review, rendered
+`spellsAdded` (what the player chose) and never the granted ones. So a subclass
+granting a cantrip to a Monk applied it to the sheet having announced it
+nowhere: the exact seam that produced bug #3 above, with the data layer entirely
+correct and only the surface missing. `LevelUpSummary` renders `spellsGranted`
+now, which closes it for every class. Way of Shadow's minor illusion still stays
+prose, for the separate reason above — a fix that makes something *visible* does
+not make it *honest*.
+
+The generalisable bit: `plan.spellsGranted` was populated correctly the whole
+time, and every test asserting on it passed. "The data is right" and "the player
+is told" are different claims, and only one of them had a test.
+
+The Monk pass also spent longer fighting its own probe than the app, twice, both
+worth knowing. `featuresGained(c, from, to, kit, subclassName)` takes five
+arguments, not a draft — a wrong-arity call throws inside `page.evaluate` and
+reads exactly like an app crash, which is the same trap the Druid pass hit with
+`levelUpSteps`. And `levelUpPicks` returns `{ pick, owner, ownerKind }`
+wrappers, not bare `PickList`s. Check the signature before believing the app
+broke.
+
+Driving notes for the next author, all found the hard way: the sheet's `Lvl` box
+is `type=text` with **no aria-label** — find it by its parent cell's text. A
+counter renders as `<input value="Ki">` plus two number boxes in the order
+**name, total, used**, so `document.body.innerText` cannot see it at all and a
+screenshot is the only other witness. The level-up wizard's rail lists every
+step's *name* on every step, so matching dialog text for "Elemental Discipline"
+is a false positive on step 1 — break on the control appearing instead. And a
+3 → 6 level-up **stops at Ability scores**, correctly, because Next is disabled
+until the ASI is spent: the steppers are `aria-label="Raise Dexterity"`. A
+driver that does not answer the ASI never reaches the Choices step and looks
+exactly like a missing pick.
+
 The memory note `driving-dungeonmaster-e2e` has a verified Playwright recipe —
 lock patch by regex, poll for the non-DevTools window, hash-history deep links.
 Also: the level-up wizard opens by **typing a higher number into the `Lvl`
@@ -407,7 +490,7 @@ Restore with a Python round-trip (`newline=''`, `.replace('\r\n','\n')` then
 
 ## Where things stand
 
-1501 tests passing (`spellCard.test.ts` and `electron/main/*.test.ts` still
+1569 tests passing (`spellCard.test.ts` and `electron/main/*.test.ts` still
 flake under full-suite parallel load — re-run alone before investigating; a
 `recents.test.ts` failure did exactly that during the Cleric pass). Done and
 tested — do not rebuild:
@@ -417,7 +500,107 @@ tested — do not rebuild:
   which now honours `open` with an "Other…" free-text entry.
 - `Character.resources` — up to 3 counters, on the sheet and the printed page.
 - **Fighter** 3/3, **Rogue** 3/3, **Barbarian** 2/2, **Bard** 2/2,
-  **Cleric** 7/7, **Druid** 2/2 and **Sorcerer** 2/2 archetypes authored.
+  **Cleric** 7/7, **Druid** 2/2, **Sorcerer** 2/2, **Paladin** 3/3,
+  **Monk** 3/3 and **Ranger** 2/2 archetypes authored.
+- **Ranger**: both conclaves in `publishedSubclasses.ts`, features at 3/7/11/15.
+  The pinned list in `subclasses.test.ts` needed no edit and the kit stubs stay
+  bare. `subclassLevel` is absent but defaults to 3 and agrees with the kit's
+  own `Ranger Archetype` row — checked first, per the Druid's lesson, and this
+  time there was nothing to fix.
+  **No conclave spells on either**, which corrects this document's own advice —
+  see the note near the top. **No `resource` either**, and the pass says why
+  rather than leaving it silent.
+  Hunter's four tiered features are four **closed** `kind: 'feature'` picks
+  with **per-level ids and labels**. The Totem-vs-Four-Elements label rule is
+  *moot* here because the four option lists are **disjoint**, so neither greying
+  path in `grantedAlreadyAt` can fire — which makes the label a naming choice,
+  and the book's own feature names win ("Hunter's Prey: Colossus Slayer", not
+  "Hunter: Volley"). A test pins the disjointness, because that is the property
+  the whole design rests on.
+  The Beast Master's companion is **prose, not a grant or a pick**: there is no
+  companion model on `Character`, so every number it has would describe the
+  ranger instead of the beast. A pick offering a list of beasts was considered
+  and rejected as a label impersonating a statblock.
+- Ranger test-coverage note worth keeping: **`srd.test.ts`'s "repeatable
+  feature pick offers enough" rule iterates the raw `SRD_CLASS_KITS`**, so it
+  does *not* reach the published tier — only the two walkers were switched to
+  `SRD_TABLES.kits` by the Sorcerer pass. Hunter's option counts are asserted by
+  hand in `subclasses.test.ts` instead. Widening that loop was deliberately left
+  alone: ~30 other loops there assert things *about the SRD table*, and changing
+  them changes what they mean.
+- **Monk**: all three traditions in `publishedSubclasses.ts` — including Way of
+  the Open Hand, which SRD 5.1 licenses, on the Sorcerer's precedent that a
+  name-only stub's features are PHB content wherever they end up. Features at
+  3/6/11/17, the pinned list in `subclasses.test.ts` untouched.
+  Way of the Four Elements' disciplines are an **open** `kind: 'feature'` pick
+  at each of the four levels, and the option list *narrows by level* — that is
+  how the 6th/11th/17th prerequisites are modelled, with no runtime gate.
+  Its `featureLabel` is **shared** across all four levels, which inverts the
+  Totem Warrior rule: a totem may be taken twice so it needs per-level labels,
+  a discipline may not, so one shared label is what makes `grantedAlreadyAt`
+  grey out disciplines already learned. Battle Master is the precedent.
+  **Eternal Mountain Defense is 17th, not 11th** — the PHB's first printing said
+  11 and errata moved it, so most sources online still have it wrong. It has its
+  own test. The discipline list came from dnd5e.wikidot.com and was checked
+  against WotC's errata PDF, because the repo ships no monk table at all.
+  Way of Shadow's minor illusion is deliberately **prose, not `grant.spells`**:
+  a monk has no spell ability, DC or slots, so the sheet cannot hold it
+  honestly. A test pins it.
+- Monk class-level fixes that came with it: **Ki is a real counter**
+  (2 uses, short rest, offered on the level-2 level-up that grants it) — the
+  class is built around spending it and the sheet had nothing to tick, while
+  Stunning Strike, Diamond Soul and Empty Body all told the player to spend it.
+  `total` is the monk *level*, so it ships at the granting level and the text
+  says to raise it, the same call Sorcery Points and Bardic Inspiration make —
+  but `resets: 'short'`, where Sorcery Points is `'long'`. Copying that
+  precedent wholesale gets it wrong and no existing test would catch it.
+  **The martial arts die is three rows** at 5/11/17 and **unarmored movement
+  five** at 2/6/10/14/18, instead of prose promising that they scale. And
+  `subclassLevel: 3` is now declared rather than defaulted — it was already
+  right, but that is the exact implicit shape that shipped bugs in the Wizard
+  and the Druid.
+- **Paladin**: all three oaths in `publishedSubclasses.ts`, features at
+  3/7/15/20. Each oath's two Channel Divinity options are **two feature rows**,
+  not one — `featuresGained` de-dupes on `level:name`, so a single row naming
+  both would be indistinguishable on the sheet. No oath carries `picks`
+  (the options are fixed features, not a menu) or `grant` (the rest are combat
+  rules this app does not model).
+  Their **oath spells** arrive at 3/5/9/13/17 — not a domain's 1/3/5/7/9,
+  because a paladin swears at 3rd and their slots lag a full caster's. They
+  were deferred at first and landed with the half-caster pass below.
+- Paladin class-level fixes that came with it: **Channel Divinity is a real
+  counter** and was missing entirely — every oath grants options that spend it,
+  so without a class row those features referenced a resource the sheet had
+  never heard of. One row, not the Cleric's three, because a paladin's uses
+  never scale. **Divine Sense** gained a counter too (1 + Cha mod, shipped as 3
+  the way Bardic Inspiration is), and **Lay on Hands deliberately did not**: its
+  pool is 5 x the paladin level, a hit-point pool rather than a use count, and
+  nothing recomputes a total once it is on a sheet.
+- **Paladin and Ranger are real half casters.** Both kits gained a
+  `spellcasting` block whose `slotsByLevel` starts at 2 and whose
+  `slotsAtLevel1` is 0. Before this neither could cast at *any* level:
+  `spellAbility`, `spellSlots` and `preparedLimit` stayed empty forever, and no
+  subclass of either could carry `spells`. The block is safe because
+  **`castsAtLevel1(kit, subclassName)`** in `lib/tables.ts` is what the creation
+  wizard now asks — the table, not the block's existence. Four call sites moved
+  onto it (`stepsFor`, `canAdvance`, `SpellsStep`, `buildCharacter`), which also
+  fixed the mirror bug where a *subclass* casting from level 1 would silently
+  never get a spells step. Four `srd.test.ts` invariants were rewritten to say
+  what is now true, and an all-levels test walks both tables 1-20.
+- Half-caster fix that came with it: **`preparedLimitTo` was gated on
+  `c.preparedLimit > 0`**, and a paladin is built at level 1 with 0 because they
+  do not cast yet — so the guard could never open and the limit stayed 0 at
+  every level, forever. `sc?.prepares` was always the check that mattered.
+- **A level-1 `resource` now reaches the sheet.** `buildCharacter` applies the
+  counters a class's (and a level-1 archetype's) level-1 features imply, capped
+  at `MAX_RESOURCES` and deduped by name. It had no delivery path at all before:
+  creation never wrote `Character.resources`, and `resourcesOffered` only looks
+  at the levels being *gained* — you never gain the level you started at — so
+  the Bard's Bardic Inspiration was inert from the day it was authored.
+  **Applied rather than offered**, which is the one deviation from level-up:
+  there a tick-box asks before raising a number the player may have tuned, while
+  at creation there is nothing to overwrite and no step to ask in, and the row
+  is editable and deletable on the sheet anyway.
 - **Sorcerer**: both origins in `publishedSubclasses.ts` — SRD 5.1 licenses
   Draconic Bloodline, but `classKits.ts` only ever seeded it as a name, so the
   features are PHB content and belong in the published tier. Both kit stubs stay
@@ -536,6 +719,11 @@ work?" rather than data authoring:
   new code, so read it as background rather than as work. It still describes the
   creation path the Warlock will use — but the Warlock's blocker is its spell
   lists, not creation; see the warning near the top.
+- **`NEXT-HALF-CASTER-PROMPT.md`** — **fully done**, kept for its reasoning.
+  Paladin and Ranger have real half-caster tables starting at 2nd, gated by
+  `castsAtLevel1` so a level-1 build still skips the spells step. The level-1
+  `resource` gap it described is closed too — `buildCharacter` applies those
+  counters now.
 - **`NEXT-WIZARD-PROMPT.md`** — making the homebrew editors a guided wizard.
   Pure UX, but it touches `components/settings/homebrew/`, so check
   `git status` before starting. Partly landed already (`PickEditor`,

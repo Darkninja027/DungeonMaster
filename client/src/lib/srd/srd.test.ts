@@ -22,7 +22,12 @@ import { SRD_RACES } from './races'
 // walking the raw one left every published subclass's picks and grants
 // unchecked — same class of miss as `features[].picks` and `SubclassInfo.grant`
 // before it, and the same fix: widen the walker.
-import { SRD_TABLES, spellcastingFor, subclassLevelOf } from '../tables'
+import {
+  SRD_TABLES,
+  castsAtLevel1,
+  spellcastingFor,
+  subclassLevelOf,
+} from '../tables'
 import type { Grant, PickList } from './types'
 
 /**
@@ -450,13 +455,29 @@ describe('spellcasting', () => {
   }
 
   it('slots and known counts are sane at level 1', () => {
+    // `slotsAtLevel1 > 0` used to be unconditional, which is right for a full
+    // caster and wrong for a half one: a Paladin's table starts at 2nd, so its
+    // level-1 slots are legitimately 0. The honest question is whether the two
+    // agree — a table with a level-1 row must have a matching positive count,
+    // and a table without one must say 0 rather than claiming slots it has no
+    // row for. Same reasoning the subclass version of this test already used
+    // for third casters.
     for (const kit of SRD_CLASS_KITS) {
       const sc = kit.spellcasting
       if (!sc) continue
       expect(ABILITY_IDS.has(sc.ability), kit.name).toBe(true)
-      expect(sc.slotsAtLevel1, kit.name).toBeGreaterThan(0)
       expect(sc.cantripsKnown, kit.name).toBeGreaterThanOrEqual(0)
       expect(sc.spellsKnown, kit.name).toBeGreaterThanOrEqual(0)
+      // `Object.hasOwn` rather than an `=== undefined` check: `slotsByLevel` is
+      // typed `Record<number, Array<number>>`, so the type claims every index
+      // is present even though a sparse table is the entire design.
+      if (sc.slotsByLevel && !Object.hasOwn(sc.slotsByLevel, 1)) {
+        expect(sc.slotsAtLevel1, `${kit.name} starts later than level 1`).toBe(
+          0,
+        )
+      } else {
+        expect(sc.slotsAtLevel1, kit.name).toBeGreaterThan(0)
+      }
     }
   })
 
@@ -686,6 +707,79 @@ describe('spellcasting', () => {
     expect(sub.grant?.spells).toBeUndefined()
   })
 
+  it('the half casters match the printed slot table at every level', () => {
+    // Sparse tables hide off-by-ones completely — the Arcane Trickster's
+    // Spells Known was wrong from 10 to 20 and passed a full green suite. So
+    // every level is expanded and checked against the printed progression
+    // rather than spot-checking the stored rows.
+    const printed: Record<number, Array<number> | null> = {
+      1: null,
+      2: [2],
+      3: [3],
+      4: [3],
+      5: [4, 2],
+      6: [4, 2],
+      7: [4, 3],
+      8: [4, 3],
+      9: [4, 3, 2],
+      10: [4, 3, 2],
+      11: [4, 3, 3],
+      12: [4, 3, 3],
+      13: [4, 3, 3, 1],
+      14: [4, 3, 3, 1],
+      15: [4, 3, 3, 2],
+      16: [4, 3, 3, 2],
+      17: [4, 3, 3, 3, 1],
+      18: [4, 3, 3, 3, 1],
+      19: [4, 3, 3, 3, 2],
+      20: [4, 3, 3, 3, 2],
+    }
+    for (const name of ['Paladin', 'Ranger']) {
+      const sc = SRD_CLASS_KITS.find((k) => k.name === name)!.spellcasting!
+      for (let level = 1; level <= 20; level++) {
+        expect(
+          atLevel(sc.slotsByLevel!, level),
+          `${name} slots at ${level}`,
+        ).toEqual(printed[level] ?? undefined)
+      }
+    }
+  })
+
+  it('a ranger matches the printed spells-known table at every level', () => {
+    // A ranger knows a fixed set rather than preparing, so unlike the paladin
+    // it has a count to get wrong. Nothing before 2nd, then one more every
+    // other level.
+    const printed: Record<number, number | undefined> = {
+      1: undefined,
+      2: 2,
+      3: 3,
+      4: 3,
+      5: 4,
+      6: 4,
+      7: 5,
+      8: 5,
+      9: 6,
+      10: 6,
+      11: 7,
+      12: 7,
+      13: 8,
+      14: 8,
+      15: 9,
+      16: 9,
+      17: 10,
+      18: 10,
+      19: 11,
+      20: 11,
+    }
+    const sc = SRD_CLASS_KITS.find((k) => k.name === 'Ranger')!.spellcasting!
+    expect(sc.spellsKnownByLevel, 'no spells-known table').toBeDefined()
+    for (let level = 1; level <= 20; level++) {
+      expect(atLevel(sc.spellsKnownByLevel!, level), `Ranger at ${level}`).toBe(
+        printed[level],
+      )
+    }
+  })
+
   it('only a class that does not cast leaves its casting to an archetype', () => {
     // A third caster on top of a full caster would be two tables claiming the
     // same character, and `spellcastingFor` silently prefers the subclass.
@@ -699,13 +793,36 @@ describe('spellcasting', () => {
     }
   })
 
-  it('non-casters have no spellcasting block', () => {
+  it('only the classes that cast have a spellcasting block', () => {
+    // Eight of the twelve: the six full casters plus the two half casters,
+    // whose tables start at 2nd. Fighter and Rogue are absent because their
+    // *archetypes* cast, not the class — that block lives on the subclass.
     const casters = SRD_CLASS_KITS.filter((k) => k.spellcasting).map(
       (k) => k.name,
     )
-    // Ranger and Paladin gain spells at level 2, so they are correctly absent
-    // from a level 1 wizard.
     expect(casters.sort()).toEqual(
+      [
+        'Bard',
+        'Cleric',
+        'Druid',
+        'Paladin',
+        'Ranger',
+        'Sorcerer',
+        'Warlock',
+        'Wizard',
+      ].sort(),
+    )
+  })
+
+  it('only the full casters cast at level 1', () => {
+    // The list that governs whether the creation wizard asks about spells, and
+    // the one that must *not* grow when a half caster gains a block. This is
+    // the check that would have caught the level-1 paladin being offered a
+    // spells step full of nothing.
+    const atOne = SRD_CLASS_KITS.filter((k) => castsAtLevel1(k)).map(
+      (k) => k.name,
+    )
+    expect(atOne.sort()).toEqual(
       ['Bard', 'Cleric', 'Druid', 'Sorcerer', 'Warlock', 'Wizard'].sort(),
     )
   })
@@ -1054,14 +1171,26 @@ describe('per-level progression', () => {
     }
   })
 
-  it('a caster with a slot table defines level 1 and agrees with slotsAtLevel1', () => {
+  it('a caster with a slot table agrees with slotsAtLevel1', () => {
     for (const kit of SRD_CLASS_KITS) {
       const sc = kit.spellcasting
       if (!sc?.slotsByLevel) continue
-      const first = sc.slotsByLevel[1]
-      expect(first, `${kit.name} has no level 1 row`).toBeDefined()
+      if (!Object.hasOwn(sc.slotsByLevel, 1)) {
+        // A half caster: no level-1 row, and `slotsAtLevel1` must say so. The
+        // lowest row still has to be above 1 — a *missing* level-1 row on a
+        // full caster is the typo this test was written to catch, and dropping
+        // the check entirely would stop catching it.
+        const lowest = Math.min(
+          ...Object.keys(sc.slotsByLevel).map((k) => Number(k)),
+        )
+        expect(lowest, `${kit.name} lowest slot row`).toBeGreaterThan(1)
+        expect(sc.slotsAtLevel1, `${kit.name} level 1 slots`).toBe(0)
+        continue
+      }
       // Two sources for the same number would drift; this is the guard.
-      expect(first[0], `${kit.name} level 1 slots`).toBe(sc.slotsAtLevel1)
+      expect(sc.slotsByLevel[1][0], `${kit.name} level 1 slots`).toBe(
+        sc.slotsAtLevel1,
+      )
     }
   })
 
@@ -1186,10 +1315,18 @@ describe('progression spot checks', () => {
   })
 
   it('the half casters gain spellcasting at level 2, not 1', () => {
-    // Paladin and Ranger correctly have no level-1 spellcasting block, so the
-    // creation wizard skips their spells step — the feature lands at 2.
+    // This used to assert Paladin and Ranger had *no* block, which is how they
+    // ended up unable to cast at any level and unable to carry oath or conclave
+    // spells. They have one now, and what actually has to hold is narrower and
+    // stronger: the table begins at 2, and the creation wizard still skips
+    // their spells step. `castsAtLevel1` is the thing the wizard asks, so
+    // asserting it here is asserting the behaviour rather than the shape.
     for (const name of ['Paladin', 'Ranger']) {
-      expect(kit(name).spellcasting, name).toBeUndefined()
+      const sc = kit(name).spellcasting
+      expect(sc, `${name} has no spellcasting block`).toBeDefined()
+      expect(sc!.slotsByLevel?.[1], `${name} casts at 1`).toBeUndefined()
+      expect(sc!.slotsByLevel?.[2], `${name} has no level 2 row`).toBeDefined()
+      expect(castsAtLevel1(kit(name)), `${name} at level 1`).toBe(false)
       expect(
         kit(name).features.find((f) => f.name === 'Spellcasting')?.level,
         name,

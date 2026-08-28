@@ -14,8 +14,14 @@
  * see the header of lib/classes.ts. Features listed here are the ones gained at
  * 1st level; the sheet takes it from there.
  *
- * Ranger and Paladin have no `spellcasting` block because they gain spells at
- * 2nd level, which is correct for a level 1 build.
+ * Ranger and Paladin are **half casters**: they have a `spellcasting` block
+ * whose `slotsByLevel` starts at 2 and whose `slotsAtLevel1` is 0, because they
+ * gain spells at 2nd level. They had no block at all for a long time, which
+ * kept them from casting at any level and blocked oath and conclave spells
+ * outright — a subclass may only carry `spells` if something casts them. What
+ * makes the block safe is `castsAtLevel1` in lib/tables.ts: the creation wizard
+ * asks it, rather than asking whether a block exists, so a level 1 build still
+ * skips the spells step.
  */
 
 import { ARTISAN_TOOLS, PACKS } from './equipment'
@@ -1769,6 +1775,15 @@ export const SRD_CLASS_KITS: Array<ClassKit> = [
     ],
     saves: ['str', 'dex'],
     unarmoredDefense: 'wis',
+    // Declared rather than inferred, though 3 is also the default. Two classes
+    // have shipped bugs from exactly this omission: the Wizard and the Druid
+    // both left it out while their own `... School` / `... Circle` feature row
+    // sat at 2, so `subclassLevelOf` returned 3 and their subclass features
+    // could not be authored at the level the class actually grants them. A
+    // monk's Monastic Tradition row does sit at 3, so nothing is wrong here —
+    // but a value that is only coincidentally right is one edit from being
+    // silently wrong, and this costs a line.
+    subclassLevel: 3,
     abilityPriority: ['dex', 'wis', 'con', 'str', 'cha', 'int'],
     skillChoices: {
       id: 'monk-skills',
@@ -1861,12 +1876,29 @@ export const SRD_CLASS_KITS: Array<ClassKit> = [
       {
         level: 2,
         name: 'Ki',
-        text: 'You have a pool of ki points equal to your monk level, fuelling Flurry of Blows, Patient Defense and Step of the Wind.',
+        text: 'You have a pool of ki points equal to your monk level, fuelling Flurry of Blows, Patient Defense and Step of the Wind. You regain them all on a short or long rest. The counter starts at 2 and rises by one per level — raise it on the sheet as you go.',
+        // The counter the whole class spends, and it was prose until now: a
+        // monk's sheet had nothing to tick while Stunning Strike, Diamond Soul
+        // and Empty Body all told them to spend it.
+        //
+        // Same shape as the Sorcerer's Font of Magic — `total` is the monk
+        // *level*, which no static table can track, and `resourcesOffered`
+        // gates on `total` changing, so a row per level would be nineteen
+        // offers of the same counter. Ship the value at the granting level,
+        // say so in the text, let the player edit the box.
+        //
+        // `resets: 'short'`, unlike Sorcery Points' `'long'` — ki comes back on
+        // a short rest, and copying that precedent wholesale gets it wrong.
+        resource: { name: 'Ki', total: 2, resets: 'short' },
       },
       {
         level: 2,
         name: 'Unarmored Movement',
-        text: 'Your speed increases by 10 feet while unarmoured, rising further as you level.',
+        text: 'Your speed increases by 10 feet while you are wearing no armour and wielding no shield.',
+        // The bonus cannot ride `Grant.speedBonus`: `ClassFeatureInfo` has no
+        // `grant` field at all — only `SubclassInfo` and `ClassKit` do — so
+        // there is nowhere on a class feature to hang one. It is prose plus its
+        // own rows below, the same call the Barbarian's rage damage makes.
       },
       {
         level: 3,
@@ -1893,10 +1925,26 @@ export const SRD_CLASS_KITS: Array<ClassKit> = [
         name: 'Stunning Strike',
         text: 'When you hit with a melee weapon attack, you can spend 1 ki point to attempt to stun the target.',
       },
+      // The martial arts die and unarmored movement each scale four times, and
+      // both were a clause of prose on their level-1/2 row. Neither is a
+      // counter — a die size and a speed bonus have no `used` count, the same
+      // call the Bardic Inspiration die and the Barbarian's rage damage make —
+      // but a scaling number is not prose either. De-dupe is keyed on
+      // `level:name`, so each upgrade needs its own name to be granted at all.
+      {
+        level: 5,
+        name: 'Martial Arts (d6)',
+        text: 'Your martial arts die becomes a d6.',
+      },
       {
         level: 6,
         name: 'Ki-Empowered Strikes',
         text: 'Your unarmed strikes count as magical for overcoming resistance to nonmagical attacks.',
+      },
+      {
+        level: 6,
+        name: 'Unarmored Movement (+15 ft)',
+        text: 'Your unarmoured speed bonus rises to 15 feet.',
       },
       {
         level: 7,
@@ -1909,9 +1957,24 @@ export const SRD_CLASS_KITS: Array<ClassKit> = [
         text: 'You can use your action to end one effect on yourself that is causing you to be charmed or frightened.',
       },
       {
+        level: 9,
+        name: 'Unarmored Movement (Improvement)',
+        text: 'You can move along vertical surfaces and across liquids on your turn without falling during the move.',
+      },
+      {
         level: 10,
         name: 'Purity of Body',
         text: 'You are immune to disease and poison.',
+      },
+      {
+        level: 10,
+        name: 'Unarmored Movement (+20 ft)',
+        text: 'Your unarmoured speed bonus rises to 20 feet.',
+      },
+      {
+        level: 11,
+        name: 'Martial Arts (d8)',
+        text: 'Your martial arts die becomes a d8.',
       },
       {
         level: 13,
@@ -1924,14 +1987,29 @@ export const SRD_CLASS_KITS: Array<ClassKit> = [
         text: 'You gain proficiency in all saving throws, and can spend 1 ki to reroll a failed save.',
       },
       {
+        level: 14,
+        name: 'Unarmored Movement (+25 ft)',
+        text: 'Your unarmoured speed bonus rises to 25 feet.',
+      },
+      {
         level: 15,
         name: 'Timeless Body',
         text: 'You no longer suffer the frailty of old age and can’t be aged magically.',
       },
       {
+        level: 17,
+        name: 'Martial Arts (d10)',
+        text: 'Your martial arts die becomes a d10.',
+      },
+      {
         level: 18,
         name: 'Empty Body',
         text: 'You can spend 4 ki to become invisible for 1 minute, with resistance to all damage but force.',
+      },
+      {
+        level: 18,
+        name: 'Unarmored Movement (+30 ft)',
+        text: 'Your unarmoured speed bonus rises to 30 feet.',
       },
       {
         level: 20,
@@ -1956,6 +2034,37 @@ export const SRD_CLASS_KITS: Array<ClassKit> = [
       { id: 'oath-of-vengeance', name: 'Oath of Vengeance', features: [] },
     ],
     saves: ['wis', 'cha'],
+    /*
+      A half caster: nothing at 1st, spells from 2nd. `slotsByLevel` therefore
+      starts at 2 and `slotsAtLevel1` is 0 — the same convention a third caster
+      uses, and the reason `castsAtLevel1` exists rather than the creation
+      wizard asking whether this block is present. Without that predicate a
+      level-1 paladin was shown a spells step offering nothing, which is why
+      this block could not simply be added and the class could not cast at all.
+
+      `prepares: true` — a paladin prepares from the whole paladin list rather
+      than knowing a fixed set, so there is no `spellsKnownByLevel` here.
+    */
+    spellcasting: {
+      ability: 'cha',
+      slotsAtLevel1: 0,
+      cantripsKnown: 0,
+      spellsKnown: 0,
+      prepares: true,
+      listLabel: 'Paladin spells',
+      slotsByLevel: {
+        2: [2],
+        3: [3],
+        5: [4, 2],
+        7: [4, 3],
+        9: [4, 3, 2],
+        11: [4, 3, 3],
+        13: [4, 3, 3, 1],
+        15: [4, 3, 3, 2],
+        17: [4, 3, 3, 3, 1],
+        19: [4, 3, 3, 3, 2],
+      },
+    },
     abilityPriority: ['str', 'cha', 'con', 'wis', 'dex', 'int'],
     skillChoices: {
       id: 'paladin-skills',
@@ -2065,11 +2174,29 @@ export const SRD_CLASS_KITS: Array<ClassKit> = [
     ],
     features: [
       {
+        // A counter whose total the table genuinely does not know: it is
+        // 1 + the Charisma modifier, not a number the book prints. Same bargain
+        // as the Bard's inspiration — ship the figure a paladin starts with
+        // under every ability method here and let the player correct it.
+        //
+        // A level-1 counter is delivered by `buildCharacter` at creation, not
+        // by `resourcesOffered` — that only looks at the levels being *gained*,
+        // and nobody ever gains the level they started at. Both this and the
+        // Bard's inspiration were inert until creation learned to apply them.
         level: 1,
         name: 'Divine Sense',
         text: 'As an action you know the location of any celestial, fiend or undead within 60 feet that is not behind total cover. Uses equal to 1 + your Charisma modifier per long rest.',
+        resource: { name: 'Divine Sense', total: 3, resets: 'long' },
       },
       {
+        // Deliberately *not* a counter, and the clearest case in the file for
+        // why. `resource.total` is a use count the player spends upward from
+        // zero; Lay on Hands is a pool of hit points equal to 5 × the paladin
+        // level, so it changes at every single level and nothing in this app
+        // recomputes a total once it is on a sheet — see the doc on
+        // `CharacterResource`. A row offered at twenty consecutive level-ups
+        // would be noise, and stale the moment it was accepted. The pool is
+        // arithmetic the player can do; the prose is the honest shape.
         level: 1,
         name: 'Lay on Hands',
         text: 'You have a pool of healing power equal to 5 × your paladin level. As an action you can touch a creature and restore hit points from the pool, or expend 5 points to cure a disease or neutralise a poison.',
@@ -2099,6 +2226,17 @@ export const SRD_CLASS_KITS: Array<ClassKit> = [
         level: 3,
         name: 'Sacred Oath',
         text: 'You swear the oath that binds you as a paladin forever.',
+      },
+      {
+        // The class's counter, and it was missing outright: every oath grants
+        // Channel Divinity options at 3rd, so without this row those features
+        // would spend a resource the sheet has never heard of. The Cleric's
+        // equivalent needs three rows because its uses scale at 6 and 18; a
+        // paladin's never does, so one row says everything.
+        level: 3,
+        name: 'Channel Divinity',
+        text: 'Your oath grants you the ability to channel divine energy, expending a use and regaining it on a short or long rest. Your oath determines the options available to you.',
+        resource: { name: 'Channel Divinity', total: 1, resets: 'short' },
       },
       {
         level: 5,
@@ -2138,6 +2276,45 @@ export const SRD_CLASS_KITS: Array<ClassKit> = [
       { id: 'beast-master', name: 'Beast Master', features: [] },
     ],
     saves: ['str', 'dex'],
+    /*
+      The other half caster, on the same slot table as the Paladin and for the
+      same reasons — see that block. It differs in two ways: Wisdom rather than
+      Charisma, and a ranger *knows* a fixed set of spells rather than preparing
+      from the list, so `prepares` is false and `spellsKnownByLevel` carries the
+      count. Both tables are keyed by character level and start at 2.
+    */
+    spellcasting: {
+      ability: 'wis',
+      slotsAtLevel1: 0,
+      cantripsKnown: 0,
+      spellsKnown: 0,
+      prepares: false,
+      listLabel: 'Ranger spells',
+      slotsByLevel: {
+        2: [2],
+        3: [3],
+        5: [4, 2],
+        7: [4, 3],
+        9: [4, 3, 2],
+        11: [4, 3, 3],
+        13: [4, 3, 3, 1],
+        15: [4, 3, 3, 2],
+        17: [4, 3, 3, 3, 1],
+        19: [4, 3, 3, 3, 2],
+      },
+      spellsKnownByLevel: {
+        2: 2,
+        3: 3,
+        5: 4,
+        7: 5,
+        9: 6,
+        11: 7,
+        13: 8,
+        15: 9,
+        17: 10,
+        19: 11,
+      },
+    },
     abilityPriority: ['dex', 'wis', 'con', 'str', 'int', 'cha'],
     skillChoices: {
       id: 'ranger-skills',

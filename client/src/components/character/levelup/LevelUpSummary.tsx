@@ -194,6 +194,31 @@ export function LevelUpSummary({
         </Section>
       )}
 
+      {/*
+        Spells the archetype hands over, as opposed to `spellsAdded` above,
+        which is what the player chose.
+
+        This used to be rendered in exactly one place — the spells step — and
+        that step opens only when slots, cantrips known or spells known change,
+        all of which read a `spellcasting` block. So a subclass granting a spell
+        to a class that does not cast applied it to the sheet and announced it
+        nowhere: the step never opened, and this panel showed only chosen
+        spells. Rendering it here means a granted spell is always accounted for,
+        whatever the class.
+      */}
+      {plan.spellsGranted.length > 0 && (
+        <Section title="Granted by your archetype">
+          {plan.spellsGranted.map((spell) => (
+            <p key={`${spell.level}:${spell.name}`} className="text-xs">
+              <Added /> {spell.name}
+              {spell.level === 0 && (
+                <span className="text-muted-foreground"> cantrip</span>
+              )}
+            </p>
+          ))}
+        </Section>
+      )}
+
       <p className="text-muted-foreground border-t pt-2 text-xs">
         Nothing else on the sheet is touched — current hit points, inventory and
         notes are left exactly as they are.

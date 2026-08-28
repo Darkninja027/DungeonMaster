@@ -16,6 +16,7 @@ import { emptyAbilityDraft, abilitiesValid } from './abilityMethods'
 import type { AbilityDraft } from './abilityMethods'
 import type { ClassInfo } from './classes'
 import {
+  castsAtLevel1,
   findBackground,
   findKit,
   findFeat,
@@ -23,6 +24,7 @@ import {
   findSubclass,
   findSubrace,
   kitFromClassInfo,
+  spellcastingFor,
   SRD_TABLES,
 } from './tables'
 import type { Tables } from './tables'
@@ -813,7 +815,11 @@ export function stepsFor(draft: CharacterDraft): Array<StepId> {
     'background',
     'skills',
   ]
-  if (draftKit(draft)?.spellcasting) steps.push('spells')
+  // `castsAtLevel1`, not `kit.spellcasting`: a half caster has a block whose
+  // table starts at 2, and asking whether the block *exists* would show a
+  // level-1 paladin a step offering nothing. Passing the subclass matters for
+  // the mirror case — an archetype that casts when its class does not.
+  if (castsAtLevel1(draftKit(draft), draft.subclassName)) steps.push('spells')
   steps.push('equipment', 'review')
   return steps
 }
@@ -859,7 +865,10 @@ export function canAdvance(draft: CharacterDraft, step: StepId): boolean {
         .filter((p) => p.kind !== 'weapon')
         .every((p) => pickSatisfied(draft, p))
     case 'spells': {
-      const sc = draftKit(draft)?.spellcasting
+      // Through `spellcastingFor` so the step is gated by the same table that
+      // put it on the list; reading the kit's block directly would let a
+      // subclass caster's step appear and then pass unanswered.
+      const sc = spellcastingFor(draftKit(draft), draft.subclassName)
       if (!sc) return true
       return (
         draft.cantrips.filter(Boolean).length === sc.cantripsKnown &&

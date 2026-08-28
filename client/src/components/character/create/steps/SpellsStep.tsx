@@ -2,7 +2,7 @@ import { X } from 'lucide-react'
 import { useSpellSuggestions } from '#/lib/useGlobalLibrary'
 import type { CharacterDraft } from '#/lib/characterDraft'
 import { draftKit } from '#/lib/characterDraft'
-import { spellListClass } from '#/lib/tables'
+import { castsAtLevel1, spellcastingFor, spellListClass } from '#/lib/tables'
 import { Combobox } from '#/components/ui/combobox'
 
 /**
@@ -32,7 +32,10 @@ export function SpellsStep({
   onChange: (next: CharacterDraft) => void
 }) {
   const kit = draftKit(draft)
-  const sc = kit?.spellcasting
+  // Read the pair, never the kit's block alone — an archetype may carry its
+  // own, and `castsAtLevel1` below is what decides whether level 1 has
+  // anything to ask about.
+  const sc = spellcastingFor(kit, draft.subclassName)
 
   // The list they cast *from*, as the spell frontmatter spells it — "Wizard",
   // "Cleric". Not always the class's own name: a third caster casts from
@@ -43,7 +46,10 @@ export function SpellsStep({
     spellListClass(kit, draft.subclassName),
   )
 
-  if (!sc) {
+  // Belt and braces: `stepsFor` already keeps this step off the list for a
+  // half caster, but the step router could be pointed here directly, and a
+  // block whose table starts at 2 would otherwise render "0 level 1 slots".
+  if (!sc || !castsAtLevel1(kit, draft.subclassName)) {
     return (
       <p className="text-muted-foreground text-sm">
         This class doesn&rsquo;t cast spells at 1st level.

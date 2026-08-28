@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest'
 
 import { SRD_CLASS_KITS } from '../srd'
-import { SRD_TABLES, findKit, isBareSubclass, subclassLevelOf } from '../tables'
+import {
+  SRD_TABLES,
+  castsAtLevel1,
+  findKit,
+  isBareSubclass,
+  spellcastingFor,
+  subclassLevelOf,
+} from '../tables'
 import {
   PUBLISHED_SUBCLASSES,
   publishedSubclassesFor,
@@ -210,6 +217,250 @@ describe('the cleric domains', () => {
   })
 })
 
+describe('the monastic traditions', () => {
+  // A monk picks at 3rd, and all three traditions live in the published tier —
+  // Way of the Open Hand is the SRD-licensed one, but the kit only ever seeded
+  // it as a name, so its features are PHB content like the other two. The
+  // pinned "authored in lib/srd" list below therefore has no Monk entry.
+  const monk = findKit(SRD_TABLES.kits, 'Monk')
+  const TRADITIONS = [
+    'Way of the Open Hand',
+    'Way of Shadow',
+    'Way of the Four Elements',
+  ]
+
+  const tradition = (name: string) =>
+    monk?.subclasses.find((s) => s.name === name)
+
+  it('all three carry features', () => {
+    for (const name of TRADITIONS) {
+      expect(
+        tradition(name),
+        name + ' missing from the merged tables',
+      ).toBeDefined()
+      expect(tradition(name)!.features.length, name).toBeGreaterThan(0)
+    }
+  })
+
+  it('sit at exactly the levels a monk gains tradition features', () => {
+    // 3/6/11/17 for all three. The transcription tripwire: a feature quietly
+    // authored at 14 because another class works that way would be granted a
+    // level late and nothing else would notice.
+    for (const name of TRADITIONS) {
+      const levels = [
+        ...new Set((tradition(name)?.features ?? []).map((f) => f.level)),
+      ].sort((a, b) => a - b)
+      expect(levels, name).toEqual([3, 6, 11, 17])
+    }
+  })
+
+  it('never author a counter of their own', () => {
+    // Ki is the monk's counter and this pass put it on the kit, which had none
+    // at all — every tradition spends ki, so without a class row those features
+    // referenced a resource the sheet had never heard of. A tradition adding
+    // its own would spend the sheet's three rows for that tradition alone.
+    for (const name of TRADITIONS) {
+      for (const f of tradition(name)?.features ?? []) {
+        expect(f.resource, `${name} / ${f.name}`).toBeUndefined()
+      }
+    }
+  })
+
+  it('carry no spells, since a monk casts nothing', () => {
+    // Way of Shadow knows minor illusion and casts four spells with ki, and
+    // none of it is authored as spell data. A monk has no `spellcasting` block,
+    // so the sheet has no ability, DC or slots to hold a spell honestly.
+    //
+    // `sub.spells` would fail an srd.test invariant outright (it requires a
+    // `spellcasting` block). `grant.spells` would not — it would apply through
+    // `applyFeatGrants` and land on the sheet. Until this pass it also arrived
+    // silently, since the spells step never opens for a non-caster and used to
+    // be the only place granted spells were shown. That hole is closed, but the
+    // data stays out for the reason above, and this is what pins it.
+    for (const name of TRADITIONS) {
+      expect(tradition(name)?.spells, name).toBeUndefined()
+      expect(tradition(name)?.grant?.spells, name).toBeUndefined()
+    }
+  })
+
+  it('offer the elemental disciplines with complete text, both ways', () => {
+    // This test is the ONLY thing checking this data. The discipline picks are
+    // `open` so a discipline from a book this app does not ship can be typed,
+    // and srd.test.ts skips an open pick for both the option-count rule and
+    // `featureText` completeness — so a typo'd option would lose its text and
+    // land as a bare row on the sheet with a fully green suite.
+    const four = tradition('Way of the Four Elements')
+    const picks = (four?.features ?? []).flatMap((f) => f.picks ?? [])
+    expect(picks.length).toBe(4)
+
+    for (const pick of picks) {
+      expect(
+        pick.id,
+        'ids carry the level so they stay globally unique',
+      ).toMatch(/^four-elements-(3|6|11|17)-discipline$/)
+      expect(pick.open, `${pick.id} must stay open`).toBe(true)
+      expect(pick.count, pick.id).toBe(1)
+      expect(pick.featureLabel, pick.id).toBeTruthy()
+      expect(new Set(pick.options).size, `${pick.id} repeats an option`).toBe(
+        pick.options.length,
+      )
+
+      // Forwards: every offered discipline has text.
+      for (const option of pick.options) {
+        expect(
+          pick.featureText?.[option],
+          `${pick.id} offers "${option}" with no text`,
+        ).toBeTruthy()
+      }
+    }
+
+    // Backwards, which the completeness check above cannot see: a text entry
+    // keyed to a name no level offers is dead weight and invisible — the usual
+    // shape of a typo, where the misspelt option loses its text and the correct
+    // spelling sits unused beside it.
+    const offered = new Set(picks.flatMap((p) => p.options))
+    const widest = picks.find((p) => p.id.includes('-17-'))!
+    for (const key of Object.keys(widest.featureText ?? {})) {
+      if (key === 'Elemental Attunement') continue // always known, never offered
+      expect(offered.has(key), `text for "${key}", which no level offers`).toBe(
+        true,
+      )
+    }
+  })
+
+  it('open the discipline list up as the monk levels', () => {
+    // The prerequisite is modelled by narrowing the options per level rather
+    // than by any runtime gate, so this is what proves the gating happened at
+    // all — four identical lists would pass every other check here.
+    const four = tradition('Way of the Four Elements')
+    const at = (level: number) =>
+      (four?.features ?? []).find((f) => f.level === level)?.picks?.[0]
+        ?.options ?? []
+
+    for (const [lower, higher] of [
+      [3, 6],
+      [6, 11],
+      [11, 17],
+    ]) {
+      expect(at(lower).length, `${lower} vs ${higher}`).toBeLessThan(
+        at(higher).length,
+      )
+      for (const option of at(lower)) {
+        expect(at(higher), `${option} lost at ${higher}`).toContain(option)
+      }
+    }
+  })
+
+  it('gate Eternal Mountain Defense at 17th, per errata', () => {
+    // The PHB's first printing said 11th and official errata moved it to 17th,
+    // so most sources online — and most memories of this subclass — have it
+    // wrong. Its own test, because "correcting" it back to 11 is the single
+    // most likely wrong edit to this table.
+    const four = tradition('Way of the Four Elements')
+    const at = (level: number) =>
+      (four?.features ?? []).find((f) => f.level === level)?.picks?.[0]
+        ?.options ?? []
+
+    expect(at(11)).not.toContain('Eternal Mountain Defense')
+    expect(at(17)).toContain('Eternal Mountain Defense')
+  })
+})
+
+describe('the paladin oaths', () => {
+  // A paladin picks at 3rd, so unlike the domains and the origins these reach
+  // the sheet only through level-up. All three were authored together in the
+  // published tier: SRD 5.1 licenses Oath of Devotion, but the kit only ever
+  // seeded it as a name, so its features are PHB content like the other two.
+  const paladin = findKit(SRD_TABLES.kits, 'Paladin')
+  const OATHS = [
+    'Oath of Devotion',
+    'Oath of the Ancients',
+    'Oath of Vengeance',
+  ]
+
+  const oath = (name: string) =>
+    paladin?.subclasses.find((s) => s.name === name)
+
+  it('all three carry features', () => {
+    for (const name of OATHS) {
+      expect(oath(name), name + ' missing from the merged tables').toBeDefined()
+      expect(oath(name)!.features.length, name).toBeGreaterThan(0)
+    }
+  })
+
+  it('grant two Channel Divinity options at 3rd, as separate rows', () => {
+    // Two rows rather than one naming both: `featuresGained` de-dupes on
+    // `level:name`, so a single row would be one indistinguishable feature on
+    // the sheet. Distinct names are also what stops the same-level duplicate
+    // check above rejecting them.
+    for (const name of OATHS) {
+      const cd = (oath(name)?.features ?? []).filter(
+        (f) => f.level === 3 && f.name.startsWith('Channel Divinity'),
+      )
+      expect(cd.length, name).toBe(2)
+      expect(new Set(cd.map((f) => f.name)).size, name).toBe(2)
+    }
+  })
+
+  it('never author a counter of their own', () => {
+    // Channel Divinity is the paladin's counter and this pass put it on the
+    // kit, which had none at all. An oath adding a second would spend the
+    // sheet's three rows for that oath alone — the same division the cleric
+    // domains keep.
+    for (const name of OATHS) {
+      for (const f of oath(name)?.features ?? []) {
+        expect(f.resource, name + '/' + f.name).toBeUndefined()
+      }
+    }
+  })
+
+  it('grant their oath spells at 3, 5, 9, 13 and 17', () => {
+    // Not a domain's 1/3/5/7/9: a paladin swears at 3rd and their slots lag a
+    // full caster's, so each pair lands near the level it can first be cast.
+    // A row at the wrong character level is silent — it just arrives on the
+    // wrong level-up.
+    for (const name of OATHS) {
+      const spells = oath(name)?.spells
+      expect(spells?.length, name).toBe(5)
+      expect(
+        spells?.map((r) => r.grantedAt),
+        name,
+      ).toEqual([3, 5, 9, 13, 17])
+      expect(
+        spells?.map((r) => r.level),
+        name,
+      ).toEqual([1, 2, 3, 4, 5])
+      for (const row of spells ?? []) {
+        expect(row.names.length, `${name} at ${row.grantedAt}`).toBe(2)
+      }
+    }
+  })
+
+  it('have somewhere to cast them from', () => {
+    // The invariant that blocked these for a whole pass, asserted from the
+    // other side: `srd.test.ts` requires `spellcastingFor` be defined for any
+    // subclass carrying spells, and a Paladin had no block at all. If the
+    // half-caster table is ever removed, this fails here with a message about
+    // oaths rather than only in the srd suite.
+    for (const name of OATHS) {
+      expect(spellcastingFor(paladin, name), name).toBeDefined()
+    }
+    // ...but still not at level 1, which is what kept the block out.
+    expect(castsAtLevel1(paladin)).toBe(false)
+  })
+
+  it('sit at the levels a paladin actually gains oath features', () => {
+    // 3, 7, 15 and 20 — nothing at 1 or 2, which `subclassLevelOf` would
+    // reject anyway, and nothing invented in between.
+    for (const name of OATHS) {
+      const levels = [
+        ...new Set((oath(name)?.features ?? []).map((f) => f.level)),
+      ].sort((a, b) => a - b)
+      expect(levels, name).toEqual([3, 7, 15, 20])
+    }
+  })
+})
+
 describe('the sorcerous origins', () => {
   // A sorcerer picks at level 1, like a cleric, so these reach the sheet
   // through creation as well as level-up.
@@ -281,6 +532,160 @@ describe('the sorcerous origins', () => {
     // A d100 of effects this app does not model and is not ours to reproduce.
     // No grant and no picks is the honest shape, not an incomplete one.
     const sub = sorcerer?.subclasses.find((x) => x.name === 'Wild Magic')
+    expect(sub?.grant).toBeUndefined()
+    expect(sub?.features.flatMap((f) => f.picks ?? [])).toEqual([])
+  })
+})
+
+describe('the ranger conclaves', () => {
+  // A ranger picks at 3rd. The kit declares no `subclassLevel` and the default
+  // of 3 agrees with its own `Ranger Archetype` row, so unlike the Druid and
+  // the Wizard there was nothing to correct before authoring.
+  const ranger = findKit(SRD_TABLES.kits, 'Ranger')
+  const ARCHETYPES = ['Hunter', 'Beast Master']
+  const arch = (name: string) => ranger?.subclasses.find((x) => x.name === name)
+
+  it('both carry features', () => {
+    for (const name of ARCHETYPES) {
+      const sub = arch(name)
+      expect(sub, `${name} missing from the merged tables`).toBeDefined()
+      expect(sub!.features.length, `${name} has no features`).toBeGreaterThan(0)
+    }
+  })
+
+  it('sit at exactly the levels a ranger gains archetype features', () => {
+    // 3/7/11/15 for both, and nothing invented in between. A row quietly
+    // authored at 14 because a paladin's oaths work that way would be granted
+    // a level late and nothing else here would notice.
+    for (const name of ARCHETYPES) {
+      const levels = [
+        ...new Set((arch(name)?.features ?? []).map((f) => f.level)),
+      ].sort((a, b) => a - b)
+      expect(levels, name).toEqual([3, 7, 11, 15])
+    }
+  })
+
+  it('carry no conclave spells, because the PHB gives them none', () => {
+    // The one that matters, and it contradicts the handoff that commissioned
+    // this pass. NEXT-CLASS-PROMPT.md says "the Ranger's conclaves can carry
+    // `spells` because the half-caster pass gave it a real casting table" —
+    // true of the *mechanism* and false of the *book*. A conclave spell list
+    // is a Xanathar's feature (Gloom Stalker, Horizon Walker, Monster Slayer);
+    // Hunter and Beast Master have none at all.
+    //
+    // Nothing else would catch an invented one. `srd.test.ts`'s "only
+    // spellcasting classes grant bonus spells" requires `spellcastingFor(kit,
+    // sub)` be *defined* — and for a Ranger it now is, so a fabricated table
+    // would sail through green and hand the character free always-prepared
+    // spells at 3/5/9/13/17.
+    for (const name of ARCHETYPES) {
+      expect(arch(name)?.spells, name).toBeUndefined()
+      expect(arch(name)?.grant?.spells, name).toBeUndefined()
+    }
+  })
+
+  it('have somewhere to cast from all the same', () => {
+    // Asserted from the other side, as the oaths do: the half-caster table is
+    // real, which is *why* the absence above is a data decision rather than a
+    // mechanism limit. If that table is ever removed, this fails here.
+    for (const name of ARCHETYPES) {
+      expect(spellcastingFor(ranger, name), name).toBeDefined()
+    }
+    // ...but not at 1st, which is what keeps a level-1 ranger out of a spells
+    // step at creation.
+    expect(castsAtLevel1(ranger)).toBe(false)
+  })
+
+  it('never author a counter of their own — and neither does the class', () => {
+    // Stronger than the same-named test on the domains, the oaths and the
+    // traditions. Those read "the class has a counter, the subclass must not
+    // compete". A Ranger has *no* counter at either tier, and that is correct:
+    // Primeval Awareness spends a spell slot, which `Character.spellSlots`
+    // already tracks; Foe Slayer is a once-per-turn rule with no pool and no
+    // `resets` value that means anything; and a Beast Master's companion hit
+    // points are 4 x the ranger level, a scaling number, which the rules here
+    // are explicit is not a counter. Do not read this absence as an oversight.
+    for (const name of ARCHETYPES) {
+      for (const f of arch(name)?.features ?? []) {
+        expect(
+          f.resource,
+          `${name}/${f.name} authors a counter`,
+        ).toBeUndefined()
+      }
+    }
+    for (const f of ranger?.features ?? []) {
+      expect(f.resource, `Ranger/${f.name} authors a counter`).toBeUndefined()
+    }
+  })
+
+  it('offer the Hunter’s four menus as closed picks with complete text', () => {
+    // Closed rather than open, like the draconic ancestry and unlike a totem:
+    // each list is the whole menu the PHB offers, and each is chosen once.
+    //
+    // `srd.test.ts`'s `featureText` completeness check does reach these — its
+    // `allPickLists()` walks the *merged* tables — but its sibling, the
+    // "repeatable feature pick offers enough" rule, does not: that one still
+    // iterates the raw `SRD_CLASS_KITS`, so the published tier is invisible to
+    // it. The option counts are asserted here instead.
+    const picks = (arch('Hunter')?.features ?? []).flatMap((f) => f.picks ?? [])
+    expect(picks.map((p) => p.id)).toEqual([
+      'hunter-3-prey',
+      'hunter-7-tactics',
+      'hunter-11-multiattack',
+      'hunter-15-defense',
+    ])
+    for (const pick of picks) {
+      expect(pick.kind, pick.id).toBe('feature')
+      expect(pick.open, `${pick.id} must stay closed`).toBeFalsy()
+      expect(pick.count, pick.id).toBe(1)
+      expect(pick.options.length, pick.id).toBeGreaterThanOrEqual(pick.count)
+      expect(new Set(pick.options).size, `${pick.id} repeats an option`).toBe(
+        pick.options.length,
+      )
+      // The label prefixes the row this writes, so it has to be there.
+      expect(pick.featureLabel, `${pick.id} has no label`).toBeTruthy()
+      for (const option of pick.options) {
+        expect(
+          pick.featureText?.[option],
+          `${pick.id} offers "${option}" with no text`,
+        ).toBeTruthy()
+      }
+      // And backwards: a text entry no level offers is a typo's usual shape.
+      for (const key of Object.keys(pick.featureText ?? {})) {
+        expect(
+          pick.options.includes(key),
+          `${pick.id} has text for "${key}", which it does not offer`,
+        ).toBe(true)
+      }
+    }
+  })
+
+  it('keeps the Hunter’s four option lists disjoint', () => {
+    // The property the whole design rests on, and worth pinning because it is
+    // what makes the label question moot. `grantedAlreadyAt` greys an option
+    // two ways — by a row already on the sheet under the label a pick would
+    // write, and by a sibling pick's answer in the same level-up, the latter
+    // matching the raw option string across every `feature` pick regardless of
+    // label. Neither can fire while no option appears in two lists. If a future
+    // edit ever put Evasion in two of these, a 3 -> 15 jump would start greying
+    // it and this fails first.
+    const picks = (arch('Hunter')?.features ?? []).flatMap((f) => f.picks ?? [])
+    const all = picks.flatMap((p) => p.options)
+    expect(new Set(all).size, 'an option appears in two Hunter lists').toBe(
+      all.length,
+    )
+    // And the labels are distinct, so the rows read as the book's own feature
+    // names rather than four identically-prefixed lines.
+    expect(new Set(picks.map((p) => p.featureLabel)).size).toBe(4)
+  })
+
+  it('leaves the Beast Master’s companion as prose', () => {
+    // There is no companion model on `Character` — no field for a second
+    // creature's AC, hit points or attacks — so a grant would describe the
+    // ranger instead of the beast, and a pick would write "Ranger's Companion:
+    // Wolf" carrying none of the wolf. No grant and no picks is the honest
+    // shape, the same call the Wild Magic surge table got.
+    const sub = arch('Beast Master')
     expect(sub?.grant).toBeUndefined()
     expect(sub?.features.flatMap((f) => f.picks ?? [])).toEqual([])
   })

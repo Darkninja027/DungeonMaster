@@ -128,6 +128,147 @@ function TOTEM_PICK(
 }
 
 /**
+ * The Way of the Four Elements' disciplines, and the mirror image of the totem
+ * table above.
+ *
+ * A totem's *text* varies by level and its option list does not — Bear means
+ * three different things at 3rd, 6th and 14th. A discipline is the opposite:
+ * the text is fixed (Water Whip means one thing whenever you learn it) while
+ * the *options* open up with level, because several disciplines are gated
+ * behind 6th, 11th or 17th. So this table is flat and `DISCIPLINES_AT` below
+ * carries the level.
+ */
+const ELEMENTAL_DISCIPLINES: Record<string, string> = {
+  'Elemental Attunement':
+    'A free minor display of elemental control within 30 feet — snuff a flame, chill an object, or shape a handful of earth or mist.',
+  'Fangs of the Fire Snake':
+    'Spend 1 ki as you attack to wreathe your strikes in flame, adding 10 feet of reach and dealing fire damage; 1 more ki adds extra fire damage on a hit.',
+  'Fist of Four Thunders': 'Spend 2 ki to cast thunderwave.',
+  'Fist of Unbroken Air':
+    'Spend 2 ki to strike at 30 feet for bludgeoning damage, with more ki adding to it, and push or knock the target prone.',
+  'Rush of the Gale Spirits': 'Spend 2 ki to cast gust of wind.',
+  'Shape the Flowing River':
+    'Spend 1 ki to reshape ice or water in a 30-foot area, raising or flattening the terrain.',
+  'Sweeping Cinder Strike': 'Spend 2 ki to cast burning hands.',
+  'Water Whip':
+    'Spend 2 ki to lash a target at 30 feet for bludgeoning damage, with more ki adding to it, and pull it or knock it prone.',
+  'Clench of the North Wind': 'Spend 3 ki to cast hold person.',
+  'Gong of the Summit': 'Spend 3 ki to cast shatter.',
+  'Flames of the Phoenix': 'Spend 4 ki to cast fireball.',
+  'Mist Stance': 'Spend 4 ki to cast gaseous form on yourself.',
+  'Ride the Wind': 'Spend 4 ki to cast fly on yourself.',
+  'Breath of Winter': 'Spend 6 ki to cast cone of cold.',
+  'Eternal Mountain Defense': 'Spend 5 ki to cast stoneskin on yourself.',
+  'River of Hungry Flame': 'Spend 5 ki to cast wall of fire.',
+  'Wave of Rolling Earth': 'Spend 6 ki to cast wall of stone.',
+}
+
+/**
+ * Which disciplines are legal at each level a monk learns one.
+ *
+ * Cumulative and deliberately duplicated rather than computed: the prerequisite
+ * is authored data, and a table you can read straight down is worth more here
+ * than four lines of spread syntax.
+ *
+ * **Eternal Mountain Defense is 17th, not 11th.** The PHB's first printing said
+ * 11th and official errata moved it to 17th, so a majority of the sources you
+ * will find online — and most memories of this subclass — have it wrong. If a
+ * future pass "corrects" it back to 11, the test in subclasses.test.ts is what
+ * should stop them.
+ */
+const DISCIPLINES_AT: Record<number, Array<string>> = {
+  3: [
+    'Fangs of the Fire Snake',
+    'Fist of Four Thunders',
+    'Fist of Unbroken Air',
+    'Rush of the Gale Spirits',
+    'Shape the Flowing River',
+    'Sweeping Cinder Strike',
+    'Water Whip',
+  ],
+  6: [
+    'Fangs of the Fire Snake',
+    'Fist of Four Thunders',
+    'Fist of Unbroken Air',
+    'Rush of the Gale Spirits',
+    'Shape the Flowing River',
+    'Sweeping Cinder Strike',
+    'Water Whip',
+    'Clench of the North Wind',
+    'Gong of the Summit',
+  ],
+  11: [
+    'Fangs of the Fire Snake',
+    'Fist of Four Thunders',
+    'Fist of Unbroken Air',
+    'Rush of the Gale Spirits',
+    'Shape the Flowing River',
+    'Sweeping Cinder Strike',
+    'Water Whip',
+    'Clench of the North Wind',
+    'Gong of the Summit',
+    'Flames of the Phoenix',
+    'Mist Stance',
+    'Ride the Wind',
+  ],
+  17: [
+    'Fangs of the Fire Snake',
+    'Fist of Four Thunders',
+    'Fist of Unbroken Air',
+    'Rush of the Gale Spirits',
+    'Shape the Flowing River',
+    'Sweeping Cinder Strike',
+    'Water Whip',
+    'Clench of the North Wind',
+    'Gong of the Summit',
+    'Flames of the Phoenix',
+    'Mist Stance',
+    'Ride the Wind',
+    'Breath of Winter',
+    'Eternal Mountain Defense',
+    'River of Hungry Flame',
+    'Wave of Rolling Earth',
+  ],
+}
+
+/**
+ * One elemental discipline choice, at the level it is made.
+ *
+ * A factory for the same reason `TOTEM_PICK` and `MANEUVER_PICK` are: the
+ * archetype poses this question four times and pick ids share one global
+ * keyspace, so the owner carries the level — `four-elements-3-discipline`,
+ * `-6-`, `-11-`, `-17-`.
+ *
+ * **`open` on purpose.** Seventeen disciplines is a long list and Tasha's added
+ * more, so a table this app does not ship should still be typeable. A typed
+ * answer lands as a bare named row, which `applyFeaturePick` already handles.
+ * The cost is that two srd.test invariants skip an open pick — the option-count
+ * check and `featureText` completeness — so `subclasses.test.ts` checks both by
+ * hand, in both directions. That test is the only thing covering this data.
+ *
+ * **The label is shared across levels, and that inverts the totem rule.** A
+ * totem may legally be taken twice, so one shared label would wrongly grey out
+ * Bear at 6th for a character who took Bear at 3rd — hence its per-level
+ * labels. A discipline may *not* be taken twice, so here the shared label is
+ * not merely safe but load-bearing: `grantedAlreadyAt` matches what is already
+ * on the sheet by the row name a pick would write, so one
+ * "Elemental Discipline: Water Whip" is exactly what greys Water Whip out at
+ * every later level. Battle Master's manoeuvres are the precedent.
+ */
+function ELEMENT_PICK(owner: string, level: number): PickList {
+  return {
+    id: `${owner}-${level}-discipline`,
+    kind: 'feature',
+    label: 'Choose an elemental discipline',
+    count: 1,
+    options: DISCIPLINES_AT[level],
+    open: true,
+    featureLabel: 'Elemental Discipline',
+    featureText: ELEMENTAL_DISCIPLINES,
+  }
+}
+
+/**
  * Subclasses the published books add, by class name.
  *
  * A class absent from this record simply has none, which is the ordinary case.
@@ -741,6 +882,545 @@ export const PUBLISHED_SUBCLASSES: Record<string, Array<SubclassInfo>> = {
           level: 18,
           name: 'Spell Bombardment',
           text: 'When you roll the highest possible number on a damage die for a spell, roll that die again and add it to the damage.',
+        },
+      ],
+    },
+  ],
+  /**
+   * The three PHB oaths. SRD 5.1 licenses Oath of Devotion, but `classKits.ts`
+   * only ever seeded it as a *name* — the licence is about the features, and
+   * once written those are the PHB's text in our own words. So all three sit
+   * here together under this file's provenance, the same call the Sorcerer pass
+   * made for Draconic Bloodline, and a reader sees the class whole.
+   *
+   * A paladin picks at **3rd level** — the kit declares no `subclassLevel`, and
+   * the default of 3 agrees with its own `Sacred Oath` row, so unlike the Druid
+   * and the Wizard there was nothing to correct. Every feature below sits at 3,
+   * 7, 15 or 20.
+   *
+   * Two things these deliberately do not carry.
+   *
+   * **No `resource`.** Channel Divinity is the *class's* counter, and this pass
+   * added it to the Paladin kit, which had none at all. Each oath spends the
+   * same uses, so its options are feature rows rather than a second counter —
+   * the same division the cleric domains keep.
+   *
+   * **`spells` is the oath table**, and it arrives at 3/5/9/13/17 rather than a
+   * domain's 1/3/5/7/9 — a paladin swears at 3rd and their slots lag a full
+   * caster's, so each pair lands near the level they can first be cast. Always
+   * prepared and exempt from the prepared limit, exactly as a domain's are.
+   *
+   * These could not be authored at first: a Paladin had no `spellcasting`
+   * block, and `srd.test.ts` requires `spellcastingFor(kit, sub)` be defined
+   * for any subclass carrying spells. The half-caster pass gave both half
+   * casters a real table starting at 2nd, which unblocked this — see
+   * `castsAtLevel1` in lib/tables.ts for why the block is safe to add without
+   * handing a level-1 paladin a spells step.
+   */
+  Paladin: [
+    {
+      id: 'oath-of-devotion',
+      name: 'Oath of Devotion',
+      summary:
+        'The knight’s oath: honesty, courage and duty, kept in the open.',
+      // `grantedAt` is the *character* level and `level` the *spell*
+      // level; they are different numbers and conflating them is the
+      // easy mistake here.
+      spells: [
+        {
+          grantedAt: 3,
+          level: 1,
+          names: ['Protection from Evil and Good', 'Sanctuary'],
+        },
+        {
+          grantedAt: 5,
+          level: 2,
+          names: ['Lesser Restoration', 'Zone of Truth'],
+        },
+        { grantedAt: 9, level: 3, names: ['Beacon of Hope', 'Dispel Magic'] },
+        {
+          grantedAt: 13,
+          level: 4,
+          names: ['Freedom of Movement', 'Guardian of Faith'],
+        },
+        { grantedAt: 17, level: 5, names: ['Commune', 'Flame Strike'] },
+      ],
+      features: [
+        {
+          // Two Channel Divinity options at 3rd, as two rows rather than one.
+          // `featuresGained` de-dupes on `level:name`, so a single row naming
+          // both would be one feature the player cannot tell apart on the
+          // sheet — and two rows sharing a name at one level is rejected
+          // outright by subclasses.test.ts.
+          level: 3,
+          name: 'Channel Divinity: Sacred Weapon',
+          text: 'Spend a use to add your Charisma modifier to attack rolls with one weapon for a minute. The weapon emits bright light and counts as magical.',
+        },
+        {
+          level: 3,
+          name: 'Channel Divinity: Turn the Unholy',
+          text: 'Spend a use to force each fiend and undead within 30 feet to make a Wisdom save or be turned for a minute.',
+        },
+        {
+          level: 3,
+          name: 'Oath Spells',
+          text: 'You always have your oath spells prepared, and they do not count against the number of spells you can prepare.',
+        },
+        {
+          level: 7,
+          name: 'Aura of Devotion',
+          text: 'You and friendly creatures within 10 feet cannot be charmed while you are conscious. The range grows to 30 feet at 18th level.',
+        },
+        {
+          level: 15,
+          name: 'Purity of Spirit',
+          text: 'You are always under the effect of a protection from evil and good spell.',
+        },
+        {
+          level: 20,
+          name: 'Holy Nimbus',
+          text: 'As an action, become wreathed in sunlight for a minute: enemies starting their turn within 30 feet take radiant damage, and you have advantage on saves against spells cast by fiends and undead. Once per long rest.',
+        },
+      ],
+    },
+    {
+      id: 'oath-of-the-ancients',
+      name: 'Oath of the Ancients',
+      summary: 'Light, life and laughter, defended against the long dark.',
+      spells: [
+        {
+          grantedAt: 3,
+          level: 1,
+          names: ['Ensnaring Strike', 'Speak with Animals'],
+        },
+        { grantedAt: 5, level: 2, names: ['Moonbeam', 'Misty Step'] },
+        {
+          grantedAt: 9,
+          level: 3,
+          names: ['Plant Growth', 'Protection from Energy'],
+        },
+        { grantedAt: 13, level: 4, names: ['Ice Storm', 'Stoneskin'] },
+        {
+          grantedAt: 17,
+          level: 5,
+          names: ['Commune with Nature', 'Tree Stride'],
+        },
+      ],
+      features: [
+        {
+          level: 3,
+          name: 'Channel Divinity: Nature’s Wrath',
+          text: 'Spend a use to ensnare a creature within 10 feet in spectral vines. It is restrained until it succeeds on a Strength or Dexterity save.',
+        },
+        {
+          level: 3,
+          name: 'Channel Divinity: Turn the Faithless',
+          text: 'Spend a use to force each fey and fiend within 30 feet to make a Wisdom save or be turned for a minute. A disguised creature has its true form revealed.',
+        },
+        {
+          level: 3,
+          name: 'Oath Spells',
+          text: 'You always have your oath spells prepared, and they do not count against the number of spells you can prepare.',
+        },
+        {
+          level: 7,
+          name: 'Aura of Warding',
+          text: 'You and friendly creatures within 10 feet have resistance to damage from spells. The range grows to 30 feet at 18th level.',
+        },
+        {
+          level: 15,
+          name: 'Undying Sentinel',
+          text: 'When you would drop to 0 hit points and are not killed outright, you drop to 1 instead, once per long rest. You also stop ageing visibly.',
+        },
+        {
+          level: 20,
+          name: 'Elder Champion',
+          text: 'As an action, assume an ancient form for a minute: regain hit points each turn, cast oath spells as a bonus action, and enemies within 10 feet have disadvantage on saves against your spells. Once per long rest.',
+        },
+      ],
+    },
+    {
+      id: 'oath-of-vengeance',
+      name: 'Oath of Vengeance',
+      summary:
+        'Punishment for the great wrong, whatever it costs the punisher.',
+      spells: [
+        { grantedAt: 3, level: 1, names: ['Bane', 'Hunter’s Mark'] },
+        { grantedAt: 5, level: 2, names: ['Hold Person', 'Misty Step'] },
+        { grantedAt: 9, level: 3, names: ['Haste', 'Protection from Energy'] },
+        { grantedAt: 13, level: 4, names: ['Banishment', 'Dimension Door'] },
+        { grantedAt: 17, level: 5, names: ['Hold Monster', 'Scrying'] },
+      ],
+      features: [
+        {
+          level: 3,
+          name: 'Channel Divinity: Abjure Enemy',
+          text: 'Spend a use to force one creature within 60 feet to make a Wisdom save or be frightened and slowed for a minute.',
+        },
+        {
+          level: 3,
+          name: 'Channel Divinity: Vow of Enmity',
+          text: 'Spend a use to gain advantage on attack rolls against one creature within 10 feet for a minute, or until it drops.',
+        },
+        {
+          level: 3,
+          name: 'Oath Spells',
+          text: 'You always have your oath spells prepared, and they do not count against the number of spells you can prepare.',
+        },
+        {
+          level: 7,
+          name: 'Relentless Avenger',
+          text: 'When you hit a creature with an opportunity attack, you can move up to half your speed as part of the same reaction, without provoking.',
+        },
+        {
+          level: 15,
+          name: 'Soul of Vengeance',
+          text: 'When a creature under your Vow of Enmity makes an attack, you can use your reaction to make a melee weapon attack against it.',
+        },
+        {
+          level: 20,
+          name: 'Avenging Angel',
+          text: 'As an action, sprout wings and gain a flying speed for an hour, and enemies starting their turn within 30 feet must save or be frightened. Once per long rest.',
+        },
+      ],
+    },
+  ],
+  // All three monastic traditions, chosen at 3rd and gaining features at
+  // 3/6/11/17.
+  //
+  // Way of the Open Hand is the SRD-licensed one and is here anyway, following
+  // the Sorcerer's Draconic Bloodline: `classKits.ts` only ever seeded it as a
+  // *name*, and the licence is about the features rather than the name — so
+  // once written they are the PHB's text in our words and sit beside the other
+  // two under this file's provenance. All three kit stubs stay bare and the
+  // pinned list in subclasses.test.ts needs no entry.
+  //
+  // None of them authors a `resource`. Every tradition spends ki, and Ki is the
+  // *class's* counter — added to the kit in this same pass, since a subclass
+  // resource does not close a class's gap.
+  Monk: [
+    {
+      id: 'way-of-the-open-hand',
+      name: 'Way of the Open Hand',
+      summary:
+        'The art of unarmed combat taken to its end: a hand that redirects, topples and finally stops a heart.',
+      features: [
+        {
+          level: 3,
+          name: 'Open Hand Technique',
+          text: 'When you hit with Flurry of Blows, you can knock the target prone, push it 15 feet, or deny it reactions until the end of your next turn.',
+        },
+        {
+          level: 6,
+          name: 'Wholeness of Body',
+          text: 'As an action you can heal yourself for three times your monk level, once per long rest.',
+          // Not a counter. The number is a pool of hit points scaling with
+          // level rather than a use count, and nothing recomputes a `total`
+          // once it is on a sheet — the same call Lay on Hands got.
+        },
+        {
+          level: 11,
+          name: 'Tranquility',
+          text: 'You end a long rest under a sanctuary effect that lasts until your next long rest or until you attack.',
+        },
+        {
+          level: 17,
+          name: 'Quivering Palm',
+          text: 'Spend 3 ki when you hit with an unarmed strike to set up lethal vibrations you can end with an action, forcing a Constitution save.',
+        },
+      ],
+    },
+    {
+      id: 'way-of-shadow',
+      name: 'Way of Shadow',
+      summary:
+        'Ki spent on darkness and silence, and a monk who steps from one shadow into another.',
+      features: [
+        {
+          level: 3,
+          name: 'Shadow Arts',
+          text: 'You know the minor illusion cantrip, and can spend 2 ki to cast darkness, darkvision, pass without trace or silence without material components.',
+          // Minor illusion is deliberately *not* authored as
+          // `grant: { spells: [...] }`, and this is the reason.
+          //
+          // A monk has no `spellcasting` block on the class or the subclass, so
+          // the sheet has no spell ability, no save DC and no slots. Handing it
+          // a cantrip row states something the app cannot compute — worse than
+          // prose, which at least promises nothing.
+          //
+          // It would also have arrived quietly until this pass: `levelUpSteps`
+          // opens the spells step only when slots, cantrips known or spells
+          // known change, all of which read a `spellcasting` block, so for a
+          // monk it never opens — and the spells step used to be the only place
+          // `plan.spellsGranted` was rendered. `LevelUpSummary` shows granted
+          // spells now, so the hole is closed, but the reasoning above stands
+          // on its own: do not "fix" this into a grant.
+        },
+        {
+          level: 6,
+          name: 'Shadow Step',
+          text: 'In dim light or darkness you can teleport 60 feet to another shadowed space as a bonus action, with advantage on your next melee attack.',
+        },
+        {
+          level: 11,
+          name: 'Cloak of Shadows',
+          text: 'In dim light or darkness you can become invisible as an action until you attack, cast a spell, or enter light.',
+        },
+        {
+          level: 17,
+          name: 'Opportunist',
+          text: 'When a creature within 5 feet is hit by someone else, you can use your reaction to strike it.',
+        },
+      ],
+    },
+    {
+      id: 'way-of-the-four-elements',
+      name: 'Way of the Four Elements',
+      summary:
+        'Ki bent outward into the elements themselves, one hard-won discipline at a time.',
+      features: [
+        {
+          level: 3,
+          name: 'Disciple of the Elements',
+          text: 'You know the Elemental Attunement discipline, and learn one more of your choice. You can swap a discipline you know whenever you learn a new one.',
+          // Elemental Attunement is stated here rather than modelled as a
+          // second pick slot: the book gives it to you, so offering it as a
+          // "choice" with one answer would be a click that decides nothing.
+          picks: [ELEMENT_PICK('four-elements', 3)],
+        },
+        {
+          // Three more rows rather than one whose prose mentions the later
+          // levels: `featuresGained` de-dupes on `level:name`, so each needs a
+          // distinct name, and each carries its own pick.
+          level: 6,
+          name: 'Elemental Discipline (6th)',
+          text: 'You learn one additional elemental discipline, now including those requiring 6th level.',
+          picks: [ELEMENT_PICK('four-elements', 6)],
+        },
+        {
+          level: 11,
+          name: 'Elemental Discipline (11th)',
+          text: 'You learn one additional elemental discipline, now including those requiring 11th level.',
+          picks: [ELEMENT_PICK('four-elements', 11)],
+        },
+        {
+          level: 17,
+          name: 'Elemental Discipline (17th)',
+          text: 'You learn one additional elemental discipline, with the whole list open to you.',
+          picks: [ELEMENT_PICK('four-elements', 17)],
+        },
+      ],
+    },
+  ],
+
+  /*
+    The Ranger's two conclaves, and the class where the handoff's own advice
+    needed correcting.
+
+    **No `spells`, on either.** NEXT-CLASS-PROMPT.md reasoned that "the
+    Ranger's conclaves can carry `spells` because the half-caster pass gave it
+    a real casting table" — true of the *mechanism* and false of the *book*.
+    The PHB gives Hunter and Beast Master no bonus spells at all; a conclave
+    spell list is a Xanathar's feature (Gloom Stalker, Horizon Walker, Monster
+    Slayer), which is not a source this file draws on. The field is absent
+    rather than `[]`, because absence says "there is no table" while an empty
+    array says "there is one and nobody filled it in".
+
+    Nothing would have caught a fabricated one. `srd.test.ts`'s "only
+    spellcasting classes grant bonus spells" only asks that
+    `spellcastingFor(kit, sub)` be *defined*, and for a Ranger it now is — so
+    an invented table would pass a green suite and quietly hand the character
+    free always-prepared spells. `subclasses.test.ts` pins the absence instead.
+
+    **No `resource`, here or on the kit.** Unlike the Monk's Ki, the Paladin's
+    Channel Divinity and the Sorcerer's Sorcery Points, a Ranger has no
+    class-level counter to close alongside this pass, because there is no
+    honest candidate: Primeval Awareness spends a *spell slot*, which
+    `Character.spellSlots` already tracks; Foe Slayer is a once-per-turn rule
+    with no pool; and the companion's hit points are 4 x the ranger level, a
+    scaling number rather than a use count. The absence is a finding, not an
+    oversight — see the test that pins it.
+  */
+  Ranger: [
+    {
+      id: 'hunter',
+      name: 'Hunter',
+      summary:
+        'A specialist in the hunt, choosing a new edge at each turn of skill.',
+      /*
+        Four menus at 3/7/11/15, each a **closed** `kind: 'feature'` pick with
+        `count: 1`. Closed rather than open, like the draconic ancestry: each
+        list is the whole menu the PHB offers, so `srd.test.ts` keeps checking
+        `featureText` completeness and option uniqueness, which `open` would
+        forfeit.
+
+        No factory, unlike the totems and the elemental disciplines. Those pose
+        *one* question repeatedly from *one* table; the Hunter poses four
+        different questions from four **disjoint** tables, so a factory would
+        be ceremony around four literals with nothing shared.
+
+        The `featureLabel`s differ per level for **readability, not because the
+        totem rule forces it** — and the distinction matters if you ever edit
+        this. That rule exists because a totem may be taken twice, and its
+        mirror on the Four Elements exists because a discipline may not. Both
+        are about an option appearing in more than one list. No option here
+        appears twice, so neither greying path in `grantedAlreadyAt` can fire
+        and the label cannot change behaviour. It is therefore a naming
+        decision, and the book's own four feature names are what a player will
+        look for: "Hunter's Prey: Colossus Slayer", not "Hunter: Volley".
+
+        No `featureGrant` anywhere, and that is correct rather than incomplete
+        — every option is a combat rule this app does not model. Multiattack
+        Defense in particular is *not* an `acBonus`: its +4 applies only
+        against one creature's remaining attacks that turn, so any static value
+        would be wrong the moment nothing had hit you, the same trap Draconic
+        Resilience's deliberately absent `acBonus` documents.
+      */
+      features: [
+        {
+          level: 3,
+          name: 'Hunter’s Prey',
+          text: 'Choose one way to press your advantage in a fight.',
+          picks: [
+            {
+              id: 'hunter-3-prey',
+              kind: 'feature',
+              label: 'Choose your hunter’s prey',
+              count: 1,
+              options: ['Colossus Slayer', 'Giant Killer', 'Horde Breaker'],
+              featureLabel: 'Hunter’s Prey',
+              featureText: {
+                'Colossus Slayer':
+                  'Once on each of your turns, a weapon hit against a creature already below its hit point maximum deals an extra 1d8 damage.',
+                'Giant Killer':
+                  'When a Large or larger creature within 5 feet hits or misses you, you can use your reaction to attack it.',
+                'Horde Breaker':
+                  'Once on each of your turns, you can make a second attack against a different creature within 5 feet of the first.',
+              },
+            },
+          ],
+        },
+        {
+          level: 7,
+          name: 'Defensive Tactics',
+          text: 'Choose one way to weather being outnumbered or outmatched.',
+          picks: [
+            {
+              id: 'hunter-7-tactics',
+              kind: 'feature',
+              label: 'Choose a defensive tactic',
+              count: 1,
+              options: [
+                'Escape the Horde',
+                'Multiattack Defense',
+                'Steel Will',
+              ],
+              featureLabel: 'Defensive Tactics',
+              featureText: {
+                'Escape the Horde':
+                  'Opportunity attacks against you are made with disadvantage.',
+                'Multiattack Defense':
+                  'When a creature hits you with an attack, you gain a +4 bonus to AC against that creature’s remaining attacks for the rest of the turn.',
+                'Steel Will':
+                  'You have advantage on saving throws against being frightened.',
+              },
+            },
+          ],
+        },
+        {
+          level: 11,
+          name: 'Multiattack',
+          text: 'Choose one way to strike at more than one enemy at a time.',
+          picks: [
+            {
+              id: 'hunter-11-multiattack',
+              kind: 'feature',
+              label: 'Choose a multiattack',
+              count: 1,
+              options: ['Volley', 'Whirlwind Attack'],
+              featureLabel: 'Multiattack',
+              featureText: {
+                Volley:
+                  'As an action, make a ranged attack against any number of creatures within 10 feet of a point you can see, expending ammunition for each.',
+                'Whirlwind Attack':
+                  'As an action, make a melee attack against any number of creatures within 5 feet of you.',
+              },
+            },
+          ],
+        },
+        {
+          level: 15,
+          name: 'Superior Hunter’s Defense',
+          text: 'Choose one way to turn an enemy’s attack aside.',
+          picks: [
+            {
+              id: 'hunter-15-defense',
+              kind: 'feature',
+              label: 'Choose a superior defence',
+              count: 1,
+              options: ['Evasion', 'Stand Against the Tide', 'Uncanny Dodge'],
+              featureLabel: 'Superior Hunter’s Defense',
+              featureText: {
+                // Evasion shares a name with the Rogue's and the Monk's, and
+                // Uncanny Dodge with the Rogue's. Different kits, so they
+                // never share a sheet — and the label prefix keeps this row
+                // distinct in any case.
+                Evasion:
+                  'When you succeed on a Dexterity save against an effect dealing half damage on a success, you take none instead, and only half if you fail.',
+                'Stand Against the Tide':
+                  'When a hostile creature misses you with a melee attack, you can use your reaction to force it to repeat that attack against another creature of your choice.',
+                'Uncanny Dodge':
+                  'When an attacker you can see hits you, you can use your reaction to halve the damage.',
+              },
+            },
+          ],
+        },
+      ],
+    },
+    {
+      id: 'beast-master',
+      name: 'Beast Master',
+      summary: 'A bond with one beast, fighting at your side and at your word.',
+      /*
+        No `grant` and no `picks`, deliberately.
+
+        Every one of these features is about a *second creature*, and
+        `Character` has no companion model at all — no field on the sheet,
+        none in `types.ts`. The beast's AC, its hit points at four times your
+        ranger level, its proficiency bonus and its attacks have nowhere to
+        land that would not be describing the ranger instead. That is not an
+        approximation the way Bardic Inspiration's suggested total is; it is
+        the wrong entity.
+
+        A `kind: 'feature'` pick offering a list of beasts was considered and
+        rejected for the same reason: it writes a row reading "Ranger's
+        Companion: Wolf" into `Character.features` and carries none of the
+        wolf, which is a label impersonating a statblock. The app already has
+        an honest home for one, and the text below points there.
+
+        The precedent is Wild Magic's surge table and Way of Shadow's minor
+        illusion: a reminder is honest, an incomplete grant is not.
+      */
+      features: [
+        {
+          level: 3,
+          name: 'Ranger’s Companion',
+          text: 'You gain a beast companion of challenge rating 1/4 or lower that acts on your initiative and obeys your commands. It adds your proficiency bonus to its AC, attack rolls, damage rolls, and to any saving throw and skill it is proficient in, and its hit points equal four times your ranger level. Keep its statblock in your bestiary — this sheet tracks you, not it.',
+        },
+        {
+          level: 7,
+          name: 'Exceptional Training',
+          text: 'On any of your turns when your companion does not attack, you can use a bonus action to command it to Dash, Disengage, Dodge or Help. Its attacks also count as magical for overcoming resistance and immunity to nonmagical attacks.',
+        },
+        {
+          level: 11,
+          name: 'Bestial Fury',
+          text: 'Your companion makes two attacks, rather than one, whenever you command it to attack.',
+        },
+        {
+          level: 15,
+          name: 'Share Spells',
+          text: 'When you cast a spell targeting yourself, you can also affect your companion if it is within 30 feet of you.',
         },
       ],
     },

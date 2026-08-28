@@ -3,6 +3,7 @@ import {
   abilityMod,
   alwaysPreparedCount,
   hitDiceArePinned,
+  MAX_RESOURCES,
   parseCharacter,
   preparedCount,
   serializeCharacter,
@@ -1313,6 +1314,156 @@ describe('AC is derived once at creation', () => {
  * creation could ignore subclasses entirely. It did, and a Life Domain cleric
  * built here got Spellcasting, Divine Domain, and nothing else.
  */
+describe('counters a level-1 feature implies', () => {
+  const build = (className: string, subclassName = '') =>
+    buildCharacter({
+      ...emptyDraft(SRD_TABLES),
+      name: 'Probe',
+      className,
+      subclassName,
+      raceName: 'Human',
+      backgroundName: 'Acolyte',
+    }).character
+
+  it('puts a level-1 counter on the sheet', () => {
+    // The gap this closes: `resourcesOffered` only sees levels being *gained*,
+    // so level 1 was outside every level-up range and a counter authored there
+    // reached no sheet by any path. The Bard's Bardic Inspiration had been
+    // inert since the day it was written.
+    const bard = build('Bard').resources
+    expect(bard).toEqual([
+      { name: 'Bardic Inspiration', used: 0, total: 3, resets: 'long' },
+    ])
+    const paladin = build('Paladin').resources
+    expect(paladin).toEqual([
+      { name: 'Divine Sense', used: 0, total: 3, resets: 'long' },
+    ])
+  })
+
+  it('invents nothing for a class whose counters come later', () => {
+    // A Cleric's Channel Divinity is gained at 2nd and a Fighter has no
+    // class-level counter at all; neither may acquire a row at creation.
+    expect(build('Fighter').resources).toEqual([])
+    expect(build('Cleric', 'Life Domain').resources).toEqual([])
+    expect(build('Sorcerer', 'Draconic Bloodline').resources).toEqual([])
+  })
+
+  it('starts every counter unspent', () => {
+    for (const row of build('Bard').resources) {
+      expect(row.used, row.name).toBe(0)
+    }
+  })
+
+  it('never exceeds the sheet cap', () => {
+    // `MAX_RESOURCES` is 3 and the level-up path slices to it; creation has to
+    // agree or a freshly built character could hold more rows than a levelled
+    // one and the sheet's Combat column would overflow.
+    //
+    // Asserted against **homebrew**, not the SRD kits: no built-in class has
+    // more than one level-1 counter, so a loop over the tables would pass
+    // whether the cap were applied or not — which is worse than no test. A
+    // homebrew kit is the only thing that can actually reach the cap, and it
+    // is exactly the case that would hit it in the wild.
+    const tables = mergeTables(
+      parseHomebrew({
+        kits: [
+          {
+            name: 'Countkeeper',
+            hitDie: 8,
+            features: [
+              { level: 1, name: 'A', resource: { name: 'A', total: 1 } },
+              { level: 1, name: 'B', resource: { name: 'B', total: 1 } },
+              { level: 1, name: 'C', resource: { name: 'C', total: 1 } },
+              { level: 1, name: 'D', resource: { name: 'D', total: 1 } },
+            ],
+          },
+        ],
+      }),
+    )
+    const { character } = buildCharacter({
+      ...emptyDraft(tables),
+      name: 'Probe',
+      className: 'Countkeeper',
+      raceName: 'Human',
+      backgroundName: 'Acolyte',
+    })
+    expect(character.resources).toHaveLength(MAX_RESOURCES)
+    expect(character.resources.map((r) => r.name)).toEqual(['A', 'B', 'C'])
+
+    // And the built-ins stay within it too.
+    for (const kit of SRD_TABLES.kits) {
+      expect(build(kit.name).resources.length, kit.name).toBeLessThanOrEqual(
+        MAX_RESOURCES,
+      )
+    }
+  })
+
+  it('keeps one row per name when a class and its archetype collide', () => {
+    // `resourcesOffered` is one-row-per-name; creation has to be too, or a
+    // level-1 archetype naming the class's counter would produce two rows the
+    // player has to reconcile by hand.
+    const tables = mergeTables(
+      parseHomebrew({
+        kits: [
+          {
+            name: 'Echoer',
+            hitDie: 8,
+            subclassLevel: 1,
+            features: [
+              { level: 1, name: 'Pool', resource: { name: 'Pool', total: 2 } },
+            ],
+            subclasses: [
+              {
+                name: 'Echo',
+                features: [
+                  {
+                    level: 1,
+                    name: 'Deeper Pool',
+                    resource: { name: 'Pool', total: 9 },
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      }),
+    )
+    const { character } = buildCharacter({
+      ...emptyDraft(tables),
+      name: 'Probe',
+      className: 'Echoer',
+      subclassName: 'Echo',
+      raceName: 'Human',
+      backgroundName: 'Acolyte',
+    })
+    expect(character.resources).toHaveLength(1)
+    // The class's own wins: it is listed first, as its features are.
+    expect(character.resources[0]?.total).toBe(2)
+  })
+})
+
+describe('a half caster at creation', () => {
+  // Paladin and Ranger gained a `spellcasting` block so they could cast at all
+  // and so their subclasses could carry spells. None of that may reach a
+  // level-1 sheet: they do not cast until 2nd, and a block alone must not set
+  // an ability, an empty slot row or a prepared limit.
+  for (const className of ['Paladin', 'Ranger']) {
+    it(`leaves a level 1 ${className} entirely non-casting`, () => {
+      const { character } = buildCharacter({
+        ...emptyDraft(SRD_TABLES),
+        name: 'Probe',
+        className,
+        raceName: 'Human',
+        backgroundName: 'Acolyte',
+      })
+      expect(character.spellAbility, className).toBe(null)
+      expect(character.spellSlots, className).toEqual({})
+      expect(character.preparedLimit, className).toBe(0)
+      expect(character.spells, className).toEqual([])
+    })
+  }
+})
+
 describe('a subclass chosen at creation', () => {
   it('grants the domain’s own level-1 features', () => {
     const c = buildCharacter(hillDwarfCleric()).character

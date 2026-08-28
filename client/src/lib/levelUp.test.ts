@@ -1958,6 +1958,146 @@ describe('a tracked resource that grows with the class', () => {
   })
 })
 
+describe('monastic tradition features', () => {
+  const monk = (level: number, subclass?: string): Character => ({
+    ...characterAt(level, 'Monk'),
+    ...(subclass ? { subclass } : {}),
+  })
+
+  const named = (c: Character, to: number, subclassName?: string) =>
+    featuresGained(
+      c,
+      c.level,
+      to,
+      kitFor('Monk'),
+      subclassName ?? c.subclass,
+    ).map((f) => f.name)
+
+  it('grants the tradition its features when it is chosen', () => {
+    expect(named(monk(2), 3, 'Way of the Open Hand')).toContain(
+      'Open Hand Technique',
+    )
+  })
+
+  it('keeps granting them at later levels', () => {
+    expect(named(monk(10, 'Way of Shadow'), 11)).toContain('Cloak of Shadows')
+  })
+
+  it('distinguishes the three traditions at the same level', () => {
+    const c = monk(2)
+    const classOnly = named(c, 3)
+    const at3 = (name: string) =>
+      named(c, 3, name).filter((n) => !classOnly.includes(n))
+    expect(at3('Way of the Open Hand')).toEqual(['Open Hand Technique'])
+    expect(at3('Way of Shadow')).toEqual(['Shadow Arts'])
+    expect(at3('Way of the Four Elements')).toEqual([
+      'Disciple of the Elements',
+    ])
+  })
+
+  it('poses a discipline pick at each level that grants one', () => {
+    // A 6 -> 17 jump crosses three of the four, each a distinct pick id — the
+    // ids carry the level precisely so they stay unique in one global keyspace.
+    const c = monk(6, 'Way of the Four Elements')
+    const picks = levelUpPicks(draftFor(c, 17)).filter((p) =>
+      p.pick.id.startsWith('four-elements-'),
+    )
+    expect(picks.map((p) => p.pick.id)).toEqual([
+      'four-elements-11-discipline',
+      'four-elements-17-discipline',
+    ])
+  })
+
+  it('greys out a discipline already on the sheet', () => {
+    // The shared `featureLabel` doing its job. A discipline cannot be taken
+    // twice, and `grantedAlreadyAt` matches on the row name a pick *would*
+    // write — so "Elemental Discipline: Water Whip" from 3rd is what makes
+    // Water Whip unselectable at 6th. Were the label per-level, as the totem's
+    // is, the option would be offered again and `applyFeaturePick` would
+    // silently swallow the duplicate row.
+    const c: Character = {
+      ...monk(5, 'Way of the Four Elements'),
+      features: [
+        { level: 3, name: 'Elemental Discipline: Water Whip', text: '' },
+      ],
+    }
+    const draft = draftFor(c, 6)
+    const picks = levelUpPicks(draft)
+    const pick = picks.find(
+      (p) => p.pick.id === 'four-elements-6-discipline',
+    )!.pick
+    const already = grantedAlreadyAt(c, draft, pick, picks)
+    expect(already.get('Water Whip')).toBe('your sheet')
+    expect(already.get('Gong of the Summit')).toBeUndefined()
+  })
+
+  it('offers Ki on the level-up that grants it', () => {
+    // The counter the whole class spends, and prose until this pass. It arrives
+    // at 2nd, which is inside `levelsGained(1, 2)` — a level-1 resource would
+    // have needed creation to deliver it instead.
+    const c = monk(1)
+    const offer = resourcesOffered(draftFor(c, 2)).find((o) => o.name === 'Ki')
+    expect(offer?.total).toBe(2)
+    expect(offer?.resets).toBe('short')
+    // Not a raise: there is nothing on the sheet to raise from.
+    expect(offer?.from).toBeUndefined()
+  })
+
+  it('puts Ki on the sheet unspent when accepted', () => {
+    const c = monk(1)
+    const draft = draftFor(c, 2)
+    const after = applyLevelUp(c, {
+      ...draft,
+      resources: { Ki: { total: 2, resets: 'short' } },
+    })
+    expect(after.resources).toEqual([
+      { name: 'Ki', used: 0, total: 2, resets: 'short' },
+    ])
+  })
+
+  it('never lowers a Ki total the player tuned higher', () => {
+    // `total` is the monk *level*, which no static table tracks, so the counter
+    // ships at 2 and the player raises it as they go. A later level-up must not
+    // undo that — and there is no second Ki row to offer anyway.
+    const c: Character = {
+      ...monk(5),
+      resources: [{ name: 'Ki', used: 3, total: 5, resets: 'short' }],
+    }
+    expect(resourcesOffered(draftFor(c, 6)).some((o) => o.name === 'Ki')).toBe(
+      false,
+    )
+    const after = applyLevelUp(c, draftFor(c, 6))
+    expect(after.resources).toEqual([
+      { name: 'Ki', used: 3, total: 5, resets: 'short' },
+    ])
+  })
+
+  it('scales the martial arts die as its own rows, not prose', () => {
+    // 5/11/17, and each its own row: `featuresGained` de-dupes on `level:name`,
+    // so an upgrade folded into the level-1 text would never be granted.
+    expect(named(monk(4), 5)).toContain('Martial Arts (d6)')
+    expect(named(monk(10), 11)).toContain('Martial Arts (d8)')
+    expect(named(monk(16), 17)).toContain('Martial Arts (d10)')
+  })
+
+  it('scales unarmored movement as its own rows', () => {
+    expect(named(monk(5), 6)).toContain('Unarmored Movement (+15 ft)')
+    expect(named(monk(17), 18)).toContain('Unarmored Movement (+30 ft)')
+  })
+
+  it('opens no spells step, and grants no spells to announce', () => {
+    // A monk casts nothing, so the spells step never opens — which is exactly
+    // why Way of Shadow's minor illusion is prose rather than `grant.spells`.
+    // A granted spell is visible in the summary panel now, but a sheet with no
+    // spell ability, DC or slots still has nowhere honest to put one.
+    const c = monk(2)
+    const draft = draftFor(c, 3, { subclassName: 'Way of Shadow' })
+    expect(levelUpSteps(draft)).not.toContain('spells')
+    expect(levelUpPlan(c, draft).spellsGranted).toEqual([])
+    expect(applyLevelUp(c, draft).spells).toEqual([])
+  })
+})
+
 describe('fighting style', () => {
   it('offers every style the class may take, PHB and Tasha alike', () => {
     const c = characterAt(1, 'Fighter')
@@ -2989,6 +3129,225 @@ describe('channel divinity', () => {
   })
 })
 
+describe('paladin oath features', () => {
+  const paladin = (level: number, subclass = '') => ({
+    ...characterAt(level, 'Paladin'),
+    subclass,
+  })
+
+  it('grants the oath its features when the oath is sworn', () => {
+    const c = paladin(2)
+    const after = applyLevelUp(
+      c,
+      draftFor(c, 3, { subclassName: 'Oath of Devotion' }),
+    )
+    expect(after.subclass).toBe('Oath of Devotion')
+    const names = after.features.map((f) => f.name)
+    // Both Channel Divinity options land, as two rows rather than one.
+    expect(names).toContain('Channel Divinity: Sacred Weapon')
+    expect(names).toContain('Channel Divinity: Turn the Unholy')
+    expect(names).toContain('Oath Spells')
+  })
+
+  it('keeps granting them at later levels', () => {
+    const c = paladin(6, 'Oath of the Ancients')
+    const after = applyLevelUp(c, draftFor(c, 7))
+    expect(after.features.map((f) => f.name)).toContain('Aura of Warding')
+  })
+
+  it('grants nothing extra for an oath the tables do not know', () => {
+    const c = paladin(2)
+    const after = applyLevelUp(
+      c,
+      draftFor(c, 3, { subclassName: 'Oath of the Deep Bargain' }),
+    )
+    expect(after.subclass).toBe('Oath of the Deep Bargain')
+    // The class's own level-3 rows still land; homebrew just adds nothing.
+    const names = after.features.map((f) => f.name)
+    expect(names).toContain('Sacred Oath')
+    expect(names).toContain('Channel Divinity')
+  })
+
+  it('distinguishes the three oaths at the same level', () => {
+    // Each oath's pair of Channel Divinity options is its own; swearing one
+    // must not bring another's along.
+    const c = paladin(2)
+    const after = applyLevelUp(
+      c,
+      draftFor(c, 3, { subclassName: 'Oath of Vengeance' }),
+    )
+    const names = after.features.map((f) => f.name)
+    expect(names).toContain('Channel Divinity: Vow of Enmity')
+    expect(names).not.toContain('Channel Divinity: Sacred Weapon')
+  })
+})
+
+describe('a paladin’s counters', () => {
+  const accepting = (draft: LevelUpDraft): LevelUpDraft => ({
+    ...draft,
+    resources: Object.fromEntries(
+      resourcesOffered(draft).map((o) => [
+        o.name,
+        o.resets ? { total: o.total, resets: o.resets } : { total: o.total },
+      ]),
+    ),
+  })
+
+  const paladin = (
+    level: number,
+    resources: Character['resources'] = [],
+  ): Character => ({
+    ...characterAt(level, 'Paladin'),
+    resources,
+  })
+
+  it('offers Channel Divinity at 3rd, when the oath is sworn', () => {
+    // The class had no counter at all before this, which mattered: every oath
+    // grants Channel Divinity options at 3rd, so without the class row those
+    // features would spend a resource the sheet had never heard of.
+    const c = paladin(2)
+    const offer = resourcesOffered(draftFor(c, 3)).find(
+      (o) => o.name === 'Channel Divinity',
+    )
+    expect(offer?.total).toBe(1)
+    expect(offer?.resets).toBe('short')
+  })
+
+  it('still offers it when several levels are crossed at once', () => {
+    const c = paladin(1)
+    expect(
+      resourcesOffered(draftFor(c, 5)).some(
+        (o) => o.name === 'Channel Divinity',
+      ),
+    ).toBe(true)
+  })
+
+  it('never lowers a total the player tuned higher', () => {
+    const c = paladin(2, [
+      { name: 'Channel Divinity', used: 1, total: 3, resets: 'short' },
+    ])
+    const after = applyLevelUp(c, accepting(draftFor(c, 3)))
+    const row = after.resources.find((r) => r.name === 'Channel Divinity')
+    expect(row?.total).toBe(3)
+    expect(row?.used).toBe(1)
+    expect(after.resources).toHaveLength(1)
+  })
+
+  it('never scales past one use, unlike a cleric’s', () => {
+    // A cleric's Channel Divinity rises at 6 and 18; a paladin's never does,
+    // so it is one row and nothing is offered at those levels.
+    const c = paladin(5, [
+      { name: 'Channel Divinity', used: 0, total: 1, resets: 'short' },
+    ])
+    for (const to of [6, 18]) {
+      const from = { ...c, level: to - 1 }
+      expect(
+        resourcesOffered(draftFor(from, to)).some(
+          (o) => o.name === 'Channel Divinity',
+        ),
+        'level ' + String(to),
+      ).toBe(false)
+    }
+  })
+
+  it('leaves Lay on Hands as prose rather than a counter', () => {
+    // Its pool is 5 x the paladin level: a hit-point pool that changes every
+    // level, not a use count. Nothing recomputes a total once it is on a
+    // sheet, so a row offered at twenty consecutive level-ups would be noise
+    // and stale the moment it was taken.
+    const kit = kitFor('Paladin')!
+    const lay = kit.features.find((f) => f.name === 'Lay on Hands')
+    expect(lay).toBeDefined()
+    expect(lay?.resource).toBeUndefined()
+  })
+
+  it('carries Divine Sense as a counter creation delivers, not level-up', () => {
+    // A level-1 counter is applied by `buildCharacter` (see the creation tests)
+    // rather than offered at level-up: `resourcesOffered` only looks at the
+    // levels being *gained*, and nobody ever gains the level they started at.
+    // Both halves are asserted, because for a long time neither happened and
+    // the counter simply did not exist anywhere.
+    const kit = kitFor('Paladin')!
+    const sense = kit.features.find((f) => f.name === 'Divine Sense')
+    expect(sense?.resource?.name).toBe('Divine Sense')
+    expect(sense?.resource?.resets).toBe('long')
+
+    const c = paladin(1)
+    expect(
+      resourcesOffered(draftFor(c, 2)).some((o) => o.name === 'Divine Sense'),
+    ).toBe(false)
+  })
+})
+
+describe('a paladin learning to cast', () => {
+  const paladin = (level: number, subclass = '') => ({
+    ...characterAt(level, 'Paladin'),
+    subclass,
+  })
+
+  it('gains its first slots at 2nd, not 1st', () => {
+    const c = paladin(1)
+    const plan = levelUpPlan(c, draftFor(c, 2))
+    const first = plan.slots.find((s) => s.level === 1)
+    expect(first?.from).toBe(0)
+    expect(first?.to).toBe(2)
+  })
+
+  it('sets the spell ability it never had', () => {
+    // The Rogue pass shipped a bug where this was never set at level-up and
+    // both the save DC and the attack bonus came out null. A half caster is
+    // the same shape: nothing at creation, everything at 2nd.
+    const c = paladin(1)
+    expect(levelUpPlan(c, draftFor(c, 2)).spellAbilityTo).toBe('cha')
+  })
+
+  it('sets a prepared limit, which used to stay 0 forever', () => {
+    // `preparedLimitTo` was gated on `c.preparedLimit > 0`, and a paladin is
+    // built at level 1 with 0 because they do not cast yet — so the guard
+    // could never open and the limit stayed 0 at every level. CHA 12 is a +1,
+    // so 1 + 2 = 3.
+    const c = { ...paladin(1), abilities: { ...paladin(1).abilities, cha: 12 } }
+    const after = applyLevelUp(c, draftFor(c, 2))
+    expect(after.preparedLimit).toBe(3)
+  })
+
+  it('grants the oath spells on the level-ups that reach them', () => {
+    const c = paladin(2)
+    const after = applyLevelUp(
+      c,
+      draftFor(c, 3, { subclassName: 'Oath of Devotion' }),
+    )
+    const names = after.spells.map((sp) => sp.name)
+    expect(names).toContain('Protection from Evil and Good')
+    expect(names).toContain('Sanctuary')
+    // And they are always prepared, so they cost nothing against the limit.
+    expect(
+      after.spells.find((sp) => sp.name === 'Sanctuary')?.alwaysPrepared,
+    ).toBe(true)
+    // Nothing from a later row yet.
+    expect(names).not.toContain('Lesser Restoration')
+  })
+
+  it('keeps delivering oath spells after the oath is chosen', () => {
+    // The trap `alwaysPreparedGained` exists for: `plan.subclassName` is null
+    // on every level-up after the choosing one, so keying off it would deliver
+    // the 3rd-level pair and silently drop every later row.
+    const c = paladin(4, 'Oath of Devotion')
+    const after = applyLevelUp(c, draftFor(c, 5))
+    const names = after.spells.map((sp) => sp.name)
+    expect(names).toContain('Lesser Restoration')
+    expect(names).toContain('Zone of Truth')
+  })
+
+  it('does not offer a spells step before it can cast', () => {
+    // A 1 -> 2 level-up gains slots, so the step belongs there; the class
+    // simply has nothing at 1, which is what `castsAtLevel1` protects at
+    // creation.
+    const c = paladin(1)
+    expect(levelUpSteps(draftFor(c, 2))).toContain('spells')
+  })
+})
+
 describe('druid circles', () => {
   const druid = (level: number, subclass = 'Circle of the Land') => ({
     ...characterAt(level, 'Druid'),
@@ -3216,5 +3575,150 @@ describe('sorcerous origins', () => {
     const points = after.resources.find((r) => r.name === 'Sorcery Points')
     expect(points?.total).toBe(9)
     expect(points?.used).toBe(3)
+  })
+})
+
+describe('ranger archetype features', () => {
+  const ranger = (level: number, subclass = ''): Character => ({
+    ...characterAt(level, 'Ranger'),
+    subclass,
+  })
+
+  it('grants the archetype its features when it is chosen', () => {
+    const c = ranger(2)
+    const after = applyLevelUp(c, draftFor(c, 3, { subclassName: 'Hunter' }))
+    expect(after.subclass).toBe('Hunter')
+    expect(after.features.map((f) => f.name)).toContain('Hunter’s Prey')
+  })
+
+  it('keeps granting them at later levels', () => {
+    const c = ranger(6, 'Beast Master')
+    const after = applyLevelUp(c, draftFor(c, 7))
+    expect(after.features.map((f) => f.name)).toContain('Exceptional Training')
+  })
+
+  it('distinguishes the two archetypes at the same level', () => {
+    // Subtracting the class-only list is what makes this about the archetype
+    // rather than about the Ranger's own level-3 rows.
+    const c = ranger(2)
+    const kit = kitFor('Ranger')
+    const classOnly = featuresGained(c, 2, 3, kit).map((f) => f.name)
+    const at3 = (name: string) =>
+      featuresGained(c, 2, 3, kit, name)
+        .map((f) => f.name)
+        .filter((n) => !classOnly.includes(n))
+    expect(at3('Hunter')).toEqual(['Hunter’s Prey'])
+    expect(at3('Beast Master')).toEqual(['Ranger’s Companion'])
+  })
+
+  it('grants nothing extra for an archetype the tables do not know', () => {
+    const c = ranger(2)
+    const after = applyLevelUp(
+      c,
+      draftFor(c, 3, { subclassName: 'Conclave of the Long Road' }),
+    )
+    expect(after.subclass).toBe('Conclave of the Long Road')
+    // The class's own level-3 rows still land; homebrew just adds nothing.
+    const names = after.features.map((f) => f.name)
+    expect(names).toContain('Ranger Archetype')
+    expect(names).toContain('Primeval Awareness')
+  })
+
+  it('poses one Hunter pick at each of the four levels', () => {
+    // A 2 -> 15 run crosses all four at once, each a distinct id — they carry
+    // the level precisely so they stay unique in one global keyspace.
+    const c = ranger(2)
+    const picks = levelUpPicks(
+      draftFor(c, 15, { subclassName: 'Hunter' }),
+    ).filter((p) => p.pick.id.startsWith('hunter-'))
+    expect(picks.map((p) => p.pick.id)).toEqual([
+      'hunter-3-prey',
+      'hunter-7-tactics',
+      'hunter-11-multiattack',
+      'hunter-15-defense',
+    ])
+    // Each attributed to the feature posing it, which is what the step shows
+    // above the chips.
+    expect(picks.map((p) => p.owner)).toEqual([
+      'Hunter’s Prey',
+      'Defensive Tactics',
+      'Multiattack',
+      'Superior Hunter’s Defense',
+    ])
+  })
+
+  it('greys nothing between the Hunter’s menus, because they are disjoint', () => {
+    // The inverse of the Battle Master and Four Elements cases, and the whole
+    // reason the Hunter needs neither a shared label nor per-level ones for
+    // correctness. `grantedAlreadyAt`'s sibling clause matches the raw option
+    // string across every `feature` pick crossed in the same level-up,
+    // ignoring `featureLabel` entirely — so an option shared between two of
+    // these lists would start greying out. None is shared, and this proves it
+    // end to end rather than by inspecting the data.
+    const c = ranger(2)
+    const base = draftFor(c, 15, { subclassName: 'Hunter' })
+    const at = (id: string) =>
+      levelUpPicks(base).find((p) => p.pick.id === id)!.pick
+    const draft: LevelUpDraft = {
+      ...base,
+      picks: {
+        'hunter-3-prey': ['Colossus Slayer'],
+        'hunter-7-tactics': ['Steel Will'],
+        'hunter-11-multiattack': ['Volley'],
+      },
+    }
+    const greyed = grantedAlreadyAt(c, draft, at('hunter-15-defense'))
+    for (const option of at('hunter-15-defense').options) {
+      expect(
+        greyed.has(option),
+        `${option} greyed with nothing to grey it`,
+      ).toBe(false)
+    }
+  })
+
+  it('writes the chosen option under the book’s own feature name', () => {
+    // `featureLabel` prefixes the row, so the sheet reads "Hunter's Prey:
+    // Colossus Slayer" — and the labels differ per level because those are
+    // four different feature names, not because the totem rule forces it. The
+    // Rogue and the Monk each have an Evasion of their own; the prefix is what
+    // keeps this one distinct.
+    const c = ranger(2)
+    const base = draftFor(c, 3, { subclassName: 'Hunter' })
+    const after = applyLevelUp(c, {
+      ...base,
+      picks: { 'hunter-3-prey': ['Colossus Slayer'] },
+    })
+    const row = after.features.find((f) => f.name.startsWith('Hunter’s Prey:'))
+    expect(row?.name).toBe('Hunter’s Prey: Colossus Slayer')
+    // And the rules text rides along from `featureText`, not from nowhere.
+    expect(row?.text).toBeTruthy()
+  })
+
+  it('grants no always-prepared spells at any archetype level', () => {
+    // A Ranger *does* cast, so unlike the Monk case nothing structural stops a
+    // table being authored here — which is exactly why this is asserted from
+    // the level-up side too. The PHB gives Hunter and Beast Master no bonus
+    // spells; a table invented from a Xanathar's conclave would hand the
+    // character free always-prepared spells and every other test would pass.
+    const c = ranger(2)
+    const at3 = applyLevelUp(c, draftFor(c, 3, { subclassName: 'Hunter' }))
+    expect(at3.spells.filter((sp) => sp.alwaysPrepared)).toEqual([])
+    expect(
+      levelUpPlan(c, draftFor(c, 3, { subclassName: 'Beast Master' }))
+        .spellsGranted,
+    ).toEqual([])
+    // And nothing arrives on a later level-up either, which is where
+    // `alwaysPreparedGained` would deliver a second and third row.
+    const at5 = applyLevelUp(at3, draftFor(at3, 5))
+    expect(at5.spells.filter((sp) => sp.alwaysPrepared)).toEqual([])
+  })
+
+  it('offers no counter at any level a ranger reaches', () => {
+    // The class has none and neither archetype adds one — see the note in
+    // subclasses.test.ts for why that is correct rather than an oversight.
+    const c = ranger(1)
+    expect(
+      resourcesOffered(draftFor(c, 20, { subclassName: 'Hunter' })),
+    ).toEqual([])
   })
 })

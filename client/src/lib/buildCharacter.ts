@@ -15,6 +15,7 @@
 import {
   abilityMod,
   emptyCharacter,
+  MAX_RESOURCES,
   proficiencyBonus,
   skillIdFor,
   SKILLS,
@@ -22,6 +23,7 @@ import {
 import type {
   Ability,
   Character,
+  CharacterResource,
   ClassFeature,
   InventoryItem,
   NamedEntry,
@@ -58,7 +60,7 @@ import type {
   PickList,
   SubclassSpells,
 } from './srd'
-import { spellcastingFor } from './tables'
+import { castsAtLevel1, spellcastingFor } from './tables'
 
 /** Ability scores after racial increases, clamped to the parser's 1-30 range. */
 export function finalScores(draft: CharacterDraft): Record<Ability, number> {
@@ -644,12 +646,56 @@ export function buildCharacter(draft: CharacterDraft): {
       ),
       ...c.features,
     ]
+    // Counters the level-1 features imply — a Bard's Bardic Inspiration, a
+    // Paladin's Divine Sense.
+    //
+    // This had no delivery path at all until it was written: `resourcesOffered`
+    // only considers the levels being *gained*, and level 1 is outside every
+    // level-up range because you never gain the level you started at. So a
+    // level-1 `resource` was authored, correct, and reached no sheet ever — the
+    // Bard's had been inert since the day it was written.
+    //
+    // Applied rather than offered, which is the one place this differs from
+    // level-up. There the player ticks a box, because a later feature raising a
+    // counter they have already tuned is a change worth consenting to; at
+    // creation there is nothing to overwrite and no step to ask in, and a blank
+    // sheet missing the counter its own Features tab describes is the worse
+    // failure. The row is editable and deletable, so nothing here is final.
+    //
+    // Same class + subclass pair as the features above, so a level-1 archetype
+    // carrying a counter gets it too.
+    c.resources = [
+      ...featuresUpToLevel(kit.features, 1),
+      ...featuresUpToLevel(subclass?.features ?? [], 1),
+    ]
+      .flatMap((f) => (f.resource ? [f.resource] : []))
+      // First writer wins on a duplicate name, matching `resourcesOffered`'s
+      // one-row-per-name rule and keeping the class's own ahead of an
+      // archetype's.
+      .reduce<Array<CharacterResource>>((rows, offer) => {
+        const key = offer.name.trim().toLowerCase()
+        if (rows.some((r) => r.name.trim().toLowerCase() === key)) return rows
+        return [
+          ...rows,
+          {
+            name: offer.name,
+            used: 0,
+            total: offer.total,
+            ...(offer.resets ? { resets: offer.resets } : {}),
+          },
+        ]
+      }, [])
+      .slice(0, MAX_RESOURCES)
     // Through `spellcastingFor`, never `kit.spellcasting` directly — a subclass
     // may carry its own block, and reading past it leaves a level-1 archetype
     // caster silently non-casting. No SRD class needs this today; a homebrew
     // one can, and the type's own doc comment requires it.
     const sc = spellcastingFor(kit, draft.subclassName)
-    if (sc) {
+    // `castsAtLevel1` rather than `sc` alone: a half caster *has* a block, but
+    // its table starts at 2nd level. Gating on the block's existence would give
+    // a level-1 paladin a spell ability, an empty level-1 slot row and a
+    // prepared limit, all of which are wrong until they actually gain spells.
+    if (sc && castsAtLevel1(kit, draft.subclassName)) {
       c.spellAbility = sc.ability
       c.spellSlots = { 1: { total: sc.slotsAtLevel1, used: 0 } }
       for (const name of draft.cantrips.filter(Boolean)) {
@@ -666,15 +712,21 @@ export function buildCharacter(draft: CharacterDraft): {
           })
         }
       }
-      // The domain table, after the player's own picks so a spell they chose
-      // themselves keeps the row they made — this only appends what is missing.
-      // Deliberately outside `preparedLimit`, which is computed below and never
-      // counts these: `preparedCount` looks at `'prepared'` alone.
-      applySubclassSpells(c, subclass, c.level)
       c.preparedLimit = sc.prepares
         ? Math.max(1, abilityMod(c.abilities[sc.ability]) + c.level)
         : 0
     }
+    // The domain table, after the player's own picks so a spell they chose
+    // themselves keeps the row they made — this only appends what is missing.
+    // Deliberately outside `preparedLimit`, which is computed above and never
+    // counts these: `preparedCount` looks at `'prepared'` alone.
+    //
+    // Outside the caster guard too, and that is the point: an always-prepared
+    // row is granted by the *subclass*, so it does not depend on the class
+    // casting at level 1. No SRD subclass grants one at 1 on a class whose
+    // table starts later, but a homebrew one can, and inside the guard those
+    // rows would vanish without a word.
+    applySubclassSpells(c, subclass, c.level)
   }
 
   // Appended rather than assigned: nothing else populates `feats` at build time
