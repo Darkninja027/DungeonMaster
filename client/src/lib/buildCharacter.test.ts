@@ -1314,6 +1314,80 @@ describe('AC is derived once at creation', () => {
  * creation could ignore subclasses entirely. It did, and a Life Domain cleric
  * built here got Spellcasting, Divine Domain, and nothing else.
  */
+/**
+ * A patron's expanded spell list, which is offered and never granted.
+ *
+ * The behavioural companion to `expandedSpells.test.ts`, which asserts on the
+ * appliers' source text. This one comes at it from the other side: build a
+ * warlock who picked their patron at level 1 and check the sheet holds exactly
+ * what they chose.
+ *
+ * Both assertions matter. "No always-prepared rows" alone would pass for a
+ * wiring that granted the patron's spells as ordinary *prepared* rows, which
+ * is just as wrong — so the stronger claim is that the spell list is precisely
+ * the draft's, with nothing added by any path at all.
+ */
+describe('a patron adds to the spell list, not to the sheet', () => {
+  const warlock = (subclassName: string) =>
+    buildCharacter({
+      ...emptyDraft(SRD_TABLES),
+      name: 'Probe',
+      className: 'Warlock',
+      subclassName,
+      raceName: 'Human',
+      backgroundName: 'Acolyte',
+      cantrips: ['Eldritch Blast', 'Minor Illusion'],
+      spells: ['Hex', 'Armor of Agathys'],
+    }).character
+
+  it('grants a Fiend warlock nothing they did not choose', () => {
+    // The Fiend's list offers burning hands and command at 1st. Neither is
+    // here, because the warlock spent their two spells known elsewhere — and
+    // spending them elsewhere is exactly what makes the list a choice.
+    const c = warlock('The Fiend')
+    expect(c.spells.filter((s) => s.alwaysPrepared)).toEqual([])
+    expect(c.spells.map((s) => s.name).sort()).toEqual(
+      ['Armor of Agathys', 'Eldritch Blast', 'Hex', 'Minor Illusion'].sort(),
+    )
+  })
+
+  it('keeps a patron spell ordinary when they do choose it', () => {
+    // Taking one costs a spell known and writes a plain row: no
+    // `alwaysPrepared`, so `spellState` shows it like any other spell and the
+    // sheet makes no claim about where it came from — because there is none to
+    // make. It is a warlock spell they learned.
+    const c = buildCharacter({
+      ...emptyDraft(SRD_TABLES),
+      name: 'Probe',
+      className: 'Warlock',
+      subclassName: 'The Fiend',
+      raceName: 'Human',
+      backgroundName: 'Acolyte',
+      cantrips: ['Eldritch Blast'],
+      spells: ['Burning Hands'],
+    }).character
+    const burning = c.spells.find((s) => s.name === 'Burning Hands')
+    expect(burning).toBeDefined()
+    expect(burning?.alwaysPrepared).toBeUndefined()
+    expect(burning?.level).toBe(1)
+  })
+
+  it('leaves the prepared limit alone for every patron', () => {
+    // A warlock does not prepare, so `preparedLimit` is 0 — and an expanded
+    // list must not disturb that. If patron spells ever arrived as
+    // always-prepared rows they would be exempt from a limit that does not
+    // exist, which is precisely the confusion the separate field prevents.
+    for (const name of ['The Archfey', 'The Fiend', 'The Great Old One']) {
+      const c = warlock(name)
+      expect(c.preparedLimit, name).toBe(0)
+      expect(
+        c.spells.some((s) => s.alwaysPrepared),
+        name,
+      ).toBe(false)
+    }
+  })
+})
+
 describe('counters a level-1 feature implies', () => {
   const build = (className: string, subclassName = '') =>
     buildCharacter({

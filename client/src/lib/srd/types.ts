@@ -602,6 +602,42 @@ export interface SubclassInfo {
    * level-up wizard reads `grantedAt` for that.
    */
   spells?: Array<SubclassSpells>
+  /**
+   * A patron's **expanded spell list** — spells added to the class list you may
+   * learn from, not spells you are given.
+   *
+   * The Warlock's patrons are the reason this exists, and the distinction is
+   * the whole point of the field. "The Fiend lets you choose burning hands and
+   * command as warlock spells" is not the sentence `spells` above says. A
+   * domain spell is handed over; a patron spell is merely *offered*, and the
+   * warlock still spends one of their very scarce `spellsKnown` to learn it —
+   * gaining nothing at all if they spend it elsewhere. Modelled as `spells`, a
+   * 1st-level Fiend warlock would be handed two free spells on top of the two
+   * they choose, doubling the scarcest resource the class has.
+   *
+   * So this is **not** `Array<SubclassSpells>` and must never become one.
+   * `SubclassSpells` carries `grantedAt` because it is *applied*:
+   * `applySubclassSpells` and `alwaysPreparedGained` compare it against the
+   * character's level to decide what to write onto the sheet. Nothing here is
+   * ever written anywhere. Keyed by **spell level** alone, because the only
+   * consumer is a picker already filtered to the levels the character has
+   * slots for — a patron's 3rd-level spells and a warlock's 3rd-level slots
+   * arrive at the same character level by construction, so a `grantedAt` here
+   * would be a second copy of a rule the slot table already states, free to
+   * drift from it and silent when it does.
+   *
+   * **Contract: suggestion-only. No applier reads this field.** Its one reader
+   * is `expandedSpellsFor` in lib/tables.ts, whose only callers are the two
+   * spells steps' pickers. A name here reaches `Character.spells` solely by the
+   * player choosing it, at which point it is an ordinary known spell and
+   * nothing marks it otherwise. `buildCharacter.ts` and `levelUp.ts` do not
+   * mention this field, and `expandedSpells.test.ts` asserts they never will.
+   *
+   * Level 0 is meaningless here — no published expanded list holds a cantrip —
+   * but a homebrew author can write one, so the lookup handles the key rather
+   * than assuming it absent.
+   */
+  expandedSpells?: Record<number, Array<string>>
   /** Rare, but real: Life Domain's heavy armor, Valor Bard's martial weapons. */
   grant?: Grant
   /**

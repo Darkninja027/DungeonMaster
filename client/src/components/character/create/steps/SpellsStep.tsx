@@ -2,7 +2,13 @@ import { X } from 'lucide-react'
 import { useSpellSuggestions } from '#/lib/useGlobalLibrary'
 import type { CharacterDraft } from '#/lib/characterDraft'
 import { draftKit } from '#/lib/characterDraft'
-import { castsAtLevel1, spellcastingFor, spellListClass } from '#/lib/tables'
+import {
+  castsAtLevel1,
+  expandedSpellsFor,
+  spellcastingFor,
+  spellListClass,
+} from '#/lib/tables'
+import { cn } from '#/lib/utils'
 import { Combobox } from '#/components/ui/combobox'
 
 /**
@@ -46,6 +52,11 @@ export function SpellsStep({
     spellListClass(kit, draft.subclassName),
   )
 
+  // The patron's expanded list at 1st level, for a class that picks its
+  // archetype at creation. Empty for every other class and every other level,
+  // so the block below simply doesn't render.
+  const expandedAt1 = expandedSpellsFor(kit, draft.subclassName, 1)
+
   // Belt and braces: `stepsFor` already keeps this step off the list for a
   // half caster, but the step router could be pointed here directly, and a
   // block whose table starts at 2 would otherwise render "0 level 1 slots".
@@ -80,6 +91,14 @@ export function SpellsStep({
           count={sc.spellsKnown}
           values={draft.spells}
           suggestions={suggestionsFor(1)}
+          expanded={
+            expandedAt1.length > 0
+              ? {
+                  label: `${draft.subclassName} adds to your spell list`,
+                  names: expandedAt1,
+                }
+              : undefined
+          }
           onChange={(spells) => onChange({ ...draft, spells })}
         />
       )}
@@ -105,12 +124,19 @@ export function SpellList({
   count,
   values,
   suggestions,
+  expanded,
   onChange,
 }: {
   label: string
   count: number
   values: Array<string>
   suggestions: Array<string>
+  /**
+   * A subclass's expanded spell list — patron spells, offered as one-click
+   * chips above the picker rather than blended into its suggestions. Absent
+   * for every class that has no such list, which is nearly all of them.
+   */
+  expanded?: { label: string; names: Array<string> }
   onChange: (next: Array<string>) => void
 }) {
   const filled = values.filter(Boolean)
@@ -155,6 +181,15 @@ export function SpellList({
           </span>
         ))}
       </div>
+      {expanded && (
+        <ExpandedSpellOffer
+          label={expanded.label}
+          names={expanded.names}
+          chosen={filled}
+          disabled={full}
+          onAdd={add}
+        />
+      )}
       {!full && (
         <Combobox
           id={listId}
@@ -164,6 +199,85 @@ export function SpellList({
           className="h-7 max-w-sm text-sm"
         />
       )}
+    </div>
+  )
+}
+
+/**
+ * A patron's expanded spell list, as one-click additions to the picker below.
+ *
+ * Not merged into the `Combobox`'s options, for two reasons that between them
+ * rule the merge out. The names would be indistinguishable from the library's
+ * own suggestions — a warlock offered Burning Hands has no way to learn *why*,
+ * and "because your patron is the Fiend" is the most useful thing the app can
+ * say at that moment. And `Combobox` reorders its options by prefix match on
+ * every keystroke, so no ordering convention here could survive typing.
+ *
+ * Chips rather than a second `Combobox` because the list is short and fixed —
+ * two names per spell level — so there is nothing to search, and a picker over
+ * four items is more clicks than the items are worth.
+ *
+ * These bypass `filterSpells` entirely, which is the point: a world whose
+ * `Spells/` folder holds no Burning Hands article must still offer it, because
+ * the patron is the authority on what it grants access to.
+ *
+ * Adding one calls the *same* `onAdd` the `Combobox` does, so a patron spell
+ * lands as a perfectly ordinary known spell and spends from the same count.
+ * Nothing marks it as patron-derived on the sheet, because nothing is: it is a
+ * warlock spell you learned.
+ */
+function ExpandedSpellOffer({
+  label,
+  names,
+  chosen,
+  disabled,
+  onAdd,
+}: {
+  /** e.g. "The Fiend adds to your spell list". */
+  label: string
+  names: Array<string>
+  /** Names already on the list, so a taken one reads as taken. */
+  chosen: Array<string>
+  /** True when the list above is full — nothing more can be added. */
+  disabled: boolean
+  onAdd: (name: string) => void
+}) {
+  if (names.length === 0) return null
+  const taken = new Set(chosen.map((n) => n.trim().toLowerCase()))
+  return (
+    <div className="space-y-1">
+      <span className="text-muted-foreground text-xs">{label}</span>
+      <div className="flex flex-wrap gap-1.5">
+        {names.map((name) => {
+          const have = taken.has(name.trim().toLowerCase())
+          return (
+            <button
+              key={name}
+              type="button"
+              disabled={have || disabled}
+              onClick={() => onAdd(name)}
+              className={cn(
+                'rounded-full border border-dashed px-2.5 py-1 text-xs',
+                have || disabled
+                  ? 'text-muted-foreground opacity-60'
+                  : 'hover:bg-accent',
+              )}
+            >
+              {name}
+              {have && ' ✓'}
+            </button>
+          )
+        })}
+      </div>
+      {/*
+        The load-bearing sentence of this whole feature. The level-up step
+        renders an always-prepared block reading "they don't count against how
+        many spells you can prepare" — these two must not read alike, because
+        the difference between them is the entire mechanism.
+      */}
+      <p className="text-muted-foreground text-xs">
+        Always available to you, but you still spend a choice to learn one.
+      </p>
     </div>
   )
 }

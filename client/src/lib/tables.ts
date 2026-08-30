@@ -545,6 +545,44 @@ export function spellListClass(
 }
 
 /**
+ * Shared empty, so a subclass with no expanded list doesn't hand a picker a
+ * fresh array on every render and defeat the `useMemo` it feeds.
+ */
+const EMPTY_NAMES: Array<string> = []
+
+/**
+ * A subclass's expanded spell list at one spell level — the patron spells a
+ * warlock may *choose*, as against `SubclassInfo.spells`, which are handed over.
+ *
+ * The only reader of `SubclassInfo.expandedSpells` in the app, and a named
+ * function rather than an inline `findSubclass(...)?.expandedSpells?.[n]` at
+ * each picker precisely so the field has one call site to audit: grep the field
+ * and you find this and its contract, grep this and you find the two spells
+ * steps. An inline read is one copy-paste away from appearing inside an
+ * applier, which is the one thing the field must never do.
+ *
+ * Name in, empty out, like every lookup here. An unknown kit, an unknown
+ * archetype, a subclass with no expanded list and a spell level the list does
+ * not cover are all the same answer, and none is an error — most subclasses
+ * have no expanded list at all. Level 0 falls out naturally: no published list
+ * holds a cantrip, so the key is simply absent.
+ *
+ * Names come back **verbatim, never filtered against the spell library**. That
+ * is the point — a world whose `Spells/` folder has never heard of Burning
+ * Hands must still offer it to a Fiend warlock, because the patron is the
+ * authority on what it grants access to and the library is not.
+ */
+export function expandedSpellsFor(
+  kit: ClassKit | undefined,
+  subclassName: string,
+  spellLevel: number,
+): Array<string> {
+  return (
+    findSubclass(kit, subclassName)?.expandedSpells?.[spellLevel] ?? EMPTY_NAMES
+  )
+}
+
+/**
  * The character level at which a class chooses its subclass.
  *
  * Resolves the two fields that can say it: `subclassLevel` when a file or table

@@ -1,3 +1,4 @@
+import { useMemo } from 'react'
 import { Dices } from 'lucide-react'
 import { abilityMod } from '#/lib/character'
 import type { Ability, Character } from '#/lib/character'
@@ -25,7 +26,7 @@ import {
   levelsGained,
   slotsAtLevel,
 } from '#/lib/levelUp'
-import { findFeat, spellListClass } from '#/lib/tables'
+import { expandedSpellsFor, findFeat, spellListClass } from '#/lib/tables'
 import { useSpellSuggestions } from '#/lib/useGlobalLibrary'
 import { PickListGroup } from '../create/PickListGroup'
 import { SpellList } from '../create/steps/SpellsStep'
@@ -674,19 +675,44 @@ export function SpellsStep({
    * lands at Apply. Typing one anyway is still harmless, since the commit
    * de-dupes; this just stops the list inviting it.
    */
-  const offer = (level: number, upTo = false) => {
-    const have = new Set([
-      ...character.spells.map((sp) => sp.name.trim().toLowerCase()),
-      ...spellsGranted.map((sp) => sp.name.trim().toLowerCase()),
-      // Domain spells too — they land at Apply like the archetype's grant, and
-      // spending a choice on one you are about to be given anyway is the same
-      // waste.
-      ...alwaysPreparedGained.map((sp) => sp.name.trim().toLowerCase()),
-    ])
-    return suggestionsFor(level, upTo).filter(
+  const have = useMemo(
+    () =>
+      new Set([
+        ...character.spells.map((sp) => sp.name.trim().toLowerCase()),
+        ...spellsGranted.map((sp) => sp.name.trim().toLowerCase()),
+        // Domain spells too — they land at Apply like the archetype's grant,
+        // and spending a choice on one you are about to be given anyway is the
+        // same waste.
+        ...alwaysPreparedGained.map((sp) => sp.name.trim().toLowerCase()),
+      ]),
+    [character.spells, spellsGranted, alwaysPreparedGained],
+  )
+  const offer = (level: number, upTo = false) =>
+    suggestionsFor(level, upTo).filter(
       (name) => !have.has(name.trim().toLowerCase()),
     )
-  }
+
+  /**
+   * The patron's expanded list across every spell level this character has
+   * slots for, minus what they already have.
+   *
+   * Unioned across levels rather than read at the highest, for the same reason
+   * `offer(highestSpellLevel, true)` is a ceiling rather than an exact match: a
+   * 5th-level Fiend warlock may still learn Burning Hands, and a list showing
+   * only their 3rd-level patron spells would quietly say otherwise.
+   *
+   * Filtered by the same `have` set the picker uses, so a patron spell already
+   * on the sheet reads as gone rather than as a fresh offer.
+   */
+  const expandedOffer = useMemo(() => {
+    const out: Array<string> = []
+    for (let level = 1; level <= highestSpellLevel; level += 1) {
+      for (const name of expandedSpellsFor(draft.kit, castingAs, level)) {
+        if (!have.has(name.trim().toLowerCase())) out.push(name)
+      }
+    }
+    return [...new Set(out)]
+  }, [draft.kit, castingAs, highestSpellLevel, have])
 
   return (
     <div className="space-y-4">
@@ -810,6 +836,14 @@ export function SpellsStep({
               count={spellsToPick}
               values={draft.spells}
               suggestions={offer(highestSpellLevel, true)}
+              expanded={
+                expandedOffer.length > 0
+                  ? {
+                      label: `${castingAs} adds to your spell list`,
+                      names: expandedOffer,
+                    }
+                  : undefined
+              }
               onChange={(spells) => onChange({ ...draft, spells })}
             />
           )}

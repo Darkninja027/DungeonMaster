@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
 
 import type { PickList } from '#/lib/srd'
+import { SRD_CLASS_KITS } from '#/lib/srd'
 import { PickListGroup } from './PickListGroup'
 
 /**
@@ -123,5 +124,77 @@ describe('a closed feature pick', () => {
     ].map((o) => o.text)
     expect(labels).toContain('Bear')
     expect(labels).not.toContain('Other…')
+  })
+})
+
+/**
+ * The warlock's invocations, rendered from the **real table** rather than a
+ * fixture.
+ *
+ * They were prose until a player pointed out there was no way to choose them,
+ * and they are the class's defining choice — so this asserts the authored data
+ * actually reaches a control the player can answer. A fixture would prove the
+ * component works and say nothing about whether `INVOCATION_PICK` produces
+ * something it can render.
+ *
+ * The level-2 pick is the interesting one: `count: 2` is the only place in the
+ * game where one feature pick asks twice at once.
+ */
+describe('the warlock’s eldritch invocations, from the real table', () => {
+  const warlock = SRD_CLASS_KITS.find((k) => k.name === 'Warlock')!
+  const pickAt = (level: number) =>
+    warlock.features.find(
+      (f) => f.level === level && f.name.startsWith('Eldritch Invocations'),
+    )!.picks![0]
+
+  it('renders two selects at 2nd level, because two are learned at once', () => {
+    render(<Harness pick={pickAt(2)} />)
+    expect(screen.getAllByRole('combobox')).toHaveLength(2)
+  })
+
+  it('offers every authored invocation as a real option', () => {
+    render(<Harness pick={pickAt(2)} />)
+    const first = screen.getAllByRole('combobox')[0]
+    const labels = [...first.querySelectorAll('option')].map(
+      (o) => o.textContent,
+    )
+    for (const name of pickAt(2).options) {
+      expect(labels, name).toContain(name)
+    }
+    // Plus "Choose…" and the open-pick escape hatch.
+    expect(labels).toContain('Other…')
+  })
+
+  it('shows the summary once an invocation is chosen', () => {
+    // The only place a prerequisite is ever stated to the player, since nothing
+    // enforces one — so it has to actually render.
+    render(<Harness pick={pickAt(2)} />)
+    const first = screen.getAllByRole('combobox')[0]
+    fireEvent.change(first, { target: { value: 'Agonizing Blast' } })
+    expect(screen.getByText(/eldritch blast/i)).toBeTruthy()
+  })
+
+  it('stops the same invocation being taken in both slots', () => {
+    // An invocation cannot be learned twice, and the shared `featureLabel` is
+    // what makes `applyFeaturePick` de-dupe. This is the UI half of that.
+    render(<Harness pick={pickAt(2)} />)
+    const [first, second] = screen.getAllByRole('combobox')
+    fireEvent.change(first, { target: { value: 'Devil’s Sight' } })
+    const dupe = [...second.querySelectorAll('option')].find(
+      (o) => o.getAttribute('value') === 'Devil’s Sight',
+    )!
+    expect(dupe.hasAttribute('disabled')).toBe(true)
+    expect(dupe.textContent).toContain('already chosen')
+  })
+
+  it('lets a later book’s invocation be typed in', () => {
+    // `open: true`: Xanathar's and Tasha's each add more and this repo ships
+    // neither.
+    render(<Harness pick={pickAt(5)} />)
+    const first = screen.getAllByRole('combobox')[0]
+    fireEvent.change(first, { target: { value: '__other__' } })
+    const box = screen.getByPlaceholderText('Type your own…')
+    fireEvent.change(box, { target: { value: 'Eldritch Smite' } })
+    expect(screen.getByTestId('chosen').textContent).toBe('Eldritch Smite')
   })
 })

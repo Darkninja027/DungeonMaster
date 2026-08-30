@@ -796,6 +796,37 @@ function parseSubclassSpells(raw: unknown): Array<SubclassSpells> {
 }
 
 /**
+ * A subclass's expanded spell list — patron spells, keyed by spell level.
+ *
+ * A different shape from `parseSubclassSpells` above, and deliberately so:
+ * no `grantedAt`, because nothing here is ever granted. See the field's own
+ * note in srd/types.ts for why the two must not be unified.
+ *
+ * Tolerant in this file's usual way — a key that is not a spell level, or a
+ * row that cleans down to nothing, costs you that row and nothing else.
+ * `undefined` rather than `{}` when empty, so `isBareSubclass` still
+ * recognises a subclass carrying none.
+ */
+function parseExpandedSpells(
+  raw: unknown,
+): Record<number, Array<string>> | undefined {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+    return undefined
+  }
+  const out: Record<number, Array<string>> = {}
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    const level = Number(key)
+    // Spell levels, 1-9. A cantrip key is meaningless on an expanded list and
+    // a non-numeric one is a hand-edit typo; both drop rather than throw.
+    if (!Number.isInteger(level) || level < 1 || level > 9) continue
+    const names = cleanList(strList(value))
+    if (names.length === 0) continue
+    out[level] = names
+  }
+  return Object.keys(out).length > 0 ? out : undefined
+}
+
+/**
  * Subclasses, from either shape on disk.
  *
  * **This is the compatibility boundary.** Every file written before subclasses
@@ -845,6 +876,11 @@ export function parseSubclasses(
     if (summary !== '') sub.summary = summary
     const spells = parseSubclassSpells(r.spells)
     if (spells.length > 0) sub.spells = spells
+    // A patron's expanded list. Same trap as `spellcasting` below — the
+    // serializer spreads the whole object, so this was written and never read
+    // back until it was parsed here.
+    const expandedSpells = parseExpandedSpells(r.expandedSpells)
+    if (expandedSpells) sub.expandedSpells = expandedSpells
     if (r.grant !== undefined) {
       // Namespaced by owner: two classes can both have a "Hunter" subclass, and
       // `parsePickList` builds globally-unique pick ids from this.
@@ -868,9 +904,7 @@ export function parseSubclasses(
  * owner on the way in, so writing it back would create a second source of
  * truth that a hand-edit could contradict.
  */
-function serializeFeatures(
-  features: Array<ClassFeatureInfo>,
-): Array<unknown> {
+function serializeFeatures(features: Array<ClassFeatureInfo>): Array<unknown> {
   return features.map(({ picks, ...rest }) => ({
     ...rest,
     ...(picks && {
@@ -978,6 +1012,7 @@ export function isBareSubclass(sub: SubclassInfo): boolean {
     sub.features.length === 0 &&
     sub.summary === undefined &&
     sub.spells === undefined &&
+    sub.expandedSpells === undefined &&
     sub.grant === undefined &&
     sub.spellcasting === undefined
   )

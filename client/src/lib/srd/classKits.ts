@@ -163,6 +163,245 @@ function FIGHTING_STYLE_PICK(owner: string, only?: Array<string>): PickList {
 }
 
 /**
+ * The warlock's Eldritch Invocations, as a real choice.
+ *
+ * These work the way a Fighting Style does — a menu whose answer is a feature
+ * row — and they were prose until a player pointed out that picking them is
+ * most of what makes one warlock differ from another. A factory for the same
+ * reason `FIGHTING_STYLE_PICK` and `ELEMENT_PICK` are: the class poses this
+ * question at seven levels and pick ids share one global keyspace, so the id
+ * carries the level.
+ *
+ * **Prerequisites are modelled by narrowing the option list**, exactly as Way
+ * of the Four Elements does, with no runtime gate anywhere. Two kinds narrow:
+ *
+ * - A **level** prerequisite. Errata is explicit that this is your *warlock*
+ *   level rather than your character level, which this app has no way to know
+ *   for a multiclassed character — so `INVOCATIONS_AT` is keyed by the level
+ *   the level-up wizard is offering, and a multiclassed warlock may be offered
+ *   one a book would deny them. Free text on a hand-editable sheet is the
+ *   answer to that, as everywhere else here.
+ * - A **pact boon** prerequisite. Those five are deliberately offered from the
+ *   level their boon can first exist (3rd, when Pact Boon is chosen) rather
+ *   than being filtered by which boon the character actually took: the pick
+ *   would have to read another pick's answer, which no `PickList` can do. The
+ *   summary names the required boon, so the sheet says what the table cannot
+ *   enforce — the same bargain `prerequisite` on a feat makes, shown and never
+ *   checked.
+ *
+ * **`open: true`**, because Xanathar's and Tasha's each add more and a table
+ * this app does not ship should still be typeable. The cost is that two
+ * srd.test invariants skip an open pick — the option-count rule and
+ * `featureText` completeness — so `classKits.test.ts` checks both by hand.
+ *
+ * **The label is shared across every level, and that is load-bearing.** An
+ * invocation cannot be taken twice, so one shared "Eldritch Invocation" label
+ * is what lets `grantedAlreadyAt` grey out one already learned: it matches what
+ * is on the sheet by the row name a pick would write. Battle Master's
+ * manoeuvres and the Four Elements disciplines are the precedent; Totem Warrior
+ * is the *inverse* case, and copying it here would let a player learn Devil's
+ * Sight twice and silently swallow the second row.
+ *
+ * Summaries are one line in our own words, the rule the whole folder follows.
+ * Nothing here computes: taking Agonizing Blast writes a row saying what it
+ * does, and the damage it adds is the player's own arithmetic — `Grant` has no
+ * way to say "add your Charisma modifier to one cantrip's damage".
+ */
+const INVOCATION_TEXT: Record<string, string> = {
+  'Agonizing Blast':
+    'Add your Charisma modifier to the damage of each eldritch blast beam that hits. Requires the eldritch blast cantrip.',
+  'Armor of Shadows':
+    'Cast mage armor on yourself at will, without a slot or material components.',
+  'Ascendant Step':
+    'Cast levitate on yourself at will, without a slot or material components.',
+  'Beast Speech': 'Cast speak with animals at will, without a slot.',
+  'Beguiling Influence':
+    'You gain proficiency in the Deception and Persuasion skills.',
+  'Bewitching Whispers':
+    'Cast compulsion once using a warlock slot, regaining the use on a long rest.',
+  'Book of Ancient Secrets':
+    'Inscribe two 1st-level ritual spells from any class’s list in your Book of Shadows and cast them as rituals, adding more rituals you find. Requires Pact of the Tome.',
+  'Chains of Carceri':
+    'Cast hold monster at will on a celestial, fiend or elemental without a slot, once per creature until you finish a long rest. Requires Pact of the Chain.',
+  'Devil’s Sight':
+    'You see normally in darkness, magical or not, out to 120 feet.',
+  'Dreadful Word':
+    'Cast confusion once using a warlock slot, regaining the use on a long rest.',
+  'Eldritch Sight': 'Cast detect magic at will, without a slot.',
+  'Eldritch Spear':
+    'Your eldritch blast reaches 300 feet. Requires the eldritch blast cantrip.',
+  'Eyes of the Rune Keeper': 'You can read any writing.',
+  'Fiendish Vigor':
+    'Cast false life on yourself at will as a 1st-level spell, without a slot or material components.',
+  'Gaze of Two Minds':
+    'Touch a willing humanoid to perceive through its senses until the end of your next turn, extendable while you remain on the same plane — but you are blind and deaf to your own surroundings meanwhile.',
+  Lifedrinker:
+    'Your pact weapon deals extra necrotic damage equal to your Charisma modifier, minimum 1. Requires Pact of the Blade.',
+  'Mask of Many Faces': 'Cast disguise self at will, without a slot.',
+  'Master of Myriad Forms': 'Cast alter self at will, without a slot.',
+  'Minions of Chaos':
+    'Cast conjure elemental once using a warlock slot, regaining the use on a long rest.',
+  'Mire the Mind':
+    'Cast slow once using a warlock slot, regaining the use on a long rest.',
+  'Misty Visions':
+    'Cast silent image at will, without a slot or material components.',
+  'One with Shadows':
+    'In dim light or darkness, become invisible as an action until you move or take an action or reaction.',
+  'Otherworldly Leap':
+    'Cast jump on yourself at will, without a slot or material components.',
+  'Repelling Blast':
+    'When eldritch blast hits, push the creature up to 10 feet away in a straight line. Requires the eldritch blast cantrip.',
+  'Sculptor of Flesh':
+    'Cast polymorph once using a warlock slot, regaining the use on a long rest.',
+  'Sign of Ill Omen':
+    'Cast bestow curse once using a warlock slot, regaining the use on a long rest.',
+  'Thief of Five Fates':
+    'Cast bane once using a warlock slot, regaining the use on a long rest.',
+  'Thirsting Blade':
+    'You attack twice, not once, when you take the Attack action with your pact weapon. Requires Pact of the Blade.',
+  'Visions of Distant Realms': 'Cast arcane eye at will, without a slot.',
+  'Voice of the Chain Master':
+    'Communicate telepathically with your familiar, perceive through its senses and speak through it, anywhere on the same plane. Requires Pact of the Chain.',
+  'Whispers of the Grave': 'Cast speak with dead at will, without a slot.',
+  'Witch Sight':
+    'You see the true form of any shapechanger or creature concealed by illusion or transmutation within 30 feet and in line of sight.',
+}
+
+/** No prerequisite at all — offered from 2nd, when invocations begin. */
+const INVOCATIONS_OPEN = [
+  'Armor of Shadows',
+  'Beast Speech',
+  'Beguiling Influence',
+  'Devil’s Sight',
+  'Eldritch Sight',
+  'Eyes of the Rune Keeper',
+  'Fiendish Vigor',
+  'Gaze of Two Minds',
+  'Mask of Many Faces',
+  'Misty Visions',
+  'Thief of Five Fates',
+  // The three requiring the eldritch blast cantrip. Offered from 2nd because a
+  // warlock who did not take eldritch blast is vanishingly rare and the summary
+  // names the requirement — the same shown-not-checked bargain a feat's
+  // `prerequisite` makes.
+  'Agonizing Blast',
+  'Eldritch Spear',
+  'Repelling Blast',
+]
+
+/** Requires a pact boon, which is chosen at 3rd — so offered from 3rd. */
+const INVOCATIONS_PACT = [
+  'Book of Ancient Secrets',
+  'Voice of the Chain Master',
+]
+
+/**
+ * Invocations offered at each level a warlock may learn or replace one.
+ *
+ * Cumulative by construction: each level's list is the previous one plus what
+ * its prerequisites newly allow. The shared `featureLabel` greys out anything
+ * already on the sheet, so re-offering the whole list is what lets a player see
+ * their earlier choices rather than having them silently disappear.
+ */
+const INVOCATIONS_AT: Record<number, Array<string>> = {
+  2: [...INVOCATIONS_OPEN],
+  // Pact boon lands at 3rd, and with it the two boon-only invocations.
+  3: [...INVOCATIONS_OPEN, ...INVOCATIONS_PACT],
+  5: [
+    ...INVOCATIONS_OPEN,
+    ...INVOCATIONS_PACT,
+    'Mire the Mind',
+    'One with Shadows',
+    'Sign of Ill Omen',
+    'Thirsting Blade',
+  ],
+  7: [
+    ...INVOCATIONS_OPEN,
+    ...INVOCATIONS_PACT,
+    'Mire the Mind',
+    'One with Shadows',
+    'Sign of Ill Omen',
+    'Thirsting Blade',
+    'Bewitching Whispers',
+    'Dreadful Word',
+    'Sculptor of Flesh',
+  ],
+  9: [
+    ...INVOCATIONS_OPEN,
+    ...INVOCATIONS_PACT,
+    'Mire the Mind',
+    'One with Shadows',
+    'Sign of Ill Omen',
+    'Thirsting Blade',
+    'Bewitching Whispers',
+    'Dreadful Word',
+    'Sculptor of Flesh',
+    'Ascendant Step',
+    'Minions of Chaos',
+    'Otherworldly Leap',
+    'Whispers of the Grave',
+  ],
+  12: [
+    ...INVOCATIONS_OPEN,
+    ...INVOCATIONS_PACT,
+    'Mire the Mind',
+    'One with Shadows',
+    'Sign of Ill Omen',
+    'Thirsting Blade',
+    'Bewitching Whispers',
+    'Dreadful Word',
+    'Sculptor of Flesh',
+    'Ascendant Step',
+    'Minions of Chaos',
+    'Otherworldly Leap',
+    'Whispers of the Grave',
+    'Lifedrinker',
+  ],
+  15: [
+    ...INVOCATIONS_OPEN,
+    ...INVOCATIONS_PACT,
+    'Mire the Mind',
+    'One with Shadows',
+    'Sign of Ill Omen',
+    'Thirsting Blade',
+    'Bewitching Whispers',
+    'Dreadful Word',
+    'Sculptor of Flesh',
+    'Ascendant Step',
+    'Minions of Chaos',
+    'Otherworldly Leap',
+    'Whispers of the Grave',
+    'Lifedrinker',
+    'Chains of Carceri',
+    'Master of Myriad Forms',
+    'Visions of Distant Realms',
+    'Witch Sight',
+  ],
+}
+// 18th offers everything 15th does — no invocation has an 18th-level
+// prerequisite, but a warlock still learns one there.
+INVOCATIONS_AT[18] = [...INVOCATIONS_AT[15]]
+
+/**
+ * One invocation choice, at the level it is made.
+ *
+ * `count` is 2 only at 2nd level, where a warlock learns their first two at
+ * once; every later level grants exactly one more.
+ */
+function INVOCATION_PICK(level: number, count = 1): PickList {
+  return {
+    id: `warlock-${level}-invocation`,
+    kind: 'feature',
+    label: count === 2 ? 'Choose two invocations' : 'Choose an invocation',
+    count,
+    options: INVOCATIONS_AT[level],
+    open: true,
+    featureLabel: 'Eldritch Invocation',
+    featureText: INVOCATION_TEXT,
+  }
+}
+
+/**
  * The Battle Master's manoeuvres, as a real choice.
  *
  * A factory for the same reason Fighting Style is one: the archetype learns
@@ -3212,17 +3451,125 @@ export const SRD_CLASS_KITS: Array<ClassKit> = [
       {
         level: 2,
         name: 'Eldritch Invocations',
-        text: 'You learn two invocations of your choice, gaining more and being able to replace them as you level.',
+        text: 'Fragments of forbidden knowledge that reshape what your pact can do. You learn two, and can replace one whenever you gain a warlock level.',
+        picks: [INVOCATION_PICK(2, 2)],
+      },
+      {
+        level: 5,
+        name: 'Eldritch Invocations (3)',
+        text: 'You learn a third invocation. Some now open to you require a warlock level you have only just reached.',
+        picks: [INVOCATION_PICK(5)],
+      },
+      {
+        level: 7,
+        name: 'Eldritch Invocations (4)',
+        text: 'You learn a fourth invocation.',
+        picks: [INVOCATION_PICK(7)],
+      },
+      {
+        level: 9,
+        name: 'Eldritch Invocations (5)',
+        text: 'You learn a fifth invocation.',
+        picks: [INVOCATION_PICK(9)],
+      },
+      {
+        level: 12,
+        name: 'Eldritch Invocations (6)',
+        text: 'You learn a sixth invocation.',
+        picks: [INVOCATION_PICK(12)],
+      },
+      {
+        level: 15,
+        name: 'Eldritch Invocations (7)',
+        text: 'You learn a seventh invocation.',
+        picks: [INVOCATION_PICK(15)],
+      },
+      {
+        level: 18,
+        name: 'Eldritch Invocations (8)',
+        text: 'You learn an eighth invocation.',
+        picks: [INVOCATION_PICK(18)],
       },
       {
         level: 3,
         name: 'Pact Boon',
-        text: 'Your patron bestows a gift: the Pact of the Chain, Blade or Tome.',
+        text: 'Your patron bestows a gift, and the choice is permanent.',
+        // Closed, and no per-level `featureLabel` dance: the boon is chosen
+        // once and never repeats, so nothing can ever grey out — the Dragon
+        // Ancestor precedent rather than the Totem Warrior one.
+        //
+        // Three options, not the five dnd5e.wikidot lists: Pact of the
+        // Talisman is Tasha's and the Star Chain is Unearthed Arcana, and
+        // neither is PHB. Checked against Roll20 and the SRD, which both list
+        // exactly these three.
+        //
+        // No `featureGrant` on any of them. The Blade's weapon is conjured
+        // rather than owned and its shape changes at will, and the Tome's
+        // three cantrips come from *any* class's list and are explicitly not
+        // warlock spells known — so neither is a number this sheet can hold
+        // honestly.
+        picks: [
+          {
+            id: 'warlock-3-pact-boon',
+            kind: 'feature',
+            label: 'Choose your pact boon',
+            count: 1,
+            options: [
+              'Pact of the Chain',
+              'Pact of the Blade',
+              'Pact of the Tome',
+            ],
+            featureLabel: 'Pact Boon',
+            featureText: {
+              'Pact of the Chain':
+                'You learn find familiar as a ritual and it does not count against your spells known. Your familiar can take the form of an imp, pseudodragon, quasit or sprite, and you can forgo one of your own attacks to let it attack with its reaction.',
+              'Pact of the Blade':
+                'You can create a magical melee weapon in your empty hand as an action, proficient with it whatever it is. It vanishes if it leaves your hands for a minute or if you dismiss it, and you can bond an existing magic weapon to it with an hour-long ritual.',
+              'Pact of the Tome':
+                'Your patron gives you a Book of Shadows holding three cantrips of your choice from any class’s list. You can cast them at will and they do not count against your cantrips known.',
+            },
+          },
+        ],
       },
       {
         level: 11,
-        name: 'Mystic Arcanum',
-        text: 'You gain a 6th-level spell you can cast once per long rest; a 7th at 13th level, an 8th at 15th, a 9th at 17th.',
+        name: 'Mystic Arcanum (6th level)',
+        text: 'You choose a 6th-level spell and can cast it once without a slot, regaining the use on a long rest.',
+        // One counter, for the 6th-level arcanum alone, and the reasoning is
+        // the judgement call of this pass.
+        //
+        // The four arcana are *independent* once-per-long-rest castings rather
+        // than a shared pool of four: a 17th-level warlock has one 6th, one
+        // 7th, one 8th and one 9th, each regained separately. So `total: 4`
+        // would assert a pool that does not exist and let the player spend
+        // four castings of their 9th-level spell. Four separately-named
+        // counters would say it truly, but `MAX_RESOURCES` is 3 and
+        // `resourcesOffered` is one row per name, so they cannot all fit and
+        // three of four would be worse than one honest row.
+        //
+        // What is left is the same call Lay on Hands and the martial arts die
+        // got: ship the one counter the class starts spending, and let the
+        // later arcana be feature rows that say what they are.
+        //
+        // `resets: 'long'` is load-bearing and the easy half to get backwards —
+        // Ki is `'short'` in this same file, and copying it wholesale would
+        // promise a 9th-level spell back every hour.
+        resource: { name: 'Mystic Arcanum (6th)', total: 1, resets: 'long' },
+      },
+      {
+        level: 13,
+        name: 'Mystic Arcanum (7th level)',
+        text: 'You choose a 7th-level spell and can cast it once per long rest, separately from your other arcana.',
+      },
+      {
+        level: 15,
+        name: 'Mystic Arcanum (8th level)',
+        text: 'You choose an 8th-level spell and can cast it once per long rest, separately from your other arcana.',
+      },
+      {
+        level: 17,
+        name: 'Mystic Arcanum (9th level)',
+        text: 'You choose a 9th-level spell and can cast it once per long rest, separately from your other arcana.',
       },
       {
         level: 20,

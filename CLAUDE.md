@@ -226,6 +226,21 @@ deliberately **outside** the `plan.subclassName` branch — that field is null o
 every level-up after the archetype is chosen, so keying off it would deliver the
 first row and silently drop the rest.
 
+**`SubclassInfo.expandedSpells` is the opposite field, and the distinction is
+load-bearing.** A warlock patron's list is *added to the spell list you may
+learn from* — the warlock still spends one of their very scarce `spellsKnown` on
+it — where a domain, oath or circle spell is handed over already prepared.
+Authored as `spells`, a 1st-level Fiend warlock would be given burning hands and
+command free, on top of the two they choose. So it is a separate field, keyed by
+**spell level alone** (no `grantedAt`, because nothing is ever granted), and its
+contract is that **no applier reads it**: the one reader is `expandedSpellsFor`
+in `lib/tables.ts`, called only by the two spells steps' pickers.
+`expandedSpells.test.ts` asserts on the *source text* of `buildCharacter.ts` and
+`levelUp.ts` — a behavioural test would pass for a wiring that granted the
+spells as ordinary `prepared` rows, which is just as wrong and harder to see.
+`isBareSubclass` names it too, or a patron carrying only an expanded list
+serializes back to a bare string.
+
 Related: `needsSubclass` gates on `at <= to`, not `at > from`. The latter asks
 only on the level-up that crosses the threshold, which can never fire for a
 class picking at 1 — a domainless cleric was stuck that way forever. The
@@ -274,7 +289,11 @@ survives it; dropping those silently would be worse than not offering the edit.
 was duplicated in `tables.ts` and `homebrew.ts` once and the copies drifted the
 moment `spellcasting` arrived — one counted it, the other wrote such a subclass
 back as a bare string and lost it. It lives in `homebrew.ts` now, beside its
-most important caller, and `tables.ts` re-exports it.
+most important caller, and `tables.ts` re-exports it. `expandedSpells` was the
+third field to hit this, and the trap generalises: **a new `SubclassInfo` field
+needs three edits, not one** — the type, `parseSubclasses` (which picks fields
+explicitly, while `serializeSubclass` spreads them, so an unparsed field
+survives a save and vanishes on the next load) and `isBareSubclass`.
 
 **Creating one is a wizard; editing one is not.** Add on the Subclasses tab
 opens `SubclassWizard` — class, then name, then features, extras and a review —

@@ -6,20 +6,19 @@ Paste this into a fresh Claude Code context in `c:\Projects\DungeonMaster`.
 
 ## The task
 
-Author per-level subclass features for **one class at a time**. Fighter,
-Rogue, Barbarian, Bard, **Cleric**, **Druid**, **Sorcerer**, **Paladin**,
-**Monk**, **Ranger** and **Wizard** are done. **One class is left**, and it
-ships `features: []` on every subclass:
+**Every class is now authored.** Fighter, Rogue, Barbarian, Bard, Cleric,
+Druid, Sorcerer, Paladin, Monk, Ranger, Wizard and — as of the Warlock pass —
+**Warlock 3/3**. There is no next class.
 
-```
-Warlock 0/3
-```
+This document is kept for its reasoning, which is still the best record of how
+a data pass is done here and of the traps each one found. What remains open is
+listed under "Known gaps" at the end; the Wizard's inert `spellbook.perLevel`
+is the largest and is still its own job.
 
-**The Warlock is not a pure data pass**, and that is the whole reason it is
-last: its patron spell lists are "added to your spell list" rather than always
-prepared, which is a mechanism question that has to be decided before a line of
-data is written. See "The Warlock needs a decision first" below — it is now the
-only thing this document is asking for.
+**The Warlock was not a pure data pass**, and that is why it was last: its
+patron spell lists are "added to your spell list" rather than always prepared.
+That mechanism question is now answered — see "How the Warlock was resolved"
+below.
 
 The Wizard's inert `spellbook.perLevel` gap is still open and still its own
 separate job; the Wizard pass deliberately did not touch it.
@@ -59,27 +58,54 @@ class you are authoring picks at anything other than 3, confirm the kit says so
 — `subclasses.test.ts` will reject a legitimate feature below the declared
 level, and the level-up wizard asks a level late.
 
-For the **Warlock**, the only class left, this is already checked and correct:
-the kit declares `subclassLevel: 1` (and the deprecated `subclassAtLevel1: true`
-beside it, the only kit carrying both). Its features must sit at level >= 1.
+For the **Warlock** this was checked and was already correct: the kit declares
+`subclassLevel: 1` (and the deprecated `subclassAtLevel1: true` beside it, the
+only kit carrying both), so its features sit at level >= 1. Checked first per
+the Druid's lesson — nothing to fix, which is itself the finding worth writing
+down rather than assuming.
 
-Do one class completely, then stop. Do not batch.
+The rule for any future data pass stands: do one class completely, then stop.
 
-### The Warlock needs a decision first
+### How the Warlock was resolved
 
-It looks like the natural next class — it picks at level 1 like the Cleric and
-the Sorcerer — but a patron's **expanded spell list is not always-prepared**. In
-5e those spells are "added to your spell list", i.e. choosable as spells known;
-`applySubclassSpells` writes every `SubclassInfo.spells` row with
-`alwaysPrepared: true` (`buildCharacter.ts`), which is right for a domain, an
-oath and a circle, and wrong here. Authored as-is, a warlock would get ~10 free
-spells they never spent a known-slot on.
+The problem, restated: a patron's **expanded spell list is not always-prepared**.
+Those spells are "added to your spell list", i.e. choosable as spells known,
+while `applySubclassSpells` writes every `SubclassInfo.spells` row with
+`alwaysPrepared: true`. Authored as-is a warlock got ~10 free spells they never
+spent a known-slot on — and at level 1, where a warlock knows *two*, that
+doubles the scarcest resource the class has.
 
-Three options, none of them chosen yet: omit the expanded lists and keep them as
-feature-text reminders; give `SubclassSpells` an opt-out flag and teach both
-appliers about it; or model "added to your list" as suggestions in the picker.
-The first is cheap and honest, the third is probably right. **This is a
-mechanism question, so it is its own pass** — do not slide it into a data one.
+Of the three options this document listed, the **third** was taken: model
+"added to your list" as an offer in the picker. `SubclassInfo.expandedSpells` is
+a new field keyed by spell level, with **no `grantedAt`** — that field exists on
+`SubclassSpells` because it is *applied*, and nothing here ever is. The contract
+is that **no applier reads it**; the single reader is `expandedSpellsFor` in
+`lib/tables.ts`, called only by the two spells steps.
+
+The opt-out flag on `SubclassSpells` was rejected deliberately: it would leave
+one field meaning two opposite things, and a homebrew author who forgot the flag
+would silently grant free always-prepared spells — the exact failure the pass
+existed to prevent.
+
+Three notes for anyone extending this:
+
+- **The guard is a source-text test.** `expandedSpells.test.ts` asserts
+  `buildCharacter.ts` and `levelUp.ts` never contain the string. A behavioural
+  test ("expect no `alwaysPrepared` rows") passes for a wiring that grants the
+  spells as ordinary `prepared` rows, which is just as wrong and harder to spot.
+  Verified to bite by planting the name in a comment.
+- **The UI is a separate labelled block, not merged suggestions.** `Combobox`
+  reorders options by prefix match on every keystroke, so no positional
+  convention survives typing — and a blended name never tells the player *why*
+  it is offered. The chips carry the line "Always available to you, but you
+  still spend a choice to learn one", which must not read like the
+  always-prepared block a hundred lines away in the level-up step.
+- **A new `SubclassInfo` field needs three edits, not one.** The type,
+  `parseSubclasses` and `isBareSubclass`. `serializeSubclass` spreads the whole
+  object, so an unparsed field survives a save and vanishes on the next load;
+  and a subclass whose *only* content is the new field is judged bare and
+  written back as a plain string, losing it outright. `spellcasting` hit this
+  once and `expandedSpells` would have been the third.
 
 ### What the Cleric pass changed (read if you touch creation)
 
@@ -133,7 +159,7 @@ So there are two homes, and `subclasses.test.ts` enforces the split:
 | Monk | Way of the Open Hand | ” |
 | Paladin | Oath of Devotion | ” |
 | Ranger | Hunter | ” |
-| Warlock | The Fiend | ” |
+| Warlock | The Fiend — **published tier**, like the Sorcerer's | ” |
 | Wizard | School of Evocation — **published tier**, like the Sorcerer's | ” |
 
 **Being the SRD one does not oblige you to author it in `lib/srd/`.** The
@@ -171,8 +197,9 @@ sheet has been where every real bug hid.
 at level 1, and the creation path used to ignore subclasses entirely. The Cleric
 pass built that mechanism and the Sorcerer pass confirmed it holds for a second
 class without a line of new mechanism — see "What the Cleric pass changed"
-above. The Warlock is level-1 too, but its blocker is its spell lists rather
-than the creation path; see the warning near the top.
+above. The Warlock is level-1 too, and its pass confirmed the creation path a
+third time without a line of new mechanism — its blocker was its spell lists,
+which is a different thing entirely and is now resolved.
 
 ## Start here
 
@@ -232,9 +259,9 @@ auto-applied. A later feature naming the same resource **raises** it (4 → 5,
 shown as `4 → 5`, `used` untouched); it never lowers one the player tuned
 higher. Cap is `MAX_RESOURCES = 3`.
 
-**One class still has no `resource` anywhere** — the Warlock
-(Mystic Arcanum). The Wizard's Arcane Recovery became a real counter in its own
-pass. The **Ranger** also has none,
+**Every class now has a counter except the Ranger.** The Warlock's Mystic
+Arcanum became one in its own pass, and the Wizard's Arcane Recovery before it.
+The **Ranger** has none,
 and its pass deliberately *declined* to add one rather than leaving a gap:
 Primeval Awareness spends a spell slot the sheet already tracks, Foe Slayer is
 a once-per-turn rule with no pool, and a Beast Master companion's hit points
@@ -474,6 +501,30 @@ until the ASI is spent: the steppers are `aria-label="Raise Dexterity"`. A
 driver that does not answer the ASI never reaches the Choices step and looks
 exactly like a missing pick.
 
+The Warlock pass drove creation rather than level-up, and its lessons are all
+about the creation wizard, which no previous pass had automated end to end:
+
+- **The subclass is a text input with a datalist (`#wizard-subclass`), not a
+  card.** Clicking never selects a patron; typing the name does. That follows
+  from subclass being free text on disk, and it is why the Cleric pass's note
+  says typing is enough to see a grant appear.
+- **Tag-then-click times out.** Setting `data-e2e` and then calling
+  `page.click('[data-e2e=...]')` fails on this wizard because React re-renders
+  between the two and drops the attribute. Read the bounding box in the same
+  `page.evaluate` and use `page.mouse.click(x, y)` instead.
+- **The Skills step has three separate pick groups**, and they gate together:
+  1 extra language (Human), 2 languages (a background), 2 skills (the class).
+  A language taken by one group renders **disabled** in the next, so a naive
+  "click the first unchecked chip" loop stalls after the first group. Walk the
+  groups — each is a container holding an `n / m` span and its chips — and take
+  the first *enabled* chip in each. Options are `Chip`: `role=checkbox` with
+  `aria-checked`, which is the selector to use.
+- **The ability step's "Suggest for a <class>" button carries a lucide icon**,
+  so exact-text matching never finds it; match with `includes()`.
+- Mounting a step component directly with `createRoot` to skip the wizard
+  **does not work** under React 19 here — it mounts and commits nothing. Drive
+  the real wizard.
+
 The memory note `driving-dungeonmaster-e2e` has a verified Playwright recipe —
 lock patch by regex, poll for the non-DevTools window, hash-history deep links.
 Also: the level-up wizard opens by **typing a higher number into the `Lvl`
@@ -509,8 +560,80 @@ tested — do not rebuild:
 - `Character.resources` — up to 3 counters, on the sheet and the printed page.
 - **Fighter** 3/3, **Rogue** 3/3, **Barbarian** 2/2, **Bard** 2/2,
   **Cleric** 7/7, **Druid** 2/2, **Sorcerer** 2/2, **Paladin** 3/3,
-  **Monk** 3/3, **Ranger** 2/2 and **Wizard** 8/8 archetypes authored.
-  Only the **Warlock** is left, and only because of its spell-list mechanism.
+  **Monk** 3/3, **Ranger** 2/2, **Wizard** 8/8 and **Warlock** 3/3 archetypes
+  authored. **Every class is done.**
+- **Warlock**: all three patrons in `publishedSubclasses.ts`, features at
+  **1/6/10/14**, one per level. The kit stubs stay bare and the pinned list in
+  `subclasses.test.ts` needed no edit — The Fiend is SRD-licensed but was only
+  ever seeded as a *name*, so its features sit in the published tier on the
+  Sorcerer/Monk/Wizard precedent.
+  Their expanded spell lists are **`expandedSpells`, never `spells`** — see
+  "How the Warlock was resolved" above. A test pins that `spells` and
+  `grant.spells` are both undefined on all three, because nothing else would
+  catch genuine PHB content put in the wrong field: the "only spellcasting
+  classes grant bonus spells" invariant asks only that `spellcastingFor` be
+  *defined*, which for a Warlock it always is. That is the Ranger and Wizard
+  trap, live again and in its easiest-to-fall-for form.
+  **No `grant` and no `picks` on any patron.** Fiendish Resilience is the near
+  miss — a damage resistance the sheet *does* hold, but rechosen after every
+  rest, so writing it permanently would be a lie an hour later. The Wizard's
+  Third Eye call.
+  Sourcing note: checked against **WotC's own errata PDF**, which moves no
+  warlock feature at all — so the Eternal Mountain Defense trap does not exist
+  here. That check still repaid itself twice: dnd5e.wikidot lists Tasha's *Pact
+  of the Talisman* and a UA boon among the PHB three, and one search result
+  carried a homebrew "Revised Great Old One" spell list. Also
+  **Awakened Mind is one-way** in the 2014 PHB — you speak *to* a creature and
+  it cannot reply; the 2024 rewrite made it two-way, so most summaries online
+  now describe a different feature.
+- Warlock class-level fixes that came with it: **Pact Boon is a real closed
+  `kind: 'feature'` pick** at 3 (Chain/Blade/Tome — three, not the five wikidot
+  lists), and **Mystic Arcanum is a counter** at 11 with the 7th/8th/9th as
+  their own rows at 13/15/17.
+  That shape is the pass's main judgement call. The four arcana are
+  **independent** once-per-long-rest castings, not a pool of four: `total: 4`
+  would let the player spend four castings of their 9th-level spell, and four
+  separately-named counters exceed `MAX_RESOURCES = 3`. One counter for the 6th
+  plus feature rows for the rest is the honest shape — the Lay on Hands and
+  martial-arts-die call. `resets: 'long'`, where Ki in the same file is
+  `'short'`; a test pins that the counter is never raised at 13, 15 or 17.
+  Neither the Blade's weapon nor the Tome's three cantrips carries a
+  `featureGrant`: the cantrips come from *any* class's list and are explicitly
+  not warlock spells known, so the sheet cannot hold either honestly.
+- **Eldritch Invocations are a real pick** at **2/5/7/9/12/15/18** — deferred
+  by scope at first, then authored when a player pointed out that choosing them
+  is most of what makes one warlock differ from another. They work like a
+  Fighting Style: a menu whose answer is a feature row.
+  `count: 2` at 2nd and 1 thereafter, which is the progression's one asymmetry
+  and the easiest thing to flatten into "one each" by accident.
+  **Prerequisites narrow the option list**, the Four Elements pattern, with no
+  runtime gate: 14 options at 2nd, 20 at 5th, 28 at 12th, 32 at 15th and 18th.
+  Errata is explicit that a level prerequisite means *warlock* level, which
+  this app cannot know for a multiclassed character — so the table is keyed by
+  the level being offered and the summary carries the rest.
+  The two **pact-boon** invocations are held back to 5th (the first pick after
+  Pact Boon exists) and are deliberately *not* filtered by which boon was
+  taken: a pick cannot read another pick's answer, so the summary names the
+  required boon — the shown-not-checked bargain a feat's `prerequisite` makes.
+  **The `featureLabel` is shared across all seven levels**, inverting the Totem
+  Warrior rule and matching the Four Elements one: an invocation cannot be
+  taken twice, so one shared label is what makes `grantedAlreadyAt` grey out
+  one already learned. Per-level labels here would let a player take Devil's
+  Sight twice and silently swallow the second row.
+  **`open: true`**, so a Xanathar's or Tasha's invocation can still be typed —
+  which costs the two srd.test invariants that skip an open pick, so
+  option-count and `featureText` completeness are asserted by hand in both
+  directions. Those hand-written tests were verified to bite three ways:
+  dropping a `featureText` entry, flattening the gating, and switching to a
+  per-level label.
+  Sourcing: **32 invocations, not the ~34 a first guess suggests**, taken from
+  WotC's own SRD 5.1 PDF and cross-checked against Roll20 and 5thsrd.
+  dnd5e.wikidot was wrong *again* — its PHB section lists 29, misfiles
+  Bewitching Whispers as Xanathar's, and omits Lifedrinker and Mask of Many
+  Faces entirely. A test pins that no Xanathar's/Tasha's/UA invocation has
+  crept in, naming Grasp of Hadar and Lance of Lethargy specifically: they
+  require eldritch blast like the three real ones, so they look like they
+  belong.
 - **Wizard**: all eight schools in `publishedSubclasses.ts`, features at
   **2/2/6/10/14** — five features across four levels, with a **doubled level
   2** (the Savant plus one more). That shape matters: a test asserting only the
@@ -796,8 +919,8 @@ work?" rather than data authoring:
   through the two mechanism gaps a level-1 subclass exposed. The Sorcerer pass
   has since confirmed that mechanism holds for a second level-1 class with no
   new code, so read it as background rather than as work. It still describes the
-  creation path the Warlock will use — but the Warlock's blocker is its spell
-  lists, not creation; see the warning near the top.
+  creation path the Warlock used, and the Warlock pass confirmed it a third
+  time with no new mechanism.
 - **`NEXT-HALF-CASTER-PROMPT.md`** — **fully done**, kept for its reasoning.
   Paladin and Ranger have real half-caster tables starting at 2nd, gated by
   `castsAtLevel1` so a level-1 build still skips the spells step. The level-1

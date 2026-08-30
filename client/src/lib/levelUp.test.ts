@@ -3760,3 +3760,127 @@ describe('ranger archetype features', () => {
     ).toEqual([])
   })
 })
+
+describe('warlock patrons and pacts', () => {
+  const warlock = (level: number, subclass?: string): Character => ({
+    ...characterAt(level, 'Warlock'),
+    ...(subclass ? { subclass } : {}),
+  })
+
+  const named = (c: Character, to: number, subclassName?: string) =>
+    featuresGained(
+      c,
+      c.level,
+      to,
+      kitFor('Warlock'),
+      subclassName ?? c.subclass,
+    ).map((f) => f.name)
+
+  it('brings a patron feature at each of 6, 10 and 14', () => {
+    // A warlock picks at 1st, so unlike every 3rd-level archetype the patron
+    // is already on the sheet by the time any level-up runs.
+    const c = warlock(5, 'The Fiend')
+    expect(named(c, 6)).toContain('Dark One’s Own Luck')
+    expect(named(warlock(9, 'The Fiend'), 10)).toContain('Fiendish Resilience')
+    expect(named(warlock(13, 'The Fiend'), 14)).toContain('Hurl Through Hell')
+  })
+
+  it('offers the pact boon as a real choice at 3rd', () => {
+    // Prose until this pass, though the answer is a permanent feature row the
+    // sheet has always had somewhere to put.
+    const c = warlock(2, 'The Fiend')
+    const picks = levelUpPicks(draftFor(c, 3))
+    const boon = picks.find((p) => p.pick.id === 'warlock-3-pact-boon')
+    expect(boon).toBeDefined()
+    expect(boon?.pick.kind).toBe('feature')
+    expect(boon?.pick.count).toBe(1)
+    expect(boon?.pick.open).toBeFalsy()
+    // Three, not the five one popular source lists: Pact of the Talisman is
+    // Tasha's and the Star Chain is Unearthed Arcana.
+    expect(boon?.pick.options).toEqual([
+      'Pact of the Chain',
+      'Pact of the Blade',
+      'Pact of the Tome',
+    ])
+    for (const option of boon!.pick.options) {
+      expect(boon?.pick.featureText?.[option], option).toBeTruthy()
+    }
+  })
+
+  it('writes the chosen boon to the sheet under its own label', () => {
+    const c = warlock(2, 'The Fiend')
+    const draft = draftFor(c, 3)
+    const after = applyLevelUp(c, {
+      ...draft,
+      picks: { ...draft.picks, 'warlock-3-pact-boon': ['Pact of the Blade'] },
+    })
+    expect(after.features.map((f) => f.name)).toContain(
+      'Pact Boon: Pact of the Blade',
+    )
+  })
+
+  it('offers Mystic Arcanum as a counter on the level-up that grants it', () => {
+    // The class had no counter at any level while Mystic Arcanum, Eldritch
+    // Master and every pact told the player to spend something the sheet had
+    // never heard of.
+    const c = warlock(10, 'The Fiend')
+    const offer = resourcesOffered(draftFor(c, 11)).find((o) =>
+      o.name.startsWith('Mystic Arcanum'),
+    )
+    expect(offer?.total).toBe(1)
+    // The load-bearing half, and the easy one to get backwards: the arcanum
+    // refreshes by the day. Ki is `'short'` in the same table, and copying it
+    // would promise a 9th-level spell back every hour.
+    expect(offer?.resets).toBe('long')
+    expect(offer?.from).toBeUndefined()
+  })
+
+  it('never raises the arcanum counter at 13, 15 or 17', () => {
+    // The four arcana are *independent* once-per-long-rest castings, not a
+    // pool of four — so the later ones are their own feature rows and must not
+    // grow the 6th-level counter. A `total` climbing to 4 would let the player
+    // spend four castings of their 9th-level spell.
+    const c: Character = {
+      ...warlock(12, 'The Fiend'),
+      resources: [
+        { name: 'Mystic Arcanum (6th)', used: 0, total: 1, resets: 'long' },
+      ],
+    }
+    for (const to of [13, 15, 17]) {
+      expect(
+        resourcesOffered(draftFor({ ...c, level: to - 1 }, to)).some((o) =>
+          o.name.startsWith('Mystic Arcanum'),
+        ),
+        `raised at ${to}`,
+      ).toBe(false)
+    }
+  })
+
+  it('gives each later arcanum its own feature row', () => {
+    // Separate rows rather than prose folded into the level-11 text, per the
+    // standing rule — de-dupe is keyed on `level:name`, so an upgrade at a new
+    // level is a new row.
+    expect(named(warlock(12, 'The Fiend'), 13)).toContain(
+      'Mystic Arcanum (7th level)',
+    )
+    expect(named(warlock(14, 'The Fiend'), 15)).toContain(
+      'Mystic Arcanum (8th level)',
+    )
+    expect(named(warlock(16, 'The Fiend'), 17)).toContain(
+      'Mystic Arcanum (9th level)',
+    )
+  })
+
+  it('never hands a patron spell over as always prepared', () => {
+    // The level-up half of the mechanism decision. `alwaysPreparedGained`
+    // reads `SubclassInfo.spells`, which no patron has — their lists live in
+    // `expandedSpells`, which nothing on this path reads at all. A warlock
+    // levelling past every row of the Fiend's table gains none of it for free.
+    for (const to of [3, 5, 7, 9]) {
+      const c = warlock(to - 1, 'The Fiend')
+      const plan = levelUpPlan(c, draftFor(c, to))
+      expect(plan.alwaysPreparedGained, `at ${to}`).toEqual([])
+      expect(plan.spellsGranted, `at ${to}`).toEqual([])
+    }
+  })
+})

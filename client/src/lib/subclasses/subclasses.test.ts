@@ -120,12 +120,11 @@ describe('published subclasses', () => {
   })
 
   it('leave a class with no published subclasses alone', () => {
-    // Warlock, and it is the last one — its patron spell lists are "added to
-    // your spell list" rather than always prepared, which is a mechanism
-    // question and its own pass. The Wizard held this spot until its eight
-    // schools landed, so if the Warlock is ever authored this assertion has
-    // nowhere left to point and should become a homebrew-only fixture.
-    expect(publishedSubclassesFor('Warlock')).toEqual([])
+    // The Warlock held this spot until its three patrons landed — it was the
+    // last class authored, and the only one held back by a mechanism question
+    // rather than by data. Every class in the tables now carries published
+    // subclasses, so this assertion has nowhere left to point and is a
+    // homebrew-only fixture, exactly as its previous comment prescribed.
     expect(publishedSubclassesFor('Not A Class')).toEqual([])
   })
 
@@ -938,5 +937,145 @@ describe('the SRD boundary', () => {
         'Rogue/Arcane Trickster',
       ].sort(),
     )
+  })
+})
+
+describe('the otherworldly patrons', () => {
+  // The last class authored, and the only one held back by a *mechanism*
+  // question rather than by data: a patron's expanded spell list is "added to
+  // your spell list", not always prepared, so it could not use the field every
+  // other subclass's spells use. It rides `expandedSpells` instead, which no
+  // applier reads — see `expandedSpells.test.ts` for the guard on that.
+  //
+  // A warlock picks at **1st**, and the kit already declared `subclassLevel: 1`
+  // (with the deprecated `subclassAtLevel1: true` beside it, the only kit
+  // carrying both) — checked before authoring, per the Druid's lesson, and
+  // this time there was nothing to fix.
+  const warlock = findKit(SRD_TABLES.kits, 'Warlock')
+  const PATRONS = ['The Archfey', 'The Fiend', 'The Great Old One']
+  const patron = (name: string) =>
+    warlock?.subclasses.find((s) => s.name === name)
+
+  it('all three carry features, and no fourth goes unauthored', () => {
+    expect(PATRONS.length).toBe(3)
+    for (const name of PATRONS) {
+      expect(
+        patron(name),
+        `${name} missing from the merged tables`,
+      ).toBeDefined()
+      expect(patron(name)!.features.length, name).toBeGreaterThan(0)
+    }
+    // From the other side too: a patron added to the kit later and never
+    // authored here would sit bare and nothing would say so.
+    expect(
+      (warlock?.subclasses ?? []).map((s) => s.name).sort(),
+      'the kit offers a patron this block does not cover',
+    ).toEqual([...PATRONS].sort())
+  })
+
+  it('sit at exactly the levels a warlock gains patron features', () => {
+    // 1/6/10/14 on all three, verified patron by patron against WotC's own
+    // errata PDF rather than assumed uniform. The errata moves no warlock
+    // feature at all, so the Eternal Mountain Defense trap the Monk pass hit
+    // does not exist here — but that was a finding, not a starting assumption.
+    for (const name of PATRONS) {
+      const levels = [
+        ...new Set((patron(name)?.features ?? []).map((f) => f.level)),
+      ].sort((a, b) => a - b)
+      expect(levels, name).toEqual([1, 6, 10, 14])
+    }
+  })
+
+  it('give every patron exactly one feature per level', () => {
+    // The test above reads the level *set*, so it passes with a patron missing
+    // a feature at a level another one covers. Four features, one each.
+    for (const name of PATRONS) {
+      const features = patron(name)?.features ?? []
+      expect(features.length, name).toBe(4)
+      for (const level of [1, 6, 10, 14]) {
+        expect(
+          features.filter((f) => f.level === level).length,
+          `${name} at ${level}`,
+        ).toBe(1)
+      }
+    }
+  })
+
+  it('put their expanded lists in expandedSpells, never in spells', () => {
+    // **The one that matters in this block**, and the reason the Warlock was
+    // last. `SubclassInfo.spells` means always-prepared and exempt from the
+    // prepared limit — right for a domain, an oath and a circle, wrong here.
+    // A patron's list is *added to the list you may learn from*, and the
+    // warlock still spends one of two spells known at 1st level to take one.
+    //
+    // Authored as `spells`, a 1st-level Fiend warlock would be handed burning
+    // hands and command free, on top of the two they choose. And nothing else
+    // would catch it: `srd.test.ts`'s "only spellcasting classes grant bonus
+    // spells" asks only that `spellcastingFor(kit, sub)` be *defined*, which
+    // for a Warlock it always is. That is the Ranger and Wizard trap, live —
+    // except that here the fabricated table would be genuine PHB content put
+    // in the wrong field, which is a far easier mistake to make than inventing
+    // one.
+    //
+    // `grant.spells` is checked too, and is the sneakier half: it trips that
+    // invariant not at all, and `applyFeatGrants` would apply it.
+    for (const name of PATRONS) {
+      expect(patron(name)?.spells, name).toBeUndefined()
+      expect(patron(name)?.grant?.spells, name).toBeUndefined()
+      expect(patron(name)?.expandedSpells, name).toBeDefined()
+    }
+  })
+
+  it('expand five spell levels, two spells each', () => {
+    // A patron's table is 1st through 5th, two per row, arriving as Pact Magic
+    // reaches each level. Asserted by shape rather than by name so this does
+    // not become a second copy of the data, but the count is what a
+    // transcription slip actually breaks.
+    for (const name of PATRONS) {
+      const expanded = patron(name)!.expandedSpells!
+      expect(
+        Object.keys(expanded)
+          .map(Number)
+          .sort((a, b) => a - b),
+        name,
+      ).toEqual([1, 2, 3, 4, 5])
+      for (const [level, names] of Object.entries(expanded)) {
+        expect(names.length, `${name} at spell level ${level}`).toBe(2)
+      }
+    }
+  })
+
+  it('have somewhere to cast from all the same', () => {
+    // So the absence above reads as a data decision rather than a mechanism
+    // limit: the class carries its own Charisma block, and every patron
+    // resolves through it.
+    for (const name of PATRONS) {
+      expect(spellcastingFor(warlock, name), name).toBeDefined()
+    }
+  })
+
+  it('never carry a spellcasting block of their own', () => {
+    // `srd.test.ts` forbids it outright — a class that casts leaves nothing for
+    // an archetype to declare — and it rules out modelling Mystic Arcanum as a
+    // subclass casting table, which is the tempting wrong answer.
+    for (const name of PATRONS) {
+      expect(patron(name)?.spellcasting, name).toBeUndefined()
+    }
+  })
+
+  it('never author a counter or a pick of their own', () => {
+    // Both belong to the class rather than the patron. Mystic Arcanum is the
+    // class's counter and Pact Boon the class's pick; a patron's own features
+    // are combat rules this app does not model. Fiendish Resilience is the
+    // near miss — a damage resistance the sheet *does* hold, but rechosen
+    // after every rest, so writing it permanently would be a lie an hour
+    // later. Same call as the Wizard's Third Eye.
+    for (const name of PATRONS) {
+      for (const feature of patron(name)?.features ?? []) {
+        expect(feature.resource, `${name}: ${feature.name}`).toBeUndefined()
+        expect(feature.picks, `${name}: ${feature.name}`).toBeUndefined()
+      }
+      expect(patron(name)?.grant, name).toBeUndefined()
+    }
   })
 })

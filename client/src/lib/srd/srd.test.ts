@@ -1422,6 +1422,57 @@ describe('subclasses', () => {
     }
   })
 
+  it('every expanded spell list is a real spell level with real names', () => {
+    // Walks `SRD_TABLES.kits`, the *merged* tables, not the `all` above — that
+    // one iterates the raw `SRD_CLASS_KITS`, and every warlock patron carrying
+    // an expanded list lives in the published tier where it cannot see them.
+    // The three previous times a walker here read the raw array, a whole
+    // category went unchecked and nothing said so.
+    //
+    // `expandedSpells` is suggestion-only and never applied, so a bad row
+    // cannot corrupt a sheet — but it can silently offer nothing, which is the
+    // failure this catches. Spell levels only: a cantrip key would be dropped
+    // by the parser and ignored by the picker, so it is a typo either way.
+    for (const kit of SRD_TABLES.kits) {
+      for (const sub of kit.subclasses) {
+        for (const [key, names] of Object.entries(sub.expandedSpells ?? {})) {
+          const level = Number(key)
+          const where = `${kit.name}/${sub.name} spell level ${key}`
+          expect(Number.isInteger(level), where).toBe(true)
+          expect(level, where).toBeGreaterThanOrEqual(1)
+          expect(level, where).toBeLessThanOrEqual(9)
+          expect(names.length, where).toBeGreaterThan(0)
+          for (const name of names) {
+            expect(name.trim(), where).not.toBe('')
+          }
+        }
+      }
+    }
+  })
+
+  it('never puts an expanded list where always-prepared spells go', () => {
+    // The two fields mean opposite things — one is offered, one is handed over
+    // — and a subclass naming the same spell in both is an author who confused
+    // them. That is the mistake `expandedSpells` exists to prevent, so it is
+    // worth failing on rather than merging.
+    for (const kit of SRD_TABLES.kits) {
+      for (const sub of kit.subclasses) {
+        if (!sub.expandedSpells || !sub.spells) continue
+        const granted = new Set(
+          sub.spells.flatMap((row) => row.names.map((n) => n.toLowerCase())),
+        )
+        for (const names of Object.values(sub.expandedSpells)) {
+          for (const name of names) {
+            expect(
+              granted.has(name.toLowerCase()),
+              `${kit.name}/${sub.name} lists ${name} as both granted and merely offered`,
+            ).toBe(false)
+          }
+        }
+      }
+    }
+  })
+
   it('never grants a bonus spell before its class picks a subclass', () => {
     // The sibling of the feature-level check below, and missing until domain
     // spells first made it matter: a row at `grantedAt` 1 on a class that
@@ -1543,5 +1594,242 @@ describe('flexible ability increases', () => {
       )
       expect(new Set(shapes).size, race.name).toBe(shapes.length)
     }
+  })
+})
+
+describe('eldritch invocations', () => {
+  // Authored after a player pointed out that a warlock could not choose them —
+  // they were one prose row at 2nd. They work like a Fighting Style: a menu
+  // whose answer is a feature row.
+  //
+  // **This block is the only thing covering them.** The pick is `open: true`,
+  // and `srd.test.ts` deliberately skips two invariants for an open pick — the
+  // option-count rule and `featureText` completeness — so both are asserted by
+  // hand below, in both directions.
+  const warlock = SRD_CLASS_KITS.find((k) => k.name === 'Warlock')!
+  const LEVELS = [2, 5, 7, 9, 12, 15, 18]
+  const pickAt = (level: number) =>
+    warlock.features.find(
+      (f) => f.level === level && f.name.startsWith('Eldritch Invocations'),
+    )?.picks?.[0]
+  const at = (level: number) => pickAt(level)?.options ?? []
+
+  it('offers a choice at every level a warlock learns one', () => {
+    // 2/5/7/9/12/15/18 — irregular early, and a uniform-step assumption gets
+    // it wrong, which is why the count is pinned level by level.
+    for (const level of LEVELS) {
+      expect(pickAt(level), `no pick at ${level}`).toBeDefined()
+      expect(pickAt(level)!.kind, `${level}`).toBe('feature')
+    }
+    const levels = warlock.features
+      .filter((f) => f.name.startsWith('Eldritch Invocations'))
+      .map((f) => f.level)
+    expect(levels).toEqual(LEVELS)
+  })
+
+  it('learns two at 2nd and one at every level after', () => {
+    // The one asymmetry in the progression, and the easiest thing to flatten
+    // into "one each" by accident.
+    expect(pickAt(2)!.count).toBe(2)
+    for (const level of LEVELS.filter((l) => l !== 2)) {
+      expect(pickAt(level)!.count, `${level}`).toBe(1)
+    }
+  })
+
+  it('shares one featureLabel across every level', () => {
+    // Load-bearing, and the inverse of the Totem Warrior rule. An invocation
+    // cannot be taken twice, so the shared label is what lets
+    // `grantedAlreadyAt` grey out one already learned — it matches the sheet by
+    // the row name a pick would write. Per-level labels here would let a player
+    // learn Devil's Sight twice and silently swallow the second row.
+    for (const level of LEVELS) {
+      expect(pickAt(level)!.featureLabel, `${level}`).toBe(
+        'Eldritch Invocation',
+      )
+    }
+  })
+
+  it('gives every level its own pick id', () => {
+    // Ids share one global keyspace; `srd.test.ts` asserts uniqueness across
+    // every table, but this pins that the *level* is what makes them differ.
+    const ids = LEVELS.map((l) => pickAt(l)!.id)
+    expect(new Set(ids).size).toBe(LEVELS.length)
+    expect(ids[0]).toBe('warlock-2-invocation')
+  })
+
+  it('describes every option it offers, at every level', () => {
+    // `srd.test.ts` skips this for an open pick, so it happens here or nowhere.
+    // A missing entry renders an invocation with no text at all in the picker.
+    for (const level of LEVELS) {
+      const pick = pickAt(level)!
+      for (const option of pick.options) {
+        expect(pick.featureText?.[option], `${option} at ${level}`).toBeTruthy()
+      }
+    }
+  })
+
+  it('offers no invocation it cannot describe', () => {
+    // The other direction: a stale name in `featureText` is dead weight, and
+    // more importantly signals a rename that left an option orphaned.
+    const described = new Set(Object.keys(pickAt(18)!.featureText ?? {}))
+    for (const level of LEVELS) {
+      for (const option of at(level))
+        expect(described.has(option), option).toBe(true)
+    }
+    // Every described invocation is reachable somewhere.
+    for (const name of described) {
+      expect(at(18), `${name} is described but never offered`).toContain(name)
+    }
+  })
+
+  it('offers all 32 PHB invocations by 18th, and no more', () => {
+    // 32, not the ~34 a first guess suggests. dnd5e.wikidot lists only 29 in
+    // its PHB section — it misfiles Bewitching Whispers as Xanathar's and omits
+    // Lifedrinker and Mask of Many Faces entirely — so the count came from
+    // WotC's own SRD 5.1 PDF, cross-checked against Roll20 and 5thsrd.
+    expect(at(18)).toHaveLength(32)
+    expect(new Set(at(18)).size, 'duplicate option').toBe(32)
+  })
+
+  it('carries no Xanathar’s, Tasha’s or UA invocation', () => {
+    // The repo ships no content from those books, and their invocations are the
+    // most likely wrong future addition — several are far better known than the
+    // PHB ones. Grasp of Hadar and Lance of Lethargy are the specific trap:
+    // they require eldritch blast like the three real ones, so they look like
+    // they belong beside them.
+    const notPhb = [
+      'Grasp of Hadar',
+      'Lance of Lethargy',
+      'Eldritch Smite',
+      'Improved Pact Weapon',
+      'Maddening Hex',
+      'Relentless Hex',
+      'Cloak of Flies',
+      'Ghostly Gaze',
+      'Aspect of the Moon',
+      'Shroud of Shadow',
+      'Tomb of Levistus',
+      'Trickster’s Escape',
+      'Gift of the Depths',
+      'Eldritch Mind',
+      'Gift of the Ever-Living Ones',
+      'Bond of the Talisman',
+      'Far Scribe',
+      'Gift of the Protectors',
+      'Investment of the Chain Master',
+      'Protection of the Talisman',
+      'Rebuke of the Talisman',
+    ]
+    for (const name of notPhb) {
+      expect(at(18), `${name} is not PHB`).not.toContain(name)
+    }
+  })
+
+  it('narrows the list by level, and never takes one away', () => {
+    // The prerequisites are modelled by narrowing the options per level rather
+    // than by any runtime gate, so this is what proves the gating happened at
+    // all — seven identical lists would pass every other check here.
+    //
+    // Cumulative in both senses: each level offers strictly more than the last
+    // (except 18, which adds nothing new), and never drops one. Dropping one
+    // would hide a player's own earlier choice rather than greying it out.
+    // Pairs of *consecutive picks*, so 3 is absent: it is a level a warlock
+    // gains no invocation at.
+    for (const [lower, higher] of [
+      [2, 5],
+      [5, 7],
+      [7, 9],
+      [9, 12],
+      [12, 15],
+    ]) {
+      expect(at(lower).length, `${lower} vs ${higher}`).toBeLessThan(
+        at(higher).length,
+      )
+      for (const option of at(lower)) {
+        expect(at(higher), `${option} lost at ${higher}`).toContain(option)
+      }
+    }
+    // No invocation has an 18th-level prerequisite, so 18 matches 15 exactly.
+    expect([...at(18)].sort()).toEqual([...at(15)].sort())
+  })
+
+  it('gates each level-prerequisite invocation at the right level', () => {
+    // Warlock level, not character level — errata is explicit, and this app
+    // cannot know a multiclassed character's warlock level, so the table is
+    // keyed by the level being offered and the summary carries the rest.
+    // Spot-checked at the boundary in both directions, which is the only way a
+    // sparse off-by-one shows up.
+    const gated: Array<[string, number]> = [
+      ['Thirsting Blade', 5],
+      ['Mire the Mind', 5],
+      ['Sign of Ill Omen', 5],
+      ['One with Shadows', 5],
+      ['Bewitching Whispers', 7],
+      ['Dreadful Word', 7],
+      ['Sculptor of Flesh', 7],
+      ['Ascendant Step', 9],
+      ['Minions of Chaos', 9],
+      ['Otherworldly Leap', 9],
+      ['Whispers of the Grave', 9],
+      ['Lifedrinker', 12],
+      ['Chains of Carceri', 15],
+      ['Master of Myriad Forms', 15],
+      ['Visions of Distant Realms', 15],
+      ['Witch Sight', 15],
+    ]
+    const previous = (level: number) => LEVELS[LEVELS.indexOf(level) - 1] ?? 2
+    for (const [name, level] of gated) {
+      expect(at(level), `${name} missing at ${level}`).toContain(name)
+      if (level > 2) {
+        expect(
+          at(previous(level)),
+          `${name} offered too early, at ${previous(level)}`,
+        ).not.toContain(name)
+      }
+    }
+  })
+
+  it('holds the two pact-boon invocations back until the boon exists', () => {
+    // Pact Boon is chosen at 3rd, so neither can be taken at 2nd. They are
+    // *not* filtered by which boon was actually chosen: a pick cannot read
+    // another pick's answer, so the summary names the required boon and the
+    // sheet says what the table cannot enforce — the shown-not-checked bargain
+    // a feat's `prerequisite` makes.
+    // A warlock learns no invocation *at* 3rd — the third one comes at 5th — so
+    // 5 is the first pick that can offer these, and `INVOCATIONS_AT[3]` exists
+    // only as the cumulative base the later lists build on.
+    for (const name of [
+      'Book of Ancient Secrets',
+      'Voice of the Chain Master',
+    ]) {
+      expect(at(2), `${name} at 2nd`).not.toContain(name)
+      expect(at(5), `${name} at 5th`).toContain(name)
+      expect(pickAt(5)!.featureText?.[name] ?? '').toMatch(/Pact of the/)
+    }
+  })
+
+  it('names the requirement in every prerequisite summary', () => {
+    // The only place a prerequisite is ever stated to the player, since nothing
+    // enforces one. A summary that loses it makes the option look unconditional.
+    const text = pickAt(18)!.featureText!
+    for (const name of [
+      'Agonizing Blast',
+      'Eldritch Spear',
+      'Repelling Blast',
+    ]) {
+      expect(text[name], name).toMatch(/eldritch blast/i)
+    }
+    expect(text['Thirsting Blade']).toMatch(/Pact of the Blade/)
+    expect(text['Lifedrinker']).toMatch(/Pact of the Blade/)
+    expect(text['Chains of Carceri']).toMatch(/Pact of the Chain/)
+    expect(text['Book of Ancient Secrets']).toMatch(/Pact of the Tome/)
+  })
+
+  it('stays open, so a later book’s invocation can still be typed', () => {
+    // Xanathar's and Tasha's each add more and this repo ships neither. The
+    // cost of `open` is the two skipped invariants above, which is why they are
+    // asserted by hand.
+    for (const level of LEVELS)
+      expect(pickAt(level)!.open, `${level}`).toBe(true)
   })
 })

@@ -25,7 +25,8 @@
  *
  * Sources: Player's Handbook (Path of the Totem Warrior, College of Valor,
  * the six non-Life cleric domains, Circle of the Moon, Draconic Bloodline and
- * Wild Magic).
+ * Wild Magic, the three monastic traditions, the three paladin oaths, both
+ * ranger conclaves, the eight wizard schools and the three warlock patrons).
  * ---------------------------------------------------------------------------
  *
  * Authoring rules are the SRD tables' rules, and `srd.test.ts` enforces them
@@ -1818,6 +1819,142 @@ export const PUBLISHED_SUBCLASSES: Record<string, Array<SubclassInfo>> = {
           level: 14,
           name: 'Master Transmuter',
           text: 'Destroy your stone to transform an object, end all a creature’s curses and diseases, restore the recently dead to life, or shed 3d10 years.',
+        },
+      ],
+    },
+  ],
+
+  /**
+   * The three PHB patrons.
+   *
+   * Their expanded spell lists are `expandedSpells`, **not** `spells`, and that
+   * distinction is why the Warlock was the last class authored here. A domain,
+   * oath or circle spell is handed over always-prepared; a patron's list is
+   * merely *added to the list you may learn from*, and the warlock still spends
+   * one of their two-at-first spells known to take one. Authored as `spells`, a
+   * 1st-level Fiend warlock would be handed burning hands and command free, on
+   * top of the two they choose — doubling the scarcest resource the class has.
+   * Nothing applies `expandedSpells`; the pickers merely offer it.
+   *
+   * Levels are **1/6/10/14** on all three, verified against WotC's own errata
+   * PDF rather than assumed: no warlock feature was ever moved by errata, so
+   * the Eternal Mountain Defense trap the Monk pass hit does not exist here.
+   * The same check caught two contaminated sources — dnd5e.wikidot lists
+   * Tasha's Pact of the Talisman and a UA boon among the PHB three, and one
+   * result carried a homebrew "Revised Great Old One" spell list.
+   *
+   * No `grant` and no `picks` on any patron. Fiendish Resilience is a
+   * resistance *rechosen after every rest*, so a permanent `grant.resistances`
+   * would be a lie an hour later — the Wizard's Third Eye call. The rest are
+   * combat rules this app does not model. No `resource` either: the class
+   * gained one (Mystic Arcanum) in `classKits.ts` instead.
+   */
+  Warlock: [
+    {
+      id: 'the-archfey',
+      name: 'The Archfey',
+      summary:
+        'A bargain struck with a lord or lady of the Feywild, paid in glamour, terror and the charm that hides both.',
+      expandedSpells: {
+        1: ['Faerie Fire', 'Sleep'],
+        2: ['Calm Emotions', 'Phantasmal Force'],
+        3: ['Blink', 'Plant Growth'],
+        4: ['Dominate Beast', 'Greater Invisibility'],
+        5: ['Dominate Person', 'Seeming'],
+      },
+      features: [
+        {
+          level: 1,
+          name: 'Fey Presence',
+          text: 'As an action, every creature in a 10-foot cube around you makes a Wisdom save or is charmed or frightened — your choice for all of them — until the end of your next turn. Once per short or long rest.',
+        },
+        {
+          level: 6,
+          name: 'Misty Escape',
+          text: 'As a reaction to taking damage, turn invisible and teleport up to 60 feet, staying unseen until your next turn starts or you attack or cast. Once per short or long rest.',
+        },
+        {
+          level: 10,
+          name: 'Beguiling Defenses',
+          text: 'You cannot be charmed, and a creature that tries is charmed by you for a minute instead, taking psychic damage each turn until it or the charm ends.',
+        },
+        {
+          level: 14,
+          name: 'Dark Delirium',
+          text: 'As an action, one creature within 60 feet makes a Wisdom save or is charmed or frightened for a minute while it perceives only an illusory realm. Once per long rest.',
+        },
+      ],
+    },
+    {
+      id: 'the-fiend',
+      name: 'The Fiend',
+      summary:
+        'A pact with something from the lower planes, which pays well and always in the currency of other people’s ruin.',
+      expandedSpells: {
+        1: ['Burning Hands', 'Command'],
+        2: ['Blindness/Deafness', 'Scorching Ray'],
+        3: ['Fireball', 'Stinking Cloud'],
+        4: ['Fire Shield', 'Wall of Fire'],
+        5: ['Flame Strike', 'Hallow'],
+      },
+      features: [
+        {
+          level: 1,
+          name: 'Dark One’s Blessing',
+          text: 'When you drop a hostile creature to 0 hit points, you gain temporary hit points equal to your Charisma modifier plus your warlock level.',
+        },
+        {
+          level: 6,
+          name: 'Dark One’s Own Luck',
+          text: 'Add a d10 to one ability check or saving throw, after rolling but before the outcome is known. Once per short or long rest.',
+        },
+        {
+          level: 10,
+          name: 'Fiendish Resilience',
+          text: 'After each rest, choose one damage type to resist until you choose another. Magical and silvered weapons ignore it.',
+        },
+        {
+          level: 14,
+          name: 'Hurl Through Hell',
+          text: 'Once per long rest, when you hit a creature, hurl it through the lower planes; it returns at the end of your next turn having taken 10d10 psychic damage, unless it is a fiend.',
+        },
+      ],
+    },
+    {
+      id: 'the-great-old-one',
+      name: 'The Great Old One',
+      summary:
+        'A mind out in the dark noticed you, and the deal may not have been struck with anything that knows you exist.',
+      expandedSpells: {
+        1: ['Dissonant Whispers', 'Tasha’s Hideous Laughter'],
+        2: ['Detect Thoughts', 'Phantasmal Force'],
+        3: ['Clairvoyance', 'Sending'],
+        4: ['Dominate Beast', 'Evard’s Black Tentacles'],
+        5: ['Dominate Person', 'Telekinesis'],
+      },
+      features: [
+        {
+          level: 1,
+          // One-way, and worth being careful about: you speak *to* a creature
+          // and it cannot answer. The 2024 rewrite made this two-way, so most
+          // summaries online now describe a feature this one is not.
+          name: 'Awakened Mind',
+          text: 'You can speak telepathically to any creature you can see within 30 feet. It need share no language with you, but must understand at least one — and it cannot reply this way.',
+        },
+        {
+          level: 6,
+          name: 'Entropic Ward',
+          text: 'As a reaction, impose disadvantage on an attack against you; if it misses, your next attack on that creature before the end of your next turn has advantage. Once per short or long rest.',
+        },
+        {
+          level: 10,
+          name: 'Thought Shield',
+          text: 'Your thoughts cannot be read, you resist psychic damage, and a creature dealing you psychic damage takes the same amount itself.',
+        },
+        {
+          level: 14,
+          name: 'Create Thrall',
+          text: 'Touch an incapacitated humanoid to charm it with no save until remove curse or the condition ends it, and speak telepathically with it anywhere on your plane.',
         },
       ],
     },
