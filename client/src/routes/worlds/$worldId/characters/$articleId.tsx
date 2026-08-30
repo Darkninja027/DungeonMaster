@@ -232,8 +232,49 @@ function CharacterPage() {
     title: article.data?.title ?? title,
   }
 
+  /*
+    Kept in the route rather than the header: it closes over the tab state, the
+    settled ref and the title, and the header has no business knowing that
+    exporting means "switch tabs, wait, then screenshot the DOM".
+  */
+  const handleExport = async () => {
+    setTab('preview')
+    setExporting(true)
+    try {
+      // The spell cards read one article each, so the sheet is not whole for a
+      // moment after the tab mounts — and exportPdf captures whatever .dnd-page
+      // elements it finds, silently skipping any that measure zero. Without this
+      // wait a PDF taken too early is simply missing pages, with no error to
+      // notice.
+      //
+      // Bounded, not infinite: an article on a disconnected network drive should
+      // cost a few seconds and one absent card, not a permanently dead export
+      // button.
+      await waitForCards(cardsSettledRef)
+      // let the preview tab mount and paint before capturing
+      await new Promise((r) =>
+        requestAnimationFrame(() => requestAnimationFrame(r)),
+      )
+      const area = document.querySelector<HTMLElement>('.print-area')
+      if (area) await exportPdf(area, `${title.trim() || 'character'}.pdf`)
+    } finally {
+      setExporting(false)
+    }
+  }
+
   return (
-    <div className="flex h-full flex-col">
+    /*
+      Tabs is the outermost element so the tab strip can live inside the header
+      row: TabsList reads Tabs' context through the React tree, not the DOM, but
+      it still has to be a descendant of the root. Tabs already renders
+      `flex data-[orientation=horizontal]:flex-col`, so this reproduces the
+      wrapper div it replaced.
+    */
+    <Tabs
+      value={tab}
+      onValueChange={setTab}
+      className="flex h-full min-h-0 flex-col gap-0"
+    >
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b px-4 py-2">
         {/* The title is the filename, so committing it renames the file and
             rewrites [[links]] world-wide. Far too expensive (and racy) to do on
@@ -383,31 +424,7 @@ function CharacterPage() {
                 : 'Export the character sheet as PDF'
             }
             disabled={exporting || (spellCards && !cardsSettled)}
-            onClick={async () => {
-              setTab('preview')
-              setExporting(true)
-              try {
-                // The spell cards read one article each, so the sheet is not
-                // whole for a moment after the tab mounts — and exportPdf
-                // captures whatever .dnd-page elements it finds, silently
-                // skipping any that measure zero. Without this wait a PDF taken
-                // too early is simply missing pages, with no error to notice.
-                //
-                // Bounded, not infinite: an article on a disconnected network
-                // drive should cost a few seconds and one absent card, not a
-                // permanently dead export button.
-                await waitForCards(cardsSettledRef)
-                // let the preview tab mount and paint before capturing
-                await new Promise((r) =>
-                  requestAnimationFrame(() => requestAnimationFrame(r)),
-                )
-                const area = document.querySelector<HTMLElement>('.print-area')
-                if (area)
-                  await exportPdf(area, `${title.trim() || 'character'}.pdf`)
-              } finally {
-                setExporting(false)
-              }
-            }}
+            onClick={handleExport}
           >
             {exporting ? <Loader2 className="animate-spin" /> : <FileDown />}
           </Button>
@@ -438,138 +455,128 @@ function CharacterPage() {
         </div>
       </div>
       {error && (
-        <p className="text-destructive border-b px-4 py-1 text-sm">
+        <p className="text-destructive shrink-0 border-b px-4 py-1 text-sm">
           {error.message}
         </p>
       )}
 
-      <Tabs value={tab} onValueChange={setTab} className="min-h-0 flex-1 gap-0">
-        <div className="border-b px-4 py-1.5">
-          <TabsList className="h-8">
-            <TabsTrigger value="sheet" className="text-xs">
-              Sheet
-            </TabsTrigger>
-            <TabsTrigger value="inventory" className="text-xs">
-              Inventory ({character.inventory.length})
-            </TabsTrigger>
-            <TabsTrigger value="equipment" className="text-xs">
-              Equipment
-            </TabsTrigger>
-            <TabsTrigger value="features" className="text-xs">
-              Features (
-              {character.features.length +
-                character.traits.length +
-                character.feats.length}
-              )
-            </TabsTrigger>
-            <TabsTrigger value="notes" className="text-xs">
-              Notes ({character.notes.length})
-            </TabsTrigger>
-            <TabsTrigger value="backstory" className="text-xs">
-              Backstory
-            </TabsTrigger>
-            <TabsTrigger value="preview" className="text-xs">
-              <Eye className="size-3.5" /> Preview
-            </TabsTrigger>
-          </TabsList>
-        </div>
-        <TabsContent value="sheet" className="min-h-0 flex-1 overflow-y-auto">
-          <SheetTab
-            character={character}
-            onChange={update}
-            source={source}
-            articles={tree.data?.articles}
-            onCreateMissing={setMissingTitle}
+      <div className="shrink-0 border-b px-4 py-1.5">
+        <TabsList className="h-8">
+          <TabsTrigger value="sheet" className="text-xs">
+            Sheet
+          </TabsTrigger>
+          <TabsTrigger value="inventory" className="text-xs">
+            Inventory ({character.inventory.length})
+          </TabsTrigger>
+          <TabsTrigger value="equipment" className="text-xs">
+            Equipment
+          </TabsTrigger>
+          <TabsTrigger value="features" className="text-xs">
+            Features (
+            {character.features.length +
+              character.traits.length +
+              character.feats.length}
+            )
+          </TabsTrigger>
+          <TabsTrigger value="notes" className="text-xs">
+            Notes ({character.notes.length})
+          </TabsTrigger>
+          <TabsTrigger value="backstory" className="text-xs">
+            Backstory
+          </TabsTrigger>
+          <TabsTrigger value="preview" className="text-xs">
+            <Eye className="size-3.5" /> Preview
+          </TabsTrigger>
+        </TabsList>
+      </div>
+      <TabsContent value="sheet" className="min-h-0 flex-1 overflow-y-auto">
+        <SheetTab
+          character={character}
+          onChange={update}
+          source={source}
+          articles={tree.data?.articles}
+          onCreateMissing={setMissingTitle}
+        />
+      </TabsContent>
+      <TabsContent value="inventory" className="min-h-0 flex-1 overflow-y-auto">
+        <InventoryTab
+          character={character}
+          onChange={update}
+          worldId={worldId}
+          articles={tree.data?.articles}
+          onCreateMissing={setMissingTitle}
+        />
+      </TabsContent>
+      <TabsContent value="equipment" className="min-h-0 flex-1 overflow-y-auto">
+        <EquipmentTab character={character} onChange={update} />
+      </TabsContent>
+      <TabsContent value="features" className="min-h-0 flex-1 overflow-y-auto">
+        <FeaturesTab
+          character={character}
+          onChange={update}
+          worldId={worldId}
+          articles={tree.data?.articles}
+          onCreateMissing={setMissingTitle}
+        />
+      </TabsContent>
+      <TabsContent value="notes" className="min-h-0 flex-1 overflow-y-auto">
+        <NotesTab
+          character={character}
+          onChange={update}
+          worldId={worldId}
+          articles={tree.data?.articles}
+          onCreateMissing={setMissingTitle}
+        />
+      </TabsContent>
+      <TabsContent value="backstory" className="flex min-h-0 flex-1 flex-col">
+        <MarkdownContextMenu editor={backstoryEditor}>
+          <Textarea
+            ref={backstoryEditor.ref}
+            value={body}
+            placeholder="Backstory, bonds, ideals, flaws — markdown with [[wiki links]]."
+            className={cn(
+              'h-full min-h-0 flex-1 resize-none rounded-none border-none font-mono text-sm shadow-none focus-visible:ring-0',
+              // Ctrl held over a [[link]]: show it is clickable.
+              backstoryEditor.wikiLinkHovered && 'cursor-pointer',
+            )}
+            onMouseMove={backstoryEditor.onMouseMove}
+            onMouseLeave={backstoryEditor.onMouseLeave}
+            onChange={(e) => {
+              setBody(e.target.value)
+              setDirty(true)
+            }}
+            onClick={backstoryEditor.onClick}
+            onKeyDown={backstoryEditor.onKeyDown}
+            onBeforeInput={backstoryEditor.onBeforeInput}
           />
-        </TabsContent>
-        <TabsContent
-          value="inventory"
-          className="min-h-0 flex-1 overflow-y-auto"
-        >
-          <InventoryTab
-            character={character}
-            onChange={update}
-            worldId={worldId}
-            articles={tree.data?.articles}
-            onCreateMissing={setMissingTitle}
-          />
-        </TabsContent>
-        <TabsContent
-          value="equipment"
-          className="min-h-0 flex-1 overflow-y-auto"
-        >
-          <EquipmentTab character={character} onChange={update} />
-        </TabsContent>
-        <TabsContent
-          value="features"
-          className="min-h-0 flex-1 overflow-y-auto"
-        >
-          <FeaturesTab
-            character={character}
-            onChange={update}
-            worldId={worldId}
-            articles={tree.data?.articles}
-            onCreateMissing={setMissingTitle}
-          />
-        </TabsContent>
-        <TabsContent value="notes" className="min-h-0 flex-1 overflow-y-auto">
-          <NotesTab
-            character={character}
-            onChange={update}
-            worldId={worldId}
-            articles={tree.data?.articles}
-            onCreateMissing={setMissingTitle}
-          />
-        </TabsContent>
-        <TabsContent value="backstory" className="flex min-h-0 flex-1 flex-col">
-          <MarkdownContextMenu editor={backstoryEditor}>
-            <Textarea
-              ref={backstoryEditor.ref}
-              value={body}
-              placeholder="Backstory, bonds, ideals, flaws — markdown with [[wiki links]]."
-              className={cn(
-                'h-full min-h-0 flex-1 resize-none rounded-none border-none font-mono text-sm shadow-none focus-visible:ring-0',
-                // Ctrl held over a [[link]]: show it is clickable.
-                backstoryEditor.wikiLinkHovered && 'cursor-pointer',
-              )}
-              onMouseMove={backstoryEditor.onMouseMove}
-              onMouseLeave={backstoryEditor.onMouseLeave}
-              onChange={(e) => {
-                setBody(e.target.value)
-                setDirty(true)
-              }}
-              onClick={backstoryEditor.onClick}
-              onKeyDown={backstoryEditor.onKeyDown}
-              onBeforeInput={backstoryEditor.onBeforeInput}
-            />
-          </MarkdownContextMenu>
-        </TabsContent>
-        <TabsContent
-          value="preview"
-          className="min-h-0 flex-1 overflow-y-auto bg-stone-800/90 dark:bg-stone-950"
-        >
-          {/* .print-area sits outside the zoom wrapper so browser Ctrl+P
+        </MarkdownContextMenu>
+      </TabsContent>
+      <TabsContent
+        value="preview"
+        className="min-h-0 flex-1 overflow-y-auto bg-stone-800/90 dark:bg-stone-950"
+      >
+        {/* .print-area sits outside the zoom wrapper so browser Ctrl+P
               doesn't inherit the scale; exportPdf finds .dnd-page either way. */}
-          <div className="print-area">
-            <SheetFitPane>
-              <SheetPreview
-                character={character}
-                body={body}
-                title={title}
-                source={source}
-                worldId={worldId}
-                articles={tree.data?.articles}
-                spellCards={spellCards}
-                onSpellCardsSettled={(s) => {
-                  cardsSettledRef.current = s
-                  setCardsSettled(s)
-                }}
-              />
-            </SheetFitPane>
-          </div>
-        </TabsContent>
-      </Tabs>
+        <div className="print-area">
+          <SheetFitPane>
+            <SheetPreview
+              character={character}
+              body={body}
+              title={title}
+              source={source}
+              worldId={worldId}
+              articles={tree.data?.articles}
+              spellCards={spellCards}
+              onSpellCardsSettled={(s) => {
+                cardsSettledRef.current = s
+                setCardsSettled(s)
+              }}
+            />
+          </SheetFitPane>
+        </div>
+      </TabsContent>
 
+      {/* Both portal to document.body; they sit here only to be in scope. */}
       <CreateMissingArticleDialog
         worldId={worldId}
         title={missingTitle}
@@ -583,6 +590,6 @@ function CharacterPage() {
         onClose={() => setLevelUpTo(null)}
         onApply={update}
       />
-    </div>
+    </Tabs>
   )
 }
