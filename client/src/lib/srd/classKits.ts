@@ -3379,6 +3379,22 @@ export const SRD_CLASS_KITS: Array<ClassKit> = [
         level: 1,
         name: 'Arcane Recovery',
         text: 'Once per day when you finish a short rest, you can recover expended spell slots with a combined level equal to or less than half your wizard level, rounded up.',
+        // The Wizard's only counter, and the class had none at all until this
+        // was added. The use count is one; what scales is the *size* of the
+        // recovery (slots totalling half your wizard level), which is a scaling
+        // number rather than a use count and stays in the text — the same call
+        // Lay on Hands and the Barbarian's unlimited rage got.
+        //
+        // `resets: 'long'`, deliberately not 'short'. The feature is triggered
+        // by a short rest but refreshed by the day, and 'short' would tell the
+        // sheet a wizard gets it back every hour. Ki is 'short' and Sorcery
+        // Points 'long'; copying either wholesale gets this one wrong and no
+        // existing test would catch it.
+        //
+        // Level 1, so it reaches the sheet through `buildCharacter`, which
+        // *applies* level-1 counters, rather than `resourcesOffered`, which
+        // only ever looks at levels being gained.
+        resource: { name: 'Arcane Recovery', total: 1, resets: 'long' },
       },
       {
         level: 2,

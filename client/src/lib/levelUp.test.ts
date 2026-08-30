@@ -3279,6 +3279,44 @@ describe('a paladin’s counters', () => {
   })
 })
 
+describe('a wizard recovering slots', () => {
+  it('carries Arcane Recovery as a counter creation delivers, not level-up', () => {
+    // The Wizard had no counter at any level until the arcane traditions were
+    // authored, while Arcane Recovery's own text told the player to spend
+    // something the sheet had never heard of. Same shape as Divine Sense
+    // above: level 1, so `buildCharacter` applies it and `resourcesOffered`
+    // never sees it.
+    const kit = kitFor('Wizard')!
+    const recovery = kit.features.find((f) => f.name === 'Arcane Recovery')
+    expect(recovery?.resource?.name).toBe('Arcane Recovery')
+    expect(recovery?.resource?.total).toBe(1)
+    // Not 'short', and this is the half that would go wrong silently. The
+    // feature triggers on a short rest but refreshes by the day. Ki is
+    // 'short' and Sorcery Points 'long'; copying either wholesale gets this
+    // one backwards and nothing else in the suite would object.
+    expect(recovery?.resource?.resets).toBe('long')
+
+    const c = characterAt(1, 'Wizard')
+    expect(
+      resourcesOffered(draftFor(c, 2)).some(
+        (o) => o.name === 'Arcane Recovery',
+      ),
+    ).toBe(false)
+  })
+
+  it('never raises the counter as the recovery grows', () => {
+    // What scales is the *size* of the recovery — slots totalling half your
+    // wizard level — not the number of uses, which is always one. A second
+    // row at some later level would be the Barbarian's rage-damage mistake:
+    // a scaling number dressed as a counter.
+    const kit = kitFor('Wizard')!
+    const rows = kit.features.filter(
+      (f) => f.resource?.name === 'Arcane Recovery',
+    )
+    expect(rows.map((f) => f.level)).toEqual([1])
+  })
+})
+
 describe('a paladin learning to cast', () => {
   const paladin = (level: number, subclass = '') => ({
     ...characterAt(level, 'Paladin'),

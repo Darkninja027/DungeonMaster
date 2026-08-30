@@ -1425,6 +1425,403 @@ export const PUBLISHED_SUBCLASSES: Record<string, Array<SubclassInfo>> = {
       ],
     },
   ],
+  /*
+    A wizard picks their school at **2nd**, and the kit's `subclassLevel: 2`
+    already declared it — checked before authoring, per the Druid's lesson, and
+    unlike the Druid there was nothing to fix.
+
+    All eight schools live here, **including School of Evocation**, which SRD
+    5.1 licenses. Same call as Draconic Bloodline and Way of the Open Hand:
+    `classKits.ts` only ever seeded it as a *name*, and the licence is about the
+    features, so once written they are the PHB's content restated in our words.
+    All eight kit stubs stay bare and the pinned list in `subclasses.test.ts`
+    needed no entry.
+
+    Three absences, all deliberate, all pinned by tests — because a reader
+    otherwise sees eight schools carrying nothing but prose and reads it as
+    unfinished:
+
+    **No `spells` on any school.** The PHB gives a wizard school no bonus spell
+    list at all; that is a domain/oath/circle mechanism. Nothing would catch an
+    invented one: `srd.test.ts`'s "only spellcasting classes grant bonus
+    spells" asks only that `spellcastingFor(kit, sub)` be *defined*, and for a
+    Wizard it is (the class's own Intelligence block), so a fabricated table
+    would sail through a green suite and hand the character free
+    always-prepared spells exempt from `preparedLimit`. This is the Ranger's
+    trap with the safety catch already off.
+
+    **No `grant` on any school.** Every candidate was checked and each fails
+    honestly. Arcane Ward is a second hit-point pool with its own maximum —
+    `Grant` has `hpPerLevel`, which raises *the character's* max hp, the wrong
+    number for the wrong entity. Spell Resistance's "resistance to the damage
+    of spells" is not a `DAMAGE_TYPES` id and `srd.test.ts` would reject it:
+    spell damage is a source, not a type. Undead Thralls, Shapechanger and
+    Improved Minor Illusion add spells to the *spellbook*, which is not
+    `Grant.spells` — whose doc comment is explicit that those are cast once per
+    long rest without a slot. `spellbook.perLevel` is this repo's own
+    acknowledged inert field and wiring it is its own job.
+
+    **No `resource` on any school.** Arcane Recovery is the class's counter,
+    added to the kit in this same pass. The schools' once-per-rest features
+    (Illusory Self, Benign Transposition, Hypnotic Gaze) are one-shot rules the
+    text carries; only three counters fit a sheet and the class's own comes
+    first.
+
+    Exactly one pick in the whole key, on Transmutation, with the reasoning for
+    where that line fell written on it.
+  */
+  Wizard: [
+    {
+      id: 'school-of-abjuration',
+      name: 'School of Abjuration',
+      summary:
+        'Wards and dispellings, and a shell of your own magic that takes the hit before you do.',
+      features: [
+        {
+          level: 2,
+          name: 'Abjuration Savant',
+          text: 'Copying an abjuration spell into your spellbook costs half the usual gold and half the usual time.',
+        },
+        {
+          level: 2,
+          name: 'Arcane Ward',
+          // No grant, and no counter. The ward is a *second* hit point pool
+          // with its own maximum, and `Character` holds one hp pool and one
+          // `resources` row shape — neither can say this. It also refreshes
+          // from casting rather than from a rest, which no `resets` value
+          // expresses. Lay on Hands and the Beast Master's companion are the
+          // precedents: a pool that scales is not a counter, and a number
+          // describing something else is not this character's number.
+          text: 'Casting an abjuration spell of 1st level or higher raises a ward that absorbs damage before you take it. Its maximum is twice your wizard level plus your Intelligence modifier, and further abjurations restore it.',
+        },
+        {
+          level: 6,
+          name: 'Projected Ward',
+          text: 'As a reaction, your Arcane Ward can absorb damage aimed at a creature within 30 feet instead of you.',
+        },
+        {
+          level: 10,
+          name: 'Improved Abjuration',
+          text: 'Add your proficiency bonus to the ability check an abjuration spell calls for, as counterspell and dispel magic do.',
+        },
+        {
+          level: 14,
+          name: 'Spell Resistance',
+          // Not `grant: { resistances: [...] }`. "Resistance to the damage of
+          // spells" names a source, not a damage type, and `resistances` is
+          // validated against the closed `DAMAGE_TYPES` list — so it cannot be
+          // authored, and should not be.
+          text: 'You have advantage on saving throws against spells, and resistance to the damage they deal.',
+        },
+      ],
+    },
+    {
+      id: 'school-of-conjuration',
+      name: 'School of Conjuration',
+      summary:
+        'Calling objects and creatures out of nothing, and stepping through the gap yourself.',
+      features: [
+        {
+          level: 2,
+          name: 'Conjuration Savant',
+          text: 'Copying a conjuration spell into your spellbook costs half the usual gold and half the usual time.',
+        },
+        {
+          level: 2,
+          name: 'Minor Conjuration',
+          text: 'Conjure a small inanimate object you have seen; it lasts an hour, or until it takes damage or you conjure another.',
+        },
+        {
+          level: 6,
+          // "Benign Transposition", not "Transportation". dnd5e.wikidot.com —
+          // the source used for the rest of this table — has the latter, and
+          // so do a number of sites quoting it. The PHB prints Transposition,
+          // which is also what the feature does: you may swap places with a
+          // willing creature. A wrong feature name is silent everywhere here.
+          name: 'Benign Transposition',
+          text: 'Teleport up to 30 feet to a space you can see, or swap places with a willing Small or Medium creature standing there.',
+        },
+        {
+          level: 10,
+          name: 'Focused Conjuration',
+          text: 'Damage can never break your concentration on a conjuration spell.',
+        },
+        {
+          level: 14,
+          name: 'Durable Summons',
+          text: 'Any creature you summon or create with a conjuration spell starts with 30 temporary hit points.',
+        },
+      ],
+    },
+    {
+      id: 'school-of-divination',
+      name: 'School of Divination',
+      summary:
+        'Glimpses of what is coming, written down and spent when they matter most.',
+      features: [
+        {
+          level: 2,
+          name: 'Divination Savant',
+          text: 'Copying a divination spell into your spellbook costs half the usual gold and half the usual time.',
+        },
+        {
+          level: 2,
+          name: 'Portent',
+          // Not a counter: the dice are recorded and replaced after each long
+          // rest rather than ticked off a total, and the *values rolled* are
+          // the point, which a `total`/`used` pair cannot hold. The upgrade to
+          // three dice is its own row at 14, never a clause here.
+          text: 'After a long rest, roll two d20s and record them. You can replace an attack roll, saving throw or ability check made by you or a creature you can see with one of those rolls.',
+        },
+        {
+          level: 6,
+          name: 'Expert Divination',
+          text: 'Casting a divination spell of 2nd level or higher regains one expended slot of lower level.',
+        },
+        {
+          level: 10,
+          name: 'The Third Eye',
+          // The near-miss, and deliberately prose. It names four options, but
+          // the choice is re-made after **every short rest**, while a
+          // `kind: 'feature'` pick writes one permanent row to
+          // `Character.features` — which would assert the character has
+          // darkvision forever, false an hour later. Same argument as Draconic
+          // Resilience's absent `acBonus`: a value wrong under a condition the
+          // field cannot express. This is the likeliest wrong future edit
+          // here, which is why a test pins it.
+          text: 'After a short or long rest, gain one of: darkvision 60 feet, ethereal sight 60 feet, the ability to read any language, or see invisibility out to 10 feet.',
+        },
+        {
+          level: 14,
+          name: 'Greater Portent',
+          text: 'You roll three d20s for Portent rather than two.',
+        },
+      ],
+    },
+    {
+      id: 'school-of-enchantment',
+      name: 'School of Enchantment',
+      summary: 'Charm and compulsion, and the memory of neither.',
+      features: [
+        {
+          level: 2,
+          name: 'Enchantment Savant',
+          text: 'Copying an enchantment spell into your spellbook costs half the usual gold and half the usual time.',
+        },
+        {
+          level: 2,
+          name: 'Hypnotic Gaze',
+          text: 'As an action, charm a creature within 5 feet on a failed Wisdom save, leaving it incapacitated and its speed 0 while you hold its gaze.',
+        },
+        {
+          level: 6,
+          name: 'Instinctive Charm',
+          text: 'As a reaction to being attacked by a creature within 30 feet, redirect the attack to another target on a failed Wisdom save.',
+        },
+        {
+          level: 10,
+          name: 'Split Enchantment',
+          text: 'An enchantment spell of 1st level or higher that targets only one creature can target a second.',
+        },
+        {
+          level: 14,
+          name: 'Alter Memories',
+          text: 'A creature you charm is unaware of it, and you can take from it up to your Charisma modifier in hours of memory.',
+        },
+      ],
+    },
+    {
+      id: 'school-of-evocation',
+      name: 'School of Evocation',
+      summary:
+        'Fire, lightning and cold shaped precisely enough to spare the people standing in them.',
+      features: [
+        {
+          level: 2,
+          name: 'Evocation Savant',
+          text: 'Copying an evocation spell into your spellbook costs half the usual gold and half the usual time.',
+        },
+        {
+          level: 2,
+          name: 'Sculpt Spells',
+          text: 'When you cast an evocation spell that affects others, choose 1 + the spell’s level of them to automatically succeed and take no damage.',
+        },
+        {
+          level: 6,
+          name: 'Potent Cantrip',
+          text: 'A creature that succeeds on its save against your damaging cantrip still takes half damage.',
+        },
+        {
+          level: 10,
+          name: 'Empowered Evocation',
+          // A separate feature from Potent Cantrip rather than an upgrade of
+          // it, so an ordinary row rather than a scaling pair.
+          text: 'Add your Intelligence modifier to one damage roll of any wizard evocation spell you cast.',
+        },
+        {
+          level: 14,
+          name: 'Overchannel',
+          text: 'Deal maximum damage with a wizard spell of 1st to 5th level; using it again before a long rest costs you escalating necrotic damage no resistance prevents.',
+        },
+      ],
+    },
+    {
+      id: 'school-of-illusion',
+      name: 'School of Illusion',
+      summary:
+        'Images held so steadily that a piece of one can be made briefly real.',
+      features: [
+        {
+          level: 2,
+          name: 'Illusion Savant',
+          text: 'Copying an illusion spell into your spellbook costs half the usual gold and half the usual time.',
+        },
+        {
+          level: 2,
+          name: 'Improved Minor Illusion',
+          // The minor illusion cantrip stays prose rather than `grant.spells`,
+          // matching Way of Shadow. The feature's substance is that your
+          // casting of it does *more*, which a spell row cannot say.
+          text: 'You know minor illusion, and can create both a sound and an image with a single casting of it.',
+        },
+        {
+          level: 6,
+          name: 'Malleable Illusions',
+          text: 'As an action, change the nature of an illusion you cast that lasts a minute or longer.',
+        },
+        {
+          level: 10,
+          name: 'Illusory Self',
+          text: 'As a reaction to being hit, interpose an illusory duplicate so the attack misses instead. Returns on a short or long rest.',
+        },
+        {
+          level: 14,
+          name: 'Illusory Reality',
+          text: 'As a bonus action, make one inanimate, nonmagical object from your illusion real for a minute. It cannot deal damage.',
+        },
+      ],
+    },
+    {
+      id: 'school-of-necromancy',
+      name: 'School of Necromancy',
+      summary:
+        'The line between living and dead treated as a door rather than a wall.',
+      features: [
+        {
+          level: 2,
+          name: 'Necromancy Savant',
+          text: 'Copying a necromancy spell into your spellbook costs half the usual gold and half the usual time.',
+        },
+        {
+          level: 2,
+          name: 'Grim Harvest',
+          // Scales with the *spell* cast rather than with character level, so
+          // it is one row and never gains an upgrade row.
+          text: 'Killing a creature with a spell heals you for twice that spell’s level, or three times it for a necromancy spell.',
+        },
+        {
+          level: 6,
+          name: 'Undead Thralls',
+          // The animate dead this adds is a **spellbook** addition, not
+          // `grant.spells` — see the block comment above. The thralls' bonus
+          // hit points and damage describe the undead rather than the wizard,
+          // which is the Beast Master companion's problem exactly.
+          text: 'Animate dead joins your spellbook, raises one extra corpse, and the undead you create with it are tougher and hit harder.',
+        },
+        {
+          level: 10,
+          name: 'Inured to Undeath',
+          text: 'You have resistance to necrotic damage, and your hit point maximum cannot be reduced.',
+        },
+        {
+          level: 14,
+          name: 'Command Undead',
+          text: 'Bend an undead creature within 60 feet to your will on a failed Charisma save; the more intelligent it is, the better it resists.',
+        },
+      ],
+    },
+    {
+      id: 'school-of-transmutation',
+      name: 'School of Transmutation',
+      summary:
+        'Matter treated as provisional: wood to iron, self to beast, age undone.',
+      features: [
+        {
+          level: 2,
+          name: 'Transmutation Savant',
+          text: 'Copying a transmutation spell into your spellbook costs half the usual gold and half the usual time.',
+        },
+        {
+          level: 2,
+          name: 'Minor Alchemy',
+          text: 'Over ten minutes of concentration, change one nonmagical object between wood, stone, iron, copper and silver for an hour.',
+        },
+        {
+          level: 6,
+          name: 'Transmuter’s Stone',
+          text: 'Spend eight hours to make a stone granting one benefit while carried; you can change which whenever you cast a transmutation spell.',
+          // The **only** pick in the whole Wizard key, and the one genuinely
+          // marginal call in this pass. Every other school feature is a
+          // passive modifier to how spells behave and poses no question at
+          // all — zero picks across seven schools is a finding, not a gap.
+          //
+          // This one earns a row because, unlike The Third Eye's four benefits
+          // above, the stone's choice *persists* until the wizard deliberately
+          // changes it. "Which benefit is my stone set to" is real sheet state.
+          //
+          // Closed, like the draconic ancestry and the Hunter's four: this is
+          // the whole menu the PHB offers, and closed keeps `srd.test.ts`'s
+          // `featureText` completeness and option-count checks live, which
+          // `open` would forfeit. It appears exactly once, so the per-level
+          // `featureLabel` question the totems raise is moot here.
+          //
+          // And **no `featureGrant` on any option**, deliberately. Two of the
+          // four land on numbers the sheet holds — speed +10 and a damage
+          // resistance — but the stone is transferable and its benefit
+          // rechooseable, so writing either permanently onto this character
+          // would be wrong the moment it is handed over or switched. Same call
+          // as Draconic Resilience's absent `acBonus` and Multiattack
+          // Defense's absent +4.
+          picks: [
+            {
+              id: 'school-of-transmutation-6-stone',
+              kind: 'feature',
+              label: 'Choose your transmuter’s stone benefit',
+              count: 1,
+              options: [
+                'Darkvision',
+                'Increased Speed',
+                'Constitution Saves',
+                'Damage Resistance',
+              ],
+              featureLabel: 'Transmuter’s Stone',
+              featureText: {
+                Darkvision: 'The stone’s bearer has darkvision out to 60 feet.',
+                'Increased Speed':
+                  'The stone’s bearer gains 10 feet of speed while unencumbered.',
+                'Constitution Saves':
+                  'The stone’s bearer is proficient in Constitution saving throws.',
+                'Damage Resistance':
+                  'The stone’s bearer has resistance to acid, cold, fire, lightning or thunder damage, chosen when the stone is made.',
+              },
+            },
+          ],
+        },
+        {
+          level: 10,
+          name: 'Shapechanger',
+          // Polymorph is another spellbook addition rather than `grant.spells`
+          // — see the block comment above.
+          text: 'Polymorph joins your spellbook, and you can cast it on yourself without a slot to become a beast of challenge rating 1 or lower. Returns on a short or long rest.',
+        },
+        {
+          level: 14,
+          name: 'Master Transmuter',
+          text: 'Destroy your stone to transform an object, end all a creature’s curses and diseases, restore the recently dead to life, or shed 3d10 years.',
+        },
+      ],
+    },
+  ],
 }
 
 /** The published subclasses for one class, or none. Name in, empty out. */

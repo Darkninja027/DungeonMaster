@@ -1338,6 +1338,15 @@ describe('counters a level-1 feature implies', () => {
     expect(paladin).toEqual([
       { name: 'Divine Sense', used: 0, total: 3, resets: 'long' },
     ])
+    // The Wizard's, added with the arcane traditions. Until then the class had
+    // no counter at any level, while Arcane Recovery told the player to spend
+    // something the sheet had never heard of. `resets: 'long'` is the load
+    // bearing half: the feature triggers on a *short* rest but refreshes by
+    // the day, and 'short' would promise it back every hour.
+    const wizard = build('Wizard').resources
+    expect(wizard).toEqual([
+      { name: 'Arcane Recovery', used: 0, total: 1, resets: 'long' },
+    ])
   })
 
   it('invents nothing for a class whose counters come later', () => {

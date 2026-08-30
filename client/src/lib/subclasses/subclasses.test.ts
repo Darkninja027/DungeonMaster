@@ -120,7 +120,12 @@ describe('published subclasses', () => {
   })
 
   it('leave a class with no published subclasses alone', () => {
-    expect(publishedSubclassesFor('Wizard')).toEqual([])
+    // Warlock, and it is the last one — its patron spell lists are "added to
+    // your spell list" rather than always prepared, which is a mechanism
+    // question and its own pass. The Wizard held this spot until its eight
+    // schools landed, so if the Warlock is ever authored this assertion has
+    // nowhere left to point and should become a homebrew-only fixture.
+    expect(publishedSubclassesFor('Warlock')).toEqual([])
     expect(publishedSubclassesFor('Not A Class')).toEqual([])
   })
 
@@ -688,6 +693,203 @@ describe('the ranger conclaves', () => {
     const sub = arch('Beast Master')
     expect(sub?.grant).toBeUndefined()
     expect(sub?.features.flatMap((f) => f.picks ?? [])).toEqual([])
+  })
+})
+
+describe('the arcane traditions', () => {
+  // A wizard picks at **2nd**, and `subclassLevel: 2` was already declared on
+  // the kit with a comment explaining the bug that put it there — checked
+  // before authoring per the Druid's lesson, and this time there was nothing
+  // to fix. All eight schools live in the published tier including School of
+  // Evocation, which SRD 5.1 licenses: the kit only ever seeded it as a name.
+  const wizard = findKit(SRD_TABLES.kits, 'Wizard')
+  const SCHOOLS = [
+    'School of Abjuration',
+    'School of Conjuration',
+    'School of Divination',
+    'School of Enchantment',
+    'School of Evocation',
+    'School of Illusion',
+    'School of Necromancy',
+    'School of Transmutation',
+  ]
+  const school = (name: string) =>
+    wizard?.subclasses.find((s) => s.name === name)
+
+  it('all eight carry features, and no ninth goes unauthored', () => {
+    expect(SCHOOLS.length).toBe(8)
+    for (const name of SCHOOLS) {
+      expect(
+        school(name),
+        `${name} missing from the merged tables`,
+      ).toBeDefined()
+      expect(school(name)!.features.length, name).toBeGreaterThan(0)
+    }
+    // Asserted from the other side too: a school added to the kit later and
+    // never authored here would otherwise sit bare and nothing would say so.
+    expect(
+      (wizard?.subclasses ?? []).map((s) => s.name).sort(),
+      'the kit offers a school this block does not cover',
+    ).toEqual([...SCHOOLS].sort())
+  })
+
+  it('sit at exactly the levels a wizard gains school features', () => {
+    // 2/6/10/14 for all eight, verified school by school rather than assumed
+    // uniform — the Monk pass's lesson about numbers written from memory. A
+    // row quietly authored at 3 because most classes work that way would be
+    // granted a level late and nothing else here would notice.
+    for (const name of SCHOOLS) {
+      const levels = [
+        ...new Set((school(name)?.features ?? []).map((f) => f.level)),
+      ].sort((a, b) => a - b)
+      expect(levels, name).toEqual([2, 6, 10, 14])
+    }
+  })
+
+  it('give every school two features at 2nd — a Savant and one more', () => {
+    // The test above passes with a school missing its Savant, because it reads
+    // the level *set* and 2 appears either way. A wizard school is five
+    // features across four levels, and the doubled 2nd is the shape that goes
+    // wrong silently.
+    for (const name of SCHOOLS) {
+      const features = school(name)?.features ?? []
+      expect(features.length, name).toBe(5)
+      const at2 = features.filter((f) => f.level === 2)
+      expect(at2.length, `${name} at 2nd`).toBe(2)
+      expect(
+        at2.filter((f) => f.name.endsWith('Savant')).length,
+        `${name} has no Savant`,
+      ).toBe(1)
+      for (const level of [6, 10, 14]) {
+        expect(
+          features.filter((f) => f.level === level).length,
+          `${name} at ${level}`,
+        ).toBe(1)
+      }
+    }
+  })
+
+  it('carry no school spells, because the PHB gives them none', () => {
+    // The one that matters most in this block, and the trap is live here in a
+    // way it was not even for the Ranger. A wizard school has no bonus spell
+    // list in any PHB school — that is a domain/oath/circle mechanism.
+    //
+    // Nothing else would catch a fabricated one. `srd.test.ts`'s "only
+    // spellcasting classes grant bonus spells" asks that `spellcastingFor(kit,
+    // sub)` be *defined*, and for a Wizard it always is: the class carries its
+    // own Intelligence block. So an invented table would pass a fully green
+    // suite and hand the character free always-prepared rows, which
+    // `preparedCount` exempts from `preparedLimit` outright.
+    //
+    // `grant.spells` is checked too, and it is the sneakier half: it would not
+    // trip that invariant at all, and `applyFeatGrants` would apply it.
+    for (const name of SCHOOLS) {
+      expect(school(name)?.spells, name).toBeUndefined()
+      expect(school(name)?.grant?.spells, name).toBeUndefined()
+    }
+  })
+
+  it('carry no grant at all, and that is the finding', () => {
+    // Absence with reasons, so it does not read as unfinished. Arcane Ward is
+    // a second hit-point pool with its own maximum and `Grant` has only
+    // `hpPerLevel`, which raises *the character's* max hp — the wrong number
+    // for the wrong entity, the Lay on Hands call. Spell Resistance's
+    // "resistance to the damage of spells" names a source, not a type, so
+    // `grant.resistances` would fail `srd.test.ts`'s DAMAGE_TYPES check and
+    // deserves to. And the spellbook additions — animate dead, polymorph — are
+    // not `Grant.spells`, whose doc comment is explicit that those are cast
+    // once per long rest without a slot.
+    for (const name of SCHOOLS) {
+      expect(school(name)?.grant, name).toBeUndefined()
+    }
+  })
+
+  it('never author a counter of their own', () => {
+    // Arcane Recovery is the wizard's counter and it is on the *class*, added
+    // in the same pass that authored these. Only three fit a sheet, and the
+    // schools' once-per-rest features are one-shot rules their text carries.
+    for (const name of SCHOOLS) {
+      for (const f of school(name)?.features ?? []) {
+        expect(
+          f.resource,
+          `${name}/${f.name} authors a counter`,
+        ).toBeUndefined()
+      }
+    }
+  })
+
+  it('have somewhere to cast from, at 1st unlike a half caster', () => {
+    // Asserted from the other side as the oaths and conclaves do: the block is
+    // real, which is *why* the absence of school spells above is a data
+    // decision rather than a mechanism limit.
+    for (const name of SCHOOLS) {
+      expect(spellcastingFor(wizard, name), name).toBeDefined()
+    }
+    // Note the sign flips versus the Paladin and Ranger blocks, which assert
+    // false here. A wizard is a full caster and casts from 1st, so a level-1
+    // wizard *does* get a spells step at creation. Do not "fix" this to match.
+    expect(castsAtLevel1(wizard)).toBe(true)
+  })
+
+  it('scale Portent as its own row rather than prose', () => {
+    // The only scaling pair in the eight. Folded into the level-2 text as
+    // "three dice at 14th" it would be prose the level-up wizard cannot grant,
+    // the same failure the Cleric's Divine Strike test guards.
+    const div = school('School of Divination')
+    expect(
+      div?.features.some((f) => f.level === 2 && f.name === 'Portent'),
+    ).toBe(true)
+    expect(
+      div?.features.some((f) => f.level === 14 && f.name === 'Greater Portent'),
+    ).toBe(true)
+  })
+
+  it('offer the transmuter’s stone as the one and only pick', () => {
+    // Zero picks across seven schools is deliberate: a wizard's school
+    // features are passive modifiers to how spells behave, not menus. The
+    // stone is the exception because its choice *persists* until the wizard
+    // changes it, so it is real sheet state.
+    const picks = SCHOOLS.flatMap((name) =>
+      (school(name)?.features ?? []).flatMap((f) => f.picks ?? []),
+    )
+    expect(picks.map((p) => p.id)).toEqual(['school-of-transmutation-6-stone'])
+
+    const pick = picks[0]
+    expect(pick.kind).toBe('feature')
+    expect(pick.open, 'the stone must stay closed').toBeFalsy()
+    expect(pick.count).toBe(1)
+    expect(pick.featureLabel).toBeTruthy()
+    expect(new Set(pick.options).size).toBe(pick.options.length)
+    for (const option of pick.options) {
+      expect(pick.featureText?.[option], `no text for "${option}"`).toBeTruthy()
+    }
+    // And backwards: a text entry the pick does not offer is a typo's usual
+    // shape, and the completeness check above cannot see it.
+    for (const key of Object.keys(pick.featureText ?? {})) {
+      expect(
+        pick.options.includes(key),
+        `text for "${key}", which the stone does not offer`,
+      ).toBe(true)
+    }
+    // No `featureGrant` on any option. Speed +10 and the resistance are
+    // numbers the sheet holds, but the stone is transferable and its benefit
+    // rechooseable, so either written permanently onto this character would be
+    // wrong the moment it changes hands. Draconic Resilience's absent
+    // `acBonus` is the precedent.
+    expect(pick.featureGrant).toBeUndefined()
+  })
+
+  it('leave The Third Eye’s four benefits as prose', () => {
+    // The near-miss, pinned because it is the likeliest wrong future edit in
+    // this key. It reads exactly like the stone — four named options — but the
+    // choice is re-made after every short rest, while a `feature` pick writes
+    // one permanent row to `Character.features`. That row would assert the
+    // character has darkvision forever, false an hour later.
+    const eye = school('School of Divination')?.features.find(
+      (f) => f.level === 10,
+    )
+    expect(eye?.name).toBe('The Third Eye')
+    expect(eye?.picks).toBeUndefined()
   })
 })
 

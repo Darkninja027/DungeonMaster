@@ -8,19 +8,21 @@ Paste this into a fresh Claude Code context in `c:\Projects\DungeonMaster`.
 
 Author per-level subclass features for **one class at a time**. Fighter,
 Rogue, Barbarian, Bard, **Cleric**, **Druid**, **Sorcerer**, **Paladin**,
-**Monk** and **Ranger** are done; the other two ship `features: []` on every
-subclass:
+**Monk**, **Ranger** and **Wizard** are done. **One class is left**, and it
+ships `features: []` on every subclass:
 
 ```
-Warlock 0/3   Wizard 0/8
+Warlock 0/3
 ```
 
-**Next up: your pick of the two.** The **Warlock** is not a pure data pass —
-its patron spell lists are "added to your spell list" rather than always
-prepared, which is a mechanism question; see below. **The Wizard is data-only**,
-and is the larger job at eight schools; its `subclassLevel: 2` is already
-declared correctly, and the inert `spellbook.perLevel` gap sits next to it as
-its own separate job.
+**The Warlock is not a pure data pass**, and that is the whole reason it is
+last: its patron spell lists are "added to your spell list" rather than always
+prepared, which is a mechanism question that has to be decided before a line of
+data is written. See "The Warlock needs a decision first" below — it is now the
+only thing this document is asking for.
+
+The Wizard's inert `spellbook.perLevel` gap is still open and still its own
+separate job; the Wizard pass deliberately did not touch it.
 
 > **The Paladin pass corrected this section's advice, and the half-caster pass
 > then closed the hole it found.** Paladin was recommended as the data-only
@@ -49,13 +51,17 @@ its own separate job.
 > second half: having checked the mechanism exists, check the *source* actually
 > says the data exists too. `subclasses.test.ts` now pins the absence.
 
-**Check `subclassLevel` before you author anything.** Two classes have now had
+**Check `subclassLevel` before you author anything.** Two classes have had
 the same bug: the kit declared no `subclassLevel`, so `subclassLevelOf` returned
 the default 3 while the class's own `... Circle` / `... School` feature row sat
 at 2. The Wizard was fixed earlier; the **Druid** was fixed in its pass. If the
 class you are authoring picks at anything other than 3, confirm the kit says so
 — `subclasses.test.ts` will reject a legitimate feature below the declared
 level, and the level-up wizard asks a level late.
+
+For the **Warlock**, the only class left, this is already checked and correct:
+the kit declares `subclassLevel: 1` (and the deprecated `subclassAtLevel1: true`
+beside it, the only kit carrying both). Its features must sit at level >= 1.
 
 Do one class completely, then stop. Do not batch.
 
@@ -128,7 +134,7 @@ So there are two homes, and `subclasses.test.ts` enforces the split:
 | Paladin | Oath of Devotion | ” |
 | Ranger | Hunter | ” |
 | Warlock | The Fiend | ” |
-| Wizard | School of Evocation | ” |
+| Wizard | School of Evocation — **published tier**, like the Sorcerer's | ” |
 
 **Being the SRD one does not oblige you to author it in `lib/srd/`.** The
 Sorcerer pass put Draconic Bloodline in the published tier instead, and that is
@@ -226,15 +232,17 @@ auto-applied. A later feature naming the same resource **raises** it (4 → 5,
 shown as `4 → 5`, `used` untouched); it never lowers one the player tuned
 higher. Cap is `MAX_RESOURCES = 3`.
 
-**Two classes still have no `resource` anywhere** — Warlock
-(Mystic Arcanum) and Wizard (Arcane Recovery). The **Ranger** also has none,
+**One class still has no `resource` anywhere** — the Warlock
+(Mystic Arcanum). The Wizard's Arcane Recovery became a real counter in its own
+pass. The **Ranger** also has none,
 and its pass deliberately *declined* to add one rather than leaving a gap:
 Primeval Awareness spends a spell slot the sheet already tracks, Foe Slayer is
 a once-per-turn rule with no pool, and a Beast Master companion's hit points
 are a scaling number. Not every class has a counter to find — a pass that goes
-looking should be willing to come back empty and say so. The Paladin's were added in its
-own pass (Channel Divinity at 3, Divine Sense at 1), and the Monk's Ki in its
-own. Barbarian, Bard, Cleric, Druid, Fighter, Monk and Sorcerer each have a
+looking should be willing to come back empty and say so.
+
+The Paladin's were added in its own pass (Channel Divinity at 3, Divine Sense
+at 1), and the Monk's Ki in its own. Barbarian, Bard, Cleric, Druid, Fighter, Monk and Sorcerer each have a
 class-level one; Cleric's Channel Divinity, Druid's Wild Shape, the
 Sorcerer's Sorcery Points and the Monk's Ki were added in their own passes. The Rogue's only counter is the Arcane
 Trickster's level-17 Spell Thief, so a Thief still has none — a *subclass*
@@ -323,7 +331,7 @@ npx vitest run src/lib/srd/srd.test.ts      # the data invariants
 npx vitest run src/lib/subclasses/          # the SRD/published boundary
 npx vitest run src/lib/levelUp.test.ts      # the mechanism
 npx vitest run src/lib/buildCharacter.test.ts   # creation, for a level-1 class
-npx vitest run                              # all 1569
+npx vitest run                              # all 1581
 npx tsc --noEmit -p tsconfig.json
 npm run lint                                # NOTE: 14 pre-existing problems
 ```
@@ -490,7 +498,7 @@ Restore with a Python round-trip (`newline=''`, `.replace('\r\n','\n')` then
 
 ## Where things stand
 
-1569 tests passing (`spellCard.test.ts` and `electron/main/*.test.ts` still
+1581 tests passing (`spellCard.test.ts` and `electron/main/*.test.ts` still
 flake under full-suite parallel load — re-run alone before investigating; a
 `recents.test.ts` failure did exactly that during the Cleric pass). Done and
 tested — do not rebuild:
@@ -501,7 +509,78 @@ tested — do not rebuild:
 - `Character.resources` — up to 3 counters, on the sheet and the printed page.
 - **Fighter** 3/3, **Rogue** 3/3, **Barbarian** 2/2, **Bard** 2/2,
   **Cleric** 7/7, **Druid** 2/2, **Sorcerer** 2/2, **Paladin** 3/3,
-  **Monk** 3/3 and **Ranger** 2/2 archetypes authored.
+  **Monk** 3/3, **Ranger** 2/2 and **Wizard** 8/8 archetypes authored.
+  Only the **Warlock** is left, and only because of its spell-list mechanism.
+- **Wizard**: all eight schools in `publishedSubclasses.ts`, features at
+  **2/2/6/10/14** — five features across four levels, with a **doubled level
+  2** (the Savant plus one more). That shape matters: a test asserting only the
+  level *set* passes with a school missing its Savant, so there is a separate
+  test counting two at 2nd and one each at 6/10/14. All eight kit stubs stay
+  bare, `subclassLevel: 2` was already declared correctly (checked first, per
+  the Druid's lesson — nothing to fix), and the pinned list in
+  `subclasses.test.ts` needed no edit.
+  School of Evocation is in the published tier despite SRD 5.1 licensing it,
+  on the Sorcerer and Monk precedent: the kit only ever seeded it as a *name*.
+  **Three absences, all deliberate and all pinned**, because eight schools
+  carrying nothing but prose otherwise reads as unfinished:
+  **No school spells.** The PHB gives a wizard school no bonus spell list at
+  all. This is the Ranger's trap with the safety catch already off, and it was
+  *verified* rather than assumed: a fabricated `spells` table planted on
+  Abjuration passed `srd.test.ts` **completely — 92 tests green** — because
+  that invariant asks only that `spellcastingFor(kit, sub)` be *defined*, and
+  for a Wizard it always is. Only the new pin caught it.
+  **No `grant` anywhere.** Each candidate fails for its own reason and the
+  reasons are in the code: Arcane Ward is a *second* hit-point pool and `Grant`
+  offers only `hpPerLevel`, which raises the character's own max hp (the Lay on
+  Hands call); Spell Resistance's "resistance to the damage of spells" names a
+  source, not a type, so `grant.resistances` would rightly fail the
+  `DAMAGE_TYPES` check; and Undead Thralls / Shapechanger / Improved Minor
+  Illusion add spells to the **spellbook**, which is not `Grant.spells` — whose
+  doc comment is explicit those are cast once per long rest without a slot.
+  **No `resource` on any school**, because the class gained one (below).
+  **Exactly one pick in eight schools**, and the reasoning for where that line
+  fell is the pass's main judgement call. Transmuter's Stone is a closed
+  `kind: 'feature'` pick over its four benefits — it earns a row because the
+  choice **persists** until the wizard deliberately changes it. The Third Eye
+  looks identical (four named options at 10th) and is deliberately **prose**,
+  because its choice is re-made after *every short rest*: a permanent
+  `Character.features` row would assert the character has darkvision forever,
+  false an hour later. Same argument as Draconic Resilience's absent `acBonus`.
+  A test pins that non-pick, because it is the likeliest wrong future edit.
+  The stone carries **no `featureGrant`** on any option: two of the four land
+  on numbers the sheet holds (speed +10, a damage resistance), but the stone is
+  transferable and rechooseable, so either written permanently would be wrong
+  the moment it changed hands. Verified in the app — taking Increased Speed
+  leaves speed at 30 and writes only the row.
+  Zero picks across the other seven is a **finding, not a gap**: a wizard's
+  school features are passive modifiers to how spells behave, not menus.
+  Greater Portent is the only scaling pair, and it is its own row at 14.
+- Wizard class-level fix that came with it: **Arcane Recovery is a real
+  counter** (1 use, **long** rest) — the class had no counter at any level while
+  its own feature text told the player to spend something the sheet had never
+  heard of. `resets: 'long'` is the load-bearing half and the easy thing to get
+  backwards: the feature *triggers* on a short rest but *refreshes* by the day,
+  so 'short' would promise it back every hour. Ki is `'short'` and Sorcery
+  Points `'long'`; copying either wholesale gets this one wrong and, verified,
+  **no existing test would have caught it**. `total: 1` and never raised —
+  what scales is the *size* of the recovery (slots totalling half your wizard
+  level), which is a scaling number, the same call Lay on Hands got.
+  It is a **level-1** feature, so it reaches the sheet through
+  `buildCharacter`'s apply path rather than `resourcesOffered`, which only ever
+  looks at levels being gained. Both halves are asserted, mirroring Divine
+  Sense.
+- Wizard sourcing note, and it repaid the effort immediately: the repo ships no
+  wizard school table, so the eight schools came from **dnd5e.wikidot.com** —
+  the Monk pass's source and precedent. It has **"Benign Transportation"** for
+  Conjuration's 6th-level feature, and a number of sites quoting it agree. The
+  PHB prints **"Benign Transposition"**, which is also what the feature does
+  (you may *swap places* with a willing creature). Confirmed against a second
+  source before committing. That is the third time this document has recorded a
+  wrong number or name surviving in an otherwise good source, and a wrong
+  feature name is silent everywhere in this codebase — nothing validates it.
+  The level sets were checked school by school rather than assumed uniform;
+  they did turn out uniform, but that was a finding rather than a starting
+  assumption.
 - **Ranger**: both conclaves in `publishedSubclasses.ts`, features at 3/7/11/15.
   The pinned list in `subclasses.test.ts` needed no edit and the kit stubs stay
   bare. `subclassLevel` is absent but defaults to 3 and agrees with the kit's
@@ -734,6 +813,11 @@ Known gaps, deliberately left:
 - **Wizard spellbook.** `SpellcastingInfo.spellbook.perLevel` is declared,
   authored nowhere and read nowhere. A Wizard picks cantrips at level-up but no
   spells. Wiring it is a fourth counting rule and its own job.
+  **Re-verified during the Wizard pass and still true**: the only references in
+  all of `client/src` are the type declaration, `homebrew.ts`'s parser and its
+  round-trip test. No game logic reads it, and the Wizard kit does not even
+  author it. The eight schools deliberately did not touch this — a data pass
+  and a fourth counting rule are different jobs.
 - **Superior Technique** (Fighting Style) grants a manoeuvre *and* a d6. The die
   is offered; the manoeuvre is not — that needs a pick that poses another pick.
 - **Spell swapping.** 5e lets a caster replace one spell per level. Deliberately
