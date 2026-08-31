@@ -386,7 +386,10 @@ function CharacterPage() {
         </p>
       )}
 
-      <TabsContent value="sheet" className="min-h-0 flex-1 overflow-y-auto">
+      <TabsContent
+        value="sheet"
+        className="@container/sheet min-h-0 flex-1 overflow-y-auto"
+      >
         <SheetTab
           character={character}
           onChange={update}
