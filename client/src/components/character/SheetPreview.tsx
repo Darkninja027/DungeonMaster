@@ -1805,19 +1805,34 @@ export function SheetPreview({
  * Scales the fixed 816px sheets down to fit a narrower pane, matching the
  * article editor's live preview so the two feel the same.
  */
-export function SheetFitPane({ children }: { children: React.ReactNode }) {
+/**
+ * Scales a fixed-width sheet to fit its pane.
+ *
+ * `max` caps the scale, and defaults to 1 because a sheet on a normal editing
+ * pane should never be blown up past its native size. The player window passes
+ * a larger cap: on a 1080p projector (1920-24)/840 is about 2.25, so the
+ * default would clamp to 1 and leave the page sitting small in a large dark
+ * field, which is the opposite of what a table needs.
+ */
+export function SheetFitPane({
+  children,
+  max = 1,
+}: {
+  children: React.ReactNode
+  max?: number
+}) {
   const ref = useRef<HTMLDivElement>(null)
   const [scale, setScale] = useState(1)
 
   useEffect(() => {
     const el = ref.current
     if (!el) return
-    const measure = () => setScale(Math.min(1, (el.clientWidth - 24) / 840))
+    const measure = () => setScale(Math.min(max, (el.clientWidth - 24) / 840))
     measure()
     const observer = new ResizeObserver(measure)
     observer.observe(el)
     return () => observer.disconnect()
-  }, [])
+  }, [max])
 
   return (
     <div ref={ref} className="h-full">

@@ -1,5 +1,10 @@
 import { useEffect, useState } from 'react'
-import { Link, Outlet, createRootRoute } from '@tanstack/react-router'
+import {
+  Link,
+  Outlet,
+  createRootRoute,
+  useMatchRoute,
+} from '@tanstack/react-router'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Castle, Moon, Sun } from 'lucide-react'
 import { UpdateIndicator } from '#/components/UpdateIndicator'
@@ -58,6 +63,14 @@ function HeaderSidebarToggle() {
 }
 
 function RootLayout() {
+  // The player window loads this same bundle at #/player/..., so the root
+  // layout is on its render path — but a projector must show the article and
+  // nothing else. A route check rather than a second root: the
+  // QueryClientProvider and the pointer-events unstick below are both wanted
+  // in that window too, and splitting the root would duplicate them.
+  const matchRoute = useMatchRoute()
+  const bare = !!matchRoute({ to: '/player/$worldId/$articleId', fuzzy: true })
+
   // Safety net for a known Radix race: opening a Dialog out of a DropdownMenu
   // can leave pointer-events:none stuck on <body>, deadening clicks/typing
   // app-wide until the next layer resets it. Clear an orphaned inline lock on
@@ -77,17 +90,19 @@ function RootLayout() {
   return (
     <QueryClientProvider client={queryClient}>
       <div className="flex h-screen flex-col">
-        <header className="flex items-center gap-2 border-b px-4 py-2">
-          <HeaderSidebarToggle />
-          <Link to="/" className="flex items-center gap-2 font-semibold">
-            <Castle className="size-5" />
-            Dungeon Master
-          </Link>
-          <div className="ml-auto flex items-center gap-1">
-            <UpdateIndicator />
-            <ThemeToggle />
-          </div>
-        </header>
+        {!bare && (
+          <header className="flex items-center gap-2 border-b px-4 py-2">
+            <HeaderSidebarToggle />
+            <Link to="/" className="flex items-center gap-2 font-semibold">
+              <Castle className="size-5" />
+              Dungeon Master
+            </Link>
+            <div className="ml-auto flex items-center gap-1">
+              <UpdateIndicator />
+              <ThemeToggle />
+            </div>
+          </header>
+        )}
         <main className="min-h-0 flex-1">
           <Outlet />
         </main>

@@ -13,14 +13,17 @@ import { useRouter } from '@tanstack/react-router'
 import { Dices } from 'lucide-react'
 import { cn } from '#/lib/utils'
 import {
+  DM_CALLOUT_MARKER,
   linkifyDice,
   parsePages,
   rangeMatches,
   resolveWikiLinks,
   rollDice,
   splitFrontmatter,
+  transformDmBlocks,
 } from '#/lib/formatMarkdown'
 import type { DiceResult } from '#/lib/formatMarkdown'
+import { focusImage } from '#/lib/playerFocus'
 import { logRoll } from '#/lib/rollLog'
 import type { RollSource } from '#/lib/rollLog'
 import {
@@ -111,9 +114,11 @@ function DiceChip({
 function RollableTable({
   children,
   source,
+  readOnly,
 }: {
   children?: React.ReactNode
   source?: RollSource
+  readOnly?: boolean
 }) {
   const ref = useRef<HTMLTableElement>(null)
   const [die, setDie] = useState<number | null>(null)
@@ -152,7 +157,7 @@ function RollableTable({
 
   return (
     <div>
-      {die && (
+      {die && !readOnly && (
         <div className="dnd-roll-bar">
           <button type="button" className="dnd-dice" onClick={roll}>
             <Dices className="inline size-3.5" /> Roll d{die}
@@ -441,6 +446,7 @@ function createComponents(
   worldId?: string,
   source?: RollSource,
   articles?: Array<{ id: string; title: string }>,
+  readOnly?: boolean,
 ): Components {
   return {
     h1: headingComponent(1),
@@ -450,8 +456,32 @@ function createComponents(
     h5: headingComponent(5),
     h6: headingComponent(6),
     table: ({ children }) => (
-      <RollableTable source={source}>{children}</RollableTable>
+      <RollableTable source={source} readOnly={readOnly}>
+        {children}
+      </RollableTable>
     ),
+    blockquote: ({ children, ...props }) => {
+      // A :::dm block arrives here as a blockquote whose first child is a
+      // paragraph holding only DM_CALLOUT_MARKER (see transformDmBlocks). The
+      // marker is stripped and the rest renders as a tinted "DM only" box.
+      // Checking the first child rather than the whole text keeps a normal
+      // read-aloud blockquote that merely mentions the marker unaffected.
+      const kids = Array.isArray(children) ? children : [children]
+      const first = kids.find((k) => isValidElement(k))
+      if (
+        isValidElement(first) &&
+        childText(
+          (first.props as { children?: React.ReactNode }).children,
+        ).trim() === DM_CALLOUT_MARKER
+      ) {
+        return (
+          <blockquote className="dnd-dm-block" {...props}>
+            {kids.filter((k) => k !== first)}
+          </blockquote>
+        )
+      }
+      return <blockquote {...props}>{children}</blockquote>
+    },
     pre: ({ children, ...props }) => {
       // A ```statblock fence renders as a PHB monster card instead of a code
       // block. react-markdown wraps fenced code in <pre><code class="language-…">;
@@ -465,6 +495,7 @@ function createComponents(
             articles={articles}
             onCreateMissing={onCreateMissing}
             source={source}
+            readOnly={readOnly}
           />
         )
       }
@@ -477,6 +508,23 @@ function createComponents(
       if (parsed.src?.startsWith('_images/') && worldId) {
         parsed.src = `world://${worldId}/${parsed.src}`
       }
+      // The one place readOnly ADDS interactivity rather than removing it: on
+      // a projector a map wants to be enlarged, and clicking it is the whole
+      // gesture. focusImage is a module-level store because these images sit
+      // deep inside memoised subtrees — see lib/playerFocus.ts.
+      if (readOnly && parsed.src) {
+        const src = parsed.src
+        return (
+          <img
+            src={src}
+            alt={alt}
+            style={parsed.style}
+            className={cn(parsed.className, 'cursor-zoom-in')}
+            onClick={() => focusImage({ src, alt })}
+            {...props}
+          />
+        )
+      }
       return (
         <img
           src={parsed.src}
@@ -488,6 +536,17 @@ function createComponents(
       )
     },
     a: ({ href, children, ...props }) => {
+      // A player-facing surface renders every link as plain text. Not CSS:
+      // pointer-events:none would stop the click but keep the affordance —
+      // and an internal href calls router.history.push, which would navigate
+      // the PLAYER window into the full DM app, sidebar and all, on the
+      // projector. That is the worst failure this feature has, so it is
+      // refused at the point the element is built.
+      //
+      // A missing: link matters for a second reason: its title reads "No
+      // article called X yet — click to create it", which is the DM's private
+      // worldbuilding TODO.
+      if (readOnly) return <span {...props}>{children}</span>
       if (href?.startsWith('dice:')) {
         const notation = decodeURIComponent(href.slice(5))
         // A trailing #hidename keeps the name in roll history but hides it on
@@ -555,6 +614,21 @@ interface RenderContext {
   onCreateMissing?: (title: string) => void
   /** Where rolls made in this view are attributed in the roll history. */
   source?: RollSource
+  /**
+   * Who is looking. `'dm'` (the default, so every existing call site is
+   * unchanged) renders a :::dm block as a tinted box; `'player'` strips those
+   * blocks entirely — see transformDmBlocks.
+   *
+   * NOTE: unrelated to WorldMode's `'player'` in lib/worldMode.ts, which is a
+   * per-world chrome setting for someone playing a character.
+   */
+  audience?: 'dm' | 'player'
+  /**
+   * A read-only surface — the player window. Dice chips, rollable-table Roll
+   * bars and every link render as inert text instead. See the `a` override for
+   * why this is a real prop rather than a CSS rule.
+   */
+  readOnly?: boolean
 }
 
 /**
@@ -569,6 +643,7 @@ export const InlineMarkdown = memo(function InlineMarkdown({
   onCreateMissing,
   source,
   className,
+  readOnly,
 }: { children: string; className?: string } & RenderContext) {
   const router = useRouter()
   const components = useMemo(
@@ -579,8 +654,9 @@ export const InlineMarkdown = memo(function InlineMarkdown({
         worldId,
         source,
         articles,
+        readOnly,
       ),
-    [router, onCreateMissing, worldId, source, articles],
+    [router, onCreateMissing, worldId, source, articles, readOnly],
   )
   // A stat block renders one of these per attribute plus one for its prose,
   // so this pipeline runs many times over per card — worth memoising even
@@ -640,6 +716,7 @@ export const Markdown = memo(function Markdown({
   worldId,
   onCreateMissing,
   source,
+  readOnly,
 }: { children: string; columns?: 1 | 2 } & RenderContext) {
   const router = useRouter()
   const components = useMemo(
@@ -650,8 +727,9 @@ export const Markdown = memo(function Markdown({
         worldId,
         source,
         articles,
+        readOnly,
       ),
-    [router, onCreateMissing, worldId, source, articles],
+    [router, onCreateMissing, worldId, source, articles, readOnly],
   )
   // Two whole-document regex passes; resolveWikiLinks also rebuilds a title
   // map of the world. Memoised so they don't re-run per sheet.
@@ -730,13 +808,25 @@ export const BookView = memo(function BookView({
   worldId,
   onCreateMissing,
   source,
+  audience = 'dm',
+  readOnly,
 }: { children: string } & RenderContext) {
   // Frontmatter (character stats etc.) is data, not prose — never render it.
   // Memoised: this re-splits the whole document, and every page's body string
   // feeds a memo boundary below, so a new array would defeat all of them.
+  //
+  // DM blocks are resolved BEFORE parsePages, so a \page inside one goes with
+  // it for a player (their page count legitimately differs from the DM's) and
+  // never splits the callout box for the DM.
   const pages = useMemo(
-    () => parsePages(splitFrontmatter(children).body),
-    [children],
+    () =>
+      parsePages(
+        transformDmBlocks(
+          splitFrontmatter(children).body,
+          audience === 'player' ? 'strip' : 'mark',
+        ),
+      ),
+    [children, audience],
   )
   return (
     <div className="dnd-book flex flex-col items-center gap-8">
@@ -757,6 +847,7 @@ export const BookView = memo(function BookView({
             worldId={worldId}
             onCreateMissing={onCreateMissing}
             source={source}
+            readOnly={readOnly}
           >
             {page.body}
           </Markdown>

@@ -17,6 +17,7 @@ import {
   Link2,
   List,
   Loader2,
+  MonitorPlay,
   Pencil,
   Save,
   Trash2,
@@ -472,6 +473,28 @@ function ArticlePage() {
     [rollSource, worldId, articleId, title],
   )
 
+  // Mirror the live editor buffer to a player window showing this article.
+  // Deferred and debounced: the push crosses two IPC hops and re-parses a
+  // whole article on the far side, so a keystroke-rate push would make typing
+  // stutter. 150ms reads as live and is well under the 2s autosave.
+  //
+  // This is how the player window updates at all — the file watcher cannot
+  // help, because every app write goes through noteSelfWrite and is dropped.
+  // pushToPlayerWindow no-ops when no such window is open, so this costs
+  // nothing in the common case.
+  const deferredForPlayers = useDeferredValue(content)
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      void api.player.push({
+        worldId,
+        articleId,
+        content: deferredForPlayers,
+        title,
+      })
+    }, 150)
+    return () => clearTimeout(timer)
+  }, [worldId, articleId, deferredForPlayers, title])
+
   // Characters preview as a parchment sheet rather than as prose, since all
   // their data lives in the frontmatter that BookView deliberately strips.
   const isCharacter = isCharacterContent(content)
@@ -640,6 +663,9 @@ function ArticlePage() {
                 >
                   Read-aloud box
                 </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => insertBlock(snippets.dmOnly)}>
+                  DM-only block
+                </DropdownMenuItem>
                 <DropdownMenuItem
                   onClick={() => insertBlock(snippets.statBlock)}
                 >
@@ -734,6 +760,17 @@ function ArticlePage() {
               if (dirty) setExternalChange(true)
             }}
           />
+          <Button
+            variant="outline"
+            size="icon"
+            className="size-8"
+            title="Show to players in a second window"
+            onClick={() =>
+              void api.player.show(worldId, article.data?.id ?? articleId)
+            }
+          >
+            <MonitorPlay />
+          </Button>
           <Button
             variant="outline"
             size="icon"

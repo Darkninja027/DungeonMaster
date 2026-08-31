@@ -58,6 +58,12 @@ import {
 import { readHomebrew, writeHomebrew } from './homebrew'
 import { noteSelfWrite, startWatching, stopWatching } from './watcher'
 import {
+  closeAllPlayerWindows,
+  closePlayerWindow,
+  pushToPlayerWindow,
+  showPlayerWindow,
+} from './playerWindow'
+import {
   buildIndex,
   dropIndex,
   noteDelete,
@@ -684,6 +690,44 @@ export function registerIpcHandlers() {
     'library:restore',
     async (_e, { target }: { target: unknown }) =>
       restoreBundledFolder(libraryFolder(target)),
+  )
+
+  // Player window -----------------------------------------------------------
+  // A second, chrome-free window showing one article to the table. Unrelated
+  // to WorldMode's 'player' (src/lib/worldMode.ts).
+  ipcMain.handle(
+    'player:show',
+    (_e, { worldId, articleId }: { worldId: string; articleId: string }) => {
+      // The id only ever rides in a URL hash, but resolve it anyway so a bad
+      // world fails here rather than in a window that has already opened —
+      // every handler funnels through the path guard.
+      resolveInWorld(worldRoot(worldId), `${articleId}.md`)
+      showPlayerWindow(worldId, articleId)
+    },
+  )
+
+  ipcMain.handle(
+    'player:close',
+    (_e, { worldId, articleId }: { worldId: string; articleId: string }) =>
+      closePlayerWindow(worldId, articleId),
+  )
+
+  ipcMain.handle('player:closeAll', () => closeAllPlayerWindows())
+
+  // Content relay only — touches no disk. The file watcher cannot do this:
+  // app writes go through noteSelfWrite and are dropped by watcher.ts, so a
+  // DM typing in the DM window is invisible to it.
+  ipcMain.handle(
+    'player:push',
+    (
+      _e,
+      payload: {
+        worldId: string
+        articleId: string
+        content: string
+        title: string
+      },
+    ) => pushToPlayerWindow(payload),
   )
 }
 

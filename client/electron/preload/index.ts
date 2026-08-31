@@ -55,11 +55,19 @@ const CHANNELS = new Set([
   'library:restore',
   'shell:reveal',
   'updates:quitAndInstall',
+  'player:show',
+  'player:close',
+  'player:closeAll',
+  'player:push',
 ])
 
 // Channels the main process may PUSH to the renderer. Kept as a separate
 // allowlist so the renderer can never subscribe to arbitrary IPC channels.
-const EVENT_CHANNELS = new Set(['updates:status', 'world:changed'])
+const EVENT_CHANNELS = new Set([
+  'updates:status',
+  'world:changed',
+  'player:content',
+])
 
 contextBridge.exposeInMainWorld('dmApi', {
   invoke: (channel: string, args?: unknown) => {

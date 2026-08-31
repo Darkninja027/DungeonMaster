@@ -232,6 +232,14 @@ export interface ImportSummary {
  * `Error invoking remote method 'x:y': Error: <real message>`. Strip that here
  * so the message we wrote in the main process is what the user actually reads.
  */
+/** What the DM window relays to a player window on every edit. */
+export interface PlayerContent {
+  worldId: string
+  articleId: string
+  content: string
+  title: string
+}
+
 function invoke<T>(channel: string, args?: unknown): Promise<T> {
   return window.dmApi.invoke<T>(channel, args).catch((cause: unknown) => {
     const raw = cause instanceof Error ? cause.message : String(cause)
@@ -467,5 +475,30 @@ export const api = {
       ),
     /** Quit and install a downloaded update. */
     quitAndInstall: () => invoke<void>('updates:quitAndInstall'),
+  },
+  /**
+   * The player window — a second, chrome-free window showing one article to
+   * the table. Unrelated to WorldMode's `'player'` (lib/worldMode.ts), which
+   * is a per-world chrome setting for someone playing a character.
+   */
+  player: {
+    /** Open a player window for this article, or focus its existing one. */
+    show: (worldId: string, articleId: string) =>
+      invoke<void>('player:show', { worldId, articleId }),
+    close: (worldId: string, articleId: string) =>
+      invoke<void>('player:close', { worldId, articleId }),
+    /** Close every player window; resolves with how many were open. */
+    closeAll: () => invoke<number>('player:closeAll'),
+    /**
+     * Relay the DM's live editor buffer to the window showing this article.
+     * No-ops in the main process if no such window is open, so the caller
+     * never has to know whether anyone is watching.
+     */
+    push: (payload: PlayerContent) => invoke<void>('player:push', payload),
+    /** Player window: subscribe to pushed content; returns an unsubscribe fn. */
+    onContent: (cb: (payload: PlayerContent) => void) =>
+      window.dmApi.on('player:content', (payload) =>
+        cb(payload as PlayerContent),
+      ),
   },
 }

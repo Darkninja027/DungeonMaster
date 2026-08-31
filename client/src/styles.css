@@ -590,6 +590,37 @@ a {
   margin-bottom: 0;
 }
 
+/*
+ * A :::dm block — content the DM sees and the players never do. Deliberately
+ * loud: a DM glancing at a page has to be able to tell at once which parts are
+ * safe to turn towards the table. Overrides the read-aloud blockquote above
+ * rather than sharing it, so the two can never be confused.
+ *
+ * The player window strips these blocks from the markdown before render
+ * (transformDmBlocks), so this styling is a DM-side affordance only — it is
+ * never what keeps a secret hidden.
+ */
+.dnd-page blockquote.dnd-dm-block {
+  background: rgba(88, 24, 13, 0.07);
+  border: 2px dashed var(--dnd-red);
+  box-shadow: none;
+  font-style: normal;
+  padding-top: 1.5em;
+  position: relative;
+}
+.dnd-page blockquote.dnd-dm-block::before {
+  content: 'DM ONLY';
+  position: absolute;
+  top: 0.25em;
+  left: 1.1em;
+  font-family: 'Cinzel', Georgia, serif;
+  font-size: 0.62em;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  color: var(--dnd-red);
+  opacity: 0.85;
+}
+
 /* PHB-style tables: no borders, green-tinted striping */
 .dnd-page table {
   width: 100%;
@@ -1777,6 +1808,10 @@ a {
   }
   /* Interactive-only affordances have no business on paper */
   .dnd-roll-bar {
+    display: none;
+  }
+  /* A PDF may be handed to a player, so DM-only blocks never print. */
+  .dnd-dm-block {
     display: none;
   }
 }

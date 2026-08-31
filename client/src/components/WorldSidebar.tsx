@@ -10,6 +10,7 @@ import {
   Folder as FolderIcon,
   FolderOpen,
   FolderPlus,
+  MonitorPlay,
   MoreHorizontal,
   Pencil,
   Search,
@@ -350,6 +351,11 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
           </DropdownMenuItem>
           <DropdownMenuItem onClick={() => duplicateArticle.mutate(article.id)}>
             <Copy /> Duplicate
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={() => void api.player.show(worldId, article.id)}
+          >
+            <MonitorPlay /> Show to players
           </DropdownMenuItem>
           <DropdownMenuItem onClick={() => reveal(`${article.id}.md`)}>
             <FolderOpen /> {REVEAL_LABEL}

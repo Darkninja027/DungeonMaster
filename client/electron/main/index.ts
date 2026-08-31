@@ -5,6 +5,7 @@ import log from 'electron-log'
 import { registerIpcHandlers } from './ipc'
 import { registerWorldProtocol, handleWorldProtocol } from './images'
 import { seedBundledContent } from './library'
+import { closeAllPlayerWindows } from './playerWindow'
 
 const devServerUrl = process.env.VITE_DEV_SERVER_URL
 
@@ -24,6 +25,13 @@ function sendUpdateStatus(win: BrowserWindow, status: UpdateStatus) {
 
 registerWorldProtocol()
 
+/**
+ * The DM window. Tracked by reference rather than found via getAllWindows(),
+ * which became ambiguous once player windows existed — that list is creation
+ * ordered, so [0] is not reliably this one.
+ */
+let mainWindow: BrowserWindow | null = null
+
 function createWindow() {
   const win = new BrowserWindow({
     width: 1400,
@@ -39,7 +47,14 @@ function createWindow() {
     },
   })
 
+  mainWindow = win
   win.once('ready-to-show', () => win.show())
+
+  // Player windows are views onto the DM's article — orphaning one on a
+  // projector after the DM quits is the worst possible failure, so they go
+  // with it. ('close', not 'closed': window-all-closed will not fire while a
+  // player window is still open, so the app would otherwise never quit.)
+  win.on('close', () => closeAllPlayerWindows())
   // Keep our versioned title — the page's <title> would overwrite it on load.
   win.on('page-title-updated', (e) => e.preventDefault())
 
@@ -74,8 +89,8 @@ if (!app.requestSingleInstanceLock()) {
   app.quit()
 } else {
   app.on('second-instance', () => {
-    const [win] = BrowserWindow.getAllWindows()
-    if (win) {
+    const win = mainWindow
+    if (win && !win.isDestroyed()) {
       if (win.isMinimized()) win.restore()
       win.focus()
     }
@@ -162,7 +177,9 @@ if (!app.requestSingleInstanceLock()) {
     }
 
     app.on('activate', () => {
-      if (BrowserWindow.getAllWindows().length === 0) createWindow()
+      // Keyed on the DM window rather than the window count: a lone player
+      // window would otherwise suppress recreating the one that matters.
+      if (!mainWindow || mainWindow.isDestroyed()) createWindow()
     })
   })
 
