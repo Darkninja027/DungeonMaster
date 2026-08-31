@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { RotateCcw } from 'lucide-react'
+import { Link } from '@tanstack/react-router'
+import { BookOpen, RotateCcw } from 'lucide-react'
 import { api } from '#/lib/api'
 import type { ImportSummary, LibraryFolder } from '#/lib/api'
 import { useLibrary } from '#/lib/useGlobalLibrary'
@@ -95,6 +96,11 @@ function RestoreButton({
  * Restoring exists because the automatic seed is version-gated: it runs once per
  * content version, so a file deleted afterwards stays gone until the next
  * release bumps that version. These buttons are the way back without waiting.
+ *
+ * "Open library" is how you *write* reference material rather than import it.
+ * The library is a world folder, so it opens in the ordinary editor and a spell
+ * is just an article from the Spell template. That matters most in Player mode,
+ * which hides the content tree — this is then the only route to authoring one.
  */
 export function LibrarySection() {
   const library = useLibrary()
@@ -117,6 +123,19 @@ export function LibrarySection() {
         ) : info ? (
           <>
             <code className="text-sm break-all">{info.path}</code>
+            {info.available && (
+              <div className="pt-1.5">
+                <Button variant="outline" size="sm" asChild>
+                  <Link
+                    to="/worlds/$worldId"
+                    params={{ worldId: info.worldId }}
+                  >
+                    <BookOpen className="size-3.5" />
+                    Open library
+                  </Link>
+                </Button>
+              </div>
+            )}
             {!info.available && (
               <span className="text-destructive text-xs">
                 This folder isn’t there right now. If it’s on a drive that’s

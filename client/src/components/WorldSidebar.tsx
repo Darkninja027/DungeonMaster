@@ -23,10 +23,12 @@ import { onPaletteAction } from '#/lib/paletteActions'
 import { useShortcut } from '#/lib/useShortcut'
 import type { ArticleSummary, FolderNode, WorldTree } from '#/lib/api'
 import { isLibraryFolder } from '#/lib/libraryFolders'
+import { useWorldMode } from '#/lib/useWorldSettings'
 import { REVEAL_LABEL, revealer } from '#/lib/reveal'
 import { articleTemplates, newArticleContent } from '#/lib/templates'
 import { cn } from '#/lib/utils'
 import { SmartViews } from '#/components/SmartViews'
+import { CreateCharacterDialog } from '#/components/character/create/CreateCharacterDialog'
 import { Button } from '#/components/ui/button'
 import {
   Dialog,
@@ -45,12 +47,7 @@ import { Input } from '#/components/ui/input'
 import { ScrollArea } from '#/components/ui/scroll-area'
 
 interface NameDialogState {
-  mode:
-    | 'new-folder'
-    | 'rename-folder'
-    | 'new-article'
-    | 'rename-article'
-    | 'new-character'
+  mode: 'new-folder' | 'rename-folder' | 'new-article' | 'rename-article'
   parentFolderId: string | null
   folderId?: string
   articleId?: string
@@ -58,6 +55,9 @@ interface NameDialogState {
 }
 
 export function WorldSidebar({ worldId }: { worldId: string }) {
+  // Which sections this world's mode shows. Hiding only — the routes behind
+  // each one stay reachable, so a [[wiki link]] into a hidden tree still opens.
+  const shows = useWorldMode(worldId).shows
   const queryClient = useQueryClient()
   const navigate = useNavigate()
   const params = useParams({ strict: false })
@@ -103,11 +103,18 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
   // Subscribed once: openDialog is re-created each render but only touches
   // setState, so a stale closure would still open the right dialog.
   const openDialogRef = useRef<(state: NameDialogState) => void>(undefined)
+  const openWizardRef = useRef<() => void>(undefined)
   useEffect(
     () =>
-      onPaletteAction((action) =>
-        openDialogRef.current?.({ mode: action.kind, parentFolderId: null }),
-      ),
+      onPaletteAction((action) => {
+        // Character creation is a wizard rather than a name dialog, so it can't
+        // ride the mode pass-through the other kinds use.
+        if (action.kind === 'new-character') {
+          openWizardRef.current?.()
+          return
+        }
+        openDialogRef.current?.({ mode: action.kind, parentFolderId: null })
+      }),
     [],
   )
 
@@ -217,36 +224,13 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
     },
   })
 
-  const createCharacter = useMutation({
-    mutationFn: async (characterName: string) => {
-      // Characters live in a top-level Characters/ folder by convention.
-      try {
-        await api.folders.create({
-          worldId,
-          parentFolderId: null,
-          name: 'Characters',
-        })
-      } catch {
-        // already exists
-      }
-      const template = articleTemplates.find((t) => t.id === 'character')
-      return api.articles.create({
-        worldId,
-        folderId: 'Characters',
-        title: characterName,
-        content: template?.body ?? '',
-      })
-    },
-    onSuccess: (article) => {
-      invalidateTree()
-      setDialog(null)
-      navigate({
-        to: '/worlds/$worldId/characters/$articleId',
-        params: { worldId, articleId: article.id },
-      })
-    },
-    onError: (error) => alert(error.message),
-  })
+  const [wizardOpen, setWizardOpen] = useState(false)
+  /**
+   * Deferred for the same reason as openDialog below: a DropdownMenu closing
+   * into a Dialog opening can leave pointer-events:none stuck on <body>.
+   */
+  const openWizard = () => requestAnimationFrame(() => setWizardOpen(true))
+  openWizardRef.current = openWizard
 
   const submitDialog = () => {
     if (!dialog || !name.trim()) return
@@ -260,8 +244,6 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
       renameFolder.mutate({ id: dialog.folderId, name })
     } else if (dialog.mode === 'rename-article' && dialog.articleId != null) {
       renameArticle.mutate({ id: dialog.articleId, title: name })
-    } else if (dialog.mode === 'new-character') {
-      createCharacter.mutate(name)
     } else if (dialog.mode === 'new-article') {
       const template = articleTemplates.find((t) => t.id === templateId)
       createArticle.mutate({
@@ -509,185 +491,210 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
   )
 
   return (
-    <div className="bg-muted/30 flex h-full w-72 shrink-0 flex-col border-r">
-      <div className="border-b">
-        <div className="flex items-center justify-between px-3 pt-2">
-          <span className="text-muted-foreground text-xs font-semibold uppercase tracking-wide">
-            Characters
-          </span>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-7"
-            title="New character"
-            onClick={() =>
-              openDialog({ mode: 'new-character', parentFolderId: null })
-            }
-          >
-            <UserPlus className="size-4" />
-          </Button>
-        </div>
-        <div className="px-2 pb-1.5">
-          {characters.data?.length === 0 && (
-            <p className="text-muted-foreground px-2 pb-1 text-xs">
-              No characters yet.
-            </p>
-          )}
-          {characters.data?.map((ch) => (
-            <div
-              key={ch.id}
-              className={cn(
-                'group hover:bg-accent flex items-center rounded pr-1 text-sm',
-                activeArticleId === ch.id && 'bg-accent font-medium',
-              )}
+    <div className="bg-muted/30 flex h-full w-full shrink-0 flex-col border-r">
+      {shows.characters && (
+        <div className="border-b">
+          <div className="flex items-center justify-between px-3 pt-2">
+            <span className="text-muted-foreground text-xs font-semibold uppercase tracking-wide">
+              Characters
+            </span>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-7"
+              title="New character"
+              onClick={openWizard}
             >
-              <Link
-                to="/worlds/$worldId/characters/$articleId"
-                params={{ worldId, articleId: ch.id }}
-                className="flex min-w-0 flex-1 items-center gap-1.5 px-2 py-1"
-              >
-                <Users className="text-muted-foreground size-3.5 shrink-0" />
-                <span className="truncate">{ch.title}</span>
-              </Link>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="size-6 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100"
-                  >
-                    <MoreHorizontal className="size-3.5" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start">
-                  <DropdownMenuItem onClick={() => reveal(`${ch.id}.md`)}>
-                    <FolderOpen /> {REVEAL_LABEL}
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-          ))}
-        </div>
-      </div>
-      <SmartViews worldId={worldId} activeArticleId={activeArticleId} />
-      <div className="flex items-center justify-between border-b px-3 py-2">
-        <span className="text-muted-foreground text-xs font-semibold uppercase tracking-wide">
-          Content
-        </span>
-        <div className="flex gap-1">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-7"
-            title="New article"
-            onClick={() =>
-              openDialog({ mode: 'new-article', parentFolderId: null })
-            }
-          >
-            <FilePlus2 className="size-4" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-7"
-            title="New folder"
-            onClick={() =>
-              openDialog({ mode: 'new-folder', parentFolderId: null })
-            }
-          >
-            <FolderPlus className="size-4" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-7"
-            title="Open the world folder"
-            onClick={() => reveal()}
-          >
-            <FolderOpen className="size-4" />
-          </Button>
-        </div>
-      </div>
-      <div className="border-b px-2 py-1.5">
-        <div className="relative">
-          <Search className="text-muted-foreground absolute left-2 top-1/2 size-3.5 -translate-y-1/2" />
-          <Input
-            ref={searchInputRef}
-            value={searchInput}
-            placeholder="Search this world…"
-            className="h-7 px-7 text-sm"
-            onChange={(e) => setSearchInput(e.target.value)}
-          />
-          {searchInput && (
-            <button
-              type="button"
-              className="text-muted-foreground hover:text-foreground absolute right-2 top-1/2 -translate-y-1/2"
-              onClick={() => setSearchInput('')}
-            >
-              <X className="size-3.5" />
-            </button>
-          )}
-        </div>
-      </div>
-      {searchTerm ? (
-        <ScrollArea className="min-h-0 flex-1">
-          <div className="p-2">
-            {search.isLoading && (
-              <p className="text-muted-foreground px-2 text-sm">Searching…</p>
-            )}
-            {search.data?.length === 0 && (
-              <p className="text-muted-foreground px-2 py-4 text-sm">
-                No matches.
+              <UserPlus className="size-4" />
+            </Button>
+          </div>
+          <div className="px-2 pb-1.5">
+            {characters.data?.length === 0 && (
+              <p className="text-muted-foreground px-2 pb-1 text-xs">
+                No characters yet.
               </p>
             )}
-            {search.data?.map((result) => (
-              <Link
-                key={result.id}
-                to="/worlds/$worldId/articles/$articleId"
-                params={{ worldId, articleId: result.id }}
-                className="hover:bg-accent block rounded px-2 py-1.5"
-                onClick={() => setSearchInput('')}
-              >
-                <span className="flex items-center gap-1.5 text-sm font-medium">
-                  <FileText className="text-muted-foreground size-3.5 shrink-0" />
-                  <span className="truncate">{result.title}</span>
-                </span>
-                {result.snippet && (
-                  <span className="text-muted-foreground line-clamp-2 block text-xs">
-                    {result.snippet}
-                  </span>
+            {characters.data?.map((ch) => (
+              <div
+                key={ch.id}
+                className={cn(
+                  'group hover:bg-accent flex items-center rounded pr-1 text-sm',
+                  activeArticleId === ch.id && 'bg-accent font-medium',
                 )}
-              </Link>
+              >
+                <Link
+                  to="/worlds/$worldId/characters/$articleId"
+                  params={{ worldId, articleId: ch.id }}
+                  className="flex min-w-0 flex-1 items-center gap-1.5 px-2 py-1"
+                >
+                  <Users className="text-muted-foreground size-3.5 shrink-0" />
+                  <span className="truncate">{ch.title}</span>
+                </Link>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-6 opacity-0 group-hover:opacity-100 data-[state=open]:opacity-100"
+                    >
+                      <MoreHorizontal className="size-3.5" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start">
+                    <DropdownMenuItem onClick={() => reveal(`${ch.id}.md`)}>
+                      <FolderOpen /> {REVEAL_LABEL}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      variant="destructive"
+                      onClick={() => {
+                        if (
+                          confirm(
+                            `Delete "${ch.title}"? It goes to the Recycle Bin.`,
+                          )
+                        ) {
+                          // A character is an article on disk, so this is the
+                          // same mutation the content tree uses — including the
+                          // navigate-away when the open one is the one deleted.
+                          deleteArticle.mutate(ch.id)
+                        }
+                      }}
+                    >
+                      <Trash2 /> Delete
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
             ))}
           </div>
-        </ScrollArea>
-      ) : (
-        <ScrollArea className="min-h-0 flex-1">
-          <div
-            className={cn(
-              'min-h-full p-2',
-              dragItem &&
-                dropTarget === null &&
-                'bg-accent/40 rounded ring-primary/30 ring-1',
-            )}
-            {...dropHandlers(null)}
-          >
-            {tree.isLoading && (
-              <p className="text-muted-foreground px-2 text-sm">Loading…</p>
-            )}
-            {tree.data && (
-              <>
-                {rootFolders.map((f) => renderFolder(tree.data, f, 0))}
-                {rootArticles.map((a) => renderArticle(a, 0))}
-                {rootFolders.length === 0 && rootArticles.length === 0 && (
-                  <p className="text-muted-foreground px-2 py-4 text-sm">
-                    Nothing here yet. Create an article or folder above.
+        </div>
+      )}
+      {shows.smartViews && (
+        <SmartViews worldId={worldId} activeArticleId={activeArticleId} />
+      )}
+      {shows.contentTree && (
+        <>
+          <div className="flex items-center justify-between border-b px-3 py-2">
+            <span className="text-muted-foreground text-xs font-semibold uppercase tracking-wide">
+              Content
+            </span>
+            <div className="flex gap-1">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-7"
+                title="New article"
+                onClick={() =>
+                  openDialog({ mode: 'new-article', parentFolderId: null })
+                }
+              >
+                <FilePlus2 className="size-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-7"
+                title="New folder"
+                onClick={() =>
+                  openDialog({ mode: 'new-folder', parentFolderId: null })
+                }
+              >
+                <FolderPlus className="size-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-7"
+                title="Open the world folder"
+                onClick={() => reveal()}
+              >
+                <FolderOpen className="size-4" />
+              </Button>
+            </div>
+          </div>
+          <div className="border-b px-2 py-1.5">
+            <div className="relative">
+              <Search className="text-muted-foreground absolute left-2 top-1/2 size-3.5 -translate-y-1/2" />
+              <Input
+                ref={searchInputRef}
+                value={searchInput}
+                placeholder="Search this world…"
+                className="h-7 px-7 text-sm"
+                onChange={(e) => setSearchInput(e.target.value)}
+              />
+              {searchInput && (
+                <button
+                  type="button"
+                  className="text-muted-foreground hover:text-foreground absolute right-2 top-1/2 -translate-y-1/2"
+                  onClick={() => setSearchInput('')}
+                >
+                  <X className="size-3.5" />
+                </button>
+              )}
+            </div>
+          </div>
+          {searchTerm ? (
+            <ScrollArea className="min-h-0 flex-1">
+              <div className="p-2">
+                {search.isLoading && (
+                  <p className="text-muted-foreground px-2 text-sm">
+                    Searching…
                   </p>
                 )}
-              </>
-            )}
-          </div>
-        </ScrollArea>
+                {search.data?.length === 0 && (
+                  <p className="text-muted-foreground px-2 py-4 text-sm">
+                    No matches.
+                  </p>
+                )}
+                {search.data?.map((result) => (
+                  <Link
+                    key={result.id}
+                    to="/worlds/$worldId/articles/$articleId"
+                    params={{ worldId, articleId: result.id }}
+                    className="hover:bg-accent block rounded px-2 py-1.5"
+                    onClick={() => setSearchInput('')}
+                  >
+                    <span className="flex items-center gap-1.5 text-sm font-medium">
+                      <FileText className="text-muted-foreground size-3.5 shrink-0" />
+                      <span className="truncate">{result.title}</span>
+                    </span>
+                    {result.snippet && (
+                      <span className="text-muted-foreground line-clamp-2 block text-xs">
+                        {result.snippet}
+                      </span>
+                    )}
+                  </Link>
+                ))}
+              </div>
+            </ScrollArea>
+          ) : (
+            <ScrollArea className="min-h-0 flex-1">
+              <div
+                className={cn(
+                  'min-h-full p-2',
+                  dragItem &&
+                    dropTarget === null &&
+                    'bg-accent/40 rounded ring-primary/30 ring-1',
+                )}
+                {...dropHandlers(null)}
+              >
+                {tree.isLoading && (
+                  <p className="text-muted-foreground px-2 text-sm">Loading…</p>
+                )}
+                {tree.data && (
+                  <>
+                    {rootFolders.map((f) => renderFolder(tree.data, f, 0))}
+                    {rootArticles.map((a) => renderArticle(a, 0))}
+                    {rootFolders.length === 0 && rootArticles.length === 0 && (
+                      <p className="text-muted-foreground px-2 py-4 text-sm">
+                        Nothing here yet. Create an article or folder above.
+                      </p>
+                    )}
+                  </>
+                )}
+              </div>
+            </ScrollArea>
+          )}
+        </>
       )}
 
       <Dialog
@@ -701,19 +708,16 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
               {dialog?.mode === 'rename-folder' && 'Rename folder'}
               {dialog?.mode === 'new-article' && 'New article'}
               {dialog?.mode === 'rename-article' && 'Rename article'}
-              {dialog?.mode === 'new-character' && 'New character'}
             </DialogTitle>
           </DialogHeader>
           <Input
             autoFocus
             value={name}
             placeholder={
-              dialog?.mode === 'new-character'
-                ? 'Character name'
-                : dialog?.mode === 'new-article' ||
-                    dialog?.mode === 'rename-article'
-                  ? 'Article title'
-                  : 'Folder name'
+              dialog?.mode === 'new-article' ||
+              dialog?.mode === 'rename-article'
+                ? 'Article title'
+                : 'Folder name'
             }
             onChange={(e) => setName(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && submitDialog()}
@@ -762,6 +766,12 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <CreateCharacterDialog
+        worldId={worldId}
+        open={wizardOpen}
+        onClose={() => setWizardOpen(false)}
+      />
     </div>
   )
 }

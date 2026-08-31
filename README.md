@@ -78,3 +78,15 @@ node scripts/migrate-sqlite.mjs --db path/to/dungeonmaster.db --out "C:\Worlds"
 ```
 
 Read-only against the database; exports each world as a folder.
+
+## Licence and attribution
+
+DungeonMaster is MIT licensed. See [LICENSE](LICENSE).
+
+The character creation wizard and the bundled spell/bestiary content include
+material from the **System Reference Document 5.1** by Wizards of the Coast
+LLC, used under the [Creative Commons Attribution 4.0 International
+Licence](https://creativecommons.org/licenses/by/4.0/legalcode). Only SRD 5.1
+material is included — Player's Handbook races, subclasses and backgrounds
+outside the SRD are deliberately absent, and any of them can still be typed in
+by hand, since every such field on a character sheet is free text.

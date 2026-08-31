@@ -6,6 +6,12 @@ interface Config {
   recentWorlds: Array<string> // absolute folder paths, most recent first
   /** The global library folder, or null when the user hasn't chosen one. */
   libraryRoot: string | null
+  /**
+   * The personal character vault, or null until one is created. A normal world
+   * folder — see main/vault.ts — so characters made outside any campaign still
+   * get wiki links, images and portability.
+   */
+  vaultRoot: string | null
 }
 
 function configPath(): string {
@@ -47,6 +53,10 @@ export function readConfig(): Config {
       typeof raw.libraryRoot === 'string' && raw.libraryRoot !== ''
         ? raw.libraryRoot
         : null,
+    vaultRoot:
+      typeof raw.vaultRoot === 'string' && raw.vaultRoot !== ''
+        ? raw.vaultRoot
+        : null,
   }
 }
 
@@ -83,4 +93,12 @@ export function readLibraryRoot(): string | null {
 
 export function writeLibraryRoot(absPath: string | null) {
   writeConfig({ libraryRoot: absPath })
+}
+
+export function readVaultRoot(): string | null {
+  return readConfig().vaultRoot
+}
+
+export function writeVaultRoot(absPath: string | null) {
+  writeConfig({ vaultRoot: absPath })
 }

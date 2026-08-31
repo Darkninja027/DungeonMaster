@@ -1,5 +1,18 @@
 import { PHB_CLASSES } from './classes'
 import type { ClassInfo } from './classes'
+import {
+  EMPTY_HOMEBREW,
+  parseBackground,
+  parseFeat,
+  parseHomebrew,
+  parseKit,
+  parseRace,
+  serializeHomebrew,
+} from './homebrew'
+import type { HomebrewSubclass } from './homebrew'
+import { DEFAULT_MODE, parseMode } from './worldMode'
+import type { WorldMode } from './worldMode'
+import type { BackgroundInfo, ClassKit, FeatInfo, RaceInfo } from './srd'
 
 /**
  * Per-world settings, stored as `worldSettings.json` at the world root — the
@@ -22,9 +35,12 @@ export const SETTINGS_COMMENT =
   '"always" hides markdown syntax while you type, "never" uses the plain text ' +
   'editor. "classes" are homebrew classes: class and subclass on a character ' +
   'are free text, so this list only supplies dropdown suggestions and hit ' +
-  'dice, and a class missing from here still works on a sheet.'
+  'dice, and a class missing from here still works on a sheet. "mode" picks ' +
+  'which parts of the app this world shows — "worldbuilder" (articles only), ' +
+  '"dm" (everything) or "player" (characters and spells). It only hides ' +
+  'things on screen: nothing moves on disk and every page stays reachable.'
 
-export const SETTINGS_VERSION = 3
+export const SETTINGS_VERSION = 5
 
 /**
  * How the article editor picks its editing surface.
@@ -48,6 +64,12 @@ export interface WorldSettings {
   /** Editing surface for this world's articles. See LiveEditMode. */
   liveEdit: LiveEditMode
   /**
+   * Which of the app's three jobs this world is currently for — see
+   * lib/worldMode.ts. Purely a view preference: it hides chrome and never
+   * blocks a route or moves anything on disk.
+   */
+  mode: WorldMode
+  /**
    * The world's own metadata, which shares this file. The renderer reads it
    * from WorldSummary (worlds:get) rather than here — these are carried through
    * parse/serialize purely so a settings save can't drop them. The main process
@@ -57,12 +79,32 @@ export interface WorldSettings {
   description?: string
   createdAt?: string
   classes: Array<ClassInfo>
+  /**
+   * Homebrew this world adds on top of the global store (see lib/homebrew.ts).
+   * Optional because most worlds have none, and because a file written before
+   * version 4 simply has no key — that absence is the whole migration.
+   *
+   * These travel with the world folder, which global homebrew does not. Define
+   * a race here when you want it to reach someone you send the world to.
+   */
+  races?: Array<RaceInfo>
+  backgrounds?: Array<BackgroundInfo>
+  kits?: Array<ClassKit>
+  feats?: Array<FeatInfo>
+  /**
+   * Subclasses attached to a class by name, rather than defined inside a copy
+   * of it — the world-level twin of `Homebrew.subclasses`. A world that adds
+   * one College to the Bard travels with just that College, not a fork of the
+   * whole class.
+   */
+  subclasses?: Array<HomebrewSubclass>
 }
 
 /** What a world gets before it has a file of its own. */
 export const DEFAULT_SETTINGS: WorldSettings = {
   version: SETTINGS_VERSION,
   liveEdit: 'remember',
+  mode: DEFAULT_MODE,
   classes: PHB_CLASSES,
 }
 
@@ -148,10 +190,13 @@ export function parseWorldSettings(raw: unknown): WorldSettings {
 
   // Parsed before the classes guard below, so a world whose class list is
   // missing or malformed still keeps a valid editor preference — field-by-field
-  // tolerance is the contract for this file.
+  // tolerance is the contract for this file. The same reasoning covers `mode`:
+  // a broken class list must not silently send the world back to the default
+  // view, so both are read here and both ride the early return.
   const liveEdit = parseLiveEdit(r.liveEdit)
+  const mode = parseMode(r.mode)
 
-  if (!Array.isArray(r.classes)) return { ...DEFAULT_SETTINGS, liveEdit }
+  if (!Array.isArray(r.classes)) return { ...DEFAULT_SETTINGS, liveEdit, mode }
 
   const seen = new Set<string>()
   const classes = r.classes.flatMap((entry): Array<ClassInfo> => {
@@ -169,14 +214,45 @@ export function parseWorldSettings(raw: unknown): WorldSettings {
     if (typeof r[key] === 'string') meta[key] = r[key]
   }
 
+  // Absent in a version 3 file, which is exactly what "no world homebrew"
+  // means — so the migration is doing nothing at all.
+  const homebrewList = <T extends { id: string }>(
+    value: unknown,
+    parse: (entry: unknown) => T | null,
+  ): Array<T> | undefined => {
+    if (!Array.isArray(value)) return undefined
+    const ids = new Set<string>()
+    return value.flatMap((entry): Array<T> => {
+      const parsed = parse(entry)
+      if (!parsed || parsed.id === '' || ids.has(parsed.id)) return []
+      ids.add(parsed.id)
+      return [parsed]
+    })
+  }
+  const races = homebrewList(r.races, parseRace)
+  const backgrounds = homebrewList(r.backgrounds, parseBackground)
+  const kits = homebrewList(r.kits, parseKit)
+  const feats = homebrewList(r.feats, parseFeat)
+  // Through the global parser, so one shape is read one way in both tiers.
+  const parsedSubclasses = parseHomebrew({
+    subclasses: r.subclasses,
+  }).subclasses
+  const subclasses = Array.isArray(r.subclasses) ? parsedSubclasses : undefined
+
   return {
     version:
       typeof r.version === 'number' && Number.isFinite(r.version)
         ? r.version
         : SETTINGS_VERSION,
     liveEdit,
+    mode,
     ...meta,
     classes,
+    ...(races && { races }),
+    ...(backgrounds && { backgrounds }),
+    ...(kits && { kits }),
+    ...(feats && { feats }),
+    ...(subclasses && { subclasses }),
   }
 }
 
@@ -195,6 +271,7 @@ export function serializeWorldSettings(settings: WorldSettings): unknown {
     version: settings.version,
     _comment: SETTINGS_COMMENT,
     liveEdit: settings.liveEdit,
+    mode: settings.mode,
     ...(settings.name !== undefined && { name: settings.name }),
     ...(settings.description !== undefined && {
       description: settings.description,
@@ -206,5 +283,47 @@ export function serializeWorldSettings(settings: WorldSettings): unknown {
       subclassLabel: cl.subclassLabel,
       subclasses: cl.subclasses,
     })),
+    // Written back through the same serializer the global store uses, so the
+    // two files hold identical shapes and a race can be moved between them by
+    // copy-paste. Keys stay absent when the world has none, rather than
+    // littering every world's file with three empty arrays.
+    ...(settings.races && {
+      races: (
+        serializeHomebrew({
+          ...EMPTY_HOMEBREW,
+          races: settings.races,
+        }) as { races: unknown }
+      ).races,
+    }),
+    ...(settings.backgrounds && {
+      backgrounds: (
+        serializeHomebrew({
+          ...EMPTY_HOMEBREW,
+          backgrounds: settings.backgrounds,
+        }) as { backgrounds: unknown }
+      ).backgrounds,
+    }),
+    ...(settings.kits && {
+      kits: (
+        serializeHomebrew({ ...EMPTY_HOMEBREW, kits: settings.kits }) as {
+          kits: unknown
+        }
+      ).kits,
+    }),
+    ...(settings.feats && {
+      feats: (
+        serializeHomebrew({ ...EMPTY_HOMEBREW, feats: settings.feats }) as {
+          feats: unknown
+        }
+      ).feats,
+    }),
+    ...(settings.subclasses && {
+      subclasses: (
+        serializeHomebrew({
+          ...EMPTY_HOMEBREW,
+          subclasses: settings.subclasses,
+        }) as { subclasses: unknown }
+      ).subclasses,
+    }),
   }
 }

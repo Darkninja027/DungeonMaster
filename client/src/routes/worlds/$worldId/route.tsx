@@ -4,6 +4,9 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Pencil, Settings2 } from 'lucide-react'
 import { api } from '#/lib/api'
 import { WorldSidebar } from '#/components/WorldSidebar'
+import { WorldModeSwitcher } from '#/components/WorldModeSwitcher'
+import { useWorldMode } from '#/lib/useWorldSettings'
+import { useRegisterSidebar, useSidebarOpen } from '#/lib/sidebarState'
 import { SessionPanel } from '#/components/SessionPanel'
 import { CommandPalette } from '#/components/CommandPalette'
 import { Button } from '#/components/ui/button'
@@ -15,6 +18,7 @@ import {
   DialogTitle,
 } from '#/components/ui/dialog'
 import { Input } from '#/components/ui/input'
+import { cn } from '#/lib/utils'
 
 export const Route = createFileRoute('/worlds/$worldId')({
   component: WorldLayout,
@@ -22,6 +26,10 @@ export const Route = createFileRoute('/worlds/$worldId')({
 
 function WorldLayout() {
   const { worldId } = Route.useParams()
+  const shows = useWorldMode(worldId).shows
+  // The header's toggle lives in __root.tsx, so visibility is a module store.
+  useRegisterSidebar()
+  const sidebarOpen = useSidebarOpen()
   const queryClient = useQueryClient()
   const world = useQuery({
     queryKey: ['worlds', worldId],
@@ -70,43 +78,52 @@ function WorldLayout() {
 
   return (
     <div className="flex h-full">
-      <div className="flex h-full w-72 shrink-0 flex-col">
-        <div className="group flex items-start gap-1 border-b border-r px-3 py-2">
-          <div className="min-w-0 flex-1">
-            <h2 className="truncate font-semibold">
-              {world.data?.name ?? '…'}
-            </h2>
-            {world.data?.description && (
-              <p className="text-muted-foreground truncate text-xs">
-                {world.data.description}
-              </p>
-            )}
+      {sidebarOpen && (
+        <div className="flex h-full w-72 shrink-0 flex-col">
+          <div className="group flex items-start gap-1 border-b border-r px-3 py-2">
+            <div className="min-w-0 flex-1">
+              <h2 className="truncate font-semibold">
+                {world.data?.name ?? '…'}
+              </h2>
+              {world.data?.description && (
+                <p className="text-muted-foreground truncate text-xs">
+                  {world.data.description}
+                </p>
+              )}
+            </div>
+            <WorldModeSwitcher worldId={worldId} />
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-6 shrink-0 opacity-0 group-hover:opacity-100"
+              title="Edit world name and description"
+              onClick={openEdit}
+            >
+              <Pencil className="size-3.5" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className={cn(
+                'size-6 shrink-0',
+                // Hover-to-reveal is fine while the sidebar offers other ways in,
+                // but a mode with no content tree reaches homebrew and the spell
+                // library only through here — so it stays on screen.
+                shows.contentTree && 'opacity-0 group-hover:opacity-100',
+              )}
+              title="World settings — homebrew, library and editor"
+              asChild
+            >
+              <Link to="/worlds/$worldId/settings" params={{ worldId }}>
+                <Settings2 className="size-3.5" />
+              </Link>
+            </Button>
           </div>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-6 shrink-0 opacity-0 group-hover:opacity-100"
-            title="Edit world name and description"
-            onClick={openEdit}
-          >
-            <Pencil className="size-3.5" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-6 shrink-0 opacity-0 group-hover:opacity-100"
-            title="World settings — classes and subclasses"
-            asChild
-          >
-            <Link to="/worlds/$worldId/settings" params={{ worldId }}>
-              <Settings2 className="size-3.5" />
-            </Link>
-          </Button>
+          <div className="min-h-0 flex-1">
+            <WorldSidebar worldId={worldId} />
+          </div>
         </div>
-        <div className="min-h-0 flex-1">
-          <WorldSidebar worldId={worldId} />
-        </div>
-      </div>
+      )}
       <div className="min-w-0 flex-1 overflow-y-auto">
         <Outlet />
       </div>

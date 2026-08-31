@@ -8,12 +8,15 @@
  * constant: it keeps them pure and testable without a world, and stops any
  * caller from quietly reading the built-ins instead of the world's own list.
  *
- * Deliberately not a rules engine — no features by level, no spell slot
- * progression. The list exists so the sheet can offer a dropdown and fill in the
- * hit die, and so a subclass field can suggest sensible values. Everything
- * downstream treats `Character.class` and `Character.subclass` as free text (see
- * the note on ARMOR_PROFICIENCIES in character.ts): a homebrew class must
- * survive a round trip through the editor untouched.
+ * `ClassInfo` itself is only the sheet-facing shape — name, hit die, subclass
+ * suggestions. The full definition of a class, including what it gains at each
+ * level, lives in `ClassKit` (lib/srd/types.ts); `classesFrom(tables)` derives
+ * this shape from it.
+ *
+ * Everything downstream still treats `Character.class` and `Character.subclass`
+ * as free text (see the note on ARMOR_PROFICIENCIES in character.ts): a
+ * homebrew class must survive a round trip through the editor untouched, and a
+ * class the tables have never heard of still works on a sheet.
  */
 
 export interface ClassInfo {

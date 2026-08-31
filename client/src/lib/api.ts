@@ -112,6 +112,15 @@ export interface ArticleRef {
    */
   cr: string | null
   xp: number | null
+  /**
+   * Frontmatter `level` / `school` / `classes`, carried for the same reason as
+   * `cr`/`xp`: the spell pickers filter on them without reading every article.
+   * `classes` accepts a YAML array or a comma-separated scalar. Null when the
+   * article doesn't declare them — which is what any non-spell looks like.
+   */
+  level: number | null
+  school: string | null
+  classes: Array<string> | null
 }
 
 /** A saved Smart View: a named frontmatter query, persisted to .dm/views.json. */
@@ -187,6 +196,18 @@ export type LibraryFolder = 'Monsters' | 'Spells'
  * world:// image URLs all resolve against it unchanged.
  */
 export interface LibraryInfo {
+  worldId: string
+  path: string
+  /** False when the folder has been moved, deleted, or is on a drive that's away. */
+  available: boolean
+}
+
+/**
+ * The personal character vault — a world folder holding characters that aren't
+ * tied to a campaign. Same shape as LibraryInfo: both are app-wide folders
+ * addressed by a normal worldId.
+ */
+export interface VaultInfo {
   worldId: string
   path: string
   /** False when the folder has been moved, deleted, or is on a drive that's away. */
@@ -388,6 +409,26 @@ export const api = {
     set: (worldId: string, state: unknown) =>
       invoke<void>('worldSettings:set', { worldId, state }),
   },
+  homebrew: {
+    /**
+     * Raw homebrew.json — `unknown` for the same reason as worldSettings: the
+     * file is hand-editable and lib/homebrew.ts owns the tolerant parse. null
+     * means missing or unparseable, which reads as "no homebrew yet".
+     */
+    get: () => invoke<unknown>('homebrew:get'),
+    set: (state: unknown) => invoke<void>('homebrew:set', { state }),
+  },
+  vault: {
+    /**
+     * The vault, or null if there has never been one. Never creates — the home
+     * screen asks on every load and must not conjure a folder for someone who
+     * has not used the feature.
+     */
+    get: () => invoke<VaultInfo | null>('vault:get'),
+    /** The vault, creating it on first use. */
+    ensure: () => invoke<VaultInfo>('vault:ensure'),
+  },
+
   library: {
     /** The configured global library, or null if the user hasn't chosen one. */
     get: () => invoke<LibraryInfo | null>('library:get'),

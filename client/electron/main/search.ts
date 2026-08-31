@@ -262,6 +262,21 @@ export interface ArticleRef {
    */
   cr: string | null
   xp: number | null
+  /**
+   * Frontmatter `level` / `school` / `classes`, for the same reason as `cr` and
+   * `xp` above: the spell pickers need to offer only cantrips on a cantrip
+   * step, and only wizard spells for a wizard's pick. Every shipped spell
+   * article declares all three, so filtering here costs nothing beyond what the
+   * scan already parsed.
+   *
+   * `classes` is a list because a spell belongs to several ("Sorcerer, Wizard"),
+   * and it is accepted as either a YAML array or a comma-separated scalar —
+   * the shipped content uses the latter and a hand-written article may use
+   * either. Null when absent, which is what a non-spell article looks like.
+   */
+  level: number | null
+  school: string | null
+  classes: Array<string> | null
 }
 
 /** Case-insensitive equality between a frontmatter scalar and a query string. */
@@ -318,6 +333,9 @@ export function queryArticles(
       title,
       cr: scalarString(frontmatter?.cr),
       xp: scalarNumber(frontmatter?.xp),
+      level: scalarNumber(frontmatter?.level),
+      school: scalarString(frontmatter?.school),
+      classes: scalarList(frontmatter?.classes),
     })
   }
   return results.sort((a, b) =>
@@ -331,6 +349,23 @@ function scalarString(value: unknown): string | null {
   if (Array.isArray(value) || typeof value === 'object') return null
   const text = String(value).trim()
   return text === '' ? null : text
+}
+
+/**
+ * A frontmatter value as a list of trimmed strings, or null when there is
+ * nothing usable. Accepts a YAML array (`[Sorcerer, Wizard]`) or a
+ * comma-separated scalar (`Sorcerer, Wizard`) — the shipped spell content uses
+ * the scalar form, and a hand-written article may reasonably use either.
+ */
+function scalarList(value: unknown): Array<string> | null {
+  if (value == null) return null
+  const parts = Array.isArray(value)
+    ? value.filter((v) => typeof v !== 'object').map((v) => String(v))
+    : typeof value === 'object'
+      ? []
+      : String(value).split(',')
+  const out = parts.map((p) => p.trim()).filter((p) => p !== '')
+  return out.length > 0 ? out : null
 }
 
 /** A frontmatter scalar as a finite number, or null. YAML may hand back either. */

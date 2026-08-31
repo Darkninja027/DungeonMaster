@@ -1,12 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from './api'
-import type { ClassInfo } from './classes'
 import {
   DEFAULT_SETTINGS,
   SETTINGS_VERSION,
   parseWorldSettings,
   serializeWorldSettings,
 } from './worldSettings'
+import { findMode } from './worldMode'
+import type { WorldModeInfo } from './worldMode'
 import type { WorldSettings } from './worldSettings'
 
 /**
@@ -31,19 +32,6 @@ export function useWorldSettings(worldId: string) {
     // would suppress the fetch on remount.
     placeholderData: DEFAULT_SETTINGS,
   })
-}
-
-/**
- * The world's class list, falling back to the built-in PHB list while the file
- * loads or when it can't be read.
- *
- * The fallback isn't cosmetic. Picking a class sets the character's hit die from
- * this list, so an empty list mid-flight would silently leave the die wrong —
- * defaulting to the built-ins makes the pre-load behaviour identical to having
- * no world settings at all.
- */
-export function useClasses(worldId: string): Array<ClassInfo> {
-  return useWorldSettings(worldId).data?.classes ?? DEFAULT_SETTINGS.classes
 }
 
 /**
@@ -100,5 +88,51 @@ export function useWorldSettingsSection(worldId: string) {
     )
   }
 
-  return { settings: loaded, patch, isPending: save.isPending, error: save.error }
+  return {
+    settings: loaded,
+    patch,
+    isPending: save.isPending,
+    error: save.error,
+  }
+}
+
+/**
+ * The open world's mode, as the full registry entry rather than the bare id —
+ * every caller wants `shows`, and resolving here keeps `findMode` out of the
+ * components.
+ *
+ * The vault is **forced** to Player mode rather than merely defaulting to it.
+ * It is defined as "characters, not a campaign", so the other two modes have
+ * nothing to show there: Worldbuilder would offer an empty content tree and DM
+ * an initiative tracker for a game that doesn't exist. Forcing here rather than
+ * in the switcher means a hand-edited `mode` in the vault's settings file is
+ * ignored too — one rule, applied wherever the mode is read.
+ *
+ * Never returns null: `placeholderData` means settings are readable on the
+ * first render, and an unknown value falls back to the default. So the chrome
+ * never flickers through a "no mode" state on load.
+ */
+export function useWorldMode(worldId: string): WorldModeInfo {
+  const settings = useWorldSettings(worldId)
+  const isVault = useIsVault(worldId)
+  return findMode(isVault ? 'player' : settings.data?.mode)
+}
+
+/**
+ * True when the open world is the personal character vault.
+ *
+ * Kept as its own hook because two callers want it for different reasons: the
+ * mode is forced above, and the switcher hides itself entirely — a control
+ * offering one option is worse than no control.
+ *
+ * `staleTime: Infinity` matches `useLibrary`: the vault path changes only when
+ * the vault is created, which the home screen seeds into this cache directly.
+ */
+export function useIsVault(worldId: string): boolean {
+  const vault = useQuery({
+    queryKey: ['vault'],
+    queryFn: api.vault.get,
+    staleTime: Infinity,
+  })
+  return vault.data?.worldId === worldId
 }

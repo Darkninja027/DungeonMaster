@@ -60,49 +60,73 @@ What the spell does. Damage like 3d6 becomes a clickable roll.
   {
     id: 'character',
     name: 'Player Character',
-    description: 'Full 5e sheet — opens in the character manager',
+    description: 'Blank 5e sheet — use the Characters + button to be guided',
+    /*
+     * Deliberately blank rather than a pre-statted example. This is what
+     * "Skip setup" in the creation wizard produces, and skipping should
+     * mean an empty sheet — not somebody else's level 1 fighter to
+     * delete first. Generated from `emptyCharacter()` so it stays in step
+     * with the parser.
+     */
     body: `---
 type: character
-class: Fighter
-subclass: Champion
+class: ""
+subclass: ""
 level: 1
-race: Human
-background: Soldier
-alignment: LG
+race: ""
+background: ""
+alignment: ""
 xp: 0
-abilities: { str: 15, dex: 13, con: 14, int: 10, wis: 12, cha: 8 }
-saves: [str, con]
-skills: [athletics, intimidation]
+abilities:
+  str: 10
+  dex: 10
+  con: 10
+  int: 10
+  wis: 10
+  cha: 10
+saves: []
+skills: []
 expertise: []
-armor: [light, medium, heavy, shields]
-weapons: [simple, martial]
-tools: [Dice set]
-languages: [Common]
+armor: []
+weapons: []
+tools: []
+languages: []
 resistances: []
 immunities: []
 vulnerabilities: []
 conditionImmunities: []
-ac: 16
+ac: 10
 initiativeBonus: 0
 speed: 30
-hp: { current: 12, max: 12, temp: 0 }
-hitDice: { size: 10, used: 0 }
-deathSaves: { success: 0, fail: 0 }
-attacks:
-  - { name: Longsword, bonus: 5, damage: 1d8+3 }
-traits:
-  - { name: Darkvision, text: 'See in dim light within 60 feet as if it were bright light.' }
-features:
-  - { level: 1, name: Second Wind, text: 'Bonus action: regain 1d10+1 HP, once per short rest.' }
-  - { level: 2, name: Action Surge, text: 'One extra action on your turn, once per short rest.' }
+hp:
+  current: 10
+  max: 10
+  temp: 0
+hitDice:
+  size: 8
+  used: 0
+deathSaves:
+  success: 0
+  fail: 0
+attacks: []
+traits: []
+feats: []
+features: []
 spellAbility: null
 spellSlots: {}
 spells: []
-currency: { cp: 0, sp: 0, ep: 0, gp: 10, pp: 0 }
-inventory:
-  - Longsword
-  - Shield
-  - Rations x5
+preparedLimit: 0
+currency:
+  cp: 0
+  sp: 0
+  ep: 0
+  gp: 0
+  pp: 0
+inventory: []
+encumbrance:
+  enabled: false
+  countCoins: true
+attunementSlots: 3
 notes: []
 ---
 

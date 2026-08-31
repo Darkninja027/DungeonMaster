@@ -164,6 +164,40 @@ describe('disk-scan cache', () => {
     expect(queryArticles(worldId, { type: 'spell' })).toHaveLength(1)
   })
 
+  // The spell pickers filter on these, so they have to survive the scan. The
+  // shipped spell content writes `classes` as a comma-separated scalar; a
+  // hand-written article may reasonably use a YAML array instead.
+  it('carries spell level, school and a comma-separated class list', () => {
+    writeAged(
+      'Fire Bolt.md',
+      '---\ntype: spell\nlevel: 0\nschool: evocation\nclasses: Sorcerer, Wizard\n---\n\n# Fire Bolt\n',
+      60,
+    )
+    const [spell] = queryArticles(worldId, { type: 'spell' })
+    expect(spell.level).toBe(0)
+    expect(spell.school).toBe('evocation')
+    expect(spell.classes).toEqual(['Sorcerer', 'Wizard'])
+  })
+
+  it('accepts a YAML array class list', () => {
+    writeAged(
+      'Bless.md',
+      '---\ntype: spell\nlevel: 1\nclasses:\n  - Cleric\n  - Paladin\n---\n\n# Bless\n',
+      60,
+    )
+    const [spell] = queryArticles(worldId, { type: 'spell' })
+    expect(spell.level).toBe(1)
+    expect(spell.classes).toEqual(['Cleric', 'Paladin'])
+  })
+
+  it('reports null for a spell that declares none of them', () => {
+    writeAged('Vague.md', '---\ntype: spell\n---\n\n# Vague\n', 60)
+    const [spell] = queryArticles(worldId, { type: 'spell' })
+    expect(spell.level).toBeNull()
+    expect(spell.school).toBeNull()
+    expect(spell.classes).toBeNull()
+  })
+
   it('picks up an external edit to the body', () => {
     writeAged('Note.md', 'A goblin ambush.', 60)
     expect(searchWorld(worldId, 'goblin')).toHaveLength(1)

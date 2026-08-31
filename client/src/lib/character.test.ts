@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import type { EquipSlot, InventoryItem, Spell } from './character'
+import type { Character, EquipSlot, InventoryItem, Spell } from './character'
 import {
+  MAX_RESOURCES,
   abilityMod,
   addFeatureEntry,
   allNoteTags,
@@ -22,6 +23,8 @@ import {
   encumbranceTier,
   equipItem,
   equippedIn,
+  extraSpeedSummary,
+  extraSpeeds,
   featureBadge,
   featureEntries,
   filterFeatures,
@@ -59,12 +62,14 @@ import {
   slotFor,
   sortedFeatures,
   sortedNotes,
+  sortedInventory,
   sortedSpells,
   spellSaveDc,
   tracksPreparation,
   updateFeatureEntry,
   wikiLinkTitle,
   withQty,
+  skillIdFor,
 } from './character'
 
 function sample() {
@@ -135,6 +140,11 @@ function sample() {
     { text: 'Rations x5', qty: 5, weight: 2, slot: null },
   ]
   c.encumbrance = { enabled: true, countCoins: true }
+  // Two of the three modes, not all three: the round-trip then covers both a
+  // written key and an omitted one, so a serializer that emits `climbSpeed: 0`
+  // fails here rather than shipping.
+  c.flySpeed = 50
+  c.swimSpeed = 30
   c.notes = [{ at: '2026-07-21', text: 'Met [[Strahd]].' }]
   return c
 }
@@ -256,6 +266,35 @@ describe('derived 5e math', () => {
         { name: 'Aid', level: 2 },
       ]).map((s) => s.name),
     ).toEqual(['Light', 'Aid', 'Fireball'])
+  })
+
+  it('sorts inventory by visible name, not raw row text', () => {
+    const rows = (texts: Array<string>) =>
+      texts.map((text) => ({
+        text,
+        qty: 1,
+        weight: 0,
+        slot: null,
+        slots: [],
+      }))
+    // A [[link]] files under its title, not "["; a qty suffix is ignored; and
+    // case doesn't push lowercase rows to the end.
+    expect(
+      sortedInventory(
+        rows(['rope', '[[Flametongue]] (attuned)', 'Daggers x3', 'Axe']),
+      ).map((i) => i.text),
+    ).toEqual(['Axe', 'Daggers x3', '[[Flametongue]] (attuned)', 'rope'])
+    // An alias sorts by what's shown, so [[X|Boots]] files under B.
+    expect(
+      sortedInventory(rows(['[[Winged Boots|Boots]]', 'Candle'])).map(
+        (i) => i.text,
+      ),
+    ).toEqual(['[[Winged Boots|Boots]]', 'Candle'])
+    // The source array is never reordered — the sheet sorts, the Gear tab and
+    // the file on disk keep the player's own order.
+    const original = rows(['Zip', 'Apple'])
+    sortedInventory(original)
+    expect(original.map((i) => i.text)).toEqual(['Zip', 'Apple'])
   })
 
   it('formats d20 notation', () => {
@@ -952,6 +991,85 @@ describe('encumbrance', () => {
   })
 })
 
+describe('extra movement speeds', () => {
+  it('writes nothing at all when a character has none', () => {
+    // The whole point of the optional shape: a sheet saved by this build must
+    // be byte-identical to one saved before these fields existed, so opening
+    // an old character and saving it adds nothing to its frontmatter.
+    const content = serializeCharacter(emptyCharacter(), 'Body')
+    expect(content).not.toContain('flySpeed')
+    expect(content).not.toContain('swimSpeed')
+    expect(content).not.toContain('climbSpeed')
+    expect(content).not.toContain('speeds')
+  })
+
+  it('round-trips only the modes that are set', () => {
+    const c = { ...emptyCharacter(), flySpeed: 50, climbSpeed: 20 }
+    const again = parseCharacter(serializeCharacter(c, '')).character
+    expect(again.flySpeed).toBe(50)
+    expect(again.climbSpeed).toBe(20)
+    // Absent, not zero: the key never appears, so nothing renders a mode the
+    // character doesn't have.
+    expect(again.swimSpeed).toBeUndefined()
+    expect('swimSpeed' in again).toBe(false)
+  })
+
+  it('reads hand-typed values and drops junk and zeroes', () => {
+    const { character } = parseCharacter(
+      '---\ntype: character\nflySpeed: 60\nswimSpeed: fast\n' +
+        'climbSpeed: 0\n---\n',
+    )
+    expect(character.flySpeed).toBe(60)
+    // Not a number: absent rather than 0, so it isn't shown as a mode.
+    expect(character.swimSpeed).toBeUndefined()
+    // Zero means "cannot climb", which is the same as saying nothing.
+    expect(character.climbSpeed).toBeUndefined()
+  })
+
+  it('truncates and caps a hand-edit typo', () => {
+    const { character } = parseCharacter(
+      '---\ntype: character\nflySpeed: 12.7\nswimSpeed: 99999\n---\n',
+    )
+    expect(character.flySpeed).toBe(12)
+    expect(character.swimSpeed).toBe(999)
+  })
+
+  it('lists set modes in a fixed order and summarises them', () => {
+    // Authored out of order on purpose: the order has to come from
+    // MOVEMENT_MODES, not from key insertion, because three surfaces render
+    // this list and they must agree.
+    const c = { ...emptyCharacter(), climbSpeed: 20, flySpeed: 50 }
+    expect(extraSpeeds(c).map((e) => e.mode.short)).toEqual(['fly', 'climb'])
+    expect(extraSpeedSummary(c)).toBe('fly 50 · climb 20')
+    expect(extraSpeeds(emptyCharacter())).toEqual([])
+    expect(extraSpeedSummary(emptyCharacter())).toBe('')
+  })
+
+  it('abbreviates on request, for the printed tile', () => {
+    const all = {
+      ...emptyCharacter(),
+      flySpeed: 100,
+      swimSpeed: 100,
+      climbSpeed: 100,
+    }
+    // The widest case the print tile can be asked to hold.
+    expect(extraSpeedSummary(all, true)).toBe('f100 s100 c100')
+  })
+
+  it('leaves encumbrance a walking-only rule', () => {
+    // Guards the decision rather than the arithmetic: RAW slows every speed,
+    // this app deliberately doesn't, and a later "fix" should fail here first.
+    const c = emptyCharacter()
+    c.abilities.str = 10
+    c.inventory = [{ text: 'Anvil', qty: 1, weight: 60, slot: null }]
+    c.encumbrance = { enabled: true, countCoins: true }
+    c.flySpeed = 50
+    expect(effectiveSpeed(c)).toBe(20)
+    expect(extraSpeeds(c)[0].feet).toBe(50)
+    expect(extraSpeedSummary(c)).toBe('fly 50')
+  })
+})
+
 describe('slot fitting', () => {
   const it_ = (text: string, fits?: EquipSlot | null): InventoryItem => {
     const base: InventoryItem = { text, qty: 1, weight: 0, slot: null }
@@ -1618,5 +1736,218 @@ describe('unified feature view', () => {
     expect(addFeatureEntry(c, 'class', 'Evasion', '', 7).features).toEqual([
       { level: 7, name: 'Evasion' },
     ])
+  })
+})
+
+describe('skillIdFor', () => {
+  it('takes an id unchanged', () => {
+    expect(skillIdFor('animal-handling')).toBe('animal-handling')
+  })
+
+  it('resolves a display name, which is what a person types', () => {
+    expect(skillIdFor('Animal Handling')).toBe('animal-handling')
+    expect(skillIdFor('Sleight of Hand')).toBe('sleight-of-hand')
+  })
+
+  it('ignores case and surrounding space', () => {
+    expect(skillIdFor('  STEALTH  ')).toBe('stealth')
+    expect(skillIdFor('sleight of hand')).toBe('sleight-of-hand')
+  })
+
+  it('is undefined for anything that is not a skill', () => {
+    // What makes a skillOrTool pick decidable: not a skill means it's a tool.
+    expect(skillIdFor('Smith’s tools')).toBeUndefined()
+    expect(skillIdFor('')).toBeUndefined()
+    expect(skillIdFor('   ')).toBeUndefined()
+  })
+
+  it('does not guess at a near miss', () => {
+    // A typo should become a tool, not quietly become the wrong skill.
+    expect(skillIdFor('Acrobatic')).toBeUndefined()
+    expect(skillIdFor('animal handling!')).toBeUndefined()
+  })
+})
+
+describe('resources', () => {
+  it('round-trips a tracked counter', () => {
+    const c: Character = {
+      ...emptyCharacter(),
+      resources: [
+        { name: 'Superiority Dice', used: 1, total: 4, resets: 'short' },
+        { name: 'Rage', used: 0, total: 3 },
+      ],
+    }
+    const back = parseCharacter(serializeCharacter(c, '')).character
+    expect(back.resources).toEqual(c.resources)
+  })
+
+  it('writes nothing at all when there are none', () => {
+    // The flySpeed / hitDice.total precedent: an existing sheet must serialize
+    // exactly as it did before this field existed.
+    expect(serializeCharacter(emptyCharacter(), '')).not.toContain('resources')
+  })
+
+  it('clamps a hand-edited count into its total', () => {
+    const text = [
+      '---',
+      'type: character',
+      'resources:',
+      '  - name: Ki',
+      '    used: 99',
+      '    total: 5',
+      '---',
+      '',
+    ].join('\n')
+    expect(parseCharacter(text).character.resources[0]).toEqual({
+      name: 'Ki',
+      used: 5,
+      total: 5,
+    })
+  })
+
+  it('keeps a bare string as a named, empty tracker', () => {
+    const text = '---\ntype: character\nresources:\n  - Sorcery Points\n---\n'
+    expect(parseCharacter(text).character.resources).toEqual([
+      { name: 'Sorcery Points', used: 0, total: 0 },
+    ])
+  })
+
+  it('drops rows past the cap rather than growing the column', () => {
+    const rows = ['One', 'Two', 'Three', 'Four']
+      .map((n) => '  - name: ' + n + '\n    used: 0\n    total: 1')
+      .join('\n')
+    const text = '---\ntype: character\nresources:\n' + rows + '\n---\n'
+    expect(parseCharacter(text).character.resources).toHaveLength(MAX_RESOURCES)
+  })
+})
+
+describe('half proficiency', () => {
+  const bard = (level: number): Character => ({
+    ...emptyCharacter(),
+    class: 'Bard',
+    level,
+    // Arcana is INT, Athletics is STR, Acrobatics is DEX, Medicine is WIS.
+    abilities: { str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 10 },
+    halfProficiency: 'all',
+  })
+
+  it('adds nothing when the character has none', () => {
+    const c = { ...bard(5), halfProficiency: null }
+    expect(skillBonus(c, 'arcana')).toBe(0)
+  })
+
+  it('adds half the proficiency bonus, rounded down, to any skill', () => {
+    // Level 5 is a +3 proficiency bonus, so Jack of All Trades gives +1.
+    expect(proficiencyBonus(5)).toBe(3)
+    expect(skillBonus(bard(5), 'arcana')).toBe(1)
+    expect(skillBonus(bard(5), 'athletics')).toBe(1)
+  })
+
+  it('never stacks on top of proficiency or expertise', () => {
+    // The book says "that doesn't already include it", so the half is what you
+    // get *instead of* nothing — not a bonus on top of a real proficiency.
+    const c = { ...bard(5), skills: ['arcana'], expertise: ['athletics'] }
+    expect(skillBonus(c, 'arcana')).toBe(3)
+    expect(skillBonus(c, 'athletics')).toBe(6)
+  })
+
+  it('tracks the proficiency bonus as the character levels', () => {
+    // Proficiency is +2/+3/+4/+5/+6 in four-level bands, halved and rounded
+    // down: 1, 1, 2, 2, 3. The bands do not line up with the proficiency ones,
+    // which is exactly the off-by-one a spot check would miss.
+    const printed: Record<number, number> = {
+      1: 1,
+      2: 1,
+      3: 1,
+      4: 1,
+      5: 1,
+      6: 1,
+      7: 1,
+      8: 1,
+      9: 2,
+      10: 2,
+      11: 2,
+      12: 2,
+      13: 2,
+      14: 2,
+      15: 2,
+      16: 2,
+      17: 3,
+      18: 3,
+      19: 3,
+      20: 3,
+    }
+    for (let level = 1; level <= 20; level++) {
+      expect(skillBonus(bard(level), 'arcana'), `level ${level}`).toBe(
+        printed[level],
+      )
+    }
+  })
+
+  it('rounds up and covers only Str/Dex/Con for Remarkable Athlete', () => {
+    const fighter = (level: number): Character => ({
+      ...emptyCharacter(),
+      class: 'Fighter',
+      level,
+      abilities: { str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 10 },
+      halfProficiency: 'physical',
+    })
+    // +3 proficiency at 5th: a Fighter gets +2 where a Bard gets +1.
+    expect(skillBonus(fighter(5), 'athletics')).toBe(2)
+    expect(skillBonus(fighter(5), 'acrobatics')).toBe(2)
+    // INT, WIS and CHA skills get nothing at all.
+    expect(skillBonus(fighter(5), 'arcana')).toBe(0)
+    expect(skillBonus(fighter(5), 'medicine')).toBe(0)
+    expect(skillBonus(fighter(5), 'persuasion')).toBe(0)
+  })
+
+  it('differs from Jack of All Trades exactly where the books differ', () => {
+    // The whole reason this is a mode rather than a boolean. At an odd
+    // proficiency bonus the two features round opposite ways.
+    for (const level of [1, 5, 9, 13, 17]) {
+      const prof = proficiencyBonus(level)
+      if (prof % 2 === 0) continue
+      const jack = {
+        ...emptyCharacter(),
+        level,
+        halfProficiency: 'all' as const,
+      }
+      const athlete = {
+        ...emptyCharacter(),
+        level,
+        halfProficiency: 'physical' as const,
+      }
+      expect(skillBonus(athlete, 'athletics'), `level ${level}`).toBe(
+        skillBonus(jack, 'athletics') + 1,
+      )
+    }
+  })
+
+  it('reaches passive perception, which routes through skillBonus', () => {
+    // WIS skill, so a Bard gets the half and a Fighter does not.
+    const b = { ...bard(5), abilities: { ...bard(5).abilities, wis: 10 } }
+    expect(passivePerception(b)).toBe(11)
+    expect(passivePerception({ ...b, halfProficiency: null })).toBe(10)
+    expect(passivePerception({ ...b, halfProficiency: 'physical' })).toBe(10)
+  })
+
+  it('round-trips through the frontmatter', () => {
+    const c = bard(5)
+    const text = serializeCharacter(c, 'body')
+    expect(text).toContain('halfProficiency: all')
+    expect(parseCharacter(text).character.halfProficiency).toBe('all')
+  })
+
+  it('writes no key at all when absent', () => {
+    // Same bargain as `resources`: opening and saving an old sheet must not
+    // add anything to its frontmatter.
+    const text = serializeCharacter(emptyCharacter(), 'body')
+    expect(text).not.toContain('halfProficiency')
+    expect(parseCharacter(text).character.halfProficiency).toBeNull()
+  })
+
+  it('reads an unknown value as none rather than throwing', () => {
+    const text = '---\ntype: character\nhalfProficiency: sideways\n---\n'
+    expect(parseCharacter(text).character.halfProficiency).toBeNull()
   })
 })

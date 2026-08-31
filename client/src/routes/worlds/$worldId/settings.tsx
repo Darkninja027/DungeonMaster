@@ -31,7 +31,7 @@ function WorldSettingsPage() {
   const { Component } = section
 
   return (
-    <div className="mx-auto flex h-full max-w-5xl flex-col gap-3 p-4">
+    <div className="mx-auto flex h-full max-w-[96rem] flex-col gap-3 p-4">
       <div>
         <h1 className="text-lg font-semibold">Settings</h1>
         <p className="text-muted-foreground text-xs">

@@ -57,6 +57,7 @@ import {
   MarkdownContextMenu,
 } from '#/components/MarkdownContextMenu'
 import { TableOfContents } from '#/components/TableOfContents'
+import { SidebarToggle } from '#/components/SidebarToggle'
 import {
   activeHeadingAt,
   editorScrollTopFor,
@@ -65,6 +66,10 @@ import {
 } from '#/lib/toc'
 import type { TocHeading } from '#/lib/toc'
 import { SheetPreview } from '#/components/character/SheetPreview'
+// No toggle on this route: it is the raw-markdown preview, not the print
+// surface. It reads the same preference so the two previews never disagree about
+// page count — Ctrl+P works from here too.
+import { loadSpellCards } from '#/lib/sheetPrintPrefs'
 import { ImagePickerDialog } from '#/components/ImagePickerDialog'
 import { HowToDialog } from '#/components/HowToDialog'
 import { useMarkdownEditor } from '#/lib/useMarkdownEditor'
@@ -565,6 +570,7 @@ function ArticlePage() {
   return (
     <div className="flex h-full flex-col">
       <div className="flex items-center gap-2 border-b px-4 py-2">
+        <SidebarToggle className="-ml-1.5" />
         {/* The title is the filename, so committing it renames the file and
             rewrites [[links]] world-wide. Far too expensive (and racy) to do on
             a keystroke — hence blur/Enter, not `dirty`. */}
@@ -1089,6 +1095,7 @@ function ArticlePage() {
                   source={sheetSource}
                   worldId={worldId}
                   articles={tree.data?.articles}
+                  spellCards={loadSpellCards()}
                 />
               ) : (
                 <BookView

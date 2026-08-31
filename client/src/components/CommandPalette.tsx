@@ -5,6 +5,7 @@ import { FileText, Hash, Search, Terminal, User } from 'lucide-react'
 import { api } from '#/lib/api'
 import type { RankedResult } from '#/lib/api'
 import { matchCommands } from '#/lib/commands'
+import { useWorldMode } from '#/lib/useWorldSettings'
 import type { Command } from '#/lib/commands'
 import { useShortcut, useSuspendShortcuts } from '#/lib/useShortcut'
 import { Dialog, DialogContent, DialogTitle } from '#/components/ui/dialog'
@@ -99,9 +100,12 @@ export function CommandPalette({ worldId }: { worldId: string }) {
     enabled: open && mode === 'tags',
   })
 
+  // `mode` here is the palette's own (commands / tags / search); the world's
+  // mode is separate and decides which commands exist at all.
+  const worldMode = useWorldMode(worldId).id
   const commandHits = useMemo(
-    () => (mode === 'commands' ? matchCommands(term) : []),
-    [mode, term],
+    () => (mode === 'commands' ? matchCommands(term, { mode: worldMode }) : []),
+    [mode, term, worldMode],
   )
 
   const tagHits = useMemo(() => {

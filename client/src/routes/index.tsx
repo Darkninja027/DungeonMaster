@@ -1,10 +1,19 @@
 import { useState } from 'react'
 import { Link, createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { FolderOpen, FolderSearch, Globe2, Plus, X } from 'lucide-react'
+import {
+  FolderOpen,
+  FolderSearch,
+  Globe2,
+  Plus,
+  UserPlus,
+  Users,
+  X,
+} from 'lucide-react'
 import { api } from '#/lib/api'
 import type { WorldSummary } from '#/lib/api'
 import { REVEAL_LABEL, revealer } from '#/lib/reveal'
+import { CreateCharacterDialog } from '#/components/character/create/CreateCharacterDialog'
 import { Button } from '#/components/ui/button'
 import {
   Card,
@@ -28,6 +37,111 @@ import { Textarea } from '#/components/ui/textarea'
 export const Route = createFileRoute('/')({
   component: WorldsPage,
 })
+
+/**
+ * Characters that aren't tied to a campaign, kept in the personal vault.
+ *
+ * Stays hidden until the vault exists, so someone who has never used it sees no
+ * new clutter — `api.vault.get` deliberately never creates one. The button
+ * below ensures it on first use.
+ */
+function VaultSection() {
+  const queryClient = useQueryClient()
+  const [wizardOpen, setWizardOpen] = useState(false)
+
+  const vault = useQuery({ queryKey: ['vault'], queryFn: api.vault.get })
+  const vaultId = vault.data?.worldId ?? null
+
+  const characters = useQuery({
+    queryKey: ['worlds', vaultId, 'characters'],
+    queryFn: () => api.characters.list(vaultId!),
+    enabled: vaultId !== null && vault.data?.available === true,
+  })
+
+  // Creating the vault is what the button does, so the wizard can't open until
+  // there is a world for the character to land in.
+  const startCharacter = useMutation({
+    mutationFn: api.vault.ensure,
+    onSuccess: (info) => {
+      queryClient.setQueryData(['vault'], info)
+      setWizardOpen(true)
+    },
+    onError: (error: Error) => alert(error.message),
+  })
+
+  const list = characters.data ?? []
+  // Nothing to say yet: no vault and nothing in flight.
+  if (!vault.data && !startCharacter.isPending) {
+    return (
+      <div className="mb-8 flex items-center justify-between border-b pb-4">
+        <div>
+          <h2 className="text-lg font-semibold">Your Characters</h2>
+          <p className="text-muted-foreground text-sm">
+            Make a character without a world — for a game someone else is
+            running.
+          </p>
+        </div>
+        <Button
+          variant="outline"
+          disabled={startCharacter.isPending}
+          onClick={() => startCharacter.mutate()}
+        >
+          <UserPlus /> New Character
+        </Button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="mb-8 border-b pb-6">
+      <div className="mb-4 flex items-center justify-between">
+        <div>
+          <h2 className="text-lg font-semibold">Your Characters</h2>
+          <p className="text-muted-foreground text-sm">
+            {vault.data?.available === false
+              ? 'The vault folder isn’t there right now — if it’s on a drive that’s disconnected, reconnect it.'
+              : 'Characters that aren’t tied to a campaign world.'}
+          </p>
+        </div>
+        <Button
+          variant="outline"
+          disabled={startCharacter.isPending}
+          onClick={() => startCharacter.mutate()}
+        >
+          <UserPlus /> New Character
+        </Button>
+      </div>
+
+      {list.length === 0 ? (
+        <p className="text-muted-foreground text-sm">
+          No characters yet. Create one and it’s saved in your vault folder.
+        </p>
+      ) : (
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          {list.map((ch) => (
+            <Link
+              key={ch.id}
+              to="/worlds/$worldId/characters/$articleId"
+              params={{ worldId: vaultId!, articleId: ch.id }}
+              className="hover:bg-accent flex items-center gap-2 rounded-md border px-3 py-2 text-sm"
+            >
+              <Users className="text-muted-foreground size-4 shrink-0" />
+              <span className="truncate">{ch.title}</span>
+            </Link>
+          ))}
+        </div>
+      )}
+
+      {vaultId && (
+        <CreateCharacterDialog
+          worldId={vaultId}
+          open={wizardOpen}
+          onClose={() => setWizardOpen(false)}
+        />
+      )}
+    </div>
+  )
+}
 
 function WorldsPage() {
   const queryClient = useQueryClient()
@@ -64,6 +178,8 @@ function WorldsPage() {
 
   return (
     <div className="mx-auto max-w-5xl p-6">
+      <VaultSection />
+
       <div className="mb-6 flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">Your Worlds</h1>

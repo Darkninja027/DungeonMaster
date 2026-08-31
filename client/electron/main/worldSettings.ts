@@ -203,6 +203,19 @@ export function seedWorldSettings(root: string): void {
 }
 
 /**
+ * Seed a world that already knows what it is for — currently only the character
+ * vault, which is a Player-mode world by definition.
+ *
+ * Ordinary worlds deliberately get no `mode` key: absent parses to the default,
+ * which is every section on, so a world created by an older build and one
+ * created today behave identically. Stamping a default nobody chose would make
+ * the file claim a decision that was never made.
+ */
+export function seedWorldSettingsWithMode(root: string, mode: string): void {
+  writeWorldSettingsAtRoot(root, { ...SEED_SETTINGS, mode })
+}
+
+/**
  * The world's settings, scaffolding the class list if it isn't there yet —
  * that's what covers worlds created before this feature existed, and worlds
  * whose file so far holds only the metadata migrated out of world.json.

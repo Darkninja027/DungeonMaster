@@ -4,6 +4,7 @@ import {
   collectSpells,
   entryKey,
   filterEntries,
+  filterSpells,
   mergeEntries,
 } from './bestiary'
 import type { LibraryEntry } from './bestiary'
@@ -34,6 +35,9 @@ const ref = (
   title,
   cr: null,
   xp: null,
+  level: null,
+  school: null,
+  classes: null,
   ...extra,
 })
 
@@ -209,6 +213,91 @@ describe('collectSpells', () => {
   })
 })
 
+describe('collectSpells frontmatter', () => {
+  it('carries level, school and classes off the typed refs', () => {
+    const entries = collectSpells(WORLD, undefined, [
+      ref('Spells/Fire Bolt', 'Fire Bolt', {
+        level: 0,
+        school: 'evocation',
+        classes: ['Sorcerer', 'Wizard'],
+      }),
+    ])
+    expect(entries[0].level).toBe(0)
+    expect(entries[0].school).toBe('evocation')
+    expect(entries[0].classes).toEqual(['Sorcerer', 'Wizard'])
+  })
+
+  it('prefers the typed record over the folder walk’s bare title', () => {
+    // Both sources see the same article; only the query knows its level, so the
+    // richer record has to be the one that survives or the filters go blind.
+    const entries = collectSpells(
+      WORLD,
+      tree([
+        { id: 'Spells/Fire Bolt', folderId: 'Spells', title: 'Fire Bolt' },
+      ]),
+      [ref('Spells/Fire Bolt', 'Fire Bolt', { level: 0 })],
+    )
+    expect(entries).toHaveLength(1)
+    expect(entries[0].level).toBe(0)
+  })
+})
+
+describe('filterSpells', () => {
+  const spell = (
+    title: string,
+    level: number | null,
+    classes: Array<string> | null = null,
+  ): LibraryEntry => ({
+    worldId: WORLD,
+    articleId: `Spells/${title}`,
+    title,
+    global: false,
+    queryable: true,
+    level,
+    classes,
+  })
+
+  const FIRE_BOLT = spell('Fire Bolt', 0, ['Sorcerer', 'Wizard'])
+  const GUIDANCE = spell('Guidance', 0, ['Cleric', 'Druid'])
+  const MAGIC_MISSILE = spell('Magic Missile', 1, ['Sorcerer', 'Wizard'])
+  const HOMEBREW = spell('Grelling’s Gambit', null)
+  const ALL = [FIRE_BOLT, GUIDANCE, MAGIC_MISSILE, HOMEBREW]
+
+  it('narrows to one spell level', () => {
+    expect(filterSpells(ALL, { level: 0 }).map((e) => e.title)).toEqual([
+      'Fire Bolt',
+      'Guidance',
+      'Grelling’s Gambit',
+    ])
+  })
+
+  it('narrows to a class list, case-insensitively', () => {
+    expect(
+      filterSpells(ALL, { level: 0, className: 'wizard' }).map((e) => e.title),
+    ).toEqual(['Fire Bolt', 'Grelling’s Gambit'])
+  })
+
+  it('keeps a spell that declares nothing', () => {
+    // The point of this: a homebrew spell with no frontmatter must stay
+    // offerable. A picker that silently hides the user's own content is worse
+    // than one that offers a little too much.
+    expect(
+      filterSpells([HOMEBREW], { level: 9, className: 'Bard' }),
+    ).toHaveLength(1)
+  })
+
+  it('returns everything when asked for nothing', () => {
+    expect(filterSpells(ALL)).toHaveLength(ALL.length)
+  })
+
+  it('does not confuse a class name with a substring of another', () => {
+    const bard = spell('Vicious Mockery', 0, ['Bard'])
+    expect(
+      filterSpells([bard], { level: 0, className: 'Barbarian' }),
+    ).toHaveLength(0)
+  })
+})
+
 describe('mergeEntries', () => {
   const world: Array<LibraryEntry> = [
     {
@@ -320,5 +409,44 @@ describe('filterEntries', () => {
     expect(filterEntries(entries, 'KHE').map((e) => e.title)).toEqual([
       'Ankheg',
     ])
+  })
+})
+
+describe('filterSpells by a level ceiling', () => {
+  const entries = [
+    { worldId: 'w', articleId: 'a', title: 'Fire Bolt', level: 0 },
+    { worldId: 'w', articleId: 'b', title: 'Charm Person', level: 1 },
+    { worldId: 'w', articleId: 'c', title: 'Invisibility', level: 2 },
+    { worldId: 'w', articleId: 'd', title: 'Fireball', level: 3 },
+    { worldId: 'w', articleId: 'e', title: 'Homebrew Thing' },
+  ] as Array<Parameters<typeof filterSpells>[0][number]>
+
+  it('offers every level a character has slots for, not just the highest', () => {
+    // A 7th-level Arcane Trickster may learn a 1st *or* 2nd level spell.
+    // Filtering to the highest open level alone hid half of what they can take.
+    const names = filterSpells(entries, { maxLevel: 2 }).map((e) => e.title)
+    expect(names).toContain('Charm Person')
+    expect(names).toContain('Invisibility')
+    expect(names).not.toContain('Fireball')
+  })
+
+  it('leaves cantrips out — they are counted and chosen separately', () => {
+    expect(
+      filterSpells(entries, { maxLevel: 2 }).map((e) => e.title),
+    ).not.toContain('Fire Bolt')
+  })
+
+  it('still shows a spell that declares no level', () => {
+    // The permissive rule the whole filter is built on: homebrew is never
+    // silently hidden.
+    expect(
+      filterSpells(entries, { maxLevel: 1 }).map((e) => e.title),
+    ).toContain('Homebrew Thing')
+  })
+
+  it('leaves the exact-level filter alone', () => {
+    const names = filterSpells(entries, { level: 1 }).map((e) => e.title)
+    expect(names).toContain('Charm Person')
+    expect(names).not.toContain('Invisibility')
   })
 })

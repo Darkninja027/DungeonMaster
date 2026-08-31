@@ -43,6 +43,45 @@ export const SKILLS: Array<{ id: string; name: string; ability: Ability }> = [
 ]
 
 /**
+ * Which checks a character's half proficiency covers.
+ *
+ * `all` is the Bard's Jack of All Trades — any check not already proficient,
+ * rounded **down**. `physical` is the Fighter's Remarkable Athlete — Strength,
+ * Dexterity and Constitution only, rounded **up**. The two really do round
+ * differently, which is why this is a mode rather than a boolean.
+ *
+ * What neither can express: 5e applies both to *ability checks*, and a raw
+ * Strength check has no row on this sheet. So these reach the eighteen skills
+ * and stop there, which is the honest half of a rule this app does not
+ * otherwise model. The feature text still says what the rest of it does.
+ */
+export type HalfProficiency = 'all' | 'physical'
+
+/** The abilities `halfProficiency: 'physical'` covers. */
+const PHYSICAL_ABILITIES: ReadonlyArray<Ability> = ['str', 'dex', 'con']
+
+/**
+ * The skill id for something a player typed or a table authored, matched on id
+ * first and then on display name, both trimmed and case-insensitively.
+ * `undefined` for anything that is not one of the eighteen skills.
+ *
+ * Two jobs. It lets an open skill pick accept "Animal Handling" — what a person
+ * types — and still store `animal-handling`, which is the only spelling the
+ * sheet keeps; anything else is dropped by the filter in `buildCharacter` and
+ * again on parse, so without this a typed skill name is silently lost. And it
+ * is what makes a `skillOrTool` pick decidable: skills are a closed list and
+ * tools are free text, so "not a skill" is a complete answer.
+ *
+ * Deliberately exact rather than fuzzy — a near miss should become a tool, not
+ * quietly become the wrong skill.
+ */
+export function skillIdFor(value: string): string | undefined {
+  const key = value.trim().toLowerCase()
+  if (key === '') return undefined
+  return SKILLS.find((s) => s.id === key || s.name.toLowerCase() === key)?.id
+}
+
+/**
  * Armor and weapon proficiency is a closed set in 5e, so these drive quick
  * checkboxes in the editor. They are *not* a filter: classes and races also
  * grant individual weapons ("longsword"), and homebrew grants anything at all.
@@ -123,6 +162,41 @@ export interface SpellSlots {
   total: number
   used: number
 }
+
+/**
+ * A counter the player tracks between rests — superiority dice, rage uses, ki
+ * points, sorcery points, bardic inspiration.
+ *
+ * `used`/`total` rather than a bare remaining count, matching `SpellSlots` and
+ * `hitDice`: every expendable on this sheet spends upward from zero, so the
+ * three read and clamp the same way.
+ *
+ * Deliberately **player-authored and never derived**. The tables know that a
+ * Battle Master has four superiority dice at 3rd level, and the level-up wizard
+ * may offer to add the row — but nothing recomputes `total` afterwards. A
+ * number the player has tuned is theirs, and a rules engine that silently
+ * corrected it is exactly what this app is not. See MAX_RESOURCES.
+ */
+export interface CharacterResource {
+  /** What the player calls it. Free text — "Superiority Dice", "Rage". */
+  name: string
+  used: number
+  total: number
+  /**
+   * Which rest refills it, when the player has said. Shown as a hint on the
+   * sheet and never enforced — nothing in this app runs a rest.
+   */
+  resets?: 'short' | 'long'
+}
+
+/**
+ * How many resources one character may track.
+ *
+ * A cap rather than an unbounded list because these share the sheet's Combat
+ * column with hit dice and death saves, and because a character needing a
+ * fourth counter is better served by the Features tab than by a longer column.
+ */
+export const MAX_RESOURCES = 3
 
 export interface Spell {
   /** Plain text or a [[wiki link]] to the spell's article. */
@@ -498,6 +572,24 @@ export interface Character {
   skills: Array<string>
   expertise: Array<string>
   /**
+   * Half proficiency on checks the character is *not* already proficient in —
+   * a Bard's Jack of All Trades, a Fighter's Remarkable Athlete.
+   *
+   * A real field rather than a feature-name lookup, and that is the whole
+   * point. `Character.features` carries no id, so the only other signal is the
+   * literal row name, and a sheet is hand-editable: renaming "Jack of All
+   * Trades" in Obsidian would silently drop the bonus with nothing to explain
+   * it. This survives a rename, a translation and a homebrew class that grants
+   * the same thing under another name.
+   *
+   * Two modes because the two features genuinely differ, in both breadth and
+   * rounding — see `skillBonus`, which is the only place either is applied.
+   *
+   * Set by the wizard and editable on the sheet like everything else. Absent
+   * (the usual case) means no half proficiency at all.
+   */
+  halfProficiency: HalfProficiency | null
+  /**
    * Other proficiencies. Free text so homebrew and individually granted weapons
    * survive; `ARMOR_PROFICIENCIES` / `WEAPON_CATEGORIES` are editor affordances,
    * not filters. Known tokens store lowercase, free text keeps its own casing.
@@ -516,6 +608,28 @@ export interface Character {
   /** Misc initiative bonus on top of the DEX modifier. */
   initiativeBonus: number
   speed: number
+  /**
+   * Non-walking movement in feet, when the character has any. Absent means the
+   * character has none, which is almost everybody — so these are omitted from
+   * the frontmatter entirely rather than written as zeroes, and an existing
+   * sheet saved by this build gains nothing it did not already have.
+   *
+   * Three flat fields rather than a `speeds: { fly, swim, climb }` object.
+   * `serializeCharacter` builds one flat record, so a nested field would need a
+   * conditional spread anyway *and* would print an empty `speeds: {}` into
+   * every sheet the moment it was next saved. `flySpeed: 50` is also what a
+   * person actually types under `speed: 30` in Obsidian; a nested block is one
+   * more chance to get the indentation wrong. Not a `Partial<Record<>>` either
+   * — this file keeps `Record` for closed keyspaces where every key is present
+   * (`abilities`, `currency`), and a partial one hands every reader a lookup
+   * that can be undefined at a computed key.
+   *
+   * Walking gets no `walkSpeed` sibling: every sheet on disk says `speed`, and
+   * renaming it would break all of them to buy symmetry.
+   */
+  flySpeed?: number
+  swimSpeed?: number
+  climbSpeed?: number
   hp: { current: number; max: number; temp: number }
   /**
    * `total` tracks `level` unless the sheet pins it — a total that differs from
@@ -548,6 +662,11 @@ export interface Character {
   encumbrance: EncumbranceSettings
   /** How many items may be attuned at once. 3 by RAW; homebrew varies. */
   attunementSlots: number
+  /**
+   * Player-authored counters, at most `MAX_RESOURCES`. Empty for most
+   * characters, and omitted from the frontmatter entirely while empty.
+   */
+  resources: Array<CharacterResource>
   notes: Array<CharacterNote>
 }
 
@@ -564,6 +683,7 @@ export function emptyCharacter(): Character {
     saves: [],
     skills: [],
     expertise: [],
+    halfProficiency: null,
     armor: [],
     weapons: [],
     tools: [],
@@ -590,6 +710,7 @@ export function emptyCharacter(): Character {
     inventory: [],
     encumbrance: { enabled: false, countCoins: true },
     attunementSlots: DEFAULT_ATTUNEMENT_SLOTS,
+    resources: [],
     notes: [],
   }
 }
@@ -660,8 +781,28 @@ export function skillBonus(c: Character, skillId: string): number {
     ? proficiencyBonus(c.level) * 2
     : c.skills.includes(skillId)
       ? proficiencyBonus(c.level)
-      : 0
+      : halfProficiencyFor(c, skill.ability)
   return abilityMod(c.abilities[skill.ability]) + prof
+}
+
+/**
+ * The half-proficiency bonus for a check the character is *not* proficient in,
+ * or 0. The last branch of `skillBonus`, extracted because the two modes differ
+ * in more than one way and a nested ternary hid that.
+ *
+ * Only ever reached when the character lacks the proficiency, which is what
+ * both features say: half proficiency is what you get *instead of* nothing, and
+ * it never stacks on top of a proficiency or an expertise.
+ *
+ * The rounding is not a detail. Jack of All Trades rounds down and Remarkable
+ * Athlete rounds up, so at a +3 proficiency bonus a Bard gets +1 and a Fighter
+ * +2 — printed as such in both books.
+ */
+export function halfProficiencyFor(c: Character, ability: Ability): number {
+  if (c.halfProficiency === null) return 0
+  const half = proficiencyBonus(c.level) / 2
+  if (c.halfProficiency === 'all') return Math.floor(half)
+  return PHYSICAL_ABILITIES.includes(ability) ? Math.ceil(half) : 0
 }
 
 export function initiativeBonus(c: Character): number {
@@ -817,11 +958,69 @@ export function encumbrancePenalty(tier: EncumbranceTier): number {
 /**
  * Walking speed after encumbrance. Over your maximum carrying capacity your
  * speed is 0 (RAW), not speed - 20; never negative either way.
+ *
+ * Walking only, deliberately. RAW slows every speed you have, but `flySpeed`
+ * and friends are numbers the player typed, and a sheet printing "fly 40
+ * (base 50)" at them is the rules engine this app is not. Encumbrance is
+ * already the furthest anything here reaches into in-play arithmetic.
  */
 export function effectiveSpeed(c: Character): number {
   const tier = encumbranceTier(c)
   if (tier === 'over') return 0
   return Math.max(0, c.speed - encumbrancePenalty(tier))
+}
+
+// --- Extra movement ---------------------------------------------------------
+
+/**
+ * The non-walking movement modes, in the order every surface shows them.
+ *
+ * `satisfies` rather than a bare `as const` so `key` stays the literal union
+ * `'flySpeed' | 'swimSpeed' | 'climbSpeed'` — `SheetTab` patches these through
+ * a computed key, which only type-checks against `Partial<Character>` if the
+ * key is narrowed.
+ */
+export const MOVEMENT_MODES = [
+  { key: 'flySpeed', label: 'Fly', short: 'fly' },
+  { key: 'swimSpeed', label: 'Swim', short: 'swim' },
+  { key: 'climbSpeed', label: 'Climb', short: 'climb' },
+] as const satisfies ReadonlyArray<{
+  key: keyof Character
+  label: string
+  short: string
+}>
+
+export type MovementMode = (typeof MOVEMENT_MODES)[number]
+
+/**
+ * The extra movement this character has, in a fixed order, skipping the modes
+ * they don't. One list feeds the interactive sheet, the printed sheet and the
+ * wizard panel, so the three cannot drift on order or wording — the same
+ * reason `RailDefenses` builds its four lists from a single array.
+ */
+export function extraSpeeds(
+  c: Character,
+): Array<{ mode: MovementMode; feet: number }> {
+  return MOVEMENT_MODES.flatMap((mode) => {
+    const feet = c[mode.key]
+    return typeof feet === 'number' && feet > 0 ? [{ mode, feet }] : []
+  })
+}
+
+/**
+ * "fly 50 · swim 30" — the one-line form for the printed sheet and tooltips.
+ *
+ * `terse` drops to "f100 s100 c100". The printed Speed tile is ~135px of a
+ * hardcoded six-column grid and page one clips silently, so three three-digit
+ * modes have to give way somewhere; shortening the string is a graceful
+ * failure, while a character's data forcing the grid to be re-measured is not.
+ */
+export function extraSpeedSummary(c: Character, terse = false): string {
+  return extraSpeeds(c)
+    .map(({ mode, feet }) =>
+      terse ? `${mode.short[0]}${feet}` : `${mode.short} ${feet}`,
+    )
+    .join(terse ? ' ' : ' · ')
 }
 
 // --- Attunement -------------------------------------------------------------
@@ -1106,6 +1305,27 @@ export function sortedSpells(spells: Array<Spell>): Array<Spell> {
   )
 }
 
+/**
+ * Inventory sorted A-Z for the printed sheet only — `c.inventory` keeps the
+ * player's own order, which is what the Gear tab edits and what round-trips to
+ * disk. Sorting on `inventoryItemName` rather than the raw row means
+ * "[[Flametongue]]" files under F, not "[", and "Daggers x3" under D; the
+ * fallback keeps a row that is *only* a qty suffix from collapsing to "".
+ * Case-insensitive via `sensitivity: 'base'`, matching lib/bestiary.ts, so a
+ * lowercase "rope" doesn't sort after every capitalised item.
+ */
+export function sortedInventory(
+  items: Array<InventoryItem>,
+): Array<InventoryItem> {
+  return [...items].sort((a, b) =>
+    inventoryItemName(a.text).localeCompare(
+      inventoryItemName(b.text),
+      undefined,
+      { sensitivity: 'base' },
+    ),
+  )
+}
+
 // --- Unified feature view ---------------------------------------------------
 
 /**
@@ -1314,6 +1534,17 @@ const str = (v: unknown, fallback: string): string =>
   typeof v === 'string' ? v : fallback
 const strList = (v: unknown): Array<string> =>
   Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []
+/**
+ * An optional speed in feet: undefined when the key is missing, not a number,
+ * or zero. Zero collapsing to undefined is the point — "0 ft of flight" and
+ * "cannot fly" are the same fact, and only the second is worth printing.
+ * Truncated and capped so a hand-edit typo can't blow out a print tile.
+ */
+const optSpeed = (v: unknown): number | undefined => {
+  if (typeof v !== 'number' || !Number.isFinite(v)) return undefined
+  const n = Math.min(999, Math.trunc(v))
+  return n > 0 ? n : undefined
+}
 /**
  * Free-text list field: trims and drops blanks. Unlike `skills`, these lists
  * have no known vocabulary to filter against, so a blank hand-typed entry would
@@ -1524,6 +1755,22 @@ function serializeSpell(spell: Spell): Record<string, unknown> {
  * tags existed round-trip byte-identically instead of growing a `title: null`
  * on every entry.
  */
+/**
+ * One resource row. `resets` is written only when the player set it, so a
+ * counter they never labelled stays a three-key row.
+ */
+function serializeResource(
+  resource: CharacterResource,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {
+    name: resource.name,
+    used: resource.used,
+    total: resource.total,
+  }
+  if (resource.resets) out.resets = resource.resets
+  return out
+}
+
 function serializeNote(note: CharacterNote): Record<string, unknown> {
   const out: Record<string, unknown> = { at: note.at }
   if (note.title?.trim()) out.title = note.title.trim()
@@ -1583,6 +1830,11 @@ export function parseCharacter(content: string): {
   const knownSkill = (id: string) => SKILLS.some((s) => s.id === id)
   c.skills = strList(r.skills).filter(knownSkill)
   c.expertise = strList(r.expertise).filter(knownSkill)
+  // Anything unrecognised reads as "no half proficiency" rather than throwing:
+  // an older build wrote no key at all, and a hand-edited typo should not stop
+  // the sheet from opening.
+  const half = str(r.halfProficiency, '').trim().toLowerCase()
+  c.halfProficiency = half === 'all' || half === 'physical' ? half : null
 
   // Deliberately unfiltered, unlike skills above: an unrecognised entry is
   // homebrew or an individually granted weapon, not a mistake to discard.
@@ -1598,6 +1850,12 @@ export function parseCharacter(content: string): {
   c.ac = Math.max(0, num(r.ac, c.ac))
   c.initiativeBonus = num(r.initiativeBonus, c.initiativeBonus)
   c.speed = Math.max(0, num(r.speed, c.speed))
+  // Assigned only when the sheet actually says so: an absent key has to stay
+  // absent, or the next save writes three new lines into every existing file.
+  for (const mode of MOVEMENT_MODES) {
+    const feet = optSpeed(r[mode.key])
+    if (feet !== undefined) c[mode.key] = feet
+  }
 
   if (typeof r.hp === 'object' && r.hp !== null) {
     const hp = r.hp as Record<string, unknown>
@@ -1725,6 +1983,32 @@ export function parseCharacter(content: string): {
     0,
     Math.floor(num(r.preparedLimit, c.preparedLimit)),
   )
+  if (Array.isArray(r.resources)) {
+    c.resources = r.resources
+      .flatMap((entry): Array<CharacterResource> => {
+        // A bare string is a counter somebody typed into the YAML with no
+        // numbers yet — keep it as an empty tracker rather than dropping the
+        // name they wrote.
+        if (typeof entry === 'string') {
+          return entry.trim() ? [{ name: entry.trim(), used: 0, total: 0 }] : []
+        }
+        if (typeof entry !== 'object' || entry === null) return []
+        const row = entry as Record<string, unknown>
+        const name = str(row.name, '').trim()
+        if (name === '') return []
+        const total = Math.max(0, Math.floor(num(row.total, 0)))
+        // Clamped into the total the same way `hitDice.used` and
+        // `spellSlots[n].used` are, so a hand-edited file can't show four dice
+        // spent out of three.
+        const used = Math.max(0, Math.min(total, Math.floor(num(row.used, 0))))
+        const resource: CharacterResource = { name, used, total }
+        if (row.resets === 'short' || row.resets === 'long') {
+          resource.resets = row.resets
+        }
+        return [resource]
+      })
+      .slice(0, MAX_RESOURCES)
+  }
   if (Array.isArray(r.notes)) {
     c.notes = r.notes.flatMap((entry): Array<CharacterNote> => {
       // A bare string is a note somebody typed straight into the YAML list;
@@ -1770,6 +2054,12 @@ export function serializeCharacter(character: Character, body: string): string {
     saves: character.saves,
     skills: character.skills,
     expertise: character.expertise,
+    // Omitted when absent, like `resources`: a character without it serializes
+    // exactly as it did before this field existed, so opening and saving an old
+    // sheet adds nothing to its frontmatter.
+    ...(character.halfProficiency
+      ? { halfProficiency: character.halfProficiency }
+      : {}),
     armor: character.armor,
     weapons: character.weapons,
     tools: character.tools,
@@ -1781,6 +2071,13 @@ export function serializeCharacter(character: Character, body: string): string {
     ac: character.ac,
     initiativeBonus: character.initiativeBonus,
     speed: character.speed,
+    // Omitted while unset, the way `hitDice.total` is omitted while it tracks
+    // the level: a character with no extra movement serializes exactly as it
+    // did before these fields existed, so opening and saving an old sheet adds
+    // nothing to its frontmatter.
+    ...Object.fromEntries(
+      extraSpeeds(character).map(({ mode, feet }) => [mode.key, feet]),
+    ),
     hp: character.hp,
     hitDice: {
       size: character.hitDice.size,
@@ -1804,6 +2101,13 @@ export function serializeCharacter(character: Character, body: string): string {
     inventory: serializeInventory(character.inventory),
     encumbrance: character.encumbrance,
     attunementSlots: character.attunementSlots,
+    // Omitted while empty, exactly as the extra speeds and an unpinned
+    // `hitDice.total` are: a character with no counters serializes as it did
+    // before this field existed, so opening and saving an old sheet adds
+    // nothing to its frontmatter.
+    ...(character.resources.length > 0
+      ? { resources: character.resources.map(serializeResource) }
+      : {}),
     notes: character.notes.map(serializeNote),
   }
   const yaml = stringifyYaml(data).trimEnd()

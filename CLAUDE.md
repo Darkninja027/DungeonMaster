@@ -48,7 +48,7 @@ adding a route file: `npm run generate-routes`.
 
 The React renderer **never touches disk**. It calls
 `window.dmApi.invoke(channel, args)`, exposed by `client/electron/preload/index.ts`
-via a **channel allowlist**. Adding a new IPC channel means adding it in *both*
+via a **channel allowlist**. Adding a new IPC channel means adding it in _both_
 the preload allowlist and `ipc.ts`, or the call is rejected.
 
 ### Data layer = Electron main (`client/electron/main/`)
@@ -64,6 +64,312 @@ the preload allowlist and `ipc.ts`, or the call is rejected.
 Components go through the typed `api` object in `client/src/lib/api.ts`, which
 mirrors the IPC channels. Add methods there — don't scatter raw `invoke` calls
 through components.
+
+### SRD tables are an affordance, never a schema
+
+`client/src/lib/srd/` holds SRD 5.1 races, backgrounds, class starting kits and
+equipment tables (TypeScript constants, matching `classes.ts`). They exist so
+the character creation wizard can offer choices — nothing more.
+
+The rule that governs the whole folder: **`class`, `subclass`, `race` and
+`background` are free text on disk.** A lookup is `name in, undefined out`,
+mirroring `findClass`. An id in these tables is for React keys only and must
+never reach a `.md` file: the wizard writes `race: Hill Dwarf`, never
+`race: hill-dwarf`. A race, class or background the tables don't know
+contributes its name and nothing else, and the sheet is still perfectly valid —
+that is what keeps homebrew and Obsidian hand-edits round-tripping.
+
+It is deliberately **not a rules engine**, and level 1 only. No per-level
+feature tables, no slot progression, no multiclassing. There are two
+derived-number exceptions, and both are fields rather than mechanisms on
+purpose: `SubraceInfo.hpPerLevel` (Hill Dwarf), and
+`ClassFeatureInfo.halfProficiency`, which sets `Character.halfProficiency` so
+`skillBonus` can compute a Bard's Jack of All Trades and a Fighter's Remarkable
+Athlete. The second is deliberately *partial*: 5e applies half proficiency to
+any ability check, and it reaches the eighteen skill rows because those are the
+only checks the sheet has a row for. The feature text still describes the whole
+rule; the number only claims what it can honestly compute.
+`srd.test.ts` asserts data integrity — every skill
+id real, every `PickList.id` globally unique — because a transcription error
+here is silent: a mistyped skill just vanishes when the sheet parses it back.
+Its two walkers are the thing to keep honest: `allPickLists()` missed
+`features[].picks` for as long as those existed, and `allGrants()` missed
+`SubclassInfo.grant` the same way, so every subclass grant in the tables went
+unchecked until domain spells made it matter. A new place a `Grant` or a
+`PickList` can hang needs adding to the walker, or the invariants quietly stop
+covering it.
+
+`lib/srd/` carries **per-level progression** — features by level, spell slot
+tables, ASI levels — and there is a line. What a class gains as it levels is in,
+because the level-up wizard needs it. Multiclassing, encumbrance rules and
+anything computed _during play_ stay out, and nothing here is ever enforced: the
+wizard offers what the table says and the player takes it or ignores it.
+
+A class's level-1 **feature that is really a choice** becomes a `PickList` only
+when the sheet has a field for its answer. Rogue Expertise qualifies —
+`Character.expertise` exists and `skillBonus` doubles it — so it is a real
+`kind: 'expertise'` pick on the kit's grant. Fighter's Fighting Style and
+Ranger's Favored Enemy / Natural Explorer do not, and stay feature text: as
+`kind: 'other'` picks `applyPicks` would record the click and then discard it,
+which is worse than prose that at least promises nothing. An expertise pick's
+authored `options` are the _class's ceiling_, narrowed at render to the
+character's own proficiencies by `eligibleExpertise` — the table stays authored
+data `srd.test.ts` can validate, and "two of _your_ skill proficiencies" is a
+fact about the draft, not about the Rogue. A choice that stops being eligible is
+shown as a removable chip rather than pruned, because deleting a player's work
+on an unrelated edit is what this codebase doesn't do.
+
+**Feats** are where that line first moved, and only halfway. `FeatInfo` lives
+here but `SRD_FEATS` is deliberately **empty** and stays that way — SRD 5.1 has
+no feat list. The ~85 built-in feats live in **`lib/feats/publishedFeats.ts`**,
+outside `lib/srd/` on purpose: PHB, Xanathar's, Tasha's, Fizban's and Bigby's
+feats are not SRD content and cannot sit under that folder's CC BY 4.0
+attribution. `mergeTables` layers them between the empty SRD tier and the user's
+homebrew, so precedence reads **world > global > published > SRD**. `SRD_TABLES`
+carries them too — it is what every "is this a built-in?" check in the settings
+UI reads, and updating only `mergeTables` leaves the Homebrew tab showing none.
+
+What that tier ships is **names and mechanical grants, never rules text**: a
+`summary` is a one-line reminder in our own words, and a feat whose effect is a
+combat rule this app doesn't model (Lucky, Sentinel, Great Weapon Master) carries
+`grant: {}`, which is correct rather than incomplete. `traits`, `items` and
+`currency` are never authored on a feat because `applyFeatGrants` drops all
+three — they would apply at level 1 and vanish at every level-up. `srd.test.ts`
+enforces all of this, and its `allGrants()` walker deliberately reaches out of
+`srd/` into `lib/feats/` so feat picks are checked against the same global pick-id
+keyspace as every race and background.
+
+A feat is built on `Grant`, the same bundle races and backgrounds use, so taking
+one grants its skills and proficiencies through `applyGrant` rather than any new
+mechanism; a half-feat's `+1` rides `racialAsi` at creation and `mergedAsi` at
+level-up. `asi` is a fixed record, so a feat offering a _choice_ of ability
+(Resilient, Skill Expert) picks the usual one and says "of your choice" in its
+summary — the sheet is hand-editable, and giving `FeatInfo` a chooseable `asi`
+was considered and rejected. (Races since gained one, below; feats did not, and
+the reasoning there is unchanged — a feat's bump is one point, not a spread.) `prerequisite` is free text that is **shown and
+never checked**. So feat _definitions_ and their grants are in; feat _rules text
+and enforcement_ remain out, exactly as the paragraph above still requires.
+
+That split is now a **pattern rather than an exception**:
+`lib/races/publishedRaces.ts` exists for the same attribution reason and layers
+the same way, though it currently ships **nothing** — the tier is wiring, so a
+race from a published book has somewhere to go that is not `lib/srd/`. Two
+differences from feats if you ever fill it: this tier sits on top of a
+*non-empty* SRD one, so `SRD_RACES.length` is not the built-in race count, and a
+published race must never collide by name with one of the SRD nine or `layer`
+would silently hide it. `srd.test.ts` asserts both.
+
+**`lib/subclasses/publishedSubclasses.ts`** is the third tier, and the one that
+actually ships something. SRD 5.1 licenses exactly **one subclass per class** —
+Champion, Thief, Life Domain, College of Lore — while `classKits.ts` seeds every
+archetype 5e offers as a bare *name*, so a player who picks Battle Master still
+gets a working sheet. A name is not what the licence is about; features are. So
+the moment a non-SRD archetype gains them it belongs here.
+
+Two differences from the other tiers, both structural. A subclass is **not a
+top-level list** — it lives inside the kit that offers it — so this one is keyed
+by class name and folded in by `withPublishedSubclasses`, which reuses
+`layerSubclasses`. And it has to be wired into **both** `SRD_TABLES` and
+`mergeTables`: the first is what every "is this a built-in?" check in settings
+reads, and wiring only one leaves half the app disagreeing with the other half.
+
+The invariant is the attribution boundary itself: a published entry may overlay
+a name-only *stub* — that is the whole point — but never a subclass `lib/srd/`
+authored, which `layerSubclasses` would silently replace. `subclasses.test.ts`
+asserts that, and pins the exact list of subclasses carrying content in
+`lib/srd/` so a future pass cannot quietly add a PHB one. That list currently
+holds four knowing exceptions — Battle Master, Eldritch Knight, Assassin and
+Arcane Trickster — authored before the boundary existed.
+
+**A race's ability increase can be the player's**, and `flexibleAsi` is the one
+field here that graduated from flag to mechanism. It was `{ count, amount }` — N
+increases all the same size — with a comment conceding it was a flag because
+Variant Human was the only case. A Goliath-style race offers "+2 and +1" *or*
+"three +1s", which that shape cannot say at any single `amount`, so it became a
+list of modes, each a list of increase amounts. It is still not a rules engine:
+nothing is enforced, `racialAsi` just sums whatever the player placed, and the
+draft already stored a per-ability amount so the commit path did not move at
+all. Two things it deliberately cannot express — a per-slot restriction ("+2 to
+Str or Con") and a flexible spread on a *subrace*, which would need placements
+keyed by owner. `parseRace` still reads the legacy `{ count, amount }` off disk
+and `serializeHomebrew` writes it back whenever a spec is still sayable that
+way, so an older build reading a newer file gets the right answer rather than a
+plausible wrong one.
+
+`lib/levelUp.ts` is the level-up wizard's pure layer, and its invariant is the
+thing to preserve: **`applyLevelUp` only appends to arrays and raises numbers.**
+It never rewrites `hp.current`, never edits an existing feature, never lowers a
+slot total. A character is somebody's work. The draft carries its own `base`
+snapshot so the step list can't change shape while the dialog is open.
+
+**A subclass applies at creation, not only at level-up.** Cleric, Sorcerer and
+Warlock choose at level 1, so `buildCharacter` has to do what the level-up
+wizard does for an archetype picked at 3rd. The subclass rides `draftGrants` and
+`draftOwnedPickLists` in `characterDraft.ts` — two functions documented as
+mirrors, and a source added to one and not the other is a draft that grants
+something it never asked about. Going through them is deliberate: a subclass's
+`acBonus`, `speedBonus`, `initiativeBonus` and `hpPerLevel` are summed over
+exactly that list, so a grant applied anywhere else is silently missed by all
+four. `buildCharacter` then folds in `featuresUpToLevel(subclass.features, 1)`
+and reads **`spellcastingFor(kit, subclassName)`**, never `kit.spellcasting`.
+
+**`SubclassInfo.spells` is the always-prepared table** — domain, oath and circle
+spells — and is not `Grant.spells`. The two are different fields for different
+things and have separate appliers on purpose: `applyGrantSpells` is a fixed
+spell handed over once and its doc comment *forbids* `alwaysPrepared`, while
+`applySubclassSpells` writes rows that are always prepared and exempt from
+`preparedLimit` (`preparedCount` counts only `'prepared'`, which is what makes
+the exemption real). `grantedAt` is the **character** level and `level` the
+**spell** level; conflating them is the easy mistake. At level-up the rows ride
+`alwaysPreparedGained` on the plan, computed over the levels *gained* and
+deliberately **outside** the `plan.subclassName` branch — that field is null on
+every level-up after the archetype is chosen, so keying off it would deliver the
+first row and silently drop the rest.
+
+**`SubclassInfo.expandedSpells` is the opposite field, and the distinction is
+load-bearing.** A warlock patron's list is *added to the spell list you may
+learn from* — the warlock still spends one of their very scarce `spellsKnown` on
+it — where a domain, oath or circle spell is handed over already prepared.
+Authored as `spells`, a 1st-level Fiend warlock would be given burning hands and
+command free, on top of the two they choose. So it is a separate field, keyed by
+**spell level alone** (no `grantedAt`, because nothing is ever granted), and its
+contract is that **no applier reads it**: the one reader is `expandedSpellsFor`
+in `lib/tables.ts`, called only by the two spells steps' pickers.
+`expandedSpells.test.ts` asserts on the *source text* of `buildCharacter.ts` and
+`levelUp.ts` — a behavioural test would pass for a wiring that granted the
+spells as ordinary `prepared` rows, which is just as wrong and harder to see.
+`isBareSubclass` names it too, or a patron carrying only an expanded list
+serializes back to a bare string.
+
+Related: `needsSubclass` gates on `at <= to`, not `at > from`. The latter asks
+only on the level-up that crosses the threshold, which can never fire for a
+class picking at 1 — a domainless cleric was stuck that way forever. The
+"already has one" guard is what prevents re-asking.
+
+A `ClassKit` is the **whole definition of a class** — hit die and subclasses for
+the character sheet, starting gear and features for the wizard. These were two
+tables once (`ClassInfo` per-world, kits global, joined by name); they were
+merged so a class is edited in one place and travels as one thing. `ClassInfo`
+survives only as the shape `classesFrom(tables)` hands the sheet, and as the
+legacy `worldSettings.classes` key, which `mergeTables` folds into kits at read
+time. **A world file is never rewritten just because it was opened**, so an old
+world keeps its `classes` key and an older build opening the same folder still
+finds what it expects.
+
+Since v1.4.x the tables are **user-extensible**. `lib/homebrew.ts` parses
+`homebrew.json` from the app's userData folder (global — shared by every world,
+written by `electron/main/homebrew.ts`), and `worldSettings.json` gained
+optional `races`/`backgrounds`/`kits` beside the legacy `classes` (per-world,
+and the only tier that travels with a world folder). `lib/tables.ts` merges the three:
+**world > global > SRD**, matched case-insensitively on name, so overriding a
+built-in replaces it in place rather than duplicating it.
+
+The one genuinely dangerous spot is `findSubrace`. `Character.race` stores only
+the full subrace name ("Hill Dwarf"), so the parent race is recovered by
+searching every race — and with homebrew merged in, two parents can offer the
+same subrace name. Picking the wrong one silently yields the wrong speed and HP
+rather than an error, which is why `subraceIndex` is built once over the merged
+list and covered directly by `tables.test.ts`.
+
+Editors live in `components/settings/homebrew/` (a Homebrew settings section,
+app-wide like Library) and `components/character/create/HomebrewDialog.tsx`
+(inline creation from the wizard).
+
+A **subclass is fully authorable** there: `SubclassEditor` expands each one to
+edit summary, features (`FeatureRows`), always-prepared spells
+(`SubclassSpellRows`), its `grant` (the shared `GrantEditor`) and a third-caster
+`spellcasting` block (`SpellcastingFields`, shared with the kit's own). Two
+rules hold the whole thing together. Every field empties back to `undefined`
+rather than `{}` or `[]`, because `isBareSubclass` is what decides whether
+`serializeSubclass` writes a plain name or an object — a stray empty array turns
+every subclass into noise in a file people hand-edit. And an edit **spreads the
+original** so what a form cannot show (`picks`, `resource`, `halfProficiency`)
+survives it; dropping those silently would be worse than not offering the edit.
+`isBareSubclass` therefore has to name every field `SubclassInfo` can carry. It
+was duplicated in `tables.ts` and `homebrew.ts` once and the copies drifted the
+moment `spellcasting` arrived — one counted it, the other wrote such a subclass
+back as a bare string and lost it. It lives in `homebrew.ts` now, beside its
+most important caller, and `tables.ts` re-exports it. `expandedSpells` was the
+third field to hit this, and the trap generalises: **a new `SubclassInfo` field
+needs three edits, not one** — the type, `parseSubclasses` (which picks fields
+explicitly, while `serializeSubclass` spreads them, so an unparsed field
+survives a save and vanishes on the next load) and `isBareSubclass`.
+
+**Creating one is a wizard; editing one is not.** Add on the Subclasses tab
+opens `SubclassWizard` — class, then name, then features, extras and a review —
+while selecting an existing entry still opens the all-at-once form. The split is
+the point: a wizard orders questions well and traps you badly, so coming back to
+change one damage resistance must not cost five clicks. Every step body is an
+existing component, so the wizard adds no second way to author a field.
+
+Two things it is really for. Only **class and name** gate, which is the spine
+the flat form lacked — every field there was optional and nothing said which two
+mattered; these are exactly the two `parseHomebrewSubclasses` drops an entry for.
+And the draft lives in the dialog, so cancelling leaves nothing: the old Add
+appended a blank row immediately, which on cancel left an "Untitled" entry that
+marked the file dirty and then vanished on the next load, because every parser
+drops a nameless entry. Commit goes through `upsert` (now in `lib/homebrew.ts`,
+shared with the inline `HomebrewDialog`) rather than appending, since a
+same-named entry is the *newer* one `parseHomebrew`'s dedupe discards.
+
+The review step warns about the one case that is silently inert: a **bare**
+subclass whose name a class already has. `layerSubclasses` skips it, so it would
+save to disk and never appear anywhere — bare under a *new* name is fine and
+simply appends. That warning is the whole reason the review step earns its place.
+
+`SubclassPanel` is now composed from `SubclassSummaryField`,
+`SubclassFeatureRows` and `SubclassExtras` so the wizard can put features on
+their own step. They are parts of the same panel rather than a copy of it,
+which is what still stops the tab, the kit editor and the wizard from drifting.
+
+The **step rail is shared**. `WizardRail` is generic over the step id and takes
+`isComplete`, `label` and an optional `summary` as props; it used to import
+`canAdvance` from `characterDraft` at module scope, which was the one thing
+welding it to characters. Character creation, level-up and this wizard all render
+it — level-up had hand-rolled a character-for-character copy of its reachability
+rule. Omitting `summary` gives the compact single-line variant, which is exactly
+what level-up's copy was. Each wizard keeps its own `Record<StepId, string>`
+label map, because that map's exhaustiveness check is what errors when a step is
+added.
+
+**A feature's per-level choice is authorable.** `ClassFeatureInfo.picks` is how
+a College of Swords offers two Fighting Styles at 3rd level, and it was
+**unauthorable by any route** until recently: `parseFeatures` returned
+`{ level, name, text }` and nothing else, so hand-writing one into
+`homebrew.json` parsed to nothing and the next save wrote the loss back out.
+`FeatureRows` meanwhile promised "kept as you edit", which was true only of
+built-in data held in memory. Three layers each dropped part of it: the
+features parser, `PICK_KINDS` (which omitted `'feature'`, so the kind whose
+answer *is* a sheet row silently became `'other'` — recorded then discarded),
+and `parsePickList` (which dropped `featureLabel`, `featureText` and
+`featureGrant`). All three read now, and `resource` and `halfProficiency` come
+with them, since dropping those while fixing the others is the same bug.
+
+Pick ids are namespaced by **owner**, and for a subclass that owner is the
+subclass rather than its class — two archetypes of one class can each pose a
+choice. `serializeFeatures` strips the derived id on the way out, the same rule
+`stripPicks` follows for a grant.
+
+`PickEditor` is shared by `GrantEditor`'s creation-time choices and
+`FeatureRows`' per-level ones, so the two cannot drift — a choice is a choice
+wherever it is authored, and only the owner differs. It offers every kind,
+including the three the old dropdown omitted. `featureGrant` stays JSON-only:
+it is a `Grant` per option, and nearly every real one is empty because "+2 to
+ranged attack rolls" is a combat rule this app does not model.
+
+Only the spell *progression tables* stay JSON-only — twenty rows of numbers
+each, wanting a table editor rather than a form. They round-trip untouched and
+`SpellcastingFields` says so where an author will see it. The inline path is the **only** sanctioned
+refresh of the draft's captured tables — see the ref in `CreateCharacterDialog`,
+which exists so a background refetch can't wipe work in progress.
+
+The wizard's pure layer lives beside it and is fully unit-tested without React:
+`abilityMethods.ts` (five score methods, including the 3×3 grid), `characterDraft.ts`
+(wizard state and step gating — the draft **carries its own merged tables**, so
+every derived helper stays a pure function of the draft) and `buildCharacter.ts`
+(draft → `Character` +
+markdown body). `buildCharacter` must stay **total** — the live summary panel
+calls it on every keystroke against a half-filled draft.
 
 ### Ids are path strings (not DB keys)
 
@@ -103,4 +409,4 @@ shadcn/ui — add components with `pnpm dlx shadcn@latest add <name>`, they land
 - `client/README.md` is **stale TanStack Start boilerplate** (Nitro servers, server functions, API routes) — none of it applies. Ignore it.
 - `server/` (an empty `Data/` dir) and `scripts/migrate-sqlite.mjs` are **dead remnants** of a removed .NET/SQLite server, kept only for one-time migration. They are not part of the running app.
 - Deletes go to the OS Recycle Bin via `shell.trashItem`, not `fs.rm`.
-- "Reveal in File Explorer" is two channels, not one: `shell:reveal` for articles/folders/the world root, and `images:reveal` for images (`revealImage` in `images.ts`, ids relative to `_images/`). Both go through a path guard. `shell:reveal` takes a **world-relative `relPath`** and resolves it inline in `ipc.ts` via `resolveInWorld` — the *caller* appends `.md` for an article, passes a bare folder id for a folder, and passes nothing at all for the world root. That keeps `worldStore.ts` Electron-free so it stays testable without mocks; `images.ts` already imports `shell`, so its reveal sits there. Renderer side, always go through `revealer(worldId)` and the `REVEAL_LABEL` constant in `client/src/lib/reveal.ts` rather than calling the channel directly, so every reveal affordance reads and behaves the same.
+- "Reveal in File Explorer" is two channels, not one: `shell:reveal` for articles/folders/the world root, and `images:reveal` for images (`revealImage` in `images.ts`, ids relative to `_images/`). Both go through a path guard. `shell:reveal` takes a **world-relative `relPath`** and resolves it inline in `ipc.ts` via `resolveInWorld` — the _caller_ appends `.md` for an article, passes a bare folder id for a folder, and passes nothing at all for the world root. That keeps `worldStore.ts` Electron-free so it stays testable without mocks; `images.ts` already imports `shell`, so its reveal sits there. Renderer side, always go through `revealer(worldId)` and the `REVEAL_LABEL` constant in `client/src/lib/reveal.ts` rather than calling the channel directly, so every reveal affordance reads and behaves the same.
