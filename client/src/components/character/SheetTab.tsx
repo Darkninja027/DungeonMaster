@@ -1358,14 +1358,22 @@ export function SheetTab({
         <div className="space-y-2">
           {/*
             One section, not two. Spellcasting was a full-width strip holding a
-            few slot boxes in a lot of empty space; it belongs beside the list it
-            describes. The slots rail is a quarter of the width and runs down by
-            level, so casting a spell and spending the slot are next to each other.
+            few boxes in a lot of empty space; it belongs with the list it
+            describes.
+
+            The split is by *kind*, not by which section it used to live in:
+            the bar across the top is configuration — casting ability, the DC
+            and attack bonus it derives, and the preparation limit — while the
+            narrow rail is live state, the slots you spend during play, sitting
+            beside the spells that spend them.
           */}
           <Section title="Spellcasting">
             <div className="grid gap-x-4 gap-y-2 @2xl/sheet:grid-cols-[minmax(0,1fr)_3fr]">
               <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-sm @2xl/sheet:flex-col @2xl/sheet:items-stretch">
+                {/* Configuration lives with the slots: casting ability and
+                      the DC and attack it derives are set once and read often,
+                      and the rail was mostly empty without them. */}
+                <div className="mb-2 space-y-1 text-sm">
                   <label className="flex items-center gap-1.5">
                     Ability
                     <select
@@ -1403,56 +1411,61 @@ export function SheetTab({
                   )}
                 </div>
                 {c.spellAbility && (
-                  <div className="mt-2 grid grid-cols-3 gap-x-4 gap-y-1.5 @2xl/sheet:grid-cols-1 @2xl/sheet:gap-y-1">
-                    {Array.from(
-                      { length: visibleSlotLevels(c) },
-                      (_, i) => i + 1,
-                    ).map((lvl) => {
-                      const slot = c.spellSlots[lvl] ?? { total: 0, used: 0 }
-                      return (
-                        <div
-                          key={lvl}
-                          className="flex items-center gap-1.5 text-sm"
-                        >
-                          <span className="text-muted-foreground w-6 text-xs">
-                            L{lvl}
-                          </span>
-                          <NumField
-                            value={slot.total}
-                            min={0}
-                            max={9}
-                            className="w-9"
-                            title={`Level ${lvl} slots`}
-                            onCommit={(v) =>
-                              set({
-                                spellSlots: {
-                                  ...c.spellSlots,
-                                  [lvl]: {
-                                    total: v,
-                                    used: Math.min(slot.used, v),
-                                  },
-                                },
-                              })
-                            }
-                          />
-                          {slot.total > 0 && (
-                            <Pips
-                              count={slot.used}
-                              total={slot.total}
-                              onChange={(v) =>
+                  <>
+                    <p className="text-muted-foreground mb-1 text-[10px] font-semibold uppercase tracking-wide">
+                      Slots
+                    </p>
+                    <div className="grid grid-cols-3 gap-x-4 gap-y-1.5 @2xl/sheet:grid-cols-1 @2xl/sheet:gap-y-1">
+                      {Array.from(
+                        { length: visibleSlotLevels(c) },
+                        (_, i) => i + 1,
+                      ).map((lvl) => {
+                        const slot = c.spellSlots[lvl] ?? { total: 0, used: 0 }
+                        return (
+                          <div
+                            key={lvl}
+                            className="grid grid-cols-[1.25rem_2.25rem_1fr] items-center gap-1.5 text-sm"
+                          >
+                            <span className="text-muted-foreground text-xs">
+                              L{lvl}
+                            </span>
+                            <NumField
+                              value={slot.total}
+                              min={0}
+                              max={9}
+                              className="w-9"
+                              title={`Level ${lvl} slots`}
+                              onCommit={(v) =>
                                 set({
                                   spellSlots: {
                                     ...c.spellSlots,
-                                    [lvl]: { ...slot, used: v },
+                                    [lvl]: {
+                                      total: v,
+                                      used: Math.min(slot.used, v),
+                                    },
                                   },
                                 })
                               }
                             />
-                          )}
-                        </div>
-                      )
-                    })}
-                  </div>
+                            {slot.total > 0 && (
+                              <Pips
+                                count={slot.used}
+                                total={slot.total}
+                                onChange={(v) =>
+                                  set({
+                                    spellSlots: {
+                                      ...c.spellSlots,
+                                      [lvl]: { ...slot, used: v },
+                                    },
+                                  })
+                                }
+                              />
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </>
                 )}
               </div>
               <div className="min-w-0">
@@ -1624,7 +1637,12 @@ export function SheetTab({
                           return (
                             <div
                               key={`${spell.name}-${idx}`}
-                              className="group hover:bg-muted/40 flex items-center gap-1.5 rounded px-1 py-px text-sm"
+                              className={cn(
+                                'group flex items-center gap-1.5 rounded px-1 py-px text-sm',
+                                state === 'none'
+                                  ? 'hover:bg-muted/40'
+                                  : 'bg-amber-500/10 hover:bg-amber-500/15',
+                              )}
                             >
                               {showPrepare &&
                                 (spell.level === 0 ? (
