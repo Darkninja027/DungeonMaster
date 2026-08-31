@@ -57,6 +57,7 @@ import {
   MarkdownContextMenu,
 } from '#/components/MarkdownContextMenu'
 import { TableOfContents } from '#/components/TableOfContents'
+import { SidebarToggle } from '#/components/SidebarToggle'
 import {
   activeHeadingAt,
   editorScrollTopFor,
@@ -569,6 +570,7 @@ function ArticlePage() {
   return (
     <div className="flex h-full flex-col">
       <div className="flex items-center gap-2 border-b px-4 py-2">
+        <SidebarToggle className="-ml-1.5" />
         {/* The title is the filename, so committing it renames the file and
             rewrites [[links]] world-wide. Far too expensive (and racy) to do on
             a keystroke — hence blur/Enter, not `dirty`. */}

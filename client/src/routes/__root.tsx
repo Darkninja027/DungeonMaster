@@ -4,6 +4,13 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Castle, Moon, Sun } from 'lucide-react'
 import { UpdateIndicator } from '#/components/UpdateIndicator'
 import { isDark, setTheme } from '#/lib/theme'
+import {
+  toggleSidebar,
+  useHeaderTogglePreferred,
+  useSidebarPresent,
+} from '#/lib/sidebarState'
+import { SidebarToggle } from '#/components/SidebarToggle'
+import { useShortcut } from '#/lib/useShortcut'
 import { Button } from '#/components/ui/button'
 
 const queryClient = new QueryClient({
@@ -33,6 +40,23 @@ function ThemeToggle() {
   )
 }
 
+/**
+ * The app header's copy of the sidebar toggle, and the home for the keyboard
+ * shortcut. It yields to a title row's own toggle when there is one, so the
+ * control sits beside the file name while a file is open and falls back here
+ * (the world's empty state) when there is nothing to sit beside.
+ */
+function HeaderSidebarToggle() {
+  const present = useSidebarPresent()
+  const preferred = useHeaderTogglePreferred()
+  // Registered here rather than in the world route so the binding exists
+  // exactly as long as a sidebar does, wherever the button is drawn.
+  useShortcut('\\', toggleSidebar, { enabled: present })
+
+  if (!present || !preferred) return null
+  return <SidebarToggle claim={false} />
+}
+
 function RootLayout() {
   // Safety net for a known Radix race: opening a Dialog out of a DropdownMenu
   // can leave pointer-events:none stuck on <body>, deadening clicks/typing
@@ -54,6 +78,7 @@ function RootLayout() {
     <QueryClientProvider client={queryClient}>
       <div className="flex h-screen flex-col">
         <header className="flex items-center gap-2 border-b px-4 py-2">
+          <HeaderSidebarToggle />
           <Link to="/" className="flex items-center gap-2 font-semibold">
             <Castle className="size-5" />
             Dungeon Master

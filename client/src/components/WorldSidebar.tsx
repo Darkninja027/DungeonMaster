@@ -491,7 +491,7 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
   )
 
   return (
-    <div className="bg-muted/30 flex h-full w-72 shrink-0 flex-col border-r">
+    <div className="bg-muted/30 flex h-full w-full shrink-0 flex-col border-r">
       {shows.characters && (
         <div className="border-b">
           <div className="flex items-center justify-between px-3 pt-2">

@@ -44,6 +44,7 @@ operating system's Recycle Bin rather than destroying it.
 | Make an article | \`Ctrl+N\` |
 | Save right now | \`Ctrl+S\` |
 | See the pretty version | \`Ctrl+P\` |
+| More room to read | \`Ctrl+\\\` |
 | Learn the markdown | Keep reading |
 
 \\page
@@ -90,6 +91,11 @@ not in any world folder.
 Once a world is open the screen has three parts: the **sidebar** on the left,
 the article you are reading in the middle, and the **session panel** tucked
 against the right edge.
+
+The sidebar hides away when you want the room. Click the **panel icon** to the
+left of the article or character name, or press \`Ctrl+\\\`, and the article
+gets the full width; the same icon brings it back. With nothing open the icon
+sits in the app header instead. The app remembers which way you left it.
 
 ## The world header
 
@@ -837,6 +843,7 @@ to hand-edit.
 | \`Ctrl+N\` | New article |
 | \`Ctrl+S\` | Save now — in the article editor and on character sheets |
 | \`Ctrl+P\` | Switch between Write and Preview — article editor only |
+| \`Ctrl+\\\` | Show or hide the left sidebar |
 
 ## In any markdown box
 

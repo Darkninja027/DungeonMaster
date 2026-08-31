@@ -14,6 +14,7 @@ import type { ClassInfo } from '#/lib/classes'
 import { REVEAL_LABEL } from '#/lib/reveal'
 import { Button } from '#/components/ui/button'
 import { Input } from '#/components/ui/input'
+import { SidebarToggle } from '#/components/SidebarToggle'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -107,6 +108,7 @@ export function CharacterHeader({
     */
     <div className="@container/hdr flex h-11 shrink-0 items-center gap-2 overflow-x-auto border-b px-3 scrollbar-none">
       <div className="flex min-w-[19rem] shrink items-center gap-1">
+        <SidebarToggle className="-ml-1.5" />
         {/* The title is the filename, so committing it renames the file and
             rewrites [[links]] world-wide. Far too expensive (and racy) to do on
             a keystroke — hence blur/Enter, not `dirty`.
