@@ -13,6 +13,8 @@ export function NumField({
   max,
   className,
   title,
+  id,
+  'aria-label': ariaLabel,
 }: {
   value: number
   onCommit: (value: number) => void
@@ -20,6 +22,9 @@ export function NumField({
   max?: number
   className?: string
   title?: string
+  /** So a <Label htmlFor> can point at it. */
+  id?: string
+  'aria-label'?: string
 }) {
   const [draft, setDraft] = useState(String(value))
   useEffect(() => setDraft(String(value)), [value])
@@ -39,6 +44,8 @@ export function NumField({
 
   return (
     <Input
+      id={id}
+      aria-label={ariaLabel}
       value={draft}
       inputMode="numeric"
       title={title}

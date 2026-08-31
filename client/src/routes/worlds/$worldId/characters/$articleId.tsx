@@ -1,21 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Link, createFileRoute, useNavigate } from '@tanstack/react-router'
+import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  BookOpen,
+  BookText,
   Eye,
-  FileDown,
-  FileText,
-  FolderOpen,
-  Loader2,
-  Save,
-  Trash2,
+  Package,
+  ScrollText,
+  Shield,
+  Sparkles,
+  StickyNote,
 } from 'lucide-react'
 import { api } from '#/lib/api'
-import { REVEAL_LABEL, revealer } from '#/lib/reveal'
-import { parseCharacter, serializeCharacter, setLevel } from '#/lib/character'
+import { revealer } from '#/lib/reveal'
+import { parseCharacter, serializeCharacter } from '#/lib/character'
 import type { Character } from '#/lib/character'
-import { findClass, subclassLabelFor, subclassesFor } from '#/lib/classes'
 import { classesFrom } from '#/lib/tables'
 import { useTables } from '#/lib/useHomebrew'
 import { exportPdf } from '#/lib/exportPdf'
@@ -25,12 +23,10 @@ import { useMarkdownEditor } from '#/lib/useMarkdownEditor'
 import { useWikiLinkOpener } from '#/lib/useWikiLinkOpener'
 import { MarkdownContextMenu } from '#/components/MarkdownContextMenu'
 import type { RollSource } from '#/lib/rollLog'
-import { Button } from '#/components/ui/button'
-import { Input } from '#/components/ui/input'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '#/components/ui/tabs'
 import { Textarea } from '#/components/ui/textarea'
 import { cn } from '#/lib/utils'
-import { NumField } from '#/components/character/NumField'
+import { CharacterHeader } from '#/components/character/CharacterHeader'
 import { LevelUpDialog } from '#/components/character/levelup/LevelUpDialog'
 import { SheetTab } from '#/components/character/SheetTab'
 import { InventoryTab } from '#/components/character/InventoryTab'
@@ -275,220 +271,121 @@ function CharacterPage() {
       onValueChange={setTab}
       className="flex h-full min-h-0 flex-col gap-0"
     >
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b px-4 py-2">
-        {/* The title is the filename, so committing it renames the file and
-            rewrites [[links]] world-wide. Far too expensive (and racy) to do on
-            a keystroke — hence blur/Enter, not `dirty`. */}
-        <Input
-          value={title}
-          className="max-w-56 border-none text-lg font-semibold shadow-none focus-visible:ring-1"
-          onChange={(e) => {
-            setTitle(e.target.value)
-            titleDirtyRef.current = true
-          }}
-          onBlur={() => {
-            titleDirtyRef.current = false
-            commitTitle()
-          }}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') {
-              e.preventDefault()
-              e.currentTarget.blur()
-            } else if (e.key === 'Escape') {
-              setTitle(article.data?.title ?? title)
-              titleDirtyRef.current = false
-            }
-          }}
-        />
-        <Input
-          value={character.race}
-          placeholder="Race"
-          className="h-7 w-28 text-sm"
-          onChange={(e) => update({ ...character, race: e.target.value })}
-        />
-        {/* A datalist, not a <select>: the world's class names are one click
-            away but homebrew stays typeable, which the on-disk format
-            requires. */}
-        <Input
-          list="dm-classes"
-          value={character.class}
-          placeholder="Class"
-          className="h-7 w-28 text-sm"
-          onChange={(e) => {
-            const value = e.target.value
-            const known = findClass(classes, value)
-            update({
-              ...character,
-              class: value,
-              // Naming a known class sets its hit die; homebrew leaves whatever
-              // size the sheet already had.
-              hitDice: known
-                ? { ...character.hitDice, size: known.hitDie }
-                : character.hitDice,
-            })
-          }}
-        />
-        <datalist id="dm-classes">
-          {classes.map((cl) => (
-            <option key={cl.id} value={cl.name} />
-          ))}
-        </datalist>
-        <Input
-          list="dm-subclasses"
-          value={character.subclass}
-          placeholder={subclassLabelFor(classes, character.class)}
-          className="h-7 w-36 text-sm"
-          onChange={(e) => update({ ...character, subclass: e.target.value })}
-        />
-        <datalist id="dm-subclasses">
-          {subclassesFor(classes, character.class).map((name) => (
-            <option key={name} value={name} />
-          ))}
-        </datalist>
-        <label className="flex items-center gap-1 text-sm">
-          Lvl
-          <NumField
-            value={character.level}
-            min={1}
-            max={20}
-            className="w-10"
-            /*
-              A rise opens the level-up wizard; anything else is a correction
-              and behaves as it always did. Safe to hang off the spinner
-              because NumField commits on blur or Enter only — typing "12" when
-              you meant 1 then 2 can't fire a nine-level wizard mid-keystroke.
-            */
-            onCommit={(v) => {
-              if (v > character.level) setLevelUpTo(v)
-              else update(setLevel(character, v))
-            }}
-          />
-        </label>
-        <Input
-          value={character.background}
-          placeholder="Background"
-          className="h-7 w-28 text-sm"
-          onChange={(e) => update({ ...character, background: e.target.value })}
-        />
-        <Input
-          value={character.alignment}
-          placeholder="Alignment"
-          className="h-7 w-16 text-sm"
-          onChange={(e) => update({ ...character, alignment: e.target.value })}
-        />
-        <label className="flex items-center gap-1 text-sm">
-          XP
-          <NumField
-            value={character.xp}
-            min={0}
-            className="w-20"
-            onCommit={(v) => update({ ...character, xp: v })}
-          />
-        </label>
-        <div className="ml-auto flex items-center gap-1.5">
-          <Button variant="ghost" size="sm" className="h-8 text-xs" asChild>
-            <Link
-              to="/worlds/$worldId/articles/$articleId"
-              params={{ worldId, articleId: article.data?.id ?? articleId }}
-              title="Edit the raw markdown/frontmatter"
-            >
-              <FileText className="size-3.5" /> Raw article
-            </Link>
-          </Button>
-          {/* Only shown for a caster — a fighter's toolbar shouldn't carry a
-              control that changes nothing. Gated on the same predicate the sheet
-              itself uses, so the two can't disagree about who is a caster. */}
-          {hasSpellcasting(character) && (
-            <Button
-              variant={spellCards ? 'default' : 'outline'}
-              size="icon"
-              className="size-8"
-              aria-pressed={spellCards}
-              title={
-                spellCards
-                  ? 'Spell descriptions are printed with the sheet — click to leave them out'
-                  : 'Spell descriptions are left out — click to print them with the sheet'
-              }
-              onClick={() => setSpellCards((on) => !on)}
-            >
-              <BookOpen className="size-3.5" />
-            </Button>
-          )}
-          <Button
-            variant="outline"
-            size="icon"
-            className="size-8"
-            title={
-              spellCards && !cardsSettled
-                ? 'Loading spell descriptions…'
-                : 'Export the character sheet as PDF'
-            }
-            disabled={exporting || (spellCards && !cardsSettled)}
-            onClick={handleExport}
+      <CharacterHeader
+        title={title}
+        onTitleChange={(v) => {
+          setTitle(v)
+          titleDirtyRef.current = true
+        }}
+        onTitleCommit={() => {
+          titleDirtyRef.current = false
+          commitTitle()
+        }}
+        onTitleRevert={() => {
+          setTitle(article.data?.title ?? title)
+          titleDirtyRef.current = false
+        }}
+        character={character}
+        onChange={update}
+        classes={classes}
+        onLevelUp={setLevelUpTo}
+        worldId={worldId}
+        articleId={article.data?.id ?? articleId}
+        dirty={dirty}
+        isPending={isPending}
+        onSave={saveNow}
+        onReveal={() => reveal(`${article.data?.id ?? articleId}.md`)}
+        onDelete={() => {
+          if (confirm(`Delete "${title}"? It goes to the Recycle Bin.`)) {
+            remove.mutate()
+          }
+        }}
+        spellCards={spellCards}
+        onToggleSpellCards={() => setSpellCards((on) => !on)}
+        showSpellCards={hasSpellcasting(character)}
+        exporting={exporting}
+        cardsSettled={cardsSettled}
+        onExport={handleExport}
+      >
+        {/* Inside <Tabs>, so it reads Tabs' context through the React tree; the
+            header only decides where in the row it sits. Labels are shortened
+            because the strip now shares a row with everything else. */}
+        <TabsList variant="line" className="h-8 shrink-0 gap-0">
+          <TabsTrigger
+            value="sheet"
+            aria-label="Sheet"
+            className="shrink-0 px-1.5 text-xs"
           >
-            {exporting ? <Loader2 className="animate-spin" /> : <FileDown />}
-          </Button>
-          <Button size="sm" disabled={!dirty || isPending} onClick={saveNow}>
-            <Save />
-            {isPending ? 'Saving…' : dirty ? 'Save' : 'Saved'}
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            title={REVEAL_LABEL}
-            onClick={() => reveal(`${article.data?.id ?? articleId}.md`)}
+            <ScrollText className="size-3.5" />
+            <span className="hidden @[53rem]/hdr:inline">Sheet</span>
+          </TabsTrigger>
+          <TabsTrigger
+            value="inventory"
+            aria-label="Inventory"
+            className="shrink-0 px-1.5 text-xs"
           >
-            <FolderOpen />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            title="Delete character"
-            onClick={() => {
-              if (confirm(`Delete "${title}"? It goes to the Recycle Bin.`)) {
-                remove.mutate()
-              }
-            }}
+            <Package className="size-3.5" />
+            <span className="hidden @[53rem]/hdr:inline">Inv</span>
+            <span className="tabular-nums opacity-70">
+              {character.inventory.length}
+            </span>
+          </TabsTrigger>
+          <TabsTrigger
+            value="equipment"
+            aria-label="Equipment"
+            className="shrink-0 px-1.5 text-xs"
           >
-            <Trash2 className="text-destructive" />
-          </Button>
-        </div>
-      </div>
+            <Shield className="size-3.5" />
+            <span className="hidden @[53rem]/hdr:inline">Equip</span>
+          </TabsTrigger>
+          <TabsTrigger
+            value="features"
+            aria-label="Features"
+            className="shrink-0 px-1.5 text-xs"
+          >
+            <Sparkles className="size-3.5" />
+            <span className="hidden @[53rem]/hdr:inline">Feats</span>
+            <span className="tabular-nums opacity-70">
+              {character.features.length +
+                character.traits.length +
+                character.feats.length}
+            </span>
+          </TabsTrigger>
+          <TabsTrigger
+            value="notes"
+            aria-label="Notes"
+            className="shrink-0 px-1.5 text-xs"
+          >
+            <StickyNote className="size-3.5" />
+            <span className="hidden @[53rem]/hdr:inline">Notes</span>
+            <span className="tabular-nums opacity-70">
+              {character.notes.length}
+            </span>
+          </TabsTrigger>
+          <TabsTrigger
+            value="backstory"
+            aria-label="Backstory"
+            className="shrink-0 px-1.5 text-xs"
+          >
+            <BookText className="size-3.5" />
+            <span className="hidden @[53rem]/hdr:inline">Story</span>
+          </TabsTrigger>
+          <TabsTrigger
+            value="preview"
+            aria-label="Preview"
+            className="shrink-0 px-1.5 text-xs"
+          >
+            <Eye className="size-3.5" />
+            <span className="hidden @[53rem]/hdr:inline">Preview</span>
+          </TabsTrigger>
+        </TabsList>
+      </CharacterHeader>
       {error && (
         <p className="text-destructive shrink-0 border-b px-4 py-1 text-sm">
           {error.message}
         </p>
       )}
 
-      <div className="shrink-0 border-b px-4 py-1.5">
-        <TabsList className="h-8">
-          <TabsTrigger value="sheet" className="text-xs">
-            Sheet
-          </TabsTrigger>
-          <TabsTrigger value="inventory" className="text-xs">
-            Inventory ({character.inventory.length})
-          </TabsTrigger>
-          <TabsTrigger value="equipment" className="text-xs">
-            Equipment
-          </TabsTrigger>
-          <TabsTrigger value="features" className="text-xs">
-            Features (
-            {character.features.length +
-              character.traits.length +
-              character.feats.length}
-            )
-          </TabsTrigger>
-          <TabsTrigger value="notes" className="text-xs">
-            Notes ({character.notes.length})
-          </TabsTrigger>
-          <TabsTrigger value="backstory" className="text-xs">
-            Backstory
-          </TabsTrigger>
-          <TabsTrigger value="preview" className="text-xs">
-            <Eye className="size-3.5" /> Preview
-          </TabsTrigger>
-        </TabsList>
-      </div>
       <TabsContent value="sheet" className="min-h-0 flex-1 overflow-y-auto">
         <SheetTab
           character={character}
