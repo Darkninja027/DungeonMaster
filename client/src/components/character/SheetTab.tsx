@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import {
+  BedDouble,
   BookOpen,
   BookOpenCheck,
   ChevronDown,
@@ -118,14 +119,18 @@ function Pips({
   total,
   onChange,
   className,
+  gapClassName,
 }: {
   count: number
   total: number
   onChange: (next: number) => void
+  /** Fill colour for a spent pip. Defaults to `bg-primary`. */
   className?: string
+  /** Container gap. The slot ribbon packs nine of these into a narrow cell. */
+  gapClassName?: string
 }) {
   return (
-    <span className="inline-flex gap-1">
+    <span className={cn('inline-flex', gapClassName ?? 'gap-1')}>
       {Array.from({ length: total }, (_, i) => (
         <button
           key={i}
@@ -138,6 +143,124 @@ function Pips({
         />
       ))}
     </span>
+  )
+}
+
+/**
+ * One cell of the spellcasting stat strip, in the same shape as an ability box.
+ * Takes a node rather than a string so a tile can hold a select or a roll chip
+ * without needing a second component.
+ */
+function StatTile({
+  label,
+  title,
+  children,
+}: {
+  label: string
+  title?: string
+  children: React.ReactNode
+}) {
+  return (
+    <div className="rounded border px-1.5 py-1" title={title}>
+      <div className="text-muted-foreground text-[10px] font-semibold uppercase tracking-wide">
+        {label}
+      </div>
+      {/* Fixed-height value row: a select (h-7), a RollChip (h-6) and bare text
+          all have to leave the four tiles the same height. */}
+      <div className="mt-0.5 flex h-7 items-center gap-1.5 text-sm">
+        {children}
+      </div>
+    </div>
+  )
+}
+
+/**
+ * One level in the slot ribbon: label, pips, count. A fixed three-row grid, so
+ * a level with no slots is exactly as tall as one with four — without that the
+ * cells jog up and down as slots are granted and the row can't be scanned.
+ * Rows two and three are pinned because their content swaps: row two holds
+ * pips (size-3.5) or a single ghost circle, row three a count or an input.
+ */
+function SlotCell({
+  level,
+  slot,
+  editing,
+  onStartEdit,
+  onEndEdit,
+  onUsedChange,
+  onTotalCommit,
+}: {
+  level: number
+  slot: SpellSlots
+  editing: boolean
+  onStartEdit: () => void
+  onEndEdit: () => void
+  onUsedChange: (next: number) => void
+  onTotalCommit: (next: number) => void
+}) {
+  const empty = slot.total === 0
+  const left = slot.total - slot.used
+  return (
+    <div
+      className={cn(
+        'grid min-w-12 grid-rows-[0.8125rem_0.875rem_0.9375rem] items-center justify-items-center gap-0.5 rounded border px-1.5 py-1',
+        empty ? 'border-dashed border-border/60' : 'bg-background',
+      )}
+    >
+      <span
+        className={cn(
+          'text-[10px] font-semibold leading-[0.8125rem] tracking-wide',
+          empty ? 'text-muted-foreground/40' : 'text-muted-foreground',
+        )}
+      >
+        L{level}
+      </span>
+      {empty ? (
+        // Holds row two open without pretending there's a slot to spend.
+        <span
+          className="border-muted-foreground/30 size-3.5 rounded-full border border-dashed"
+          aria-hidden
+        />
+      ) : (
+        <Pips
+          count={slot.used}
+          total={slot.total}
+          gapClassName="gap-0.5"
+          className="bg-amber-500"
+          onChange={onUsedChange}
+        />
+      )}
+      {editing ? (
+        <NumField
+          value={slot.total}
+          min={0}
+          max={9}
+          autoFocus
+          aria-label={`Level ${level} slots`}
+          // Sized to row three exactly, so swapping it for the count can't
+          // resize the cell mid-edit.
+          className="h-[0.9375rem] w-9 rounded-sm px-0 text-[11px]"
+          onCommit={onTotalCommit}
+          onBlur={onEndEdit}
+        />
+      ) : (
+        <button
+          type="button"
+          className={cn(
+            'hover:text-foreground h-[0.9375rem] w-9 rounded-sm text-[11px] leading-none tabular-nums',
+            empty ? 'text-muted-foreground/50' : 'text-muted-foreground',
+          )}
+          title={
+            empty
+              ? `No level ${level} slots — click to set the total`
+              : `Level ${level}: ${left} of ${slot.total} left — click to set the total`
+          }
+          onClick={onStartEdit}
+        >
+          {empty ? '—' : `${left}/${slot.total}`}
+        </button>
+      )}
+    </div>
   )
 }
 
@@ -571,21 +694,58 @@ export function SheetTab({
     the section has to answer. Off by default: nothing is hidden until asked.
   */
   const [preparedOnly, setPreparedOnly] = useState(false)
-  const visibleSpells = sortedSpells(c.spells).filter(
-    (sp) => !preparedOnly || preparationState(sp) !== 'none',
+  /*
+    Cantrips survive this filter without a clause of their own:
+    `preparationState` reports 'always' for level 0, because a cantrip is
+    always available. Don't "fix" that by special-casing the level here.
+  */
+  const visibleSpells = useMemo(
+    () =>
+      sortedSpells(c.spells).filter(
+        (sp) => !preparedOnly || preparationState(sp) !== 'none',
+      ),
+    [c.spells, preparedOnly],
   )
   /*
     Rows grouped by spell level, each group a grid of its own so a level header
     spans the full band and the two columns restart under it. One flat grid with
     spanning headers would run a level's spells down column one and into column
     two under the *next* header, which reads as the wrong level.
+
+    One pass into a Map rather than a filter per level: this rebuilt on every
+    keystroke of every field on the sheet, and a level-15 wizard has ~40 spells.
   */
-  const spellGroups = [...new Set(visibleSpells.map((sp) => sp.level))].map(
-    (level) => ({
-      level,
-      spells: visibleSpells.filter((sp) => sp.level === level),
+  const spellGroups = useMemo(() => {
+    const byLevel = new Map<number, Array<Spell>>()
+    for (const sp of visibleSpells) {
+      const bucket = byLevel.get(sp.level)
+      if (bucket) bucket.push(sp)
+      else byLevel.set(sp.level, [sp])
+    }
+    // Insertion order is sortedSpells' order, so levels stay ascending and the
+    // printed sheet's order is preserved.
+    return [...byLevel].map(([level, spells]) => ({ level, spells }))
+  }, [visibleSpells])
+
+  /*
+    Summed over the object rather than 1..9, so a hand-edited sheet carrying
+    only a level-9 slot still totals correctly. Feeds the strip's summary tile
+    and the Long rest button's disabled state.
+  */
+  const slotTotals = Object.values(c.spellSlots).reduce(
+    (acc, slot) => ({
+      total: acc.total + slot.total,
+      used: acc.used + slot.used,
     }),
+    { total: 0, used: 0 },
   )
+
+  /*
+    Which level's slot count is being typed into. The ribbon shows a count as
+    text and swaps an input into its place, so only one is ever open — that is
+    what keeps the cell's "must not resize" property a single measurement.
+  */
+  const [editingSlotLevel, setEditingSlotLevel] = useState<number | null>(null)
 
   // Sheets saved before damagePerLevel existed only carry base damage: pick
   // the increment up from each spell's library article once so cast-time
@@ -658,6 +818,21 @@ export function SheetTab({
       roll(label, resolveSpellDamage(scaled, c), source)
     }
   }
+
+  /**
+   * Long rest: every slot back. Only slots — hit dice, resources and HP each
+   * have their own rules and their own owners on this sheet, and silently
+   * resetting them from the spell section would be a surprise.
+   */
+  const restoreAllSlots = () =>
+    set({
+      spellSlots: Object.fromEntries(
+        Object.entries(c.spellSlots).map(([lvl, slot]) => [
+          lvl,
+          { ...slot, used: 0 },
+        ]),
+      ),
+    })
 
   const toggleSave = (ability: Ability) =>
     set({
@@ -1357,547 +1532,611 @@ export function SheetTab({
       {hasSpellcasting(c) && (
         <div className="space-y-2">
           {/*
-            One section, not two. Spellcasting was a full-width strip holding a
-            few boxes in a lot of empty space; it belongs with the list it
-            describes.
+            One section, not two — the list and the numbers that describe it.
 
-            The split is by *kind*, not by which section it used to live in:
-            the bar across the top is configuration — casting ability, the DC
-            and attack bonus it derives, and the preparation limit — while the
-            narrow rail is live state, the slots you spend during play, sitting
-            beside the spells that spend them.
+            Top to bottom: a strip of the derived facts in the same tiles the
+            Abilities section uses, then the slots as a horizontal ribbon, then
+            preparation, then the spells. Slots were a vertical rail in a
+            quarter-width column — nine stacked rows of mostly empty space that
+            cost the list the width it needed to be genuinely two columns.
           */}
           <Section title="Spellcasting">
-            <div className="grid gap-x-4 gap-y-2 @2xl/sheet:grid-cols-[minmax(0,1fr)_3fr]">
-              <div className="min-w-0">
-                {/* Configuration lives with the slots: casting ability and
-                      the DC and attack it derives are set once and read often,
-                      and the rail was mostly empty without them. */}
-                <div className="mb-2 space-y-1 text-sm">
-                  <label className="flex items-center gap-1.5">
-                    Ability
-                    <select
-                      className="bg-background h-7 rounded border px-1 text-sm"
-                      value={c.spellAbility ?? ''}
-                      onChange={(e) =>
-                        set({
-                          spellAbility: (e.target.value ||
-                            null) as Ability | null,
-                        })
-                      }
+            {/*
+              Four tiles, always four: Save DC and Spell attack render an em
+              dash rather than disappearing when no casting ability is set, so
+              the strip can't reflow to two columns under you.
+            */}
+            <div className="grid grid-cols-2 gap-2 @md/sheet:grid-cols-4">
+              <StatTile label="Casting ability">
+                <select
+                  className="bg-background text-foreground h-7 w-full min-w-0 rounded border px-1 text-sm"
+                  aria-label="Spellcasting ability"
+                  value={c.spellAbility ?? ''}
+                  onChange={(e) =>
+                    set({
+                      spellAbility: (e.target.value || null) as Ability | null,
+                    })
+                  }
+                >
+                  <option value="" className="bg-background text-foreground">
+                    None
+                  </option>
+                  {ABILITIES.map((a) => (
+                    <option
+                      key={a}
+                      value={a}
+                      className="bg-background text-foreground"
                     >
-                      <option value="">None</option>
-                      {ABILITIES.map((a) => (
-                        <option key={a} value={a}>
-                          {ABILITY_NAMES[a]}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  {c.spellAbility && (
-                    <>
-                      <span>
-                        Save DC <strong>{spellSaveDc(c)}</strong>
-                      </span>
-                      <span className="flex items-center gap-1.5">
-                        Spell attack
-                        <RollChip
-                          label="Spell attack"
-                          bonus={spellAttackBonus(c) ?? 0}
-                          source={source}
-                        />
-                      </span>
-                    </>
-                  )}
-                </div>
-                {c.spellAbility && (
-                  <>
-                    <p className="text-muted-foreground mb-1 text-[10px] font-semibold uppercase tracking-wide">
-                      Slots
-                    </p>
-                    <div className="grid grid-cols-3 gap-x-4 gap-y-1.5 @2xl/sheet:grid-cols-1 @2xl/sheet:gap-y-1">
-                      {Array.from(
-                        { length: visibleSlotLevels(c) },
-                        (_, i) => i + 1,
-                      ).map((lvl) => {
-                        const slot = c.spellSlots[lvl] ?? { total: 0, used: 0 }
-                        return (
-                          <div
-                            key={lvl}
-                            className="grid grid-cols-[1.25rem_2.25rem_1fr] items-center gap-1.5 text-sm"
-                          >
-                            <span className="text-muted-foreground text-xs">
-                              L{lvl}
-                            </span>
-                            <NumField
-                              value={slot.total}
-                              min={0}
-                              max={9}
-                              className="w-9"
-                              title={`Level ${lvl} slots`}
-                              onCommit={(v) =>
-                                set({
-                                  spellSlots: {
-                                    ...c.spellSlots,
-                                    [lvl]: {
-                                      total: v,
-                                      used: Math.min(slot.used, v),
-                                    },
-                                  },
-                                })
-                              }
-                            />
-                            {slot.total > 0 && (
-                              <Pips
-                                count={slot.used}
-                                total={slot.total}
-                                onChange={(v) =>
-                                  set({
-                                    spellSlots: {
-                                      ...c.spellSlots,
-                                      [lvl]: { ...slot, used: v },
-                                    },
-                                  })
-                                }
-                              />
-                            )}
-                          </div>
-                        )
-                      })}
-                    </div>
-                  </>
+                      {ABILITY_NAMES[a]}
+                    </option>
+                  ))}
+                </select>
+              </StatTile>
+              <StatTile
+                label="Save DC"
+                title={
+                  c.spellAbility
+                    ? '8 + proficiency + your casting ability modifier'
+                    : 'Pick a casting ability to get a save DC'
+                }
+              >
+                {c.spellAbility ? (
+                  <strong className="tabular-nums">{spellSaveDc(c)}</strong>
+                ) : (
+                  <span className="text-muted-foreground">—</span>
                 )}
-              </div>
-              <div className="min-w-0">
-                <div className="space-y-1">
-                  <div className="mb-2 flex items-center justify-between gap-3 rounded-md border px-3 py-2">
-                    {tracksPreparation(c) ? (
-                      <div className="flex items-center gap-2 text-sm">
-                        <BookOpenCheck
-                          className={cn(
-                            'size-4',
-                            prepared > 0
-                              ? 'text-amber-500'
-                              : 'text-muted-foreground',
-                          )}
-                        />
-                        <span>
-                          <strong
-                            className={cn(
-                              prepared > prepareLimit && 'text-destructive',
-                            )}
-                          >
-                            {prepared}
-                          </strong>
-                          <span className="text-muted-foreground">
-                            {' '}
-                            / {prepareLimit}
-                          </span>{' '}
-                          prepared
-                        </span>
-                        {alwaysPrepared > 0 && (
-                          <span
-                            className="text-sky-600 dark:text-sky-400 flex items-center gap-1 text-xs"
-                            title="Domain, oath or circle spells — always prepared and free of the limit"
-                          >
-                            <Sparkles className="size-3 fill-current" />+
-                            {alwaysPrepared} always
-                          </span>
+              </StatTile>
+              <StatTile label="Spell attack">
+                {c.spellAbility ? (
+                  <RollChip
+                    label="Spell attack"
+                    bonus={spellAttackBonus(c) ?? 0}
+                    source={source}
+                  />
+                ) : (
+                  <span className="text-muted-foreground">—</span>
+                )}
+              </StatTile>
+              <StatTile
+                label="Slots left"
+                title="Unspent spell slots across every level"
+              >
+                <span className="tabular-nums">
+                  <strong>{slotTotals.total - slotTotals.used}</strong>
+                  <span className="text-muted-foreground">
+                    {' '}
+                    / {slotTotals.total}
+                  </span>
+                </span>
+              </StatTile>
+            </div>
+
+            {/*
+              Not gated on `c.spellAbility`. Slots are their own field, and
+              `hasSpellcasting` lets a character in on slots alone — gating the
+              ribbon on the ability made those slots invisible *and*
+              uneditable, so the sheet silently hid data that was on disk.
+
+              `items-stretch` is for the cells: it's the flex default, but it's
+              load-bearing here, so it's stated rather than left to be tidied
+              away. The Long rest button opts out with `self-center` — as tall
+              as a four-pip cell it reads as a panel, not a button.
+            */}
+            <div className="bg-muted/40 mt-2 flex flex-wrap items-stretch gap-1.5 rounded border px-2 py-1.5">
+              <span className="text-muted-foreground self-center text-[10px] font-semibold uppercase tracking-wide">
+                Slots
+              </span>
+              {Array.from(
+                { length: visibleSlotLevels(c) },
+                (_, i) => i + 1,
+              ).map((lvl) => {
+                const slot = c.spellSlots[lvl] ?? { total: 0, used: 0 }
+                return (
+                  <SlotCell
+                    key={lvl}
+                    level={lvl}
+                    slot={slot}
+                    editing={editingSlotLevel === lvl}
+                    onStartEdit={() => setEditingSlotLevel(lvl)}
+                    onEndEdit={() => setEditingSlotLevel(null)}
+                    onUsedChange={(v) =>
+                      set({
+                        spellSlots: {
+                          ...c.spellSlots,
+                          [lvl]: { ...slot, used: v },
+                        },
+                      })
+                    }
+                    onTotalCommit={(v) =>
+                      set({
+                        spellSlots: {
+                          ...c.spellSlots,
+                          [lvl]: { total: v, used: Math.min(slot.used, v) },
+                        },
+                      })
+                    }
+                  />
+                )
+              })}
+              <Button
+                variant="outline"
+                size="xs"
+                className="ml-auto h-7 self-center"
+                title="Long rest — every spell slot back. Hit dice and other trackers are left alone."
+                disabled={slotTotals.used === 0}
+                onClick={restoreAllSlots}
+              >
+                <BedDouble className="size-3" /> Long rest
+              </Button>
+            </div>
+
+            <Separator className="my-2" />
+
+            <div className="min-w-0 space-y-1">
+              {/*
+                No border: sub-groups inside a Section are divided by a
+                Separator on this sheet, never by a nested card.
+
+                One flat row rather than groups pushed apart by
+                `justify-between` — with three children that stranded the
+                filter toggle in the middle of the bar. The meter takes the
+                slack instead, and `ml-auto` on the first control is what
+                pins the whole button cluster right.
+              */}
+              <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-2 px-1 py-1.5">
+                {tracksPreparation(c) ? (
+                  <>
+                    <BookOpenCheck
+                      className={cn(
+                        'size-4',
+                        prepared > 0
+                          ? 'text-amber-500'
+                          : 'text-muted-foreground',
+                      )}
+                    />
+                    <span className="shrink-0 text-sm">
+                      <strong
+                        className={cn(
+                          'tabular-nums',
+                          prepared > prepareLimit && 'text-destructive',
                         )}
-                        {prepared > prepareLimit ? (
-                          <span className="text-destructive text-xs">
-                            (over the limit — unprepare{' '}
-                            {prepared - prepareLimit})
-                          </span>
-                        ) : (
-                          prepared === prepareLimit && (
-                            <span className="text-muted-foreground text-xs">
-                              (all prepared)
-                            </span>
-                          )
+                      >
+                        {prepared}
+                      </strong>
+                      <span className="text-muted-foreground tabular-nums">
+                        {' '}
+                        / {prepareLimit}
+                      </span>{' '}
+                      prepared
+                    </span>
+                    {/* The count answers "how many"; the bar answers "how close
+                        to full" without arithmetic. It takes the row's spare
+                        width — a fixed one read as a stray dash — and over the
+                        limit fills the track in the danger colour rather than
+                        overflowing it. */}
+                    <span className="bg-muted h-1.5 min-w-16 flex-1 overflow-hidden rounded-full">
+                      <span
+                        className={cn(
+                          'block h-full rounded-full',
+                          prepared > prepareLimit
+                            ? 'bg-destructive'
+                            : 'bg-amber-500',
                         )}
-                        {prepared > 0 && (
-                          <button
-                            type="button"
-                            className="text-muted-foreground hover:text-foreground text-xs underline underline-offset-2"
-                            title="Unprepare everything — for swapping the list after a long rest. Always-prepared spells are left alone."
-                            onClick={() =>
-                              set({
-                                spells: c.spells.map((s) => ({
-                                  ...s,
-                                  prepared: undefined,
-                                })),
-                              })
-                            }
-                          >
-                            Clear
-                          </button>
-                        )}
-                      </div>
-                    ) : (
-                      <span className="text-muted-foreground text-xs">
-                        Set a limit to track which spells are prepared.
+                        style={{
+                          width: `${
+                            prepareLimit > 0
+                              ? Math.min(100, (prepared / prepareLimit) * 100)
+                              : 0
+                          }%`,
+                        }}
+                      />
+                    </span>
+                    {alwaysPrepared > 0 && (
+                      <span
+                        className="text-sky-600 dark:text-sky-400 flex shrink-0 items-center gap-1 text-xs"
+                        title="Domain, oath or circle spells — always prepared and free of the limit"
+                      >
+                        <Sparkles className="size-3 fill-current" />+
+                        {alwaysPrepared} always
                       </span>
                     )}
-                    {/* A prepared caster knows the whole class list, so "which are
+                    {prepared > prepareLimit ? (
+                      <span className="text-destructive shrink-0 text-xs">
+                        (over the limit — unprepare {prepared - prepareLimit})
+                      </span>
+                    ) : (
+                      prepared === prepareLimit && (
+                        <span className="text-muted-foreground shrink-0 text-xs">
+                          (all prepared)
+                        </span>
+                      )
+                    )}
+                    {prepared > 0 && (
+                      <button
+                        type="button"
+                        className="text-muted-foreground hover:text-foreground ml-auto shrink-0 text-xs underline underline-offset-2"
+                        title="Unprepare everything — for swapping the list after a long rest. Always-prepared spells are left alone."
+                        onClick={() =>
+                          set({
+                            spells: c.spells.map((s) => ({
+                              ...s,
+                              prepared: undefined,
+                            })),
+                          })
+                        }
+                      >
+                        Clear
+                      </button>
+                    )}
+                  </>
+                ) : (
+                  <span className="text-muted-foreground flex-1 text-xs">
+                    Set a limit to track which spells are prepared.
+                  </span>
+                )}
+                {/* A prepared caster knows the whole class list, so "which are
                         ready today" needs answering without scanning 36 rows. Only
                         worth offering once the list is long enough to hide in. */}
-                    {showPrepare && c.spells.length > 8 && (
-                      <Button
-                        variant={preparedOnly ? 'default' : 'outline'}
-                        size="sm"
-                        className="h-7 shrink-0 gap-1 px-2 text-xs"
-                        aria-pressed={preparedOnly}
-                        title={
-                          preparedOnly
-                            ? 'Showing only prepared spells — click to show all'
-                            : 'Show only the spells you have prepared'
-                        }
-                        onClick={() => setPreparedOnly((on) => !on)}
-                      >
-                        <BookOpenCheck className="size-3.5" />
-                        {preparedOnly ? 'Prepared only' : 'All spells'}
-                      </Button>
-                    )}
-                    <label className="text-muted-foreground flex items-center gap-1.5 text-xs">
-                      Prepared limit
-                      <NumField
-                        value={c.preparedLimit}
-                        min={0}
-                        max={25}
-                        className="w-12"
-                        title="How many non-cantrip spells may be prepared at once — 0 to not track preparation at all (sorcerers, warlocks)"
-                        onCommit={(v) => set({ preparedLimit: v })}
-                      />
-                    </label>
-                  </div>
-                  {c.spells.length === 0 && (
-                    <p className="text-muted-foreground text-xs">
-                      No spells known. Use [[wiki links]] as names so the spell
-                      links to its article.
-                    </p>
-                  )}
-                  {/*
+                {showPrepare && c.spells.length > 8 && (
+                  <Button
+                    variant={preparedOnly ? 'default' : 'outline'}
+                    size="sm"
+                    className="ml-auto h-7 shrink-0 gap-1 px-2 text-xs"
+                    aria-pressed={preparedOnly}
+                    title={
+                      preparedOnly
+                        ? 'Showing only prepared spells — click to show all'
+                        : 'Show only the spells you have prepared'
+                    }
+                    onClick={() => setPreparedOnly((on) => !on)}
+                  >
+                    <BookOpenCheck className="size-3.5" />
+                    {preparedOnly ? 'Prepared only' : 'All spells'}
+                  </Button>
+                )}
+                <label className="text-muted-foreground ml-auto flex shrink-0 items-center gap-1.5 text-xs">
+                  Prepared limit
+                  <NumField
+                    value={c.preparedLimit}
+                    min={0}
+                    max={25}
+                    className="w-12"
+                    title="How many non-cantrip spells may be prepared at once — 0 to not track preparation at all (sorcerers, warlocks)"
+                    onCommit={(v) => set({ preparedLimit: v })}
+                  />
+                </label>
+              </div>
+              {c.spells.length === 0 && (
+                <p className="text-muted-foreground text-xs">
+                  No spells known. Use [[wiki links]] as names so the spell
+                  links to its article.
+                </p>
+              )}
+              {/*
                     Grouped by spell level, two-up. A flat list repeats the level
                     chip on every row — 36 rows of "L1" for a prepared caster — and
                     nothing marks where one level ends and the next begins, so the
                     header carries the level and the rows drop the chip.
                   */}
-                  {spellGroups.map((group) => (
-                    <div key={group.level} className="mb-1">
-                      <p className="text-muted-foreground border-b pb-0.5 text-[11px] font-semibold uppercase tracking-wide">
-                        {group.level === 0
-                          ? 'Cantrips'
-                          : `Level ${group.level}`}
-                        <span className="ml-1.5 font-normal opacity-70">
-                          {group.spells.length}
-                        </span>
-                      </p>
-                      <div className="grid gap-x-6 pt-0.5 @2xl/sheet:grid-cols-2">
-                        {group.spells.map((spell) => {
-                          const idx = c.spells.indexOf(spell)
-                          const left = slotsLeft(spell.level)
-                          const title = wikiLinkTitle(spell.name)
-                          // Higher slot levels this spell could be cast with (any level
-                          // with slots configured, even if currently all expended).
-                          const upcastLevels =
-                            spell.level > 0
-                              ? Array.from(
-                                  { length: 9 - spell.level },
-                                  (_, i) => spell.level + 1 + i,
-                                ).filter(
-                                  (lvl) => (slotFor(lvl)?.total ?? 0) > 0,
-                                )
-                              : []
-                          // This world first, then the global library — a spell the party
-                          // uses may only exist in the shared list, and it should still be
-                          // readable rather than offering to create a duplicate.
-                          const localTarget = (articles ?? []).find(
-                            (a) =>
-                              a.title.toLowerCase() === title.toLowerCase(),
+              {spellGroups.map((group) => (
+                <div key={group.level} className="mb-1">
+                  <p className="text-muted-foreground border-b pb-0.5 text-[10px] font-semibold uppercase tracking-wide">
+                    {group.level === 0 ? 'Cantrips' : `Level ${group.level}`}
+                    <span className="ml-1.5 font-normal opacity-70">
+                      {group.spells.length}
+                    </span>
+                  </p>
+                  <div className="grid gap-x-6 pt-0.5 @2xl/sheet:grid-cols-2">
+                    {group.spells.map((spell) => {
+                      const idx = c.spells.indexOf(spell)
+                      const left = slotsLeft(spell.level)
+                      const title = wikiLinkTitle(spell.name)
+                      // Higher slot levels this spell could be cast with (any level
+                      // with slots configured, even if currently all expended).
+                      const upcastLevels =
+                        spell.level > 0
+                          ? Array.from(
+                              { length: 9 - spell.level },
+                              (_, i) => spell.level + 1 + i,
+                            ).filter((lvl) => (slotFor(lvl)?.total ?? 0) > 0)
+                          : []
+                      // This world first, then the global library — a spell the party
+                      // uses may only exist in the shared list, and it should still be
+                      // readable rather than offering to create a duplicate.
+                      const localTarget = (articles ?? []).find(
+                        (a) => a.title.toLowerCase() === title.toLowerCase(),
+                      )
+                      const globalTarget = localTarget
+                        ? undefined
+                        : librarySpells.entries.find(
+                            (e) =>
+                              e.title.toLowerCase() === title.toLowerCase(),
                           )
-                          const globalTarget = localTarget
-                            ? undefined
-                            : librarySpells.entries.find(
-                                (e) =>
-                                  e.title.toLowerCase() === title.toLowerCase(),
-                              )
-                          const target = localTarget
-                            ? { id: localTarget.id }
-                            : globalTarget
-                              ? { id: globalTarget.articleId }
-                              : undefined
-                          // Cantrips need no preparation, so they keep a spacer instead of
-                          // a toggle and all the names stay in one column.
-                          const prepareBlocked = !canPrepare(c, spell)
-                          const state = preparationState(spell)
-                          // Unprepared spells read as inactive, so the live list stands out
-                          // at a glance. Order never changes — the printed sheet shares it.
-                          const dimmed = showPrepare && state === 'none'
-                          return (
-                            <div
-                              key={`${spell.name}-${idx}`}
-                              className={cn(
-                                'group flex items-center gap-1.5 rounded px-1 py-px text-sm',
-                                state === 'none'
-                                  ? 'hover:bg-muted/40'
-                                  : 'bg-amber-500/10 hover:bg-amber-500/15',
-                              )}
-                            >
-                              {showPrepare &&
-                                (spell.level === 0 ? (
-                                  <span className="w-5 shrink-0" />
-                                ) : (
-                                  <button
-                                    type="button"
-                                    className={cn(
-                                      'shrink-0 rounded p-0.5',
-                                      state === 'always'
-                                        ? 'text-sky-500 hover:text-sky-400'
-                                        : state === 'prepared'
-                                          ? 'text-amber-500 hover:text-amber-400'
-                                          : prepareBlocked
-                                            ? 'text-muted-foreground/25'
-                                            : 'text-muted-foreground hover:text-foreground hover:bg-muted',
-                                    )}
-                                    title={
-                                      state === 'always'
-                                        ? 'Always prepared (domain, oath or circle spell) — free, outside the limit. Click to unprepare'
-                                        : state === 'prepared'
-                                          ? 'Prepared — click to make it always prepared'
-                                          : prepareBlocked
-                                            ? `All ${prepareLimit} prepared spells are in use — unprepare one first, or raise the limit above`
-                                            : 'Prepare this spell'
-                                    }
-                                    disabled={prepareBlocked}
-                                    onClick={() =>
-                                      set({
-                                        spells: c.spells.map((s, j) =>
-                                          j === idx
-                                            ? { ...s, ...cyclePreparation(s) }
-                                            : s,
-                                        ),
-                                      })
-                                    }
-                                  >
-                                    {state === 'always' ? (
-                                      <Sparkles className="size-3.5 fill-current" />
-                                    ) : state === 'prepared' ? (
-                                      <BookOpenCheck className="size-3.5" />
-                                    ) : (
-                                      <BookOpen className="size-3.5" />
-                                    )}
-                                  </button>
-                                ))}
-                              {target ? (
-                                <button
-                                  type="button"
-                                  className={cn(
-                                    'text-primary min-w-0 flex-1 truncate text-left underline underline-offset-2',
-                                    dimmed && 'opacity-60',
-                                  )}
-                                  title="Read in the spell panel"
-                                  onClick={() => openSpellInPanel(target.id)}
-                                >
-                                  {title}
-                                </button>
-                              ) : (
-                                <button
-                                  type="button"
-                                  className={cn(
-                                    'min-w-0 flex-1 truncate text-left underline decoration-dashed opacity-70 hover:opacity-100',
-                                    dimmed && 'opacity-40',
-                                  )}
-                                  title={`No article called "${title}" yet — click to create it`}
-                                  onClick={() => onCreateMissing?.(title)}
-                                >
-                                  {title}
-                                </button>
-                              )}
-                              <Input
-                                value={spell.damage ?? ''}
-                                placeholder="dmg"
-                                title={`Damage notation — "mod" adds your spell modifier, e.g. 2d8+mod${
-                                  spell.damagePerLevel
-                                    ? `; upcasts +${spell.damagePerLevel} per slot level`
-                                    : ''
-                                }`}
+                      const target = localTarget
+                        ? { id: localTarget.id }
+                        : globalTarget
+                          ? { id: globalTarget.articleId }
+                          : undefined
+                      // Cantrips need no preparation, so they keep a spacer instead of
+                      // a toggle and all the names stay in one column.
+                      const prepareBlocked = !canPrepare(c, spell)
+                      const state = preparationState(spell)
+                      /*
+                        Preparation colouring only where preparation is something
+                        the player manages. Two fixes: a sorcerer with a
+                        hand-edited `prepared: true` got a tinted row and no
+                        toggle to clear it; and cantrips report 'always' (they
+                        are at will), so every cantrip was tinted as though
+                        prepared, while showing no toggle either.
+                      */
+                      const marked =
+                        showPrepare && spell.level > 0 && state !== 'none'
+                      // Unprepared spells read as inactive, so the live list stands out
+                      // at a glance. Order never changes — the printed sheet shares it.
+                      const dimmed = showPrepare && state === 'none'
+                      return (
+                        <div
+                          key={`${spell.name}-${idx}`}
+                          className={cn(
+                            'group flex items-center gap-1.5 rounded px-1 py-px text-sm',
+                            marked
+                              ? 'bg-amber-500/10 hover:bg-amber-500/15'
+                              : 'hover:bg-muted/40',
+                          )}
+                        >
+                          {showPrepare &&
+                            (spell.level === 0 ? (
+                              // p-0.5 + size-3.5 + p-0.5 = 18px. w-5 (20px)
+                              // put cantrip names 2px off every other row.
+                              <span className="w-[18px] shrink-0" />
+                            ) : (
+                              <button
+                                type="button"
                                 className={cn(
-                                  'h-6 w-16 shrink-0 px-1 text-xs',
-                                  // Empty boxes on every row are pure noise on a
-                                  // long list; the control is still one hover or
-                                  // tab away, and never hidden once it has a value.
-                                  !spell.damage?.trim() &&
-                                    'opacity-0 focus:opacity-100 group-hover:opacity-100',
+                                  'shrink-0 rounded p-0.5',
+                                  state === 'always'
+                                    ? 'text-sky-500 hover:text-sky-400'
+                                    : state === 'prepared'
+                                      ? 'text-amber-500 hover:text-amber-400'
+                                      : prepareBlocked
+                                        ? 'text-muted-foreground/25'
+                                        : 'text-muted-foreground hover:text-foreground hover:bg-muted',
                                 )}
-                                onChange={(e) =>
+                                title={
+                                  state === 'always'
+                                    ? 'Always prepared (domain, oath or circle spell) — free, outside the limit. Click to unprepare'
+                                    : state === 'prepared'
+                                      ? 'Prepared — click to make it always prepared'
+                                      : prepareBlocked
+                                        ? `All ${prepareLimit} prepared spells are in use — unprepare one first, or raise the limit above`
+                                        : 'Prepare this spell'
+                                }
+                                disabled={prepareBlocked}
+                                onClick={() =>
                                   set({
                                     spells: c.spells.map((s, j) =>
                                       j === idx
-                                        ? {
-                                            ...s,
-                                            damage: e.target.value || undefined,
-                                          }
+                                        ? { ...s, ...cyclePreparation(s) }
                                         : s,
                                     ),
                                   })
                                 }
-                              />
-                              {spell.level === 0 ? (
-                                <>
-                                  {spell.damage?.trim() && (
-                                    <RollChip
-                                      label={`${title} damage`}
-                                      notation={resolveSpellDamage(
-                                        spell.damage,
-                                        c,
-                                      )}
-                                      source={source}
-                                    />
-                                  )}
-                                  <span className="text-muted-foreground shrink-0 text-xs">
-                                    at will
-                                  </span>
-                                </>
-                              ) : (
-                                <>
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    className="h-6 shrink-0 gap-1 px-1.5 text-xs"
-                                    disabled={left <= 0}
-                                    title={
-                                      left > 0
-                                        ? `Expend a level ${spell.level} slot (${left} left)${
-                                            spell.damage?.trim()
-                                              ? ' and roll damage'
-                                              : ''
-                                          }`
-                                        : slotFor(spell.level)?.total
-                                          ? `No level ${spell.level} slots left`
-                                          : `Set level ${spell.level} slots above first`
-                                    }
-                                    onClick={() => castSpell(spell)}
-                                  >
-                                    <Sparkles className="size-3" /> Cast
-                                  </Button>
-                                  {upcastLevels.length > 0 && (
-                                    <DropdownMenu>
-                                      <DropdownMenuTrigger asChild>
-                                        <Button
-                                          variant="outline"
-                                          size="sm"
-                                          className="h-6 w-5 shrink-0 px-0"
-                                          title="Cast with a higher-level slot"
-                                        >
-                                          <ChevronDown className="size-3" />
-                                        </Button>
-                                      </DropdownMenuTrigger>
-                                      <DropdownMenuContent align="end">
-                                        {upcastLevels.map((lvl) => (
-                                          <DropdownMenuItem
-                                            key={lvl}
-                                            disabled={slotsLeft(lvl) <= 0}
-                                            onClick={() =>
-                                              castSpell(spell, lvl)
-                                            }
-                                          >
-                                            Level {lvl} ({slotsLeft(lvl)} left)
-                                            {spell.damage?.trim() &&
-                                              spell.damagePerLevel &&
-                                              ` — ${scaleSpellDamage(
-                                                spell.damage.trim(),
-                                                spell.damagePerLevel,
-                                                lvl - spell.level,
-                                              )}`}
-                                          </DropdownMenuItem>
-                                        ))}
-                                      </DropdownMenuContent>
-                                    </DropdownMenu>
-                                  )}
-                                </>
-                              )}
-                              <button
-                                type="button"
-                                className="text-muted-foreground hover:text-destructive shrink-0 opacity-0 group-hover:opacity-100"
-                                title="Remove spell"
-                                onClick={() =>
-                                  set({
-                                    spells: c.spells.filter(
-                                      (_, j) => j !== idx,
-                                    ),
-                                  })
-                                }
                               >
-                                <X className="size-3.5" />
+                                {state === 'always' ? (
+                                  <Sparkles className="size-3.5 fill-current" />
+                                ) : state === 'prepared' ? (
+                                  <BookOpenCheck className="size-3.5" />
+                                ) : (
+                                  <BookOpen className="size-3.5" />
+                                )}
                               </button>
-                            </div>
-                          )
-                        })}
-                      </div>
-                    </div>
-                  ))}
-                  {spellSuggestions.length > 0 && (
-                    <div className="flex flex-wrap gap-1 pt-1">
-                      <span className="text-muted-foreground text-xs">
-                        From the spell library:
-                      </span>
-                      {spellSuggestions.map((a) => (
-                        <button
-                          // Composite key: a world spell and a library spell can
-                          // share an article id (both are Spells/Fireball).
-                          key={`${a.global ? 'g' : 'w'}:${a.id}`}
-                          type="button"
-                          className="hover:bg-accent flex items-center gap-1 rounded border px-1.5 py-0.5 text-xs"
-                          title={
-                            a.global
-                              ? 'From your global library — adding it copies it into this world'
-                              : undefined
-                          }
-                          onClick={() => setSpellName(`[[${a.title}]]`)}
-                        >
-                          {a.title}
-                          {a.global && (
-                            <span className="text-muted-foreground text-[10px]">
-                              Global
-                            </span>
+                            ))}
+                          {target ? (
+                            <button
+                              type="button"
+                              className={cn(
+                                'text-primary min-w-0 flex-1 truncate text-left underline underline-offset-2',
+                                dimmed && 'opacity-60',
+                              )}
+                              title="Read in the spell panel"
+                              onClick={() => openSpellInPanel(target.id)}
+                            >
+                              {title}
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              className={cn(
+                                'min-w-0 flex-1 truncate text-left underline decoration-dashed opacity-70 hover:opacity-100',
+                                dimmed && 'opacity-40',
+                              )}
+                              title={`No article called "${title}" yet — click to create it`}
+                              onClick={() => onCreateMissing?.(title)}
+                            >
+                              {title}
+                            </button>
                           )}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                  <div className="flex gap-1.5 pt-1">
-                    <Input
-                      value={spellName}
-                      placeholder="Add spell — unknown names get a Spells/ article"
-                      className="h-7 min-w-0 flex-1 text-sm"
-                      onChange={(e) => setSpellName(e.target.value)}
-                      onKeyDown={(e) => e.key === 'Enter' && submitSpell()}
-                    />
-                    <select
-                      className="bg-background h-7 rounded border px-1 text-sm"
-                      value={spellLevel}
-                      title="Spell level"
-                      onChange={(e) => setSpellLevel(Number(e.target.value))}
-                    >
-                      <option value={0}>Cantrip</option>
-                      {Array.from({ length: 9 }, (_, i) => i + 1).map((lvl) => (
-                        <option key={lvl} value={lvl}>
-                          L{lvl}
-                        </option>
-                      ))}
-                    </select>
-                    <Button
-                      size="sm"
-                      className="h-7 shrink-0"
-                      disabled={!spellName.trim() || addSpell.isPending}
-                      onClick={submitSpell}
-                    >
-                      <Plus className="size-3.5" />
-                      {addSpell.isPending ? 'Adding…' : 'Add'}
-                    </Button>
+                          <Input
+                            value={spell.damage ?? ''}
+                            placeholder="dmg"
+                            title={`Damage notation — "mod" adds your spell modifier, e.g. 2d8+mod${
+                              spell.damagePerLevel
+                                ? `; upcasts +${spell.damagePerLevel} per slot level`
+                                : ''
+                            }`}
+                            className={cn(
+                              'h-6 w-16 shrink-0 px-1 text-xs',
+                              // Empty boxes on every row are pure noise on a
+                              // long list; the control is still one hover or
+                              // tab away, and never hidden once it has a value.
+                              !spell.damage?.trim() &&
+                                'opacity-0 focus:opacity-100 group-hover:opacity-100',
+                            )}
+                            onChange={(e) =>
+                              set({
+                                spells: c.spells.map((s, j) =>
+                                  j === idx
+                                    ? {
+                                        ...s,
+                                        damage: e.target.value || undefined,
+                                      }
+                                    : s,
+                                ),
+                              })
+                            }
+                          />
+                          {spell.level === 0 ? (
+                            <>
+                              {spell.damage?.trim() && (
+                                <RollChip
+                                  label={`${title} damage`}
+                                  notation={resolveSpellDamage(spell.damage, c)}
+                                  source={source}
+                                />
+                              )}
+                              <span className="text-muted-foreground shrink-0 text-xs">
+                                at will
+                              </span>
+                            </>
+                          ) : (
+                            <>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-6 shrink-0 gap-1 px-1.5 text-xs"
+                                disabled={left <= 0}
+                                title={
+                                  left > 0
+                                    ? `Expend a level ${spell.level} slot (${left} left)${
+                                        spell.damage?.trim()
+                                          ? ' and roll damage'
+                                          : ''
+                                      }`
+                                    : slotFor(spell.level)?.total
+                                      ? `No level ${spell.level} slots left`
+                                      : `Set level ${spell.level} slots above first`
+                                }
+                                onClick={() => castSpell(spell)}
+                              >
+                                <Sparkles className="size-3" /> Cast
+                              </Button>
+                              {upcastLevels.length > 0 && (
+                                <DropdownMenu>
+                                  <DropdownMenuTrigger asChild>
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      className="h-6 w-5 shrink-0 px-0"
+                                      title="Cast with a higher-level slot"
+                                    >
+                                      <ChevronDown className="size-3" />
+                                    </Button>
+                                  </DropdownMenuTrigger>
+                                  <DropdownMenuContent align="end">
+                                    {upcastLevels.map((lvl) => (
+                                      <DropdownMenuItem
+                                        key={lvl}
+                                        disabled={slotsLeft(lvl) <= 0}
+                                        onClick={() => castSpell(spell, lvl)}
+                                      >
+                                        Level {lvl} ({slotsLeft(lvl)} left)
+                                        {spell.damage?.trim() &&
+                                          spell.damagePerLevel &&
+                                          ` — ${scaleSpellDamage(
+                                            spell.damage.trim(),
+                                            spell.damagePerLevel,
+                                            lvl - spell.level,
+                                          )}`}
+                                      </DropdownMenuItem>
+                                    ))}
+                                  </DropdownMenuContent>
+                                </DropdownMenu>
+                              )}
+                            </>
+                          )}
+                          <button
+                            type="button"
+                            className="text-muted-foreground hover:text-destructive shrink-0 opacity-0 group-hover:opacity-100"
+                            title="Remove spell"
+                            onClick={() =>
+                              set({
+                                spells: c.spells.filter((_, j) => j !== idx),
+                              })
+                            }
+                          >
+                            <X className="size-3.5" />
+                          </button>
+                        </div>
+                      )
+                    })}
                   </div>
                 </div>
+              ))}
+              {spellSuggestions.length > 0 && (
+                <div className="flex flex-wrap gap-1 pt-1">
+                  <span className="text-muted-foreground text-xs">
+                    From the spell library:
+                  </span>
+                  {spellSuggestions.map((a) => (
+                    <button
+                      // Composite key: a world spell and a library spell can
+                      // share an article id (both are Spells/Fireball).
+                      key={`${a.global ? 'g' : 'w'}:${a.id}`}
+                      type="button"
+                      className="hover:bg-accent flex items-center gap-1 rounded border px-1.5 py-0.5 text-xs"
+                      title={
+                        a.global
+                          ? 'From your global library — adding it copies it into this world'
+                          : undefined
+                      }
+                      onClick={() => setSpellName(`[[${a.title}]]`)}
+                    >
+                      {a.title}
+                      {a.global && (
+                        <span className="text-muted-foreground text-[10px]">
+                          Global
+                        </span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <div className="flex gap-1.5 pt-1">
+                <Input
+                  value={spellName}
+                  placeholder="Add spell — unknown names get a Spells/ article"
+                  className="h-7 min-w-0 flex-1 text-sm"
+                  onChange={(e) => setSpellName(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && submitSpell()}
+                />
+                <select
+                  className="bg-background text-foreground h-7 rounded border px-1 text-sm"
+                  value={spellLevel}
+                  title="Spell level"
+                  onChange={(e) => setSpellLevel(Number(e.target.value))}
+                >
+                  <option value={0} className="bg-background text-foreground">
+                    Cantrip
+                  </option>
+                  {Array.from({ length: 9 }, (_, i) => i + 1).map((lvl) => (
+                    <option
+                      key={lvl}
+                      value={lvl}
+                      className="bg-background text-foreground"
+                    >
+                      L{lvl}
+                    </option>
+                  ))}
+                </select>
+                <Button
+                  size="sm"
+                  className="h-7 shrink-0"
+                  disabled={!spellName.trim() || addSpell.isPending}
+                  onClick={submitSpell}
+                >
+                  <Plus className="size-3.5" />
+                  {addSpell.isPending ? 'Adding…' : 'Add'}
+                </Button>
               </div>
             </div>
           </Section>
