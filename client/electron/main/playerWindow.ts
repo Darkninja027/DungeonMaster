@@ -2,12 +2,22 @@ import path from 'node:path'
 import { BrowserWindow, shell } from 'electron'
 
 /**
- * The player window: a second, chrome-free BrowserWindow showing one article
- * to the table, the way Roll20's player view works.
+ * Secondary windows showing one article, in one of two MODES:
  *
- * NOTE: unrelated to WorldMode's `'player'` in src/lib/worldMode.ts, which is
- * a per-world chrome setting for someone playing a character in someone else's
- * game. This is a table-facing display.
+ *   'player' — chrome-free, for the table. :::dm blocks stripped, every link
+ *              and dice chip inert. Roll20's player view.
+ *   'popout' — the same article for the DM's own second monitor: nothing
+ *              stripped, dice still rollable. A reference window, not a
+ *              display one.
+ *
+ * They share the window plumbing and share nothing else — the whole point of
+ * the modes is that their content rules are opposites. The mode is part of the
+ * window key, so a monster can be popped out for the DM AND shown to the
+ * players at the same time without one stealing the other's window.
+ *
+ * NOTE: 'player' here is unrelated to WorldMode's `'player'` in
+ * src/lib/worldMode.ts, which is a per-world chrome setting for someone
+ * playing a character in someone else's game.
  *
  * Electron-coupled, so untested — the same split watcher.ts observes from the
  * other side (it is Electron-free *because* it is unit-tested, while images.ts
@@ -16,10 +26,13 @@ import { BrowserWindow, shell } from 'electron'
 
 const devServerUrl = process.env.VITE_DEV_SERVER_URL
 
-/** `${worldId}::${articleId}` -> the window showing it. */
+export type ViewerMode = 'player' | 'popout'
+
+/** `${mode}::${worldId}::${articleId}` -> the window showing it. */
 const players = new Map<string, BrowserWindow>()
 
-const keyOf = (worldId: string, articleId: string) => `${worldId}::${articleId}`
+const keyOf = (mode: ViewerMode, worldId: string, articleId: string) =>
+  `${mode}::${worldId}::${articleId}`
 
 export interface PlayerContent {
   worldId: string
@@ -28,9 +41,13 @@ export interface PlayerContent {
   title: string
 }
 
-/** Open a player window for this article, or focus the one already showing it. */
-export function showPlayerWindow(worldId: string, articleId: string): void {
-  const key = keyOf(worldId, articleId)
+/** Open a viewer window for this article, or focus the one already showing it. */
+export function showPlayerWindow(
+  worldId: string,
+  articleId: string,
+  mode: ViewerMode = 'player',
+): void {
+  const key = keyOf(mode, worldId, articleId)
   const existing = players.get(key)
   if (existing && !existing.isDestroyed()) {
     if (existing.isMinimized()) existing.restore()
@@ -44,7 +61,7 @@ export function showPlayerWindow(worldId: string, articleId: string): void {
     show: false,
     autoHideMenuBar: true,
     backgroundColor: '#0c0a09', // matches the route's bg-stone-950: no white flash
-    title: 'Player view',
+    title: mode === 'popout' ? 'Reference' : 'Player view',
     webPreferences: {
       // Identical to the DM window's. Notably NO `partition`: the world://
       // protocol is registered against the default session, so a partitioned
@@ -74,7 +91,9 @@ export function showPlayerWindow(worldId: string, articleId: string): void {
   })
 
   // encodeURIComponent because an article id is a path — `NPCs/Strahd`.
-  const hash = `/player/${worldId}/${encodeURIComponent(articleId)}`
+  const hash =
+    `/${mode === 'popout' ? 'popout' : 'player'}` +
+    `/${worldId}/${encodeURIComponent(articleId)}`
   if (devServerUrl) {
     void win.loadURL(`${devServerUrl}/#${hash}`)
     // Deliberately no openDevTools, unlike the DM window: a detached devtools
@@ -91,8 +110,12 @@ export function showPlayerWindow(worldId: string, articleId: string): void {
   players.set(key, win)
 }
 
-export function closePlayerWindow(worldId: string, articleId: string): void {
-  const win = players.get(keyOf(worldId, articleId))
+export function closePlayerWindow(
+  worldId: string,
+  articleId: string,
+  mode: ViewerMode = 'player',
+): void {
+  const win = players.get(keyOf(mode, worldId, articleId))
   if (win && !win.isDestroyed()) win.close()
 }
 
@@ -106,14 +129,19 @@ export function closeAllPlayerWindows(): number {
 }
 
 /**
- * Relay the DM's live editor buffer to the window showing that article.
+ * Relay the DM's live editor buffer to any window showing that article.
  *
  * This exists because the file watcher cannot do the job: every write the app
  * makes is announced via noteSelfWrite and dropped by watcher.ts, so a DM
  * typing in the DM window is by construction invisible to it.
+ *
+ * Sent to BOTH modes: a popout is a reference window, and a reference that
+ * silently goes stale while you edit the thing it is showing is worse than no
+ * reference at all.
  */
 export function pushToPlayerWindow(payload: PlayerContent): void {
-  const win = players.get(keyOf(payload.worldId, payload.articleId))
-  if (!win || win.isDestroyed()) return
-  win.webContents.send('player:content', payload)
+  for (const mode of ['player', 'popout'] as const) {
+    const win = players.get(keyOf(mode, payload.worldId, payload.articleId))
+    if (win && !win.isDestroyed()) win.webContents.send('player:content', payload)
+  }
 }

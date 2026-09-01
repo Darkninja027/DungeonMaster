@@ -18,6 +18,7 @@ import {
   List,
   Loader2,
   MonitorPlay,
+  PictureInPicture2,
   Pencil,
   Save,
   Trash2,
@@ -761,6 +762,20 @@ function ArticlePage() {
             }}
           />
           <Button
+            variant="outline"
+            size="icon"
+            className="size-8"
+            title="Open in a new window for reference"
+            onClick={() =>
+              void api.player.show(
+                worldId,
+                article.data?.id ?? articleId,
+                'popout',
+              )
+            }
+          >
+            <PictureInPicture2 />
+          </Button>          <Button
             variant="outline"
             size="icon"
             className="size-8"

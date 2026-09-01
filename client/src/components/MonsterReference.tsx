@@ -11,7 +11,9 @@ import {
   ChevronRight,
   Copy,
   FolderOpen,
+  MonitorPlay,
   MoreHorizontal,
+  PictureInPicture2,
   Plus,
   Search,
   SquarePen,
@@ -398,6 +400,28 @@ export function MonsterReference({ worldId }: { worldId: string }) {
                         <Copy /> Copy to this world
                       </DropdownMenuItem>
                     )}
+                    {/* monster.worldId, NOT the panel's: a global entry
+                        lives in the library world, and resolving it against
+                        this one would throw. Same reason Reveal below uses
+                        the entry's own id. */}
+                    <DropdownMenuItem
+                      onClick={() =>
+                        void api.player.show(
+                          monster.worldId,
+                          monster.articleId,
+                          'popout',
+                        )
+                      }
+                    >
+                      <PictureInPicture2 /> Open in new window
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() =>
+                        void api.player.show(monster.worldId, monster.articleId)
+                      }
+                    >
+                      <MonitorPlay /> Show to players
+                    </DropdownMenuItem>
                     <DropdownMenuItem
                       onClick={() =>
                         revealer(monster.worldId)(`${monster.articleId}.md`)

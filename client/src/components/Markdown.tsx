@@ -191,6 +191,7 @@ const StatBlockCard = memo(function StatBlockCard({
   articles,
   onCreateMissing,
   source,
+  readOnly,
 }: { fence: string } & RenderContext) {
   // Each card also renders an InlineMarkdown per attribute plus one for its
   // prose, so re-parsing the fence on every render multiplied up quickly.
@@ -261,6 +262,7 @@ const StatBlockCard = memo(function StatBlockCard({
                     articles={articles}
                     onCreateMissing={onCreateMissing}
                     source={source}
+                    readOnly={readOnly}
                   >
                     {a.value}
                   </InlineMarkdown>
@@ -307,6 +309,7 @@ const StatBlockCard = memo(function StatBlockCard({
           articles={articles}
           onCreateMissing={onCreateMissing}
           source={source}
+          readOnly={readOnly}
         >
           {card.prose}
         </InlineMarkdown>
@@ -513,14 +516,14 @@ function createComponents(
       // gesture. focusImage is a module-level store because these images sit
       // deep inside memoised subtrees — see lib/playerFocus.ts.
       if (readOnly && parsed.src) {
-        const src = parsed.src
+        const resolved = parsed.src
         return (
           <img
-            src={src}
+            src={resolved}
             alt={alt}
             style={parsed.style}
             className={cn(parsed.className, 'cursor-zoom-in')}
-            onClick={() => focusImage({ src, alt })}
+            onClick={() => focusImage({ src: resolved, alt })}
             {...props}
           />
         )
@@ -629,6 +632,16 @@ interface RenderContext {
    * why this is a real prop rather than a CSS rule.
    */
   readOnly?: boolean
+  /**
+   * Columns for a page that does not declare its own `\columns`.
+   *
+   * Two, as the book pages have always been, unless a surface says otherwise.
+   * The secondary windows pass 1: a statblock in a 336px column is cramped,
+   * and the ~324 bundled bestiary entries are read-only library files that
+   * cannot be given a `\columns 1` marker of their own. A page that DOES
+   * declare one still wins — this is only the fallback.
+   */
+  defaultColumns?: 1 | 2
 }
 
 /**
@@ -810,6 +823,7 @@ export const BookView = memo(function BookView({
   source,
   audience = 'dm',
   readOnly,
+  defaultColumns = 2,
 }: { children: string } & RenderContext) {
   // Frontmatter (character stats etc.) is data, not prose — never render it.
   // Memoised: this re-splits the whole document, and every page's body string
@@ -839,10 +853,10 @@ export const BookView = memo(function BookView({
           key={i}
           className="contents"
           data-book-page={i}
-          data-book-columns={page.columns ?? 2}
+          data-book-columns={page.columns ?? defaultColumns}
         >
           <Markdown
-            columns={page.columns ?? 2}
+            columns={page.columns ?? defaultColumns}
             articles={articles}
             worldId={worldId}
             onCreateMissing={onCreateMissing}

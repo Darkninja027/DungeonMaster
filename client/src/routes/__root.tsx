@@ -63,13 +63,16 @@ function HeaderSidebarToggle() {
 }
 
 function RootLayout() {
-  // The player window loads this same bundle at #/player/..., so the root
-  // layout is on its render path — but a projector must show the article and
-  // nothing else. A route check rather than a second root: the
-  // QueryClientProvider and the pointer-events unstick below are both wanted
-  // in that window too, and splitting the root would duplicate them.
+  // Both secondary windows load this same bundle at #/player/... or
+  // #/popout/..., so the root layout is on their render path — but a viewer
+  // window shows the article and nothing else. A route check rather than a
+  // second root: the QueryClientProvider and the pointer-events unstick below
+  // are wanted in those windows too, and splitting the root would duplicate
+  // them.
   const matchRoute = useMatchRoute()
-  const bare = !!matchRoute({ to: '/player/$worldId/$articleId', fuzzy: true })
+  const bare =
+    !!matchRoute({ to: '/player/$worldId/$articleId', fuzzy: true }) ||
+    !!matchRoute({ to: '/popout/$worldId/$articleId', fuzzy: true })
 
   // Safety net for a known Radix race: opening a Dialog out of a DropdownMenu
   // can leave pointer-events:none stuck on <body>, deadening clicks/typing

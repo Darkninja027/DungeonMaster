@@ -59,7 +59,68 @@ async function renderBook(props: Parameters<typeof BookView>[0]) {
   return result
 }
 
+/**
+ * A stat block is its own renderer inside the book page — StatBlockCard, with
+ * an InlineMarkdown per attribute plus one for its prose. It shipped taking
+ * `readOnly` at the call site and dropping it in the destructure, so a
+ * monster's damage rolls stayed clickable on a projector while the rest of the
+ * page was inert. The BODY fixture above has no fence, which is exactly why
+ * nothing caught it.
+ */
+const STATBLOCK_BODY = [
+  '# Goblin',
+  '',
+  '```statblock',
+  'name: Goblin',
+  'subtitle: Small humanoid, neutral evil',
+  'ac: 15',
+  'hp: 7 (2d6)',
+  'str: 8',
+  'dex: 14',
+  'prose: |',
+  '  **Scimitar.** Melee attack, 1d6+2 slashing. See [[Strahd]].',
+  '```',
+].join('\n')
+
 describe('BookView for a player window', () => {
+  // The bundled bestiary is ~324 read-only library files, none of which can
+  // be given a `\columns 1` marker — so a wide statblock has to come from the
+  // render default rather than from the file.
+  it('defaults a page to one column, without overriding an explicit marker', async () => {
+    const { container } = await renderBook({
+      children: '# Goblin\n\nA small, black-hearted humanoid.',
+      worldId: 'abc',
+      defaultColumns: 1,
+    })
+    expect(container.querySelector('[data-book-columns="1"]')).not.toBeNull()
+    expect(container.querySelector('.dnd-flow-1')).not.toBeNull()
+
+    // An explicit marker still wins over the default.
+    const marked = await renderBook({
+      children: '\\columns 2\n\n# Goblin\n\nProse.',
+      worldId: 'abc',
+      defaultColumns: 1,
+    })
+    expect(
+      marked.container.querySelector('[data-book-columns="2"]'),
+    ).not.toBeNull()
+  })
+
+  it('makes a stat block inert too', async () => {
+    const { container } = await renderBook({
+      children: STATBLOCK_BODY,
+      articles: ARTICLES,
+      worldId: 'abc',
+      audience: 'player',
+      readOnly: true,
+    })
+    // The card renders...
+    expect(container.textContent).toContain('Goblin')
+    // ...but nothing inside it is clickable.
+    expect(container.querySelectorAll('button').length).toBe(0)
+    expect(container.querySelectorAll('a').length).toBe(0)
+  })
+
   it('strips a DM block from the DOM entirely', async () => {
     const { container } = await renderBook({
       children: BODY,

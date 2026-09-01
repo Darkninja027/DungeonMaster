@@ -232,7 +232,13 @@ export interface ImportSummary {
  * `Error invoking remote method 'x:y': Error: <real message>`. Strip that here
  * so the message we wrote in the main process is what the user actually reads.
  */
-/** What the DM window relays to a player window on every edit. */
+/**
+ * Which kind of secondary window. See electron/main/playerWindow.ts — the two
+ * modes share plumbing and have deliberately opposite content rules.
+ */
+export type ViewerMode = 'player' | 'popout'
+
+/** What the DM window relays to a viewer window on every edit. */
 export interface PlayerContent {
   worldId: string
   articleId: string
@@ -482,11 +488,18 @@ export const api = {
    * is a per-world chrome setting for someone playing a character.
    */
   player: {
-    /** Open a player window for this article, or focus its existing one. */
-    show: (worldId: string, articleId: string) =>
-      invoke<void>('player:show', { worldId, articleId }),
-    close: (worldId: string, articleId: string) =>
-      invoke<void>('player:close', { worldId, articleId }),
+    /**
+     * Open a viewer window for this article, or focus its existing one.
+     *
+     * `'player'` is the table-facing display: :::dm blocks stripped, links and
+     * dice inert. `'popout'` is the DM's own reference window on a second
+     * monitor: nothing stripped, dice still rollable. Keyed separately, so one
+     * article can be open in both at once.
+     */
+    show: (worldId: string, articleId: string, mode: ViewerMode = 'player') =>
+      invoke<void>('player:show', { worldId, articleId, mode }),
+    close: (worldId: string, articleId: string, mode: ViewerMode = 'player') =>
+      invoke<void>('player:close', { worldId, articleId, mode }),
     /** Close every player window; resolves with how many were open. */
     closeAll: () => invoke<number>('player:closeAll'),
     /**

@@ -12,6 +12,7 @@ import {
   FolderPlus,
   MonitorPlay,
   MoreHorizontal,
+  PictureInPicture2,
   Pencil,
   Search,
   Trash2,
@@ -353,6 +354,10 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
             <Copy /> Duplicate
           </DropdownMenuItem>
           <DropdownMenuItem
+            onClick={() => void api.player.show(worldId, article.id, 'popout')}
+          >
+            <PictureInPicture2 /> Open in new window
+          </DropdownMenuItem>          <DropdownMenuItem
             onClick={() => void api.player.show(worldId, article.id)}
           >
             <MonitorPlay /> Show to players

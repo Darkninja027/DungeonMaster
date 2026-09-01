@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as WorldsWorldIdRouteRouteImport } from './routes/worlds/$worldId/route'
 import { Route as PlayerWorldIdArticleIdRouteImport } from './routes/player/$worldId/$articleId'
+import { Route as PopoutWorldIdArticleIdRouteImport } from './routes/popout/$worldId/$articleId'
 import { Route as WorldsWorldIdIndexRouteImport } from './routes/worlds/$worldId/index'
 import { Route as WorldsWorldIdSettingsRouteImport } from './routes/worlds/$worldId/settings'
 import { Route as WorldsWorldIdArticlesArticleIdRouteImport } from './routes/worlds/$worldId/articles/$articleId'
@@ -30,6 +31,11 @@ const WorldsWorldIdRouteRoute = WorldsWorldIdRouteRouteImport.update({
 const PlayerWorldIdArticleIdRoute = PlayerWorldIdArticleIdRouteImport.update({
   id: '/player/$worldId/$articleId',
   path: '/player/$worldId/$articleId',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PopoutWorldIdArticleIdRoute = PopoutWorldIdArticleIdRouteImport.update({
+  id: '/popout/$worldId/$articleId',
+  path: '/popout/$worldId/$articleId',
   getParentRoute: () => rootRouteImport,
 } as any)
 const WorldsWorldIdIndexRoute = WorldsWorldIdIndexRouteImport.update({
@@ -59,6 +65,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/worlds/$worldId': typeof WorldsWorldIdRouteRouteWithChildren
   '/player/$worldId/$articleId': typeof PlayerWorldIdArticleIdRoute
+  '/popout/$worldId/$articleId': typeof PopoutWorldIdArticleIdRoute
   '/worlds/$worldId/settings': typeof WorldsWorldIdSettingsRoute
   '/worlds/$worldId/': typeof WorldsWorldIdIndexRoute
   '/worlds/$worldId/articles/$articleId': typeof WorldsWorldIdArticlesArticleIdRoute
@@ -67,6 +74,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/player/$worldId/$articleId': typeof PlayerWorldIdArticleIdRoute
+  '/popout/$worldId/$articleId': typeof PopoutWorldIdArticleIdRoute
   '/worlds/$worldId/settings': typeof WorldsWorldIdSettingsRoute
   '/worlds/$worldId': typeof WorldsWorldIdIndexRoute
   '/worlds/$worldId/articles/$articleId': typeof WorldsWorldIdArticlesArticleIdRoute
@@ -77,6 +85,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/worlds/$worldId': typeof WorldsWorldIdRouteRouteWithChildren
   '/player/$worldId/$articleId': typeof PlayerWorldIdArticleIdRoute
+  '/popout/$worldId/$articleId': typeof PopoutWorldIdArticleIdRoute
   '/worlds/$worldId/settings': typeof WorldsWorldIdSettingsRoute
   '/worlds/$worldId/': typeof WorldsWorldIdIndexRoute
   '/worlds/$worldId/articles/$articleId': typeof WorldsWorldIdArticlesArticleIdRoute
@@ -88,6 +97,7 @@ export interface FileRouteTypes {
     | '/'
     | '/worlds/$worldId'
     | '/player/$worldId/$articleId'
+    | '/popout/$worldId/$articleId'
     | '/worlds/$worldId/settings'
     | '/worlds/$worldId/'
     | '/worlds/$worldId/articles/$articleId'
@@ -96,6 +106,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/player/$worldId/$articleId'
+    | '/popout/$worldId/$articleId'
     | '/worlds/$worldId/settings'
     | '/worlds/$worldId'
     | '/worlds/$worldId/articles/$articleId'
@@ -105,6 +116,7 @@ export interface FileRouteTypes {
     | '/'
     | '/worlds/$worldId'
     | '/player/$worldId/$articleId'
+    | '/popout/$worldId/$articleId'
     | '/worlds/$worldId/settings'
     | '/worlds/$worldId/'
     | '/worlds/$worldId/articles/$articleId'
@@ -115,6 +127,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   WorldsWorldIdRouteRoute: typeof WorldsWorldIdRouteRouteWithChildren
   PlayerWorldIdArticleIdRoute: typeof PlayerWorldIdArticleIdRoute
+  PopoutWorldIdArticleIdRoute: typeof PopoutWorldIdArticleIdRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -138,6 +151,13 @@ declare module '@tanstack/react-router' {
       path: '/player/$worldId/$articleId'
       fullPath: '/player/$worldId/$articleId'
       preLoaderRoute: typeof PlayerWorldIdArticleIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/popout/$worldId/$articleId': {
+      id: '/popout/$worldId/$articleId'
+      path: '/popout/$worldId/$articleId'
+      fullPath: '/popout/$worldId/$articleId'
+      preLoaderRoute: typeof PopoutWorldIdArticleIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/worlds/$worldId/': {
@@ -192,6 +212,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   WorldsWorldIdRouteRoute: WorldsWorldIdRouteRouteWithChildren,
   PlayerWorldIdArticleIdRoute: PlayerWorldIdArticleIdRoute,
+  PopoutWorldIdArticleIdRoute: PopoutWorldIdArticleIdRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

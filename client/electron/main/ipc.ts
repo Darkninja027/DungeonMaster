@@ -63,6 +63,7 @@ import {
   pushToPlayerWindow,
   showPlayerWindow,
 } from './playerWindow'
+import type { ViewerMode } from './playerWindow'
 import {
   buildIndex,
   dropIndex,
@@ -697,19 +698,37 @@ export function registerIpcHandlers() {
   // to WorldMode's 'player' (src/lib/worldMode.ts).
   ipcMain.handle(
     'player:show',
-    (_e, { worldId, articleId }: { worldId: string; articleId: string }) => {
+    (
+      _e,
+      {
+        worldId,
+        articleId,
+        mode,
+      }: { worldId: string; articleId: string; mode?: ViewerMode },
+    ) => {
       // The id only ever rides in a URL hash, but resolve it anyway so a bad
       // world fails here rather than in a window that has already opened —
       // every handler funnels through the path guard.
       resolveInWorld(worldRoot(worldId), `${articleId}.md`)
-      showPlayerWindow(worldId, articleId)
+      showPlayerWindow(worldId, articleId, mode === 'popout' ? 'popout' : 'player')
     },
   )
 
   ipcMain.handle(
     'player:close',
-    (_e, { worldId, articleId }: { worldId: string; articleId: string }) =>
-      closePlayerWindow(worldId, articleId),
+    (
+      _e,
+      {
+        worldId,
+        articleId,
+        mode,
+      }: { worldId: string; articleId: string; mode?: ViewerMode },
+    ) =>
+      closePlayerWindow(
+        worldId,
+        articleId,
+        mode === 'popout' ? 'popout' : 'player',
+      ),
   )
 
   ipcMain.handle('player:closeAll', () => closeAllPlayerWindows())
