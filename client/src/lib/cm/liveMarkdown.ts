@@ -97,10 +97,11 @@ function applyTransform(
   return true
 }
 
-const wrapWith = (wrapper: { before: string; after: string }) => (view: EditorView) =>
-  applyTransform(view, (text, start, end) =>
-    toggleWrap(text, { start, end }, wrapper),
-  )
+const wrapWith =
+  (wrapper: { before: string; after: string }) => (view: EditorView) =>
+    applyTransform(view, (text, start, end) =>
+      toggleWrap(text, { start, end }, wrapper),
+    )
 
 export interface LiveMarkdownOptions {
   /** Ctrl+Click / Ctrl+Enter on a [[wiki link]]. */
@@ -129,6 +130,10 @@ export function liveMarkdown(options: LiveMarkdownOptions = {}): Extension {
       // Chips are rebuilt often, so the handler lives here rather than on the
       // widget — a listener added in toDOM leaks on every rebuild.
       mousedown(event, view) {
+        // Left button only. A right-click belongs to the context menu: without
+        // this, right-clicking a dice chip silently rolls it and swallows the
+        // menu, and Ctrl+right-click on a [[link]] would navigate away.
+        if (event.button !== 0) return false
         const target = event.target as HTMLElement | null
         const chip = target?.closest<HTMLElement>('.cm-dm-dice')
         if (!chip) {

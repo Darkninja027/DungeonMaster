@@ -1,8 +1,10 @@
 import { useEffect, useImperativeHandle, useRef } from 'react'
 import { EditorView } from '@codemirror/view'
 import { Annotation, EditorState } from '@codemirror/state'
+import { selectAll } from '@codemirror/commands'
 import { liveMarkdown } from '#/lib/cm/liveMarkdown'
-import type { EditResult } from '#/lib/markdownEditing'
+import { toggleWrap } from '#/lib/markdownEditing'
+import type { EditResult, Wrapper } from '#/lib/markdownEditing'
 import type { RollSource } from '#/lib/rollLog'
 
 /**
@@ -21,6 +23,19 @@ import type { RollSource } from '#/lib/rollLog'
  */
 const External = Annotation.define<boolean>()
 
+/**
+ * Points both refs at the same node. The editor needs the host element itself,
+ * while a wrapper (the context menu trigger) may want it too.
+ */
+function mergeRefs<T>(...refs: Array<React.Ref<T> | undefined>) {
+  return (node: T | null) => {
+    for (const ref of refs) {
+      if (typeof ref === 'function') ref(node)
+      else if (ref) ref.current = node
+    }
+  }
+}
+
 export interface LiveEditorHandle {
   /** Put the caret at a document offset and scroll it into view (outline jumps). */
   goTo: (offset: number) => void
@@ -34,6 +49,27 @@ export interface LiveEditorHandle {
   transform: (
     fn: (text: string, start: number, end: number) => EditResult | null,
   ) => void
+  /**
+   * Wrap/unwrap the selection. The context menu's Format group needs this;
+   * the keymap gets the same behaviour from `wrapWith` in lib/cm/liveMarkdown.
+   */
+  wrap: (wrapper: Wrapper) => void
+  /**
+   * Whether anything is selected right now. Sampled when the context menu
+   * opens, never read during render — see the note on the route's own
+   * `liveMenuSelection` for why.
+   */
+  hasSelection: () => boolean
+  /**
+   * Clipboard and select-all for the context menu.
+   *
+   * execCommand rather than a CodeMirror command, for the same reason
+   * useMarkdownEditor uses it: CodeMirror has no clipboard commands to call
+   * (cut/copy/paste are native DOM events to it), and going through the
+   * document keeps the edit on CodeMirror's own input path, so undo history
+   * and the update listener that drives autosave both survive.
+   */
+  execCommand: (command: 'cut' | 'copy' | 'paste' | 'selectAll') => void
   focus: () => void
 }
 
@@ -46,6 +82,8 @@ export function LiveMarkdownEditor({
   source,
   className,
   ref,
+  hostRef,
+  ...rest
 }: {
   value: string
   onChange: (next: string) => void
@@ -56,14 +94,32 @@ export function LiveMarkdownEditor({
   source?: RollSource
   className?: string
   ref?: React.Ref<LiveEditorHandle>
-}) {
+  /**
+   * A second ref onto the host element. `ref` is spoken for by the imperative
+   * handle, so a parent that needs the DOM node — Radix's ContextMenuTrigger
+   * with `asChild` — goes through this one instead.
+   */
+  hostRef?: React.Ref<HTMLDivElement>
+} & Omit<React.ComponentProps<'div'>, 'ref' | 'onChange' | 'children'>) {
   const host = useRef<HTMLDivElement>(null)
   const view = useRef<EditorView | null>(null)
   // Callbacks in a ref so the extensions never close over a stale render, and
   // the editor never has to be torn down and rebuilt to pick up a new one.
   // Same approach as useMarkdownEditor's `latest`.
-  const latest = useRef({ onChange, onSelectionChange, onWikiLinkOpen, onFiles, source })
-  latest.current = { onChange, onSelectionChange, onWikiLinkOpen, onFiles, source }
+  const latest = useRef({
+    onChange,
+    onSelectionChange,
+    onWikiLinkOpen,
+    onFiles,
+    source,
+  })
+  latest.current = {
+    onChange,
+    onSelectionChange,
+    onWikiLinkOpen,
+    onFiles,
+    source,
+  }
 
   useEffect(() => {
     if (!host.current) return
@@ -81,7 +137,9 @@ export function LiveMarkdownEditor({
           }),
           EditorView.updateListener.of((update) => {
             if (update.selectionSet && !update.docChanged) {
-              latest.current.onSelectionChange?.(update.state.selection.main.head)
+              latest.current.onSelectionChange?.(
+                update.state.selection.main.head,
+              )
             }
             if (!update.docChanged) return
             // Never write to React state mid-composition: the re-render can
@@ -122,6 +180,32 @@ export function LiveMarkdownEditor({
     })
   }, [value])
 
+  // Named rather than inline on the handle object so `wrap` can call it
+  // directly — `this` inside an object literal passed through
+  // useImperativeHandle is not something to rely on.
+  const runTransform = (
+    fn: (text: string, start: number, end: number) => EditResult | null,
+  ) => {
+    const instance = view.current
+    if (!instance) return
+    const { from, to } = instance.state.selection.main
+    const result = fn(instance.state.doc.toString(), from, to)
+    if (!result) return
+    instance.focus()
+    instance.dispatch({
+      changes: {
+        from: result.replace.start,
+        to: result.replace.end,
+        insert: result.text,
+      },
+      selection: {
+        anchor: result.selection.start,
+        head: result.selection.end,
+      },
+      scrollIntoView: true,
+    })
+  }
+
   useImperativeHandle(
     ref,
     () => ({
@@ -146,25 +230,37 @@ export function LiveMarkdownEditor({
           scrollIntoView: true,
         })
       },
-      transform(fn) {
+      transform: runTransform,
+      wrap(wrapper) {
+        runTransform((text, start, end) =>
+          toggleWrap(text, { start, end }, wrapper),
+        )
+      },
+      hasSelection() {
+        const instance = view.current
+        if (!instance) return false
+        return !instance.state.selection.main.empty
+      },
+      execCommand(command) {
         const instance = view.current
         if (!instance) return
-        const { from, to } = instance.state.selection.main
-        const result = fn(instance.state.doc.toString(), from, to)
-        if (!result) return
+        // The menu took focus when it opened, and execCommand targets whatever
+        // is focused — so put it back on the editor first.
         instance.focus()
-        instance.dispatch({
-          changes: {
-            from: result.replace.start,
-            to: result.replace.end,
-            insert: result.text,
-          },
-          selection: {
-            anchor: result.selection.start,
-            head: result.selection.end,
-          },
-          scrollIntoView: true,
-        })
+        // Select-all goes through CodeMirror's own command. Chromium refuses
+        // execCommand('selectAll') against this contentEditable: it reports
+        // success and leaves the selection empty, so the next keystroke
+        // inserts instead of replacing. Verified in the app, not assumed.
+        if (command === 'selectAll') {
+          selectAll(instance)
+          return
+        }
+        try {
+          document.execCommand(command)
+        } catch {
+          // Refused (e.g. a paste without clipboard permission) — leave the
+          // document untouched rather than half-applying the command.
+        }
       },
       focus() {
         view.current?.focus()
@@ -173,5 +269,8 @@ export function LiveMarkdownEditor({
     [],
   )
 
-  return <div ref={host} className={className} />
+  // `rest` carries whatever a wrapper cloned onto us — the context menu
+  // trigger's own handlers, above all. Dropping it is what would leave a
+  // right-click on the live surface with no menu at all.
+  return <div ref={mergeRefs(host, hostRef)} className={className} {...rest} />
 }

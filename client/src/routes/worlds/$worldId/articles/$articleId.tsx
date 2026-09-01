@@ -58,6 +58,7 @@ import {
   MENU_GROUP_LABEL as INSERT_GROUP_LABEL,
   MarkdownContextMenu,
 } from '#/components/MarkdownContextMenu'
+import type { ContextMenuEditor } from '#/components/MarkdownContextMenu'
 import { TableOfContents } from '#/components/TableOfContents'
 import { SidebarToggle } from '#/components/SidebarToggle'
 import {
@@ -298,7 +299,9 @@ function ArticlePage() {
    */
   const worldLiveEdit = useWorldSettings(worldId).data?.liveEdit ?? 'remember'
   const liveEdit =
-    worldLiveEdit === 'remember' ? rememberedLiveEdit : worldLiveEdit === 'always'
+    worldLiveEdit === 'remember'
+      ? rememberedLiveEdit
+      : worldLiveEdit === 'always'
 
   /**
    * Jump to a heading. Where that lands depends on the tab: the Write tab puts
@@ -553,6 +556,37 @@ function ArticlePage() {
   )
 
   /**
+   * Whether the live editor had a selection when its context menu opened.
+   *
+   * State rather than a live read, for the same reason `useMarkdownEditor`
+   * samples its own: opening the Radix menu moves focus off the editor, so by
+   * the time Cut/Copy render, the selection no longer reflects what was
+   * highlighted.
+   */
+  const [liveHasSelection, setLiveHasSelection] = useState(false)
+
+  /**
+   * The live surface, shaped as the context menu expects. Lets live edit reuse
+   * `MarkdownContextMenu` rather than growing a second, drifting copy of it.
+   * Insert routes through the shims above so the menu and the Insert dropdown
+   * stay on one path.
+   */
+  const liveMenuEditor = useMemo<ContextMenuEditor>(
+    () => ({
+      onContextMenu: () =>
+        setLiveHasSelection(liveEditorRef.current?.hasSelection() ?? false),
+      hasSelection: liveHasSelection,
+      execEditorCommand: (command) =>
+        liveEditorRef.current?.execCommand(command),
+      wrap: (wrapper) => liveEditorRef.current?.wrap(wrapper),
+      transform: (fn) => liveEditorRef.current?.transform(fn),
+      insertBlock,
+      insertText: insertAtCursor,
+    }),
+    [liveHasSelection, insertBlock, insertAtCursor],
+  )
+
+  /**
    * Upload dropped/pasted image files into the world and insert them at the
    * cursor. Clipboard screenshots all arrive named "image.png", which the
    * upload dedupe turns into "image (2).png" and so on.
@@ -775,7 +809,8 @@ function ArticlePage() {
             }
           >
             <PictureInPicture2 />
-          </Button>          <Button
+          </Button>
+          <Button
             variant="outline"
             size="icon"
             className="size-8"
@@ -997,126 +1032,132 @@ function ArticlePage() {
             )}
             <div className="flex min-h-0 flex-1">
               {liveEdit && !parsedCharacter ? (
-                <LiveMarkdownEditor
-                  ref={liveEditorRef}
-                  value={content}
-                  className="min-h-0 min-w-0 flex-1 overflow-hidden"
-                  source={rollSource}
-                  onWikiLinkOpen={openWikiLink}
-                  onFiles={uploadAndInsert}
-                  onChange={(next) => {
-                    setContent(next)
-                    // Load-bearing: useArticleEditorSave's debounce keys on
-                    // editSeq, which only advances through setDirty. Without
-                    // this, edits are typed, shown, and never written to disk
-                    // while the button still reads "Saved".
-                    setDirty(true)
-                  }}
-                  onSelectionChange={(offset) => {
-                    const line = content.slice(0, offset).split('\n').length - 1
-                    setActiveHeadingId(activeHeadingAt(headings, line)?.id ?? null)
-                  }}
-                />
+                <MarkdownContextMenu editor={liveMenuEditor}>
+                  <LiveMarkdownEditor
+                    ref={liveEditorRef}
+                    value={content}
+                    className="min-h-0 min-w-0 flex-1 overflow-hidden"
+                    source={rollSource}
+                    onWikiLinkOpen={openWikiLink}
+                    onFiles={uploadAndInsert}
+                    onChange={(next) => {
+                      setContent(next)
+                      // Load-bearing: useArticleEditorSave's debounce keys on
+                      // editSeq, which only advances through setDirty. Without
+                      // this, edits are typed, shown, and never written to disk
+                      // while the button still reads "Saved".
+                      setDirty(true)
+                    }}
+                    onSelectionChange={(offset) => {
+                      const line =
+                        content.slice(0, offset).split('\n').length - 1
+                      setActiveHeadingId(
+                        activeHeadingAt(headings, line)?.id ?? null,
+                      )
+                    }}
+                  />
+                </MarkdownContextMenu>
               ) : (
-              <MarkdownContextMenu editor={editor}>
-                <Textarea
-                  ref={textareaRef}
-                  value={content}
-                  placeholder="Write your lore in markdown…"
-                  className={cn(
-                    'h-full min-h-0 flex-1 resize-none rounded-none border-none font-mono text-sm shadow-none focus-visible:ring-0',
-                    // Ctrl held over a [[link]]: show it is clickable.
-                    editor.wikiLinkHovered && 'cursor-pointer',
-                  )}
-                  onMouseMove={editor.onMouseMove}
-                  onMouseLeave={editor.onMouseLeave}
-                  onChange={(e) => {
-                    setContent(e.target.value)
-                    setDirty(true)
-                    requestAnimationFrame(updateQueries)
-                  }}
-                  onClick={(e) => {
-                    // Ctrl+Click opens a [[link]]; a plain click just moves
-                    // the caret, which the autocomplete needs to re-read.
-                    editor.onClick(e)
-                    updateQueries()
-                  }}
-                  onPaste={(e) => {
-                    const files = Array.from(e.clipboardData.files)
-                    if (files.some((f) => f.type.startsWith('image/'))) {
-                      e.preventDefault()
-                      uploadAndInsert(files)
-                    }
-                  }}
-                  onDragOver={(e) => {
-                    // Only claim the drop for files — the textarea's own text-drag
-                    // behaviour must keep working.
-                    if (e.dataTransfer.types.indexOf('Files') >= 0)
-                      e.preventDefault()
-                  }}
-                  onDrop={(e) => {
-                    const files = Array.from(e.dataTransfer.files)
-                    if (files.some((f) => f.type.startsWith('image/'))) {
-                      e.preventDefault()
-                      uploadAndInsert(files)
-                    }
-                  }}
-                  onKeyUp={(e) => {
-                    if (
-                      ![
-                        'ArrowDown',
-                        'ArrowUp',
-                        'Enter',
-                        'Tab',
-                        'Escape',
-                      ].includes(e.key)
-                    )
+                <MarkdownContextMenu editor={editor}>
+                  <Textarea
+                    ref={textareaRef}
+                    value={content}
+                    placeholder="Write your lore in markdown…"
+                    className={cn(
+                      'h-full min-h-0 flex-1 resize-none rounded-none border-none font-mono text-sm shadow-none focus-visible:ring-0',
+                      // Ctrl held over a [[link]]: show it is clickable.
+                      editor.wikiLinkHovered && 'cursor-pointer',
+                    )}
+                    onMouseMove={editor.onMouseMove}
+                    onMouseLeave={editor.onMouseLeave}
+                    onChange={(e) => {
+                      setContent(e.target.value)
+                      setDirty(true)
+                      requestAnimationFrame(updateQueries)
+                    }}
+                    onClick={(e) => {
+                      // Ctrl+Click opens a [[link]]; a plain click just moves
+                      // the caret, which the autocomplete needs to re-read.
+                      editor.onClick(e)
                       updateQueries()
-                  }}
-                  onBeforeInput={editor.onBeforeInput}
-                  onKeyDown={(e) => {
-                    if (imageQuery !== null && imageMatches.length > 0) {
+                    }}
+                    onPaste={(e) => {
+                      const files = Array.from(e.clipboardData.files)
+                      if (files.some((f) => f.type.startsWith('image/'))) {
+                        e.preventDefault()
+                        uploadAndInsert(files)
+                      }
+                    }}
+                    onDragOver={(e) => {
+                      // Only claim the drop for files — the textarea's own text-drag
+                      // behaviour must keep working.
+                      if (e.dataTransfer.types.indexOf('Files') >= 0)
+                        e.preventDefault()
+                    }}
+                    onDrop={(e) => {
+                      const files = Array.from(e.dataTransfer.files)
+                      if (files.some((f) => f.type.startsWith('image/'))) {
+                        e.preventDefault()
+                        uploadAndInsert(files)
+                      }
+                    }}
+                    onKeyUp={(e) => {
+                      if (
+                        ![
+                          'ArrowDown',
+                          'ArrowUp',
+                          'Enter',
+                          'Tab',
+                          'Escape',
+                        ].includes(e.key)
+                      )
+                        updateQueries()
+                    }}
+                    onBeforeInput={editor.onBeforeInput}
+                    onKeyDown={(e) => {
+                      if (imageQuery !== null && imageMatches.length > 0) {
+                        if (e.key === 'ArrowDown') {
+                          e.preventDefault()
+                          setImageIndex((i) => (i + 1) % imageMatches.length)
+                        } else if (e.key === 'ArrowUp') {
+                          e.preventDefault()
+                          setImageIndex(
+                            (i) =>
+                              (i - 1 + imageMatches.length) %
+                              imageMatches.length,
+                          )
+                        } else if (e.key === 'Enter' || e.key === 'Tab') {
+                          e.preventDefault()
+                          completeImagePath(imageMatches[imageIndex])
+                        } else if (e.key === 'Escape') {
+                          setImageQuery(null)
+                        }
+                        return
+                      }
+                      if (linkQuery === null || linkMatches.length === 0)
+                        return editor.onKeyDown(e)
                       if (e.key === 'ArrowDown') {
                         e.preventDefault()
-                        setImageIndex((i) => (i + 1) % imageMatches.length)
+                        setLinkIndex((i) => (i + 1) % linkMatches.length)
                       } else if (e.key === 'ArrowUp') {
                         e.preventDefault()
-                        setImageIndex(
+                        setLinkIndex(
                           (i) =>
-                            (i - 1 + imageMatches.length) % imageMatches.length,
+                            (i - 1 + linkMatches.length) % linkMatches.length,
                         )
                       } else if (e.key === 'Enter' || e.key === 'Tab') {
                         e.preventDefault()
-                        completeImagePath(imageMatches[imageIndex])
+                        completeLink(linkMatches[linkIndex].title)
                       } else if (e.key === 'Escape') {
-                        setImageQuery(null)
+                        setLinkQuery(null)
+                      } else {
+                        // Anything the suggestion strip doesn't claim (Ctrl+B and
+                        // friends) still belongs to the formatting shortcuts.
+                        editor.onKeyDown(e)
                       }
-                      return
-                    }
-                    if (linkQuery === null || linkMatches.length === 0)
-                      return editor.onKeyDown(e)
-                    if (e.key === 'ArrowDown') {
-                      e.preventDefault()
-                      setLinkIndex((i) => (i + 1) % linkMatches.length)
-                    } else if (e.key === 'ArrowUp') {
-                      e.preventDefault()
-                      setLinkIndex(
-                        (i) =>
-                          (i - 1 + linkMatches.length) % linkMatches.length,
-                      )
-                    } else if (e.key === 'Enter' || e.key === 'Tab') {
-                      e.preventDefault()
-                      completeLink(linkMatches[linkIndex].title)
-                    } else if (e.key === 'Escape') {
-                      setLinkQuery(null)
-                    } else {
-                      // Anything the suggestion strip doesn't claim (Ctrl+B and
-                      // friends) still belongs to the formatting shortcuts.
-                      editor.onKeyDown(e)
-                    }
-                  }}
-                />
-              </MarkdownContextMenu>
+                    }}
+                  />
+                </MarkdownContextMenu>
               )}
               {livePreview && (
                 <LivePreviewPane
