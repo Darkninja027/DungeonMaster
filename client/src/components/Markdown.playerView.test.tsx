@@ -51,7 +51,6 @@ async function renderBook(props: Parameters<typeof BookView>[0]) {
     routeTree: rootRoute,
     history: createMemoryHistory({ initialEntries: ['/'] }),
   })
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const result = render(<RouterProvider router={router as any} />)
   // The router resolves its first match asynchronously; without this the
   // container is still empty and every assertion below passes vacuously.
@@ -83,27 +82,36 @@ const STATBLOCK_BODY = [
 ].join('\n')
 
 describe('BookView for a player window', () => {
-  // The bundled bestiary is ~324 read-only library files, none of which can
-  // be given a `\columns 1` marker — so a wide statblock has to come from the
-  // render default rather than from the file.
-  it('defaults a page to one column, without overriding an explicit marker', async () => {
-    const { container } = await renderBook({
-      children: '# Goblin\n\nA small, black-hearted humanoid.',
-      worldId: 'abc',
-      defaultColumns: 1,
-    })
-    expect(container.querySelector('[data-book-columns="1"]')).not.toBeNull()
-    expect(container.querySelector('.dnd-flow-1')).not.toBeNull()
+  // A long statblock in a fixed sheet overflows onto a second sheet — and
+  // each sheet re-renders the WHOLE document, windowing its own slice with a
+  // negative margin. So every dice chip exists once per sheet, and the later
+  // copies sit outside the visible box: present in the DOM, impossible to
+  // click. That is what 'flow' exists to prevent.
+  it('renders one growing sheet in flow layout, with no duplicated chips', async () => {
+    const long = ['# Aboleth', '']
+      .concat(Array.from({ length: 60 }, (_, i) => `Paragraph ${i} rolls 2d6+3.`))
+      .join('\n')
 
-    // An explicit marker still wins over the default.
-    const marked = await renderBook({
-      children: '\\columns 2\n\n# Goblin\n\nProse.',
+    const sheets = await renderBook({ children: long, worldId: 'abc' })
+    const sheetPages = sheets.container.querySelectorAll('.dnd-page').length
+    const sheetChips = sheets.container.querySelectorAll('.dnd-dice').length
+
+    const flow = await renderBook({
+      children: long,
       worldId: 'abc',
-      defaultColumns: 1,
+      layout: 'flow',
     })
-    expect(
-      marked.container.querySelector('[data-book-columns="2"]'),
-    ).not.toBeNull()
+    const flowPages = flow.container.querySelectorAll('.dnd-page').length
+    const flowChips = flow.container.querySelectorAll('.dnd-dice').length
+
+    // One sheet, and the marker class the stylesheet keys off.
+    expect(flowPages).toBe(1)
+    expect(flow.container.querySelector('.dnd-book-flow')).not.toBeNull()
+    // Exactly one chip per roll in the source — no windowed duplicates.
+    expect(flowChips).toBe(60)
+    // And flow never renders MORE copies than the sheet layout would.
+    expect(flowChips).toBeLessThanOrEqual(sheetChips)
+    expect(flowPages).toBeLessThanOrEqual(sheetPages)
   })
 
   it('makes a stat block inert too', async () => {

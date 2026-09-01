@@ -429,6 +429,45 @@ a {
   overflow: hidden;
 }
 
+/*
+ * Continuous mode: one parchment sheet that grows to fit its content, instead
+ * of fixed 816x1056 pages.
+ *
+ * The fixed sheet is a printing metaphor — it exists so what you see matches
+ * what a PDF prints. A reference window is not a printed page, and the fixed
+ * form actively hurts there: content that overflows produces MORE sheets, each
+ * re-rendering the whole document and windowing its own slice with a negative
+ * margin. Every dice chip therefore exists once per sheet, and the copies on
+ * later sheets sit outside the visible box — present in the DOM, impossible to
+ * click. A long statblock in one column hit exactly that.
+ *
+ * Keeps .dnd-page's parchment, fonts and colours; drops only the geometry.
+ */
+.dnd-book-flow .dnd-page {
+  width: 100%;
+  max-width: 816px;
+  height: auto;
+  min-height: 0;
+  overflow: visible;
+  /* The fixed sheet could contain layout because it clipped its own content;
+     one that grows cannot make that promise. */
+  contain: none;
+}
+.dnd-book-flow .dnd-frame {
+  height: auto;
+  overflow: visible;
+}
+.dnd-book-flow .dnd-flow {
+  height: auto;
+  /* The whole point: no overflow columns, so no second copy of anything. */
+  column-count: 1;
+  column-fill: balance;
+  /* Markdown.tsx sets an inline width/marginLeft for sheet windowing, which
+     means nothing here. */
+  width: auto !important;
+  margin-left: 0 !important;
+}
+
 /* The column flow. Fixed height + column-fill auto means overflowing content
    creates extra columns to the right; each sheet windows its own pair via a
    negative margin set inline (see Markdown.tsx). */

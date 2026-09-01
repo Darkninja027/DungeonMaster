@@ -305,7 +305,14 @@ export function resolveWikiLinks(
 
 // Exported for the live-preview decorator, so the editor chips exactly what
 // this module would linkify. See WIKI_LINK_SOURCE for why it's a string.
-export const DICE_NOTATION = String.raw`\d{0,2}d\d{1,3}(?:[+-]\d{1,3})?`
+/**
+ * The `NdN` core stays tight — no space before or after the `d` — because
+ * "you have 1 d6 left" is prose, not a roll. Only the modifier may be spaced,
+ * since `1d6 + 3` is how people actually type damage. rollDice() strips
+ * whitespace before parsing, so a spaced notation rolls the same as a tight
+ * one; this grammar is only about what becomes a clickable chip.
+ */
+export const DICE_NOTATION = String.raw`\d{0,2}d\d{1,3}(?:\s*[+-]\s*\d{1,3})?`
 const CODE_SPANS = '```[\\s\\S]*?```|`[^`\\n]*`'
 // A complete named-roll link, either form: [Short Sword](2d6+3) or (dice:2d6+3)
 export const NAMED_ROLL_SOURCE = String.raw`\[([^\]\n]+)\]\((?:dice:)?(${DICE_NOTATION})\)`

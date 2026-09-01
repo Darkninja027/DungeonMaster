@@ -633,15 +633,21 @@ interface RenderContext {
    */
   readOnly?: boolean
   /**
-   * Columns for a page that does not declare its own `\columns`.
+   * How the book is laid out.
    *
-   * Two, as the book pages have always been, unless a surface says otherwise.
-   * The secondary windows pass 1: a statblock in a 336px column is cramped,
-   * and the ~324 bundled bestiary entries are read-only library files that
-   * cannot be given a `\columns 1` marker of their own. A page that DOES
-   * declare one still wins — this is only the fallback.
+   * `'sheets'` (the default) is the printing metaphor: fixed 816x1056 pages,
+   * so what you see matches what a PDF prints.
+   *
+   * `'flow'` is one continuous parchment column that grows to fit. Used by the
+   * secondary windows, which are reading surfaces rather than page proofs, and
+   * it fixes two things at once: a statblock gets the full width instead of a
+   * 336px column, and — more importantly — nothing overflows onto a second
+   * sheet. In sheet mode each sheet re-renders the WHOLE document and windows
+   * its own slice with a negative margin, so every dice chip exists once per
+   * sheet and the later copies sit outside the visible box: in the DOM, and
+   * impossible to click.
    */
-  defaultColumns?: 1 | 2
+  layout?: 'sheets' | 'flow'
 }
 
 /**
@@ -730,6 +736,7 @@ export const Markdown = memo(function Markdown({
   onCreateMissing,
   source,
   readOnly,
+  layout = 'sheets',
 }: { children: string; columns?: 1 | 2 } & RenderContext) {
   const router = useRouter()
   const components = useMemo(
@@ -765,6 +772,12 @@ export const Markdown = memo(function Markdown({
   const [sheetCount, setSheetCount] = useState(1)
 
   useLayoutEffect(() => {
+    // Flow mode has exactly one growing sheet; there is nothing to count, and
+    // measuring would report a scrollWidth that means nothing here.
+    if (layout === 'flow') {
+      setSheetCount(1)
+      return
+    }
     const el = measureRef.current
     if (!el) return
     let cancelled = false
@@ -788,22 +801,29 @@ export const Markdown = memo(function Markdown({
       cancelled = true
       el.removeEventListener('load', measure, true)
     }
-  }, [body, columns])
+  }, [body, columns, layout])
 
   const flowClass = cn('dnd-flow', columns === 2 ? 'dnd-flow-2' : 'dnd-flow-1')
 
   return (
     <>
-      {Array.from({ length: sheetCount }, (_, i) => (
+      {Array.from({ length: layout === 'flow' ? 1 : sheetCount }, (_, i) => (
         <div key={i} className="dnd-page">
           <div className="dnd-frame">
             <div
               ref={i === 0 ? measureRef : undefined}
               className={flowClass}
-              style={{
-                width: CONTENT_W,
-                marginLeft: i ? -i * (CONTENT_W + COL_GAP) : 0,
-              }}
+              // In flow mode the stylesheet overrides both of these (the sheet
+              // grows and never windows), but leaving the inline width off
+              // keeps the DOM honest about what is actually laying out.
+              style={
+                layout === 'flow'
+                  ? undefined
+                  : {
+                      width: CONTENT_W,
+                      marginLeft: i ? -i * (CONTENT_W + COL_GAP) : 0,
+                    }
+              }
             >
               <MarkdownBody body={body} components={components} />
             </div>
@@ -823,7 +843,7 @@ export const BookView = memo(function BookView({
   source,
   audience = 'dm',
   readOnly,
-  defaultColumns = 2,
+  layout = 'sheets',
 }: { children: string } & RenderContext) {
   // Frontmatter (character stats etc.) is data, not prose — never render it.
   // Memoised: this re-splits the whole document, and every page's body string
@@ -843,7 +863,12 @@ export const BookView = memo(function BookView({
     [children, audience],
   )
   return (
-    <div className="dnd-book flex flex-col items-center gap-8">
+    <div
+      className={cn(
+        'dnd-book flex flex-col items-center gap-8',
+        layout === 'flow' && 'dnd-book-flow',
+      )}
+    >
       {pages.map((page, i) => (
         // data-book-page / data-book-columns address each \page chunk for the
         // outline pane, which scrolls to a chunk and then works out which of
@@ -853,10 +878,11 @@ export const BookView = memo(function BookView({
           key={i}
           className="contents"
           data-book-page={i}
-          data-book-columns={page.columns ?? defaultColumns}
+          data-book-columns={layout === 'flow' ? 1 : (page.columns ?? 2)}
         >
           <Markdown
-            columns={page.columns ?? defaultColumns}
+            columns={layout === 'flow' ? 1 : (page.columns ?? 2)}
+            layout={layout}
             articles={articles}
             worldId={worldId}
             onCreateMissing={onCreateMissing}

@@ -115,12 +115,11 @@ export function ArticleViewer({
             audience={forPlayers ? 'player' : 'dm'}
             readOnly={forPlayers}
             source={forPlayers ? undefined : { worldId, articleId, title }}
-            // A secondary window is a reading surface, not a book spread: a
-            // stat block in a 336px column is cramped, and the bundled
-            // bestiary entries are read-only, so they can never carry a
-            // `\columns 1` marker of their own. A page that declares its own
-            // column count still wins.
-            defaultColumns={1}
+// A reading surface, not a page proof. Fixed sheets would spill a
+            // long statblock onto a second sheet, and each sheet re-renders the
+            // whole document — so the overflow copy's dice chips sit outside
+            // the visible box, in the DOM and unclickable.
+            layout="flow"
           >
             {content}
           </BookView>

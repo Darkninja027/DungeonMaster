@@ -5,6 +5,7 @@ import {
   joinFrontmatter,
   linkifyDice,
   parsePages,
+  rollDice,
   splitFrontmatter,
   transformDmBlocks,
 } from './formatMarkdown'
@@ -60,6 +61,43 @@ describe('linkifyDice', () => {
       ),
     ).toBe(true)
     expect(formatted).toContain('# Kaelen')
+  })
+
+  // A DM writing by hand types `1d6 + 3` as often as `1d6+3`, and rollDice
+  // has always stripped whitespace — only the linkifier's grammar was strict,
+  // so the roll was computable but never became a chip.
+  it('linkifies notation with spaces around the modifier', () => {
+    expect(linkifyDice('deals 1d6 + 3 damage')).toBe(
+      'deals [1d6 + 3](dice:1d6%20%2B%203) damage',
+    )
+    expect(linkifyDice('takes 2d10 - 1 cold')).toBe(
+      'takes [2d10 - 1](dice:2d10%20-%201) cold',
+    )
+    // The tight form still works exactly as before.
+    expect(linkifyDice('deals 2d6+3 damage')).toBe(
+      'deals [2d6+3](dice:2d6%2B3) damage',
+    )
+  })
+
+  it('rolls a spaced notation to the same thing as a tight one', () => {
+    // rollDice already stripped whitespace; this pins that it stays true.
+    expect(rollDice('1d6 + 3')).not.toBeNull()
+    expect(rollDice('18d10 + 36')).not.toBeNull()
+    // d20+5 is between 6 and 25 however it lands — enough to prove the
+    // modifier survived the spaces.
+    const r = rollDice('1d20 + 5')
+    expect(r).not.toBeNull()
+    expect(r && r.total).toBeGreaterThanOrEqual(6)
+    expect(r && r.total).toBeLessThanOrEqual(25)
+  })
+
+  it('keeps the NdN core tight — a space before the d does not join it', () => {
+    // A bare `d6` has always been a valid roll (the count is optional), so it
+    // still chips here. The point is that the leading `1` is NOT absorbed:
+    // `1 d6` is prose plus a d6, not a 1d6.
+    expect(linkifyDice('you have 1 d6 left')).toBe(
+      'you have 1 [d6](dice:d6) left',
+    )
   })
 
   it('leaves code spans and fences alone', () => {
