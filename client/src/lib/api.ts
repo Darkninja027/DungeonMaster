@@ -140,6 +140,17 @@ export interface Combatant {
   ac: number | null
   note: string
   articleId?: string
+  /**
+   * Which world `articleId` belongs to. Absent means the open world, which is
+   * what every combatant written before the global bestiary could be added
+   * looks like — so an in-progress fight keeps working across the upgrade.
+   *
+   * It has to be stored rather than assumed: a library monster and a world
+   * monster can share an id (both worlds have `Monsters/Goblin`), so resolving
+   * a bare articleId against the open world would open the wrong article, or
+   * none.
+   */
+  worldId?: string
 }
 
 /** Combat state persisted to .dm/session.json inside the world folder. */

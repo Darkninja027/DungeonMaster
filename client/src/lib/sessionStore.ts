@@ -104,6 +104,11 @@ export function parseCombatState(raw: unknown): CombatState {
       ac: typeof c.ac === 'number' ? c.ac : null,
       note: typeof c.note === 'string' ? c.note : '',
       articleId: typeof c.articleId === 'string' ? c.articleId : undefined,
+      // Absent on every session file written before global monsters could be
+      // added; readers treat that as "the open world". Parsed explicitly
+      // because this function picks fields rather than spreading — an
+      // unparsed one survives a save and vanishes on the next load.
+      worldId: typeof c.worldId === 'string' ? c.worldId : undefined,
     })
   }
   return {

@@ -6,9 +6,11 @@ import {
   FolderOpen,
   Loader2,
   MoreVertical,
+  PictureInPicture2,
   Save,
   Trash2,
 } from 'lucide-react'
+import { api } from '#/lib/api'
 import type { Character } from '#/lib/character'
 import type { ClassInfo } from '#/lib/classes'
 import { REVEAL_LABEL } from '#/lib/reveal'
@@ -220,6 +222,11 @@ export function CharacterHeader({
               >
                 <FileText /> Raw article
               </Link>
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onSelect={() => void api.player.show(worldId, articleId, 'popout')}
+            >
+              <PictureInPicture2 /> Open in new window
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={onReveal}>
               <FolderOpen /> {REVEAL_LABEL}

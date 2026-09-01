@@ -1,8 +1,25 @@
 import { useMemo, useState } from 'react'
 import { useQueries, useQuery } from '@tanstack/react-query'
-import { Minus, Play, Plus } from 'lucide-react'
+import {
+  Minus,
+  PictureInPicture2,
+  Play,
+  Plus,
+  Search,
+  X,
+} from 'lucide-react'
 import { api } from '#/lib/api'
 import type { ArticleRef } from '#/lib/api'
+import {
+  collectMonsters,
+  entryKey,
+  filterEntries,
+  mergeEntries,
+} from '#/lib/bestiary'
+import type { LibraryEntry } from '#/lib/bestiary'
+import { useLibraryEntries } from '#/lib/useGlobalLibrary'
+import { Input } from '#/components/ui/input'
+import { VirtualList } from '#/components/VirtualList'
 import { initiativeBonus, parseCharacter, signed } from '#/lib/character'
 import { rateEncounter } from '#/lib/encounter'
 import type { Difficulty } from '#/lib/encounter'
@@ -56,45 +73,79 @@ export function EncounterBuilder({
   worldId: string
   onRun: () => void
 }) {
-  // How many of each monster (by article id) are in the encounter.
+  // How many of each monster is in the encounter, keyed by entryKey
+  // (worldId:articleId) rather than a bare article id: a global-library Goblin
+  // and this world's own Goblin are different monsters that share an id.
   const [counts, setCounts] = useState<Record<string, number>>({})
-  // Which party members are selected (by article id).
+  // Which party members are selected (by article id — characters are always
+  // the open world's).
   const [party, setParty] = useState<Set<string>>(new Set())
+  const [filter, setFilter] = useState('')
 
-  const monsters = useQuery({
+  const tree = useQuery({
+    queryKey: ['worlds', worldId, 'tree'],
+    queryFn: () => api.worlds.tree(worldId),
+  })
+  const typed = useQuery({
     queryKey: ['worlds', worldId, 'query', { type: 'monster' }],
     queryFn: () => api.worlds.query(worldId, { type: 'monster' }),
   })
+  // The global bestiary, the same source the Bestiary tab reads.
+  const library = useLibraryEntries('Monsters')
   const characters = useQuery({
     queryKey: ['worlds', worldId, 'characters'],
     queryFn: () => api.characters.list(worldId),
   })
 
-  const monsterList = monsters.data ?? []
+  // World entries first, then global — mergeEntries deliberately does not
+  // dedupe across worlds, because they really are different articles.
+  const monsterList: Array<LibraryEntry> = useMemo(
+    () =>
+      mergeEntries(
+        collectMonsters(worldId, tree.data, typed.data),
+        library.entries,
+      ),
+    [worldId, tree.data, typed.data, library.entries],
+  )
+  const visible = useMemo(
+    () => filterEntries(monsterList, filter),
+    [monsterList, filter],
+  )
   const characterList = characters.data ?? []
 
-  // Fetch content for every monster and character so we can parse stats. Cached
-  // by React Query, so re-renders don't re-read disk.
+  // Content for every monster and character, so stats can be parsed. Keyed by
+  // world as well as article, or a library entry and a world entry sharing an
+  // id would serve each other's content.
   const articleContents = useQueries({
-    queries: [...monsterList, ...characterList].map((ref) => ({
-      queryKey: ['worlds', worldId, 'articles', ref.id],
-      queryFn: () => api.articles.get(worldId, ref.id),
-    })),
+    queries: [
+      ...monsterList.map((m) => ({
+        queryKey: ['worlds', m.worldId, 'articles', m.articleId],
+        queryFn: () => api.articles.get(m.worldId, m.articleId),
+      })),
+      ...characterList.map((c) => ({
+        queryKey: ['worlds', worldId, 'articles', c.id],
+        queryFn: () => api.articles.get(worldId, c.id),
+      })),
+    ],
   })
-  const contentById = useMemo(() => {
+  const contentByKey = useMemo(() => {
     const map = new Map<string, string>()
-    for (const q of articleContents) {
-      if (q.data) map.set(q.data.id, q.data.content)
-    }
+    const all = [
+      ...monsterList.map((m) => entryKey(m)),
+      ...characterList.map((c) => `${worldId}:${c.id}`),
+    ]
+    articleContents.forEach((q, i) => {
+      if (q.data) map.set(all[i], q.data.content)
+    })
     return map
-  }, [articleContents])
+  }, [articleContents, monsterList, characterList, worldId])
 
-  const setCount = (id: string, next: number) =>
+  const setCount = (key: string, next: number) =>
     setCounts((prev) => {
       const clamped = Math.max(0, next)
       const copy = { ...prev }
-      if (clamped === 0) delete copy[id]
-      else copy[id] = clamped
+      if (clamped === 0) delete copy[key]
+      else copy[key] = clamped
       return copy
     })
 
@@ -112,20 +163,21 @@ export function EncounterBuilder({
     const levels: Array<number> = []
     for (const c of characterList) {
       if (!party.has(c.id)) continue
-      const content = contentById.get(c.id)
+      const content = contentByKey.get(`${worldId}:${c.id}`)
       levels.push(content ? parseCharacter(content).character.level : 1)
     }
     const xps: Array<number> = []
     for (const m of monsterList) {
-      const n = counts[m.id] ?? 0
+      const key = entryKey(m)
+      const n = counts[key] ?? 0
       if (n === 0) continue
-      const content = contentById.get(m.id)
+      const content = contentByKey.get(key)
       const xp = content ? (parseStatBlock(content).xp ?? 0) : 0
       for (let i = 0; i < n; i++) xps.push(xp)
     }
     if (levels.length === 0 || xps.length === 0) return null
     return rateEncounter(levels, xps)
-  }, [party, counts, characterList, monsterList, contentById])
+  }, [party, counts, characterList, monsterList, contentByKey, worldId])
 
   const totalMonsters = Object.values(counts).reduce((a, b) => a + b, 0)
   const canRun = totalMonsters > 0 || party.size > 0
@@ -133,28 +185,31 @@ export function EncounterBuilder({
   const run = () => {
     // Monsters: one combatant per instance, initiative rolled from DEX.
     for (const m of monsterList) {
-      const n = counts[m.id] ?? 0
+      const key = entryKey(m)
+      const n = counts[key] ?? 0
       if (n === 0) continue
-      const sb = contentById.get(m.id)
-        ? parseStatBlock(contentById.get(m.id)!)
-        : null
+      const content = contentByKey.get(key)
+      const sb = content ? parseStatBlock(content) : null
       const dexMod = sb?.dexMod ?? 0
       for (let i = 0; i < n; i++) {
         combatActions.add({
           name: m.title,
-          initiative: rollInitiative(worldId, m, dexMod),
+          initiative: rollInitiative(m.worldId, { id: m.articleId, title: m.title }, dexMod),
           hp: sb?.hp ?? 0,
           maxHp: sb?.hp ?? null,
           ac: sb?.ac ?? null,
           note: '',
-          articleId: m.id,
+          articleId: m.articleId,
+          // Carried so the tracker can open the right article: a library
+          // monster's id resolves against the library world, not this one.
+          worldId: m.worldId,
         })
       }
     }
     // Party: initiative from the sheet's DEX + misc bonus.
     for (const c of characterList) {
       if (!party.has(c.id)) continue
-      const content = contentById.get(c.id)
+      const content = contentByKey.get(`${worldId}:${c.id}`)
       const character = content ? parseCharacter(content).character : null
       const mod = character ? initiativeBonus(character) : 0
       combatActions.add({
@@ -181,30 +236,65 @@ export function EncounterBuilder({
             <h4 className="text-muted-foreground mb-1 px-1 text-xs font-semibold uppercase tracking-wide">
               Monsters
             </h4>
-            {monsters.isLoading && (
+            {/* Searchable, and it has to be: merging the global bestiary in
+                puts ~330 entries here, which a flat list cannot serve. Same
+                shape as the Bestiary tab next door. */}
+            <div className="relative mb-1 px-1">
+              <Search className="text-muted-foreground pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2" />
+              <Input
+                value={filter}
+                onChange={(e) => setFilter(e.target.value)}
+                placeholder="Search monsters…"
+                className="h-7 pl-7 pr-7 text-sm"
+              />
+              {filter && (
+                <button
+                  type="button"
+                  title="Clear"
+                  className="text-muted-foreground hover:text-foreground absolute right-3 top-1/2 -translate-y-1/2"
+                  onClick={() => setFilter('')}
+                >
+                  <X className="size-3.5" />
+                </button>
+              )}
+            </div>
+            {(tree.isLoading || typed.isLoading) && (
               <p className="text-muted-foreground px-1 text-sm">Loading…</p>
             )}
-            {monsters.isSuccess && monsterList.length === 0 && (
-              <p className="text-muted-foreground px-1 text-sm">
-                No monsters yet. Create an article from the Monster template.
-              </p>
-            )}
-            <ul className="space-y-0.5">
-              {monsterList.map((m) => {
-                const content = contentById.get(m.id)
+            <VirtualList
+              className="h-64"
+              items={visible}
+              estimateHeight={32}
+              getKey={entryKey}
+              empty={
+                <p className="text-muted-foreground p-4 text-sm">
+                  {filter
+                    ? 'No monsters match.'
+                    : 'No monsters yet. Create an article from the Monster template.'}
+                </p>
+              }
+              renderRow={(m) => {
+                const key = entryKey(m)
+                const content = contentByKey.get(key)
                 const sb = content ? parseStatBlock(content) : null
-                const n = counts[m.id] ?? 0
+                const n = counts[key] ?? 0
                 return (
-                  <li
-                    key={m.id}
-                    className="hover:bg-accent flex items-center gap-1.5 rounded px-1 py-1 text-sm"
-                  >
+                  <div className="hover:bg-accent flex items-center gap-1.5 rounded px-1 py-1 text-sm">
                     <span className="min-w-0 flex-1 truncate">
                       {m.title}
-                      {sb?.cr != null && (
+                      {m.global && (
+                        <span
+                          className="bg-muted text-muted-foreground ml-1.5 shrink-0 rounded px-1 text-[10px]"
+                          title="From your global library — shared by every world."
+                        >
+                          Global
+                        </span>
+                      )}
+                      {(sb?.cr ?? m.cr) != null && (
                         <span className="text-muted-foreground ml-1.5 text-xs">
-                          CR {sb.cr}
-                          {sb.xp != null && ` · ${sb.xp} XP`}
+                          CR {sb?.cr ?? m.cr}
+                          {(sb?.xp ?? m.xp) != null &&
+                            ` · ${sb?.xp ?? m.xp} XP`}
                         </span>
                       )}
                     </span>
@@ -214,7 +304,7 @@ export function EncounterBuilder({
                       className="size-6"
                       disabled={n === 0}
                       title="Fewer"
-                      onClick={() => setCount(m.id, n - 1)}
+                      onClick={() => setCount(key, n - 1)}
                     >
                       <Minus className="size-3" />
                     </Button>
@@ -226,14 +316,14 @@ export function EncounterBuilder({
                       size="icon"
                       className="size-6"
                       title="More"
-                      onClick={() => setCount(m.id, n + 1)}
+                      onClick={() => setCount(key, n + 1)}
                     >
                       <Plus className="size-3" />
                     </Button>
-                  </li>
+                  </div>
                 )
-              })}
-            </ul>
+              }}
+            />
           </section>
 
           {/* Party */}
@@ -248,19 +338,25 @@ export function EncounterBuilder({
             )}
             <ul className="space-y-0.5">
               {characterList.map((c) => {
-                const content = contentById.get(c.id)
+                const content = contentByKey.get(`${worldId}:${c.id}`)
                 const character = content
                   ? parseCharacter(content).character
                   : null
                 const selected = party.has(c.id)
                 return (
-                  <li key={c.id}>
+                  // The toggle and the pop-out are siblings rather than
+                  // nested: a button inside a button is invalid HTML, and the
+                  // whole row used to be one big toggle.
+                  <li
+                    key={c.id}
+                    className={cn(
+                      'group hover:bg-accent flex items-center rounded pr-1',
+                      selected && 'bg-accent',
+                    )}
+                  >
                     <button
                       type="button"
-                      className={cn(
-                        'hover:bg-accent flex w-full items-center gap-2 rounded px-1 py-1 text-left text-sm',
-                        selected && 'bg-accent',
-                      )}
+                      className="flex min-w-0 flex-1 items-center gap-2 rounded px-1 py-1 text-left text-sm"
                       onClick={() => toggleParty(c.id)}
                     >
                       <span
@@ -279,6 +375,16 @@ export function EncounterBuilder({
                           {signed(initiativeBonus(character))}
                         </span>
                       )}
+                    </button>
+                    <button
+                      type="button"
+                      title="Open in new window"
+                      className="text-muted-foreground hover:text-foreground shrink-0 opacity-0 group-hover:opacity-100"
+                      onClick={() =>
+                        void api.player.show(worldId, c.id, 'popout')
+                      }
+                    >
+                      <PictureInPicture2 className="size-3.5" />
                     </button>
                   </li>
                 )

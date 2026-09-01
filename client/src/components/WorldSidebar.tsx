@@ -552,6 +552,13 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="start">
+                    <DropdownMenuItem
+                      onClick={() =>
+                        void api.player.show(worldId, ch.id, 'popout')
+                      }
+                    >
+                      <PictureInPicture2 /> Open in new window
+                    </DropdownMenuItem>
                     <DropdownMenuItem onClick={() => reveal(`${ch.id}.md`)}>
                       <FolderOpen /> {REVEAL_LABEL}
                     </DropdownMenuItem>

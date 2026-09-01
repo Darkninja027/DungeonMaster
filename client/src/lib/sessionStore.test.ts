@@ -9,8 +9,14 @@ import {
   withNextTurn,
 } from './sessionStore'
 import type { CombatState } from './sessionStore'
+import type { Combatant } from '#/lib/api'
 
-const combatant = (id: string, name: string, initiative: number, hp = 10) => ({
+const combatant = (
+  id: string,
+  name: string,
+  initiative: number,
+  hp = 10,
+): Combatant => ({
   id,
   name,
   initiative,
@@ -20,7 +26,7 @@ const combatant = (id: string, name: string, initiative: number, hp = 10) => ({
   note: '',
 })
 
-function stateWith(...cs: Array<ReturnType<typeof combatant>>): CombatState {
+function stateWith(...cs: Array<Combatant>): CombatState {
   return { ...emptyCombat(), combatants: cs }
 }
 
@@ -100,6 +106,33 @@ describe('withCombatantUpdated / added', () => {
 })
 
 describe('parseCombatState', () => {
+  // worldId is what lets a global-library monster be added to a fight: a
+  // library Goblin and a world Goblin share an articleId, so without it the
+  // tracker resolves against the wrong world. parseCombatState picks fields
+  // explicitly, so an unparsed one survives a save and vanishes on reload.
+  it('round-trips a combatant worldId', () => {
+    const s = stateWith({
+      ...combatant('m1', 'Goblin', 14),
+      articleId: 'Monsters/Goblin',
+      worldId: 'deadbeef',
+    })
+    const back = parseCombatState(JSON.parse(JSON.stringify(s)))
+    expect(back.combatants[0].worldId).toBe('deadbeef')
+    expect(back.combatants[0].articleId).toBe('Monsters/Goblin')
+  })
+
+  // Every session file written before this existed has no worldId; readers
+  // treat undefined as "the open world", so a fight in progress survives.
+  it('accepts a combatant with no worldId', () => {
+    const s = stateWith({
+      ...combatant('m1', 'Goblin', 14),
+      articleId: 'Monsters/Goblin',
+    })
+    const back = parseCombatState(JSON.parse(JSON.stringify(s)))
+    expect(back.combatants[0].worldId).toBeUndefined()
+    expect(back.combatants[0].articleId).toBe('Monsters/Goblin')
+  })
+
   it('round-trips a valid state', () => {
     const s = { ...stateWith(combatant('a', 'A', 10)), activeId: 'a', round: 3 }
     expect(parseCombatState(JSON.parse(JSON.stringify(s)))).toEqual(s)
