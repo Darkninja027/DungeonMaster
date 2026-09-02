@@ -587,7 +587,11 @@ function CharacterPage() {
           onCreateMissing={setMissingTitle}
         />
       </TabsContent>
-      <TabsContent value="notes" className="min-h-0 flex-1 overflow-y-auto">
+      {/* No overflow-y here: the Notes tab is a three-pane workspace that
+          scrolls its own list and preview independently, the way the Story tab
+          does. Letting the container scroll instead would grow the panes past
+          the viewport and put the editor out of reach. */}
+      <TabsContent value="notes" className="flex min-h-0 flex-1 flex-col">
         <NotesTab
           character={character}
           onChange={update}
@@ -653,6 +657,8 @@ function CharacterPage() {
                 source={source}
                 onWikiLinkOpen={openWikiLink}
                 onFiles={uploadAndInsert}
+                articles={tree.data?.articles}
+                currentArticleId={article.data?.id ?? articleId}
                 onChange={(next) => {
                   setBody(next)
                   // Load-bearing: useArticleEditorSave's debounce keys on

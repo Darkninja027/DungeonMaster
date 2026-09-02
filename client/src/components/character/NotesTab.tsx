@@ -1,11 +1,19 @@
-import { useMemo, useState } from 'react'
-import { ChevronRight, Pencil, Plus, Search, Tag, X } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import {
+  Columns2,
+  ListTree,
+  Plus,
+  Search,
+  Tag,
+  Trash2,
+  WandSparkles,
+  X,
+} from 'lucide-react'
 import {
   SUGGESTED_NOTE_TAGS,
   allNoteTags,
   filterNotes,
   normalizeTag,
-  normalizeTags,
   notePreview,
   preserveLineBreaks,
   sortedNotes,
@@ -15,6 +23,11 @@ import { cn } from '#/lib/utils'
 import { useMarkdownEditor } from '#/lib/useMarkdownEditor'
 import { useWikiLinkOpener } from '#/lib/useWikiLinkOpener'
 import { MarkdownContextMenu } from '#/components/MarkdownContextMenu'
+import type { ContextMenuEditor } from '#/components/MarkdownContextMenu'
+import { LiveMarkdownEditor } from '#/components/LiveMarkdownEditor'
+import type { LiveEditorHandle } from '#/components/LiveMarkdownEditor'
+import { padBlock } from '#/lib/markdownEditing'
+import { useWorldSettings } from '#/lib/useWorldSettings'
 import { Button } from '#/components/ui/button'
 import { Input } from '#/components/ui/input'
 import { Textarea } from '#/components/ui/textarea'
@@ -22,9 +35,10 @@ import { InlineMarkdown, PANEL_PROSE } from '#/components/Markdown'
 
 /**
  * Session notes, organised. Each note carries an optional title, a date, any
- * number of freeform tags and a markdown body; the list collapses to one row per
- * note so a campaign's worth of recaps stays navigable, and a search box plus
- * tag chips narrow it down.
+ * number of freeform tags and a markdown body. The tab is a three-pane
+ * workspace — a note list on the left to navigate a campaign's worth of recaps,
+ * the selected note's body in the middle, and an optional rendered preview —
+ * with a search box and tag chips narrowing the list.
  *
  * Bodies are full markdown via the app's own renderer, so headings, bullets,
  * [[wiki links]] and clickable dice all behave the way they do in an article.
@@ -156,283 +170,97 @@ function TagEditor({
   )
 }
 
-/** The composer for a new note. */
-function AddNote({
-  known,
-  onAdd,
-  onWikiLinkOpen,
-}: {
-  known: Array<string>
-  onAdd: (note: CharacterNote) => void
-  onWikiLinkOpen?: (title: string) => void
-}) {
-  const [open, setOpen] = useState(false)
-  const [title, setTitle] = useState('')
-  const [text, setText] = useState('')
-  const [at, setAt] = useState(today())
-  const [tags, setTags] = useState<Array<string>>([])
-  const editor = useMarkdownEditor({
-    onFallbackChange: setText,
-    onWikiLinkOpen,
-  })
+/**
+ * Which panes the Notes tab shows, remembered across sessions.
+ *
+ * Live edit deliberately reads the SAME key the article editor and the Story
+ * tab use: it is a preference about the editing surface itself, not about one
+ * tab, and finding it on in one place and off in another is the surprise.
+ */
+const NOTES_PANES_KEY = 'dm.characterNotesPanes'
+const LIVE_EDIT_KEY = 'dm.articleLiveEdit'
 
-  const submit = () => {
-    if (!text.trim() && !title.trim()) return
-    const note: CharacterNote = { at, text: text.trim() }
-    if (title.trim()) note.title = title.trim()
-    if (tags.length > 0) note.tags = normalizeTags(tags)
-    onAdd(note)
-    setTitle('')
-    setText('')
-    setTags([])
+function loadPanes(): { list: boolean; preview: boolean } {
+  try {
+    const raw = JSON.parse(localStorage.getItem(NOTES_PANES_KEY) ?? '') as {
+      list?: boolean
+      preview?: boolean
+    }
+    return { list: raw.list !== false, preview: raw.preview === true }
+  } catch {
+    // The list is the navigation, so it defaults ON; the preview does not.
+    return { list: true, preview: false }
   }
-
-  if (!open) {
-    return (
-      <Button size="sm" variant="outline" onClick={() => setOpen(true)}>
-        <Plus className="size-3.5" /> New note
-      </Button>
-    )
-  }
-
-  return (
-    <div className="space-y-2 rounded-md border p-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <Input
-          autoFocus
-          value={title}
-          placeholder="Title, e.g. Ambush at Daggerford"
-          className="h-8 min-w-56 flex-1 text-sm font-medium"
-          onChange={(e) => setTitle(e.target.value)}
-        />
-        <Input
-          type="date"
-          value={at}
-          className="h-8 w-36 text-xs"
-          onChange={(e) => setAt(e.target.value)}
-        />
-      </div>
-      <MarkdownContextMenu editor={editor}>
-        <Textarea
-          ref={editor.ref}
-          value={text}
-          placeholder="What happened? Markdown works — ## headings, - bullets, **bold**, [[Wiki links]] and dice like 2d6."
-          className={cn(
-            'min-h-28 text-sm',
-            editor.wikiLinkHovered && 'cursor-pointer',
-          )}
-          onChange={(e) => setText(e.target.value)}
-          onClick={editor.onClick}
-          onMouseMove={editor.onMouseMove}
-          onMouseLeave={editor.onMouseLeave}
-          onBeforeInput={editor.onBeforeInput}
-          onKeyDown={(e) => {
-            // Ctrl+Enter opens a [[link]] when the caret is in one, and
-            // otherwise submits the note.
-            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-              editor.onKeyDown(e)
-              if (!e.defaultPrevented) submit()
-            } else editor.onKeyDown(e)
-          }}
-        />
-      </MarkdownContextMenu>
-      <TagEditor tags={tags} known={known} onChange={setTags} />
-      <div className="flex gap-2">
-        <Button
-          size="sm"
-          disabled={!text.trim() && !title.trim()}
-          onClick={submit}
-        >
-          <Plus className="size-3.5" /> Add note
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={() => {
-            setOpen(false)
-            setTitle('')
-            setText('')
-            setTags([])
-          }}
-        >
-          Done
-        </Button>
-      </div>
-    </div>
-  )
 }
 
-/** One note: a collapsed header row, expanding to the rendered or raw body. */
-function NoteRow({
+function loadLiveEdit(): boolean {
+  try {
+    const raw = JSON.parse(localStorage.getItem(LIVE_EDIT_KEY) ?? '') as {
+      on?: boolean
+    }
+    return raw.on === true
+  } catch {
+    return false
+  }
+}
+
+/** A row in the left-hand note list. */
+function NoteListRow({
   note,
-  expanded,
-  editing,
-  known,
-  worldId,
-  articles,
-  onCreateMissing,
-  onWikiLinkOpen,
-  onToggle,
-  onEdit,
-  onChange,
-  onRemove,
+  selected,
+  onSelect,
   onTagClick,
   activeTags,
 }: {
   note: CharacterNote
-  expanded: boolean
-  editing: boolean
-  known: Array<string>
-  worldId: string
-  articles?: Array<{ id: string; title: string }>
-  onCreateMissing?: (title: string) => void
-  onWikiLinkOpen?: (title: string) => void
-  onToggle: () => void
-  onEdit: () => void
-  onChange: (patch: Partial<CharacterNote>) => void
-  onRemove: () => void
+  selected: boolean
+  onSelect: () => void
   onTagClick: (tag: string) => void
   activeTags: Array<string>
 }) {
   const heading =
     note.title?.trim() || notePreview(note.text) || 'Untitled note'
-  const editor = useMarkdownEditor({
-    onFallbackChange: (value) => onChange({ text: value }),
-    onWikiLinkOpen,
-  })
-
   return (
-    <li className="group rounded-md border">
-      <div className="flex items-start gap-2 p-2">
-        <button
-          type="button"
-          className="text-muted-foreground hover:text-foreground mt-0.5 shrink-0"
-          onClick={onToggle}
-          title={expanded ? 'Collapse' : 'Expand'}
-        >
-          <ChevronRight
-            className={cn(
-              'size-3.5 transition-transform',
-              expanded && 'rotate-90',
-            )}
-          />
-        </button>
-        <button
-          type="button"
-          className="min-w-0 flex-1 text-left"
-          onClick={onToggle}
-        >
-          <div className="flex flex-wrap items-baseline gap-2">
-            <span className="truncate text-sm font-medium">{heading}</span>
-            {note.at && (
-              <span className="text-muted-foreground shrink-0 text-[11px]">
-                {note.at}
-              </span>
-            )}
-          </div>
-          {/* When a title is set the first body line is still worth showing
-              collapsed — it is usually the sentence you are looking for. */}
-          {!expanded && note.title?.trim() && notePreview(note.text) && (
-            <p className="text-muted-foreground truncate text-xs">
-              {notePreview(note.text)}
-            </p>
-          )}
-        </button>
-        <div className="flex shrink-0 items-center gap-1">
-          <TagChips
-            tags={note.tags ?? []}
-            onClick={onTagClick}
-            active={activeTags}
-          />
-          <button
-            type="button"
-            className="hover:text-foreground text-muted-foreground opacity-0 group-hover:opacity-100"
-            title={editing ? 'Done editing' : 'Edit note'}
-            onClick={onEdit}
-          >
-            <Pencil className="size-3.5" />
-          </button>
-          <button
-            type="button"
-            className="hover:text-destructive text-muted-foreground opacity-0 group-hover:opacity-100"
-            title="Delete note"
-            onClick={onRemove}
-          >
-            <X className="size-3.5" />
-          </button>
-        </div>
-      </div>
-
-      {expanded && (
-        <div className="space-y-2 border-t px-2.5 py-2">
-          {editing ? (
-            <>
-              <div className="flex flex-wrap items-center gap-2">
-                <Input
-                  value={note.title ?? ''}
-                  placeholder="Title"
-                  className="h-7 min-w-48 flex-1 text-sm font-medium"
-                  onChange={(e) =>
-                    onChange({ title: e.target.value || undefined })
-                  }
-                />
-                <Input
-                  type="date"
-                  value={note.at}
-                  className="h-7 w-36 text-xs"
-                  onChange={(e) => onChange({ at: e.target.value })}
-                />
-              </div>
-              <MarkdownContextMenu editor={editor}>
-                <Textarea
-                  autoFocus
-                  ref={editor.ref}
-                  value={note.text}
-                  className={cn(
-                    'min-h-32 text-sm',
-                    editor.wikiLinkHovered && 'cursor-pointer',
-                  )}
-                  placeholder="Markdown works here."
-                  onChange={(e) => onChange({ text: e.target.value })}
-                  onClick={editor.onClick}
-                  onMouseMove={editor.onMouseMove}
-                  onMouseLeave={editor.onMouseLeave}
-                  onKeyDown={editor.onKeyDown}
-                  onBeforeInput={editor.onBeforeInput}
-                />
-              </MarkdownContextMenu>
-              <TagEditor
-                tags={note.tags ?? []}
-                known={known}
-                onChange={(tags) =>
-                  onChange({ tags: tags.length > 0 ? tags : undefined })
-                }
-              />
-              <Button size="sm" variant="ghost" onClick={onEdit}>
-                Done
-              </Button>
-            </>
-          ) : note.text.trim() ? (
-            <InlineMarkdown
-              className={PANEL_PROSE}
-              worldId={worldId}
-              articles={articles}
-              onCreateMissing={onCreateMissing}
-            >
-              {/* Same hard-break handling the sheet uses, or a note written one
-                  line per beat collapses into a paragraph here and reads
-                  correctly when printed. */}
-              {preserveLineBreaks(note.text)}
-            </InlineMarkdown>
-          ) : (
-            <p className="text-muted-foreground text-sm italic">Empty note.</p>
-          )}
-        </div>
-      )}
+    <li>
+      <button
+        type="button"
+        className={cn(
+          'w-full border-l-2 px-3 py-2 text-left',
+          selected
+            ? 'border-primary bg-accent'
+            : 'hover:bg-accent/50 border-transparent',
+        )}
+        onClick={onSelect}
+      >
+        <span className="block truncate text-xs font-medium">{heading}</span>
+        <span className="text-muted-foreground mt-0.5 block text-[10px] tabular-nums">
+          {note.at}
+        </span>
+        {note.tags && note.tags.length > 0 && (
+          <span className="mt-1 block">
+            <TagChips
+              tags={note.tags}
+              onClick={onTagClick}
+              active={activeTags}
+            />
+          </span>
+        )}
+      </button>
     </li>
   )
 }
 
+/**
+ * Session notes as a three-pane workspace: the note list navigates, the middle
+ * pane edits the selected note's markdown body, and an optional preview renders
+ * it. Title, date and tags ride in a header strip above the editor, because a
+ * note is a record rather than a document and those fields have nowhere else to
+ * live.
+ *
+ * A note carries no id of its own — adding one would leak into the YAML and out
+ * of Obsidian — so a note is addressed by its index in `character.notes`, and
+ * every mutation below has to slide the selection along with it.
+ */
 export function NotesTab({
   character,
   onChange,
@@ -448,24 +276,37 @@ export function NotesTab({
 }) {
   const [query, setQuery] = useState('')
   const [activeTags, setActiveTags] = useState<Array<string>>([])
-  // Ctrl+Click / Ctrl+Enter on a [[link]] while editing a note's raw markdown.
+  const [selected, setSelected] = useState<number | null>(null)
+  const [panes, setPanes] = useState(loadPanes)
+  const [rememberedLiveEdit, setRememberedLiveEdit] = useState(loadLiveEdit)
+  const liveEditorRef = useRef<LiveEditorHandle>(null)
+  const [liveHasSelection, setLiveHasSelection] = useState(false)
+
+  useEffect(() => {
+    localStorage.setItem(NOTES_PANES_KEY, JSON.stringify(panes))
+  }, [panes])
+  useEffect(() => {
+    localStorage.setItem(
+      LIVE_EDIT_KEY,
+      JSON.stringify({ on: rememberedLiveEdit }),
+    )
+  }, [rememberedLiveEdit])
+
+  const worldLiveEdit = useWorldSettings(worldId).data?.liveEdit ?? 'remember'
+  const liveEdit =
+    worldLiveEdit === 'remember'
+      ? rememberedLiveEdit
+      : worldLiveEdit === 'always'
+
   const openWikiLink = useWikiLinkOpener({
     worldId,
     articles,
     onMissing: onCreateMissing,
   })
-  // Keyed by stored-array index, not note object. Object identity would be
-  // correct until something upstream reparses the character (an autosave
-  // round-trip does exactly that), at which point every note is a fresh object
-  // and the row you were typing in silently collapses. Notes carry no id of
-  // their own — adding one would leak into the YAML and out of Obsidian — so
-  // the position in `character.notes` is the stable handle.
-  const [expanded, setExpanded] = useState<Set<number>>(new Set())
-  const [editing, setEditing] = useState<number | null>(null)
 
   const known = useMemo(() => allNoteTags(character.notes), [character.notes])
-  // Carry each note's stored index through the sort/filter so the view can map
-  // a row back to its slot in `character.notes`.
+  // Carry each note's stored index through the sort/filter so a row maps back
+  // to its slot in `character.notes`.
   const shown = useMemo(() => {
     const indexOf = new Map(character.notes.map((n, i) => [n, i]))
     return sortedNotes(filterNotes(character.notes, query, activeTags)).map(
@@ -473,13 +314,43 @@ export function NotesTab({
     )
   }, [character.notes, query, activeTags])
 
-  const patch = (index: number, changes: Partial<CharacterNote>) => {
+  // Keep a valid selection: land on the first visible note, and never point at
+  // an index the notes array no longer has.
+  useEffect(() => {
+    if (selected !== null && selected < character.notes.length) return
+    setSelected(shown.length > 0 ? shown[0].index : null)
+  }, [character.notes.length, shown, selected])
+
+  const note = selected !== null ? character.notes[selected] : undefined
+
+  const patch = (changes: Partial<CharacterNote>) => {
+    if (selected === null) return
     onChange({
       ...character,
       notes: character.notes.map((n, i) =>
-        i === index ? { ...n, ...changes } : n,
+        i === selected ? { ...n, ...changes } : n,
       ),
     })
+  }
+
+  const addNote = () => {
+    const fresh: CharacterNote = { at: today(), text: '' }
+    // Prepending shifts every stored index by one, the selection included.
+    onChange({ ...character, notes: [fresh, ...character.notes] })
+    setSelected(0)
+  }
+
+  const removeSelected = () => {
+    if (selected === null || !note) return
+    const heading = note.title?.trim() || notePreview(note.text)
+    if (!confirm(`Delete "${heading || 'this note'}"? This cannot be undone.`))
+      return
+    onChange({
+      ...character,
+      notes: character.notes.filter((_, i) => i !== selected),
+    })
+    // The effect above re-lands the selection once the array is shorter.
+    setSelected(null)
   }
 
   const toggleTag = (tag: string) =>
@@ -487,102 +358,246 @@ export function NotesTab({
       prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag],
     )
 
+  const editor = useMarkdownEditor({
+    onFallbackChange: (value) => patch({ text: value }),
+    onWikiLinkOpen: openWikiLink,
+  })
+
+  /**
+   * Insert routing. In live-edit mode the textarea is not mounted, so
+   * `useMarkdownEditor` would silently no-op — the context menu has to ask
+   * CodeMirror instead. Same two shims the article route and Story tab use.
+   */
+  const insertAtCursor = (text: string) => {
+    if (liveEditorRef.current) liveEditorRef.current.insert(text)
+    else editor.insertText(text)
+  }
+  const insertBlock = (snippet: string) => {
+    if (liveEditorRef.current)
+      liveEditorRef.current.transform((text, start, end) =>
+        padBlock(text, { start, end }, snippet),
+      )
+    else editor.insertBlock(snippet)
+  }
+
+  const liveMenuEditor: ContextMenuEditor = {
+    // Sampled as the menu opens: opening it moves focus off the editor, so a
+    // live read reports "no selection" by the time Cut and Copy render.
+    onContextMenu: () =>
+      setLiveHasSelection(liveEditorRef.current?.hasSelection() ?? false),
+    hasSelection: liveHasSelection,
+    execEditorCommand: (command) => liveEditorRef.current?.execCommand(command),
+    wrap: (wrapper) => liveEditorRef.current?.wrap(wrapper),
+    transform: (fn) => liveEditorRef.current?.transform(fn),
+    insertBlock,
+    insertText: insertAtCursor,
+  }
+
   return (
-    <div className="mx-auto max-w-3xl space-y-3 p-4">
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="relative min-w-48 flex-1">
-          <Search className="text-muted-foreground pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2" />
-          <Input
-            value={query}
-            placeholder="Search notes…"
-            className="h-8 pl-7 text-sm"
-            onChange={(e) => setQuery(e.target.value)}
-          />
+    <div className="flex h-full min-h-0">
+      {panes.list && (
+        <div className="flex w-64 shrink-0 flex-col border-r">
+          <div className="shrink-0 space-y-2 border-b p-2">
+            <div className="relative">
+              <Search className="text-muted-foreground pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2" />
+              <Input
+                value={query}
+                placeholder="Search notes…"
+                className="h-8 pl-7 text-sm"
+                onChange={(e) => setQuery(e.target.value)}
+              />
+            </div>
+            <div className="flex items-center gap-1">
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 flex-1 text-xs"
+                onClick={addNote}
+              >
+                <Plus className="size-3.5" /> New note
+              </Button>
+              {(activeTags.length > 0 || query) && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 text-xs"
+                  onClick={() => {
+                    setQuery('')
+                    setActiveTags([])
+                  }}
+                >
+                  Clear
+                </Button>
+              )}
+            </div>
+            {known.length > 0 && (
+              <TagChips tags={known} onClick={toggleTag} active={activeTags} />
+            )}
+          </div>
+          {shown.length === 0 ? (
+            <p className="text-muted-foreground p-3 text-xs">
+              {character.notes.length === 0
+                ? 'No notes yet. Session recaps, world lore this character learned, grudges sworn — give each one a title and a tag or two and they stay findable.'
+                : 'No notes match that search.'}
+            </p>
+          ) : (
+            <ul className="min-h-0 flex-1 overflow-y-auto">
+              {shown.map(({ note: row, index }) => (
+                <NoteListRow
+                  key={index}
+                  note={row}
+                  selected={selected === index}
+                  onSelect={() => setSelected(index)}
+                  onTagClick={toggleTag}
+                  activeTags={activeTags}
+                />
+              ))}
+            </ul>
+          )}
         </div>
-        {(activeTags.length > 0 || query) && (
+      )}
+
+      <div className="flex min-w-0 flex-1 flex-col">
+        <div className="flex shrink-0 items-center gap-2 border-b px-2 py-1">
           <Button
+            variant={panes.list ? 'secondary' : 'ghost'}
             size="sm"
-            variant="ghost"
-            onClick={() => {
-              setQuery('')
-              setActiveTags([])
-            }}
+            className="h-7 text-xs"
+            title="Show the note list"
+            onClick={() => setPanes((p) => ({ ...p, list: !p.list }))}
           >
-            Clear
+            <ListTree className="size-3.5" /> Notes
           </Button>
+          <div className="ml-auto flex items-center gap-2">
+            {worldLiveEdit === 'remember' && (
+              <Button
+                variant={liveEdit ? 'secondary' : 'ghost'}
+                size="sm"
+                className="h-7 text-xs"
+                title="Experimental: hide markdown syntax while editing. Set a default for the whole world in Settings."
+                onClick={() => setRememberedLiveEdit((v) => !v)}
+              >
+                <WandSparkles className="size-3.5" /> Live edit
+              </Button>
+            )}
+            <Button
+              variant={panes.preview ? 'secondary' : 'ghost'}
+              size="sm"
+              className="h-7 text-xs"
+              title="Show a live preview beside the editor"
+              onClick={() => setPanes((p) => ({ ...p, preview: !p.preview }))}
+            >
+              <Columns2 className="size-3.5" /> Live preview
+            </Button>
+          </div>
+        </div>
+
+        {!note ? (
+          <div className="text-muted-foreground flex flex-1 items-center justify-center p-6 text-sm">
+            {character.notes.length === 0
+              ? 'No notes yet — start one with New note.'
+              : 'Select a note to edit it.'}
+          </div>
+        ) : (
+          <>
+            {/* Header strip: a note is a record, so its title, date and tags
+                need a home above the body editor. */}
+            <div className="shrink-0 space-y-2 border-b p-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <Input
+                  value={note.title ?? ''}
+                  placeholder="Title, e.g. Ambush at Daggerford"
+                  className="h-8 min-w-56 flex-1 text-sm font-medium"
+                  onChange={(e) =>
+                    patch({ title: e.target.value || undefined })
+                  }
+                />
+                <Input
+                  type="date"
+                  value={note.at}
+                  className="h-8 w-36 text-xs"
+                  onChange={(e) => patch({ at: e.target.value })}
+                />
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-8 text-xs"
+                  title="Delete this note"
+                  onClick={removeSelected}
+                >
+                  <Trash2 className="size-3.5" />
+                </Button>
+              </div>
+              <TagEditor
+                tags={note.tags ?? []}
+                known={known}
+                onChange={(tags) =>
+                  patch({ tags: tags.length > 0 ? tags : undefined })
+                }
+              />
+            </div>
+
+            <div className="flex min-h-0 flex-1">
+              {liveEdit ? (
+                <MarkdownContextMenu editor={liveMenuEditor}>
+                  <LiveMarkdownEditor
+                    // Remount per note: CodeMirror owns its document and its own
+                    // undo history, so reusing one view across notes would carry
+                    // note A's history into note B and let an undo write A's
+                    // text over B.
+                    key={selected ?? 'none'}
+                    ref={liveEditorRef}
+                    value={note.text}
+                    className="min-h-0 min-w-0 flex-1 overflow-hidden"
+                    onWikiLinkOpen={openWikiLink}
+                    articles={articles}
+                    onChange={(next) => patch({ text: next })}
+                  />
+                </MarkdownContextMenu>
+              ) : (
+                <MarkdownContextMenu editor={editor}>
+                  <Textarea
+                    ref={editor.ref}
+                    value={note.text}
+                    placeholder="What happened? Markdown works — ## headings, - bullets, **bold**, [[Wiki links]] and dice like 2d6."
+                    className={cn(
+                      'h-full min-h-0 flex-1 resize-none rounded-none border-none font-mono text-sm shadow-none focus-visible:ring-0',
+                      editor.wikiLinkHovered && 'cursor-pointer',
+                    )}
+                    onChange={(e) => patch({ text: e.target.value })}
+                    onClick={editor.onClick}
+                    onMouseMove={editor.onMouseMove}
+                    onMouseLeave={editor.onMouseLeave}
+                    onKeyDown={editor.onKeyDown}
+                    onBeforeInput={editor.onBeforeInput}
+                  />
+                </MarkdownContextMenu>
+              )}
+              {panes.preview && (
+                <div className="w-1/2 shrink-0 overflow-y-auto border-l p-3">
+                  {note.text.trim() ? (
+                    <InlineMarkdown
+                      className={PANEL_PROSE}
+                      worldId={worldId}
+                      articles={articles}
+                      onCreateMissing={onCreateMissing}
+                    >
+                      {/* Same hard-break handling the sheet uses, or a note
+                          written one line per beat collapses into a paragraph
+                          here and reads correctly when printed. */}
+                      {preserveLineBreaks(note.text)}
+                    </InlineMarkdown>
+                  ) : (
+                    <p className="text-muted-foreground text-sm italic">
+                      Start typing to see the preview.
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+          </>
         )}
       </div>
-
-      {known.length > 0 && (
-        <TagChips tags={known} onClick={toggleTag} active={activeTags} />
-      )}
-
-      <AddNote
-        known={known}
-        onWikiLinkOpen={openWikiLink}
-        onAdd={(note) => {
-          // Prepending shifts every stored index by one; slide the open rows
-          // along with them so nothing collapses when a note is added.
-          onChange({ ...character, notes: [note, ...character.notes] })
-          setExpanded((prev) => new Set([...prev].map((i) => i + 1)))
-          setEditing((prev) => (prev === null ? null : prev + 1))
-        }}
-      />
-
-      {shown.length === 0 ? (
-        <p className="text-muted-foreground text-sm">
-          {character.notes.length === 0
-            ? 'No notes yet. Session recaps, world lore this character learned, grudges sworn — give each one a title and a tag or two and they stay findable.'
-            : 'No notes match that search.'}
-        </p>
-      ) : (
-        <ul className="space-y-1.5">
-          {shown.map(({ note, index }) => (
-            <NoteRow
-              key={index}
-              note={note}
-              expanded={expanded.has(index)}
-              editing={editing === index}
-              known={known}
-              worldId={worldId}
-              articles={articles}
-              onCreateMissing={onCreateMissing}
-              onWikiLinkOpen={openWikiLink}
-              onToggle={() =>
-                setExpanded((prev) => {
-                  const next = new Set(prev)
-                  if (next.has(index)) next.delete(index)
-                  else next.add(index)
-                  return next
-                })
-              }
-              onEdit={() => {
-                setExpanded((prev) => new Set(prev).add(index))
-                setEditing(editing === index ? null : index)
-              }}
-              onChange={(changes) => patch(index, changes)}
-              onRemove={() => {
-                onChange({
-                  ...character,
-                  notes: character.notes.filter((_, i) => i !== index),
-                })
-                // Everything after the removed slot shifts down one.
-                const shift = (i: number) => (i > index ? i - 1 : i)
-                setExpanded((prev) => {
-                  const next = new Set<number>()
-                  for (const i of prev) if (i !== index) next.add(shift(i))
-                  return next
-                })
-                setEditing((prev) =>
-                  prev === null || prev === index ? null : shift(prev),
-                )
-              }}
-              onTagClick={toggleTag}
-              activeTags={activeTags}
-            />
-          ))}
-        </ul>
-      )}
     </div>
   )
 }

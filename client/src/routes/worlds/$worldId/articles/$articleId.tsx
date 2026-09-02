@@ -887,7 +887,7 @@ function ArticlePage() {
                   variant={liveEdit ? 'secondary' : 'ghost'}
                   size="sm"
                   className="h-8 text-xs"
-                  title="Experimental: hide markdown syntax while editing. No [[ ]] or image autocomplete. Set a default for the whole world in Settings."
+                  title="Experimental: hide markdown syntax while editing. No _images/ path autocomplete yet. Set a default for the whole world in Settings."
                   onClick={() => setRememberedLiveEdit((v) => !v)}
                 >
                   <WandSparkles className="size-3.5" /> Live edit
@@ -982,6 +982,8 @@ function ArticlePage() {
                     source={rollSource}
                     onWikiLinkOpen={openWikiLink}
                     onFiles={uploadAndInsert}
+                    articles={tree.data?.articles}
+                    currentArticleId={article.data?.id ?? articleId}
                     onChange={(next) => {
                       setContent(next)
                       // Load-bearing: useArticleEditorSave's debounce keys on

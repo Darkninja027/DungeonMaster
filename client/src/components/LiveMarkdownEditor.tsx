@@ -80,6 +80,8 @@ export function LiveMarkdownEditor({
   onWikiLinkOpen,
   onFiles,
   source,
+  articles,
+  currentArticleId,
   className,
   ref,
   hostRef,
@@ -92,6 +94,10 @@ export function LiveMarkdownEditor({
   onWikiLinkOpen?: (title: string) => void
   onFiles?: (files: Array<File>) => void
   source?: RollSource
+  /** Every article in the world, for `[[` autocomplete. */
+  articles?: Array<{ id: string; title: string }>
+  /** This article, so it cannot suggest a link to itself. */
+  currentArticleId?: string
   className?: string
   ref?: React.Ref<LiveEditorHandle>
   /**
@@ -112,6 +118,8 @@ export function LiveMarkdownEditor({
     onWikiLinkOpen,
     onFiles,
     source,
+    articles,
+    currentArticleId,
   })
   latest.current = {
     onChange,
@@ -119,6 +127,8 @@ export function LiveMarkdownEditor({
     onWikiLinkOpen,
     onFiles,
     source,
+    articles,
+    currentArticleId,
   }
 
   useEffect(() => {
@@ -134,6 +144,12 @@ export function LiveMarkdownEditor({
             get source() {
               return latest.current.source
             },
+            // Getters, not values: the editor is built once on mount while the
+            // article list arrives from a query afterwards and grows as
+            // articles are created. Capturing here would freeze the
+            // suggestions to whatever existed at mount — usually nothing.
+            articles: () => latest.current.articles,
+            currentArticleId: () => latest.current.currentArticleId,
           }),
           EditorView.updateListener.of((update) => {
             if (update.selectionSet && !update.docChanged) {
