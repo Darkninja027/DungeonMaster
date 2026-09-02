@@ -556,6 +556,18 @@ a {
   /* contain the floated first letter so it can't overlap what follows */
   display: flow-root;
 }
+/*
+  ...unless that opening paragraph is just a floated image, which is what a
+  portrait written directly under the character's name is. flow-root makes the
+  paragraph a block formatting context, and a BFC contains its own floats — so
+  the portrait could never reach the prose below it and the text refused to
+  wrap, which is the whole point of #left / #right. There is no drop cap to
+  contain here (::first-letter needs a letter), so the containment is pure loss.
+*/
+.dnd-flow > h1:first-child + p:has(> img.dnd-img-left:only-child),
+.dnd-flow > h1:first-child + p:has(> img.dnd-img-right:only-child) {
+  display: block;
+}
 .dnd-flow > h1:first-child + p::first-letter {
   font-family: 'Cinzel', serif;
   font-size: 2.1em; /* match h1 */

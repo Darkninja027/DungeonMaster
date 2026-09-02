@@ -69,7 +69,7 @@ import { useSpellCards } from '#/lib/useSpellCards'
 import { openSpellInPanel } from '#/lib/spellPanel'
 import { useLibraryEntries } from '#/lib/useGlobalLibrary'
 import { cn } from '#/lib/utils'
-import { InlineMarkdown, Markdown } from '#/components/Markdown'
+import { BookView, InlineMarkdown } from '#/components/Markdown'
 import { WikiText } from './WikiText'
 
 /**
@@ -1627,6 +1627,22 @@ function NotesPage({
   )
 }
 
+/**
+ * The backstory as it is actually printed: most already open with their own
+ * "# Name" heading, so one is only prepended when the prose lacks a heading of
+ * its own.
+ *
+ * Exported because the Story tab's live preview renders the same string. That
+ * tab is where a DM writes this prose, and a preview that quietly disagreed
+ * with the printed page about its title is exactly the mismatch this function
+ * exists to prevent.
+ */
+export function backstoryDoc(body: string | undefined, title: string): string {
+  const prose = body?.trim()
+  if (!prose) return ''
+  return prose.startsWith('#') ? prose : `# ${title}\n\n${prose}`
+}
+
 export function SheetPreview({
   character: c,
   body,
@@ -1693,9 +1709,7 @@ export function SheetPreview({
 
   const showGear = gearPages.length > 0 || hasPrintedProficiencies(c)
   const prose = body?.trim()
-  // Most backstories already open with their own "# Name" heading — only add
-  // one when the prose doesn't start with a heading of its own.
-  const proseDoc = prose?.startsWith('#') ? prose : `# ${title}\n\n${prose}`
+  const proseDoc = backstoryDoc(body, title)
 
   return (
     <div className="dnd-book flex flex-col items-center gap-8">
@@ -1788,14 +1802,18 @@ export function SheetPreview({
       ))}
 
       {prose && (
-        <Markdown
-          columns={2}
-          articles={articles}
-          worldId={worldId}
-          source={source}
-        >
+        /*
+          BookView, not a bare Markdown: it is the same renderer the Story tab's
+          live preview uses, so the printed backstory and the tab agree by
+          construction rather than by two call sites staying in step. A bare
+          Markdown at a hardcoded columns={2} silently dropped every page and
+          column marker the prose carried, and never ran transformDmBlocks - so
+          DM-only blocks rendered raw AND printed, defeating the print rule that
+          exists to keep them off a page a player might be handed.
+        */
+        <BookView articles={articles} worldId={worldId} source={source}>
           {proseDoc}
-        </Markdown>
+        </BookView>
       )}
     </div>
   )

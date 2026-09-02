@@ -79,6 +79,7 @@ import { useMarkdownEditor } from '#/lib/useMarkdownEditor'
 import { useWikiLinkOpener } from '#/lib/useWikiLinkOpener'
 import { CreateMissingArticleDialog } from '#/components/CreateMissingArticleDialog'
 import { LiveMarkdownEditor } from '#/components/LiveMarkdownEditor'
+import { LivePreviewPane } from '#/components/LivePreviewPane'
 import { padBlock } from '#/lib/markdownEditing'
 import { useWorldSettings } from '#/lib/useWorldSettings'
 import type { LiveEditorHandle } from '#/components/LiveMarkdownEditor'
@@ -134,61 +135,6 @@ function loadLiveEdit(): boolean {
   } catch {
     return false
   }
-}
-
-/**
- * Side-by-side live preview for the Write tab. The book pages are a fixed
- * 816px wide, so the pane scales them to fit its own width.
- */
-function LivePreviewPane({
-  content,
-  articles,
-  worldId,
-  onCreateMissing,
-  source,
-}: {
-  content: string
-  articles?: Array<{ id: string; title: string }>
-  worldId: string
-  onCreateMissing: (title: string) => void
-  source?: RollSource
-}) {
-  const ref = useRef<HTMLDivElement>(null)
-  const [scale, setScale] = useState(0.6)
-  // Defer keystrokes so typing stays snappy while the preview catches up.
-  const deferred = useDeferredValue(content)
-
-  useEffect(() => {
-    const el = ref.current
-    if (!el) return
-    const measure = () => setScale(Math.min(1, (el.clientWidth - 24) / 840))
-    measure()
-    const observer = new ResizeObserver(measure)
-    observer.observe(el)
-    return () => observer.disconnect()
-  }, [])
-
-  return (
-    <div
-      ref={ref}
-      className="w-1/2 shrink-0 overflow-y-auto border-l bg-stone-800/90 dark:bg-stone-950"
-    >
-      <div className="p-3" style={{ zoom: scale }}>
-        {deferred.trim() ? (
-          <BookView
-            articles={articles}
-            worldId={worldId}
-            onCreateMissing={onCreateMissing}
-            source={source}
-          >
-            {deferred}
-          </BookView>
-        ) : (
-          <p className="text-stone-400">Start typing to see the preview.</p>
-        )}
-      </div>
-    </div>
-  )
 }
 
 function ArticlePage() {
@@ -936,19 +882,17 @@ function ArticlePage() {
               {/* Deliberately NOT exclusive with the split pane below: the
                   book preview is the trusted renderer, so seeing both at once
                   is how you check what live edit is painting. */}
-              {tab === 'write' &&
-                !parsedCharacter &&
-                worldLiveEdit === 'remember' && (
-                  <Button
-                    variant={liveEdit ? 'secondary' : 'ghost'}
-                    size="sm"
-                    className="h-8 text-xs"
-                    title="Experimental: hide markdown syntax while editing. No [[ ]] or image autocomplete. Set a default for the whole world in Settings."
-                    onClick={() => setRememberedLiveEdit((v) => !v)}
-                  >
-                    <WandSparkles className="size-3.5" /> Live edit
-                  </Button>
-                )}
+              {tab === 'write' && worldLiveEdit === 'remember' && (
+                <Button
+                  variant={liveEdit ? 'secondary' : 'ghost'}
+                  size="sm"
+                  className="h-8 text-xs"
+                  title="Experimental: hide markdown syntax while editing. No [[ ]] or image autocomplete. Set a default for the whole world in Settings."
+                  onClick={() => setRememberedLiveEdit((v) => !v)}
+                >
+                  <WandSparkles className="size-3.5" /> Live edit
+                </Button>
+              )}
               {tab === 'write' && (
                 <Button
                   variant={livePreview ? 'secondary' : 'ghost'}
@@ -960,17 +904,15 @@ function ArticlePage() {
                   <Columns2 className="size-3.5" /> Live preview
                 </Button>
               )}
-              {!parsedCharacter && (
-                <Button
-                  variant={tocOpen ? 'secondary' : 'ghost'}
-                  size="sm"
-                  className="h-8 text-xs"
-                  title="Show the article outline"
-                  onClick={() => setTocOpen((v) => !v)}
-                >
-                  <List className="size-3.5" /> Outline
-                </Button>
-              )}
+              <Button
+                variant={tocOpen ? 'secondary' : 'ghost'}
+                size="sm"
+                className="h-8 text-xs"
+                title="Show the article outline"
+                onClick={() => setTocOpen((v) => !v)}
+              >
+                <List className="size-3.5" /> Outline
+              </Button>
             </div>
           </div>
           <TabsContent value="write" className="flex min-h-0 flex-1 flex-col">
@@ -1031,7 +973,7 @@ function ArticlePage() {
               </div>
             )}
             <div className="flex min-h-0 flex-1">
-              {liveEdit && !parsedCharacter ? (
+              {liveEdit ? (
                 <MarkdownContextMenu editor={liveMenuEditor}>
                   <LiveMarkdownEditor
                     ref={liveEditorRef}
@@ -1203,7 +1145,7 @@ function ArticlePage() {
             </div>
           </TabsContent>
         </Tabs>
-        {tocOpen && !parsedCharacter && (
+        {tocOpen && (
           <TableOfContents
             headings={headings}
             activeId={activeHeadingId}

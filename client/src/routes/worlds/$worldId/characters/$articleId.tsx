@@ -1,14 +1,18 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   BookText,
+  Columns2,
   Eye,
+  ImagePlus,
+  List,
   Package,
   ScrollText,
   Shield,
   Sparkles,
   StickyNote,
+  WandSparkles,
 } from 'lucide-react'
 import { api } from '#/lib/api'
 import { revealer } from '#/lib/reveal'
@@ -22,6 +26,18 @@ import { useArticleEditorSave } from '#/lib/useArticleEditorSave'
 import { useMarkdownEditor } from '#/lib/useMarkdownEditor'
 import { useWikiLinkOpener } from '#/lib/useWikiLinkOpener'
 import { MarkdownContextMenu } from '#/components/MarkdownContextMenu'
+import type { ContextMenuEditor } from '#/components/MarkdownContextMenu'
+import { LiveMarkdownEditor } from '#/components/LiveMarkdownEditor'
+import type { LiveEditorHandle } from '#/components/LiveMarkdownEditor'
+import { LivePreviewPane } from '#/components/LivePreviewPane'
+import { TableOfContents } from '#/components/TableOfContents'
+import { activeHeadingAt, editorScrollTopFor, parseHeadings } from '#/lib/toc'
+import type { TocHeading } from '#/lib/toc'
+import { padBlock } from '#/lib/markdownEditing'
+import { snippets } from '#/lib/formatMarkdown'
+import { ImagePickerDialog } from '#/components/ImagePickerDialog'
+import { useWorldSettings } from '#/lib/useWorldSettings'
+import { Button } from '#/components/ui/button'
 import type { RollSource } from '#/lib/rollLog'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '#/components/ui/tabs'
 import { Textarea } from '#/components/ui/textarea'
@@ -36,6 +52,7 @@ import { NotesTab } from '#/components/character/NotesTab'
 import {
   SheetFitPane,
   SheetPreview,
+  backstoryDoc,
   hasSpellcasting,
 } from '#/components/character/SheetPreview'
 import { loadSpellCards, saveSpellCards } from '#/lib/sheetPrintPrefs'
@@ -56,6 +73,32 @@ async function waitForCards(
   const deadline = Date.now() + timeoutMs
   while (!settled.current && Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, 60))
+  }
+}
+
+/**
+ * The Story tab's outline visibility. Its own key rather than the article
+ * route's `dm.articleToc`: the two surfaces are opened for different reasons and
+ * wanting the outline on one says nothing about wanting it on the other.
+ */
+const STORY_TOC_KEY = 'dm.characterStoryToc'
+/**
+ * Live edit is the SAME key the article route uses. It is a preference about the
+ * editing surface itself, not about one tab, and a character's backstory is the
+ * very same markdown body the article editor edits — so flipping it in one place
+ * and finding it off in the other would be the surprise.
+ */
+const LIVE_EDIT_KEY = 'dm.articleLiveEdit'
+
+function loadFlag(key: string, field: 'open' | 'on'): boolean {
+  try {
+    const raw = JSON.parse(localStorage.getItem(key) ?? '') as Record<
+      string,
+      unknown
+    >
+    return raw[field] === true
+  } catch {
+    return false
   }
 }
 
@@ -118,6 +161,47 @@ function CharacterPage() {
   // Controlled so Export PDF can switch to the preview before capturing it.
   const [tab, setTab] = useState('sheet')
   const [exporting, setExporting] = useState(false)
+
+  // --- Story tab: the same three affordances the article editor has ------
+  const liveEditorRef = useRef<LiveEditorHandle>(null)
+  const [storyTocOpen, setStoryTocOpen] = useState(() =>
+    loadFlag(STORY_TOC_KEY, 'open'),
+  )
+  const [storyLivePreview, setStoryLivePreview] = useState(false)
+  const [rememberedLiveEdit, setRememberedLiveEdit] = useState(() =>
+    loadFlag(LIVE_EDIT_KEY, 'on'),
+  )
+  const [activeHeadingId, setActiveHeadingId] = useState<string | null>(null)
+  /**
+   * Sampled as the context menu opens, never read during render: opening the
+   * Radix menu moves focus off the editor, so a live read reports "no selection"
+   * by the time Cut and Copy render. Same reasoning as the article route.
+   */
+  const [liveHasSelection, setLiveHasSelection] = useState(false)
+
+  useEffect(() => {
+    localStorage.setItem(STORY_TOC_KEY, JSON.stringify({ open: storyTocOpen }))
+  }, [storyTocOpen])
+  useEffect(() => {
+    localStorage.setItem(
+      LIVE_EDIT_KEY,
+      JSON.stringify({ on: rememberedLiveEdit }),
+    )
+  }, [rememberedLiveEdit])
+
+  /**
+   * The world's setting decides the editing surface; `remember` hands the
+   * decision back to the toggle and the localStorage memory. `worldLiveEdit`
+   * therefore doubles as "is the toggle shown".
+   */
+  const worldLiveEdit = useWorldSettings(worldId).data?.liveEdit ?? 'remember'
+  const liveEdit =
+    worldLiveEdit === 'remember'
+      ? rememberedLiveEdit
+      : worldLiveEdit === 'always'
+
+  // The backstory IS the markdown body, so the outline parses it directly.
+  const headings = useMemo(() => parseHeadings(body), [body])
 
   // Same guarded reset as the article editor: only load fresh state when a
   // different character arrives or nothing is unsaved.
@@ -205,6 +289,90 @@ function CharacterPage() {
   useEffect(() => {
     saveSpellCards(spellCards)
   }, [spellCards])
+
+  /**
+   * Insert routing. In live-edit mode the textarea is not mounted, so
+   * `useMarkdownEditor` would silently no-op — every insert affordance has to
+   * ask CodeMirror instead. Mirrors the article route's two shims.
+   */
+  const insertAtCursor = useCallback(
+    (text: string) => {
+      if (liveEditorRef.current) liveEditorRef.current.insert(text)
+      else backstoryEditor.insertText(text)
+    },
+    [backstoryEditor],
+  )
+  const insertBlock = useCallback(
+    (snippet: string) => {
+      if (liveEditorRef.current)
+        liveEditorRef.current.transform((text, start, end) =>
+          padBlock(text, { start, end }, snippet),
+        )
+      else backstoryEditor.insertBlock(snippet)
+    },
+    [backstoryEditor],
+  )
+
+  /** The same right-click menu over CodeMirror, via the structural interface. */
+  const liveMenuEditor = useMemo<ContextMenuEditor>(
+    () => ({
+      onContextMenu: () =>
+        setLiveHasSelection(liveEditorRef.current?.hasSelection() ?? false),
+      hasSelection: liveHasSelection,
+      execEditorCommand: (command) =>
+        liveEditorRef.current?.execCommand(command),
+      wrap: (wrapper) => liveEditorRef.current?.wrap(wrapper),
+      transform: (fn) => liveEditorRef.current?.transform(fn),
+      insertBlock,
+      insertText: insertAtCursor,
+    }),
+    [liveHasSelection, insertBlock, insertAtCursor],
+  )
+
+  /**
+   * Jump to a heading. Which surface is mounted decides how: CodeMirror knows
+   * its own geometry, while the textarea needs `editorScrollTopFor` to measure
+   * where a soft-wrapped line actually sits.
+   */
+  const goToHeading = useCallback(
+    (heading: TocHeading) => {
+      setActiveHeadingId(heading.id)
+      // setTimeout(0): the editor may not be focusable until React has committed.
+      setTimeout(() => {
+        if (liveEditorRef.current) {
+          liveEditorRef.current.goTo(heading.offset)
+          return
+        }
+        const textarea = backstoryEditor.ref.current
+        if (!textarea) return
+        textarea.focus()
+        textarea.setSelectionRange(heading.offset, heading.offset)
+        textarea.scrollTop = editorScrollTopFor(textarea, heading.offset)
+      }, 0)
+    },
+    [backstoryEditor],
+  )
+
+  /**
+   * Upload dropped/pasted image files into the world and insert them at the
+   * cursor — the character portrait's shortest path. Clipboard screenshots all
+   * arrive named "image.png", which the upload dedupe turns into
+   * "image (2).png" and so on.
+   */
+  const uploadAndInsert = async (files: Array<File>) => {
+    const pictures = files.filter((f) => f.type.startsWith('image/'))
+    if (pictures.length === 0) return
+    try {
+      for (const file of pictures) {
+        const image = await api.images.upload(worldId, file)
+        const alt = image.fileName.replace(/\.[^.]+$/, '')
+        insertAtCursor(`![${alt}](${image.encodedRelPath})`)
+      }
+      queryClient.invalidateQueries({ queryKey: ['worlds', worldId, 'images'] })
+    } catch (error) {
+      alert((error as Error).message)
+    }
+  }
 
   if (article.isLoading || !character) {
     return <p className="text-muted-foreground p-6">Loading character…</p>
@@ -429,27 +597,154 @@ function CharacterPage() {
         />
       </TabsContent>
       <TabsContent value="backstory" className="flex min-h-0 flex-1 flex-col">
-        <MarkdownContextMenu editor={backstoryEditor}>
-          <Textarea
-            ref={backstoryEditor.ref}
-            value={body}
-            placeholder="Backstory, bonds, ideals, flaws — markdown with [[wiki links]]."
-            className={cn(
-              'h-full min-h-0 flex-1 resize-none rounded-none border-none font-mono text-sm shadow-none focus-visible:ring-0',
-              // Ctrl held over a [[link]]: show it is clickable.
-              backstoryEditor.wikiLinkHovered && 'cursor-pointer',
+        <div className="flex shrink-0 items-center gap-2 border-b px-3 py-1">
+          <span className="text-muted-foreground text-xs">
+            The character's prose — this is the markdown body of the file.
+          </span>
+          <div className="ml-auto flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 text-xs"
+              title="Insert a portrait that the story text wraps around"
+              onClick={() => insertBlock(snippets.portraitImage)}
+            >
+              <ImagePlus className="size-3.5" /> Portrait
+            </Button>
+            <ImagePickerDialog worldId={worldId} onInsert={insertAtCursor} />
+            {worldLiveEdit === 'remember' && (
+              <Button
+                variant={liveEdit ? 'secondary' : 'ghost'}
+                size="sm"
+                className="h-7 text-xs"
+                title="Experimental: hide markdown syntax while editing. Set a default for the whole world in Settings."
+                onClick={() => setRememberedLiveEdit((v) => !v)}
+              >
+                <WandSparkles className="size-3.5" /> Live edit
+              </Button>
             )}
-            onMouseMove={backstoryEditor.onMouseMove}
-            onMouseLeave={backstoryEditor.onMouseLeave}
-            onChange={(e) => {
-              setBody(e.target.value)
-              setDirty(true)
-            }}
-            onClick={backstoryEditor.onClick}
-            onKeyDown={backstoryEditor.onKeyDown}
-            onBeforeInput={backstoryEditor.onBeforeInput}
-          />
-        </MarkdownContextMenu>
+            <Button
+              variant={storyLivePreview ? 'secondary' : 'ghost'}
+              size="sm"
+              className="h-7 text-xs"
+              title="Show a live preview beside the editor"
+              onClick={() => setStoryLivePreview((v) => !v)}
+            >
+              <Columns2 className="size-3.5" /> Live preview
+            </Button>
+            <Button
+              variant={storyTocOpen ? 'secondary' : 'ghost'}
+              size="sm"
+              className="h-7 text-xs"
+              title="Show the backstory outline"
+              onClick={() => setStoryTocOpen((v) => !v)}
+            >
+              <List className="size-3.5" /> Outline
+            </Button>
+          </div>
+        </div>
+        <div className="flex min-h-0 flex-1">
+          {liveEdit ? (
+            <MarkdownContextMenu editor={liveMenuEditor}>
+              <LiveMarkdownEditor
+                ref={liveEditorRef}
+                value={body}
+                className="min-h-0 min-w-0 flex-1 overflow-hidden"
+                source={source}
+                onWikiLinkOpen={openWikiLink}
+                onFiles={uploadAndInsert}
+                onChange={(next) => {
+                  setBody(next)
+                  // Load-bearing: useArticleEditorSave's debounce keys on
+                  // editSeq, which only advances through setDirty. Without this,
+                  // edits are typed, shown, and never written to disk while the
+                  // button still reads "Saved".
+                  setDirty(true)
+                }}
+                onSelectionChange={(offset) => {
+                  const line = body.slice(0, offset).split('\n').length - 1
+                  setActiveHeadingId(
+                    activeHeadingAt(headings, line)?.id ?? null,
+                  )
+                }}
+              />
+            </MarkdownContextMenu>
+          ) : (
+            <MarkdownContextMenu editor={backstoryEditor}>
+              <Textarea
+                ref={backstoryEditor.ref}
+                value={body}
+                placeholder="Backstory, bonds, ideals, flaws — markdown with [[wiki links]]."
+                className={cn(
+                  'h-full min-h-0 flex-1 resize-none rounded-none border-none font-mono text-sm shadow-none focus-visible:ring-0',
+                  // Ctrl held over a [[link]]: show it is clickable.
+                  backstoryEditor.wikiLinkHovered && 'cursor-pointer',
+                )}
+                onMouseMove={backstoryEditor.onMouseMove}
+                onMouseLeave={backstoryEditor.onMouseLeave}
+                onChange={(e) => {
+                  setBody(e.target.value)
+                  setDirty(true)
+                }}
+                onClick={backstoryEditor.onClick}
+                onKeyDown={backstoryEditor.onKeyDown}
+                onBeforeInput={backstoryEditor.onBeforeInput}
+                onPaste={(e) => {
+                  const files = Array.from(e.clipboardData.files)
+                  if (files.some((f) => f.type.startsWith('image/'))) {
+                    e.preventDefault()
+                    uploadAndInsert(files)
+                  }
+                }}
+                onDragOver={(e) => {
+                  // Only claim the drop for files — the textarea's own
+                  // text-drag behaviour must keep working.
+                  if (e.dataTransfer.types.indexOf('Files') >= 0)
+                    e.preventDefault()
+                }}
+                onDrop={(e) => {
+                  const files = Array.from(e.dataTransfer.files)
+                  if (files.some((f) => f.type.startsWith('image/'))) {
+                    e.preventDefault()
+                    uploadAndInsert(files)
+                  }
+                }}
+                onKeyUp={() => {
+                  // The outline follows the caret: count the newlines behind it
+                  // to get the line, then take the last heading at or above it.
+                  const textarea = backstoryEditor.ref.current
+                  if (!textarea) return
+                  const line =
+                    textarea.value.slice(0, textarea.selectionStart).split('\n')
+                      .length - 1
+                  setActiveHeadingId(
+                    activeHeadingAt(headings, line)?.id ?? null,
+                  )
+                }}
+              />
+            </MarkdownContextMenu>
+          )}
+          {storyLivePreview && (
+            <LivePreviewPane
+              // The printed doc, not the raw body: the sheet prepends a title
+              // heading when the prose lacks one, and a preview that disagreed
+              // about that is the mismatch backstoryDoc exists to prevent.
+              content={backstoryDoc(body, title)}
+              articles={tree.data?.articles}
+              worldId={worldId}
+              source={source}
+              onCreateMissing={setMissingTitle}
+            />
+          )}
+          {storyTocOpen && (
+            <TableOfContents
+              headings={headings}
+              activeId={activeHeadingId}
+              onSelect={goToHeading}
+              onClose={() => setStoryTocOpen(false)}
+            />
+          )}
+        </div>
       </TabsContent>
       <TabsContent
         value="preview"
