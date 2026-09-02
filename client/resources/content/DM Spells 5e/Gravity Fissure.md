@@ -4,6 +4,7 @@ level: 6
 school: evocation
 classes: Wizard
 srd: false
+edition: 2014
 ---
 
 # Gravity Fissure

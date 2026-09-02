@@ -3,6 +3,7 @@ type: spell
 level: 3
 school: abjuration
 classes: Cleric, Paladin
+edition: 2014
 ---
 
 # Beacon of Hope

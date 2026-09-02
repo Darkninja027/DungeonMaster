@@ -4,6 +4,7 @@ level: 5
 school: evocation
 classes: Sorcerer, Warlock, Wizard
 srd: false
+edition: 2014
 ---
 
 # Wall of Light

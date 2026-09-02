@@ -3,6 +3,7 @@ type: spell
 level: 1
 school: conjuration
 classes: Druid, Sorcerer, Wizard
+edition: 2024
 ---
 
 # Ice Knife

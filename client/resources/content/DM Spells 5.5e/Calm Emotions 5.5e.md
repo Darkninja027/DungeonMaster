@@ -3,6 +3,7 @@ type: spell
 level: 2
 school: enchantment
 classes: Bard, Cleric
+edition: 2024
 ---
 
 # Calm Emotions

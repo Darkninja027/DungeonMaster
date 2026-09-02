@@ -5,6 +5,7 @@ school: enchantment
 classes: Bard, Cleric
 srd: false
 source: Player's Handbook
+edition: 2024
 ---
 
 # Power Word Fortify

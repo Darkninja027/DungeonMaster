@@ -3,6 +3,7 @@ type: spell
 level: 5
 school: evocation
 classes: Druid, Sorcerer, Wizard
+edition: 2024
 ---
 
 # Cone of Cold

@@ -4,6 +4,7 @@ level: 3
 school: conjuration
 classes: Druid (Optional), Ranger (Optional), Warlock (Optional), Wizard (Optional)
 srd: false
+edition: 2014
 ---
 
 # Summon Fey

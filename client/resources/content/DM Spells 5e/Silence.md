@@ -3,6 +3,7 @@ type: spell
 level: 2
 school: illusion
 classes: Bard, Cleric, Druid, Ranger, Ritual Caster
+edition: 2014
 ---
 
 # Silence

@@ -4,6 +4,7 @@ level: 1
 school: necromancy
 classes: Warlock, Wizard
 srd: false
+edition: 2014
 ---
 
 # Cause Fear

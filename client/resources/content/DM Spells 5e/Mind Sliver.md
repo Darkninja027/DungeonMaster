@@ -4,6 +4,7 @@ level: 0
 school: enchantment
 classes: Sorcerer (Optional), Warlock (Optional), Wizard (Optional)
 srd: false
+edition: 2014
 ---
 
 # Mind Sliver

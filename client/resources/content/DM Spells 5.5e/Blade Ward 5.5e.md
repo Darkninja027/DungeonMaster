@@ -5,6 +5,7 @@ school: abjuration
 classes: Bard, Sorcerer, Warlock, Wizard
 srd: false
 source: Player's Handbook
+edition: 2024
 ---
 
 # Blade Ward

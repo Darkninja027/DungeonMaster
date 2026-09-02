@@ -3,6 +3,7 @@ type: spell
 level: 1
 school: necromancy
 classes: Cleric
+edition: 2024
 ---
 
 # Inflict Wounds

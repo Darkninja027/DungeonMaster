@@ -3,6 +3,7 @@ type: spell
 level: 4
 school: abjuration
 classes: Bard, Cleric, Druid, Paladin, Ranger
+edition: 2014
 ---
 
 # Freedom of Movement

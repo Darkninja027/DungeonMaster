@@ -3,6 +3,7 @@ type: spell
 level: 2
 school: evocation
 classes: Paladin
+edition: 2014
 ---
 
 # Branding Smite

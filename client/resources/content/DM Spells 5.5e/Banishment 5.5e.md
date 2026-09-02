@@ -3,6 +3,7 @@ type: spell
 level: 4
 school: abjuration
 classes: Cleric, Paladin, Sorcerer, Warlock, Wizard
+edition: 2024
 ---
 
 # Banishment

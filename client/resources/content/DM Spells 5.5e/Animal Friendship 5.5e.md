@@ -3,6 +3,7 @@ type: spell
 level: 1
 school: enchantment
 classes: Bard, Druid, Ranger
+edition: 2024
 ---
 
 # Animal Friendship

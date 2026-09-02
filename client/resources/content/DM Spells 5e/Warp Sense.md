@@ -4,6 +4,7 @@ level: 2
 school: divination
 classes: Sorcerer, Warlock, Wizard
 srd: false
+edition: 2014
 ---
 
 # Warp Sense

@@ -4,6 +4,7 @@ level: 9
 school: enchantment
 classes: Bard, Sorcerer, Warlock, Wizard
 srd: false
+edition: 2014
 ---
 
 # Psychic Scream

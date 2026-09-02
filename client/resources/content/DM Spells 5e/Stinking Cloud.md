@@ -3,6 +3,7 @@ type: spell
 level: 3
 school: conjuration
 classes: Bard, Druid, Sorcerer, Warlock, Wizard
+edition: 2014
 ---
 
 # Stinking Cloud

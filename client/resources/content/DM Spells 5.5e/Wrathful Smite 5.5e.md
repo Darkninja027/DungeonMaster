@@ -5,6 +5,7 @@ school: necromancy
 classes: Paladin
 srd: false
 source: Player's Handbook
+edition: 2024
 ---
 
 # Wrathful Smite

@@ -20,6 +20,7 @@ const {
   getLibrary,
   importMarkdownFolder,
   setLibrary,
+  withEdition,
 } = await import('./library')
 
 describe('dedupeName', () => {
@@ -349,5 +350,42 @@ describe('library against real temp folders', () => {
         truncated: false,
       })
     })
+  })
+})
+
+describe('withEdition', () => {
+  it('inserts the key as the last frontmatter field', () => {
+    expect(
+      withEdition('---\ntype: spell\nlevel: 3\n---\n\n# Fireball\n', '2014'),
+    ).toBe('---\ntype: spell\nlevel: 3\nedition: 2014\n---\n\n# Fireball\n')
+  })
+
+  it('leaves a file that already declares an edition alone', () => {
+    expect(
+      withEdition('---\ntype: spell\nedition: 2024\n---\n\nbody\n', '2014'),
+    ).toBeNull()
+  })
+
+  it('leaves a file with no frontmatter alone', () => {
+    expect(withEdition('# Just a heading\n', '2014')).toBeNull()
+  })
+
+  it('leaves an unterminated frontmatter block alone', () => {
+    expect(withEdition('---\ntype: spell\n', '2014')).toBeNull()
+  })
+
+  it('preserves CRLF rather than rewriting every line', () => {
+    // These files are meant to be hand-edited in Obsidian. Normalising line
+    // endings to add one key would turn a one-line change into a whole-file
+    // diff in the user's own version control.
+    const out = withEdition('---\r\ntype: spell\r\n---\r\n\r\nbody\r\n', '2024')
+    expect(out).toBe(
+      '---\r\ntype: spell\r\nedition: 2024\r\n---\r\n\r\nbody\r\n',
+    )
+  })
+
+  it('does not confuse a body line for a frontmatter key', () => {
+    const out = withEdition('---\ntype: spell\n---\n\nedition: nope\n', '2014')
+    expect(out).toBe('---\ntype: spell\nedition: 2014\n---\n\nedition: nope\n')
   })
 })

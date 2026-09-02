@@ -5,6 +5,7 @@ school: conjuration
 classes: Ranger, Wizard
 srd: false
 source: Player's Handbook
+edition: 2024
 ---
 
 # Steel Wind Strike

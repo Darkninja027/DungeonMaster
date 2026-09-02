@@ -3,6 +3,7 @@ type: spell
 level: 3
 school: conjuration
 classes: Cleric, Druid
+edition: 2014
 ---
 
 # Call Lightning

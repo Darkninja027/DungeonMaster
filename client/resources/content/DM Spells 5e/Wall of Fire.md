@@ -3,6 +3,7 @@ type: spell
 level: 4
 school: evocation
 classes: Cleric, Druid, Sorcerer, Warlock, Wizard
+edition: 2014
 ---
 
 # Wall of Fire

@@ -3,6 +3,7 @@ type: spell
 level: 2
 school: divination
 classes: Bard, Druid, Ranger, Ritual Caster
+edition: 2014
 ---
 
 # Locate Animals or Plants

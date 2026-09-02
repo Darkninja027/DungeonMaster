@@ -3,6 +3,7 @@ type: spell
 level: 2
 school: evocation
 classes: Cleric
+edition: 2024
 ---
 
 # Spiritual Weapon

@@ -3,6 +3,7 @@ type: spell
 level: 2
 school: transmutation
 classes: Druid, Ranger
+edition: 2024
 ---
 
 # Spike Growth

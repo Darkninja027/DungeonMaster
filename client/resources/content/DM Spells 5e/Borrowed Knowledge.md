@@ -4,6 +4,7 @@ level: 2
 school: divination
 classes: Bard, Cleric, Warlock, Wizard
 srd: false
+edition: 2014
 ---
 
 # Borrowed Knowledge

@@ -4,6 +4,7 @@ level: 3
 school: transmutation
 classes: Druid, Ranger, Sorcerer, Wizard, Artificer
 srd: false
+edition: 2014
 ---
 
 # Flame Arrows

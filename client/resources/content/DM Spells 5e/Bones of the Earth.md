@@ -4,6 +4,7 @@ level: 6
 school: transmutation
 classes: Druid
 srd: false
+edition: 2014
 ---
 
 # Bones of the Earth

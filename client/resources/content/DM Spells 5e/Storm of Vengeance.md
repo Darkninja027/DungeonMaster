@@ -3,6 +3,7 @@ type: spell
 level: 9
 school: conjuration
 classes: Druid
+edition: 2014
 ---
 
 # Storm of Vengeance

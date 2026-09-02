@@ -4,6 +4,7 @@ level: 5
 school: conjuration
 classes: Ranger, Wizard
 srd: false
+edition: 2014
 ---
 
 # Steel Wind Strike

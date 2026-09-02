@@ -4,6 +4,7 @@ level: 0
 school: evocation
 classes: Bard, Druid, Sorcerer, Warlock, Wizard, Artificer
 srd: false
+edition: 2014
 ---
 
 # Thunderclap

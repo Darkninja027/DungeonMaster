@@ -4,6 +4,7 @@ level: 2
 school: enchantment
 classes: Sorcerer (Optional), Wizard (Optional)
 srd: false
+edition: 2014
 ---
 
 # Tasha's Mind Whip

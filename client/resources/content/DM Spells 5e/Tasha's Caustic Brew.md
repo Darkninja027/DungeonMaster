@@ -4,6 +4,7 @@ level: 1
 school: evocation
 classes: Artificer, Sorcerer (Optional), Wizard (Optional)
 srd: false
+edition: 2014
 ---
 
 # Tasha's Caustic Brew

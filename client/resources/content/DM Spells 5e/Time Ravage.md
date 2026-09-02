@@ -4,6 +4,7 @@ level: 9
 school: necromancy
 classes: Wizard
 srd: false
+edition: 2014
 ---
 
 # Time Ravage

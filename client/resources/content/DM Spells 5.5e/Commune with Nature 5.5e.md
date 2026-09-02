@@ -3,6 +3,7 @@ type: spell
 level: 5
 school: divination
 classes: Druid, Ranger
+edition: 2024
 ---
 
 # Commune with Nature

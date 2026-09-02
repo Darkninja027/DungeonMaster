@@ -5,6 +5,7 @@ school: abjuration
 classes: Artificer, Wizard
 srd: false
 source: Player's Handbook
+edition: 2024
 ---
 
 # Mordenkainen's Private Sanctum

@@ -3,6 +3,7 @@ type: spell
 level: 4
 school: necromancy
 classes: Druid, Sorcerer, Warlock, Wizard
+edition: 2014
 ---
 
 # Blight

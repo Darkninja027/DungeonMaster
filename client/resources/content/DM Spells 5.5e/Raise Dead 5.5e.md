@@ -3,6 +3,7 @@ type: spell
 level: 5
 school: necromancy
 classes: Bard, Cleric, Paladin
+edition: 2024
 ---
 
 # Raise Dead

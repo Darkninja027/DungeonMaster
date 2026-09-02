@@ -3,6 +3,7 @@ type: spell
 level: 8
 school: enchantment
 classes: Bard, Druid, Wizard
+edition: 2024
 ---
 
 # Antipathy/Sympathy

@@ -4,6 +4,7 @@ level: 0
 school: transmutation
 classes: Druid, Warlock, Artificer
 srd: false
+edition: 2014
 ---
 
 # Magic Stone

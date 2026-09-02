@@ -4,6 +4,7 @@ level: 1
 school: evocation
 classes: Paladin
 srd: false
+edition: 2014
 ---
 
 # Thunderous Smite

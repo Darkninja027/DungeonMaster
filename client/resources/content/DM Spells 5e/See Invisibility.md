@@ -3,6 +3,7 @@ type: spell
 level: 2
 school: divination
 classes: Bard, Sorcerer, Wizard
+edition: 2014
 ---
 
 # See Invisibility

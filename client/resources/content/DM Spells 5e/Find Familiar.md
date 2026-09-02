@@ -3,6 +3,7 @@ type: spell
 level: 1
 school: conjuration
 classes: Wizard
+edition: 2014
 ---
 
 # Find Familiar

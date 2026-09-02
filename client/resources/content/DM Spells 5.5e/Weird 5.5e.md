@@ -3,6 +3,7 @@ type: spell
 level: 9
 school: illusion
 classes: Warlock, Wizard
+edition: 2024
 ---
 
 # Weird

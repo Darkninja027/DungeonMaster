@@ -3,6 +3,7 @@ type: spell
 level: 9
 school: abjuration
 classes: Cleric
+edition: 2024
 ---
 
 # Mass Heal

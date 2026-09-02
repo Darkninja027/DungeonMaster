@@ -4,6 +4,7 @@ level: 6
 school: abjuration
 classes: Sorcerer, Wizard
 srd: false
+edition: 2014
 ---
 
 # Fizban's Platinum Shield

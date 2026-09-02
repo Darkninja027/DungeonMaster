@@ -3,6 +3,7 @@ type: spell
 level: 8
 school: conjuration
 classes: Druid, Sorcerer, Wizard
+edition: 2024
 ---
 
 # Incendiary Cloud

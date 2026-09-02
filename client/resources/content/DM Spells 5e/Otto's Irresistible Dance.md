@@ -4,6 +4,7 @@ level: 6
 school: enchantment
 classes: Bard, Wizard
 srd: false
+edition: 2014
 ---
 
 # Otto's Irresistible Dance

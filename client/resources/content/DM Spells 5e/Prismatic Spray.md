@@ -3,6 +3,7 @@ type: spell
 level: 7
 school: evocation
 classes: Sorcerer, Wizard
+edition: 2014
 ---
 
 # Prismatic Spray

@@ -5,6 +5,7 @@ school: conjuration
 classes: Bard, Wizard
 srd: false
 source: Player's Handbook
+edition: 2024
 ---
 
 # Mordenkainen's Magnificent Mansion

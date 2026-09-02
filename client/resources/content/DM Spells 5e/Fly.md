@@ -3,6 +3,7 @@ type: spell
 level: 3
 school: transmutation
 classes: Sorcerer, Warlock, Wizard
+edition: 2014
 ---
 
 # Fly

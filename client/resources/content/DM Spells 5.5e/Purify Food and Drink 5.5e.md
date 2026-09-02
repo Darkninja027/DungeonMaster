@@ -3,6 +3,7 @@ type: spell
 level: 1
 school: transmutation
 classes: Cleric, Druid, Paladin
+edition: 2024
 ---
 
 # Purify Food and Drink

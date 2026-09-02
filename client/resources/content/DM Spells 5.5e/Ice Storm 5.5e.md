@@ -3,6 +3,7 @@ type: spell
 level: 4
 school: evocation
 classes: Druid, Sorcerer, Wizard
+edition: 2024
 ---
 
 # Ice Storm

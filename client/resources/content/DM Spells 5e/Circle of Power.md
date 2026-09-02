@@ -4,6 +4,7 @@ level: 5
 school: abjuration
 classes: Paladin
 srd: false
+edition: 2014
 ---
 
 # Circle of Power

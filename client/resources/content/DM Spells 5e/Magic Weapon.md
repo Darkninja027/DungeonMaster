@@ -3,6 +3,7 @@ type: spell
 level: 2
 school: transmutation
 classes: Cleric, Paladin, Wizard
+edition: 2014
 ---
 
 # Magic Weapon

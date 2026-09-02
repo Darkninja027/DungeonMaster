@@ -3,6 +3,7 @@ type: spell
 level: 8
 school: conjuration
 classes: Druid
+edition: 2024
 ---
 
 # Tsunami

@@ -3,6 +3,7 @@ type: spell
 level: 1
 school: illusion
 classes: Bard, Cleric, Sorcerer, Wizard
+edition: 2014
 ---
 
 # Disguise Self

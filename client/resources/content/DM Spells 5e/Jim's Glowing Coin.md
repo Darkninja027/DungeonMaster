@@ -4,6 +4,7 @@ level: 2
 school: enchantment
 classes: Wizard
 srd: false
+edition: 2014
 ---
 
 # Jim's Glowing Coin

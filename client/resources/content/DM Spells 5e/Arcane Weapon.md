@@ -4,6 +4,7 @@ level: 1
 school: transmutation
 classes: Artificer
 srd: false
+edition: 2014
 ---
 
 # Arcane Weapon

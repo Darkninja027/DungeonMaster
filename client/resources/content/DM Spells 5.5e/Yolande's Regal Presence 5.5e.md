@@ -5,6 +5,7 @@ school: enchantment
 classes: Bard, Wizard
 srd: false
 source: Player's Handbook
+edition: 2024
 ---
 
 # Yolande's Regal Presence

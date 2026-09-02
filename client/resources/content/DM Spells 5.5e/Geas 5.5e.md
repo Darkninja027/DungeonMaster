@@ -3,6 +3,7 @@ type: spell
 level: 5
 school: enchantment
 classes: Bard, Cleric, Druid, Paladin, Wizard
+edition: 2024
 ---
 
 # Geas

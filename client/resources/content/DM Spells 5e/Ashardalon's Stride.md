@@ -4,6 +4,7 @@ level: 3
 school: transmutation
 classes: Artificer, Ranger, Sorcerer, Wizard
 srd: false
+edition: 2014
 ---
 
 # Ashardalon's Stride

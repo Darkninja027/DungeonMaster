@@ -4,6 +4,7 @@ level: 3
 school: evocation
 classes: Druid, Sorcerer, Wizard
 srd: false
+edition: 2014
 ---
 
 # Wall of Water

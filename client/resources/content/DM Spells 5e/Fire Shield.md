@@ -3,6 +3,7 @@ type: spell
 level: 4
 school: evocation
 classes: Warlock, Wizard
+edition: 2014
 ---
 
 # Fire Shield

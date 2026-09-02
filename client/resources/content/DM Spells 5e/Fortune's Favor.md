@@ -4,6 +4,7 @@ level: 2
 school: divination
 classes: Wizard (Dunamancy)
 srd: false
+edition: 2014
 ---
 
 # Fortune's Favor

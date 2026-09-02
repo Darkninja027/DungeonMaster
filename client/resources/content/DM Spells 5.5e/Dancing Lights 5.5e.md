@@ -3,6 +3,7 @@ type: spell
 level: 0
 school: illusion
 classes: Bard, Sorcerer, Wizard
+edition: 2024
 ---
 
 # Dancing Lights

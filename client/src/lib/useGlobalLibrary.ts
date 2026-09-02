@@ -5,10 +5,13 @@ import type { LibraryFolder, LibraryInfo } from '#/lib/api'
 import {
   collectMonsters,
   collectSpells,
+  filterByEdition,
   filterSpells,
   mergeEntries,
 } from '#/lib/bestiary'
 import type { LibraryEntry } from '#/lib/bestiary'
+import { DEFAULT_RULESET } from '#/lib/ruleset'
+import type { Ruleset } from '#/lib/ruleset'
 
 /** Shared empties, so "no library" doesn't hand callers a new array each render. */
 const EMPTY_ENTRIES: Array<LibraryEntry> = []
@@ -20,7 +23,7 @@ const EMPTY_ARTICLES: Array<{ id: string; title: string }> = []
  */
 export function useLibrary() {
   return useQuery({
-    queryKey: ['library'],
+    queryKey: libraryKey,
     queryFn: () => api.library.get(),
     staleTime: Infinity,
   })
@@ -28,6 +31,23 @@ export function useLibrary() {
 
 /** The frontmatter `type:` that backs each panel's folder. */
 const LIBRARY_TYPE = { Monsters: 'monster', Spells: 'spell' } as const
+
+/**
+ * Query keys for the library's content, as functions rather than inline arrays.
+ *
+ * The startup prefetch has to warm *exactly* these keys or it does the expensive
+ * scan twice — once into a slot nothing reads, then again on first use. That
+ * failure is silent and looks like the prefetch simply not helping, so the keys
+ * live here and both the hook below and the warmer use them.
+ */
+export const libraryKey = ['library'] as const
+export const libraryTreeKey = (worldId: string) =>
+  ['library', worldId, 'tree'] as const
+export const libraryQueryKey = (worldId: string, type: string) =>
+  ['library', worldId, 'query', { type }] as const
+
+/** The frontmatter types the two panels read, for warming both at startup. */
+export const LIBRARY_TYPES = Object.values(LIBRARY_TYPE)
 
 /**
  * Library entries for one panel.
@@ -68,7 +88,7 @@ export function useLibraryEntries(folder: LibraryFolder): {
   const worldId = info?.worldId ?? ''
 
   const tree = useQuery({
-    queryKey: ['library', worldId, 'tree'],
+    queryKey: libraryTreeKey(worldId),
     queryFn: () => api.worlds.tree(worldId),
     enabled,
     staleTime: Infinity,
@@ -80,7 +100,7 @@ export function useLibraryEntries(folder: LibraryFolder): {
   // independent source rather than a second view of the same fetch.
   const type = LIBRARY_TYPE[folder]
   const typed = useQuery({
-    queryKey: ['library', worldId, 'query', { type }],
+    queryKey: libraryQueryKey(worldId, type),
     queryFn: () => api.worlds.query(worldId, { type }),
     enabled,
     staleTime: Infinity,
@@ -122,10 +142,19 @@ export function useLibraryEntries(folder: LibraryFolder): {
  * Names are de-duplicated because `mergeEntries` deliberately does not: a world
  * spell and a library spell can share a title, and the `Combobox` keys its rows
  * by the string.
+ *
+ * `ruleset` narrows the suggestions to one edition of the rules. It is a
+ * parameter rather than a `useWorldRuleset` call inside, so this stays a
+ * function of its inputs and the two wizards that share it — creation and
+ * level-up — can't drift on where the answer comes from. Both pass the open
+ * world's setting, which is what makes a character inherit its world's edition
+ * without the wizard growing a step of its own. It defaults to showing
+ * everything, so a caller that hasn't been taught about editions is unchanged.
  */
 export function useSpellSuggestions(
   worldId: string,
   className: string | undefined,
+  ruleset: Ruleset = DEFAULT_RULESET,
 ): (level: number, upTo?: boolean) => Array<string> {
   const tree = useQuery({
     queryKey: ['worlds', worldId, 'tree'],
@@ -141,11 +170,14 @@ export function useSpellSuggestions(
 
   const entries = useMemo(
     () =>
-      mergeEntries(
-        collectSpells(worldId, tree.data, typed.data, { folder: 'Spells' }),
-        library.entries,
+      filterByEdition(
+        mergeEntries(
+          collectSpells(worldId, tree.data, typed.data, { folder: 'Spells' }),
+          library.entries,
+        ),
+        ruleset,
       ),
-    [worldId, tree.data, typed.data, library.entries],
+    [worldId, tree.data, typed.data, library.entries, ruleset],
   )
 
   return useMemo(() => {

@@ -3,6 +3,7 @@ type: spell
 level: 6
 school: transmutation
 classes: Warlock, Wizard
+edition: 2014
 ---
 
 # Flesh to Stone

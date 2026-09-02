@@ -3,6 +3,7 @@ type: spell
 level: 2
 school: conjuration
 classes: Druid, Paladin, Sorcerer, Warlock, Wizard
+edition: 2014
 ---
 
 # Misty Step

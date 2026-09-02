@@ -3,6 +3,7 @@ type: spell
 level: 2
 school: evocation
 classes: Sorcerer, Warlock, Wizard
+edition: 2024
 ---
 
 # Darkness

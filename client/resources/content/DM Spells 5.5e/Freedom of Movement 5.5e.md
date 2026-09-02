@@ -3,6 +3,7 @@ type: spell
 level: 4
 school: abjuration
 classes: Bard, Cleric, Druid, Ranger
+edition: 2024
 ---
 
 # Freedom of Movement

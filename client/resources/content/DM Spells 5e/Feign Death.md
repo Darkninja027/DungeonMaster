@@ -4,6 +4,7 @@ level: 3
 school: necromancy
 classes: Bard, Cleric, Druid, Wizard
 srd: false
+edition: 2014
 ---
 
 # Feign Death

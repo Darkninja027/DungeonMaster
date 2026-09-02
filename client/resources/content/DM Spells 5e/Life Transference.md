@@ -4,6 +4,7 @@ level: 3
 school: necromancy
 classes: Cleric, Wizard
 srd: false
+edition: 2014
 ---
 
 # Life Transference

@@ -3,6 +3,7 @@ type: spell
 level: 1
 school: abjuration
 classes: Cleric, Paladin
+edition: 2014
 ---
 
 # Shield of Faith

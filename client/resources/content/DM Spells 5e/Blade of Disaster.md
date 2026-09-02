@@ -4,6 +4,7 @@ level: 9
 school: conjuration
 classes: Sorcerer (Optional), Warlock (Optional), Wizard (Optional)
 srd: false
+edition: 2014
 ---
 
 # Blade of Disaster

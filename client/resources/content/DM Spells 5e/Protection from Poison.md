@@ -3,6 +3,7 @@ type: spell
 level: 2
 school: abjuration
 classes: Cleric, Druid, Paladin, Ranger
+edition: 2014
 ---
 
 # Protection from Poison

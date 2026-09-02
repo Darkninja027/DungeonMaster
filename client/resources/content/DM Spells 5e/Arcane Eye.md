@@ -3,6 +3,7 @@ type: spell
 level: 4
 school: divination
 classes: Cleric, Wizard
+edition: 2014
 ---
 
 # Arcane Eye

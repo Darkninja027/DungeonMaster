@@ -3,6 +3,7 @@ type: spell
 level: 1
 school: conjuration
 classes: Ranger
+edition: 2024
 ---
 
 # Ensnaring Strike

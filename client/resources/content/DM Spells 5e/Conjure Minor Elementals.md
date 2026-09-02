@@ -3,6 +3,7 @@ type: spell
 level: 4
 school: conjuration
 classes: Druid, Wizard
+edition: 2014
 ---
 
 # Conjure Minor Elementals

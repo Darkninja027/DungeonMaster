@@ -4,6 +4,7 @@ level: 7
 school: transmutation
 classes: Druid, Sorcerer, Wizard
 srd: false
+edition: 2014
 ---
 
 # Draconic Transformation

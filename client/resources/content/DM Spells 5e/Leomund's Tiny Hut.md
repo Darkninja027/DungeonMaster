@@ -4,6 +4,7 @@ level: 3
 school: evocation
 classes: Bard, Wizard
 srd: false
+edition: 2014
 ---
 
 # Leomund's Tiny Hut

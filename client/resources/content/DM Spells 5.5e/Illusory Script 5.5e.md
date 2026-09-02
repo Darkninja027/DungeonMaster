@@ -3,6 +3,7 @@ type: spell
 level: 1
 school: illusion
 classes: Bard, Warlock, Wizard
+edition: 2024
 ---
 
 # Illusory Script

@@ -3,6 +3,7 @@ type: spell
 level: 2
 school: conjuration
 classes: Sorcerer, Wizard
+edition: 2024
 ---
 
 # Web

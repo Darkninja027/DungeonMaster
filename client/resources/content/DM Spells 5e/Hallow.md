@@ -3,6 +3,7 @@ type: spell
 level: 5
 school: evocation
 classes: Cleric, Warlock
+edition: 2014
 ---
 
 # Hallow

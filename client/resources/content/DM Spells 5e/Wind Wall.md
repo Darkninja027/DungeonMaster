@@ -3,6 +3,7 @@ type: spell
 level: 3
 school: evocation
 classes: Cleric, Druid, Ranger
+edition: 2014
 ---
 
 # Wind Wall

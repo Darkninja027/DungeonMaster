@@ -3,6 +3,7 @@ type: spell
 level: 4
 school: illusion
 classes: Bard, Wizard
+edition: 2024
 ---
 
 # Phantasmal Killer

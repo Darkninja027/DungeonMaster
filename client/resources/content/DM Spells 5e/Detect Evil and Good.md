@@ -3,6 +3,7 @@ type: spell
 level: 1
 school: divination
 classes: Cleric, Paladin
+edition: 2014
 ---
 
 # Detect Evil and Good

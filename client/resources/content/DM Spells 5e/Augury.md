@@ -3,6 +3,7 @@ type: spell
 level: 2
 school: divination
 classes: Cleric, Ritual Caster
+edition: 2014
 ---
 
 # Augury

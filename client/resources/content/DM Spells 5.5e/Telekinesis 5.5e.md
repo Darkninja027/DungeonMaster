@@ -3,6 +3,7 @@ type: spell
 level: 5
 school: transmutation
 classes: Sorcerer, Wizard
+edition: 2024
 ---
 
 # Telekinesis

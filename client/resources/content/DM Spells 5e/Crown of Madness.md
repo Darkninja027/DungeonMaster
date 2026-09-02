@@ -4,6 +4,7 @@ level: 2
 school: enchantment
 classes: Bard, Sorcerer, Warlock, Wizard
 srd: false
+edition: 2014
 ---
 
 # Crown of Madness

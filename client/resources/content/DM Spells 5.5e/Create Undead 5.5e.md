@@ -3,6 +3,7 @@ type: spell
 level: 6
 school: necromancy
 classes: Cleric, Warlock, Wizard
+edition: 2024
 ---
 
 # Create Undead

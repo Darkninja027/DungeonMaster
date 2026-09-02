@@ -3,6 +3,7 @@ type: spell
 level: 2
 school: necromancy
 classes: Cleric, Paladin, Wizard
+edition: 2024
 ---
 
 # Gentle Repose

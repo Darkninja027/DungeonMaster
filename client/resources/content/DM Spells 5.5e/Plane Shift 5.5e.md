@@ -3,6 +3,7 @@ type: spell
 level: 7
 school: conjuration
 classes: Cleric, Druid, Sorcerer, Warlock, Wizard
+edition: 2024
 ---
 
 # Plane Shift

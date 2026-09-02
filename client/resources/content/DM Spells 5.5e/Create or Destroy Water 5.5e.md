@@ -3,6 +3,7 @@ type: spell
 level: 1
 school: transmutation
 classes: Cleric, Druid
+edition: 2024
 ---
 
 # Create or Destroy Water

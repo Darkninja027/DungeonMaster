@@ -1,4 +1,5 @@
 import type { ArticleRef, ArticleSummary, WorldTree } from '#/lib/api'
+import type { Ruleset } from '#/lib/ruleset'
 
 /**
  * A row in the Bestiary or Spells panel, from either the open world or the
@@ -40,6 +41,13 @@ export interface LibraryEntry {
   level?: number | null
   school?: string | null
   classes?: Array<string> | null
+  /**
+   * Frontmatter `edition` ("2014" / "2024"), when the query supplied it — the
+   * bundled content carries it, a hand-written article generally does not.
+   * Undefined or null both mean "doesn't say", which filterByEdition always
+   * shows.
+   */
+  edition?: string | null
 }
 
 /** Stable React key. A bare articleId collides — two worlds both have Monsters/Goblin. */
@@ -101,6 +109,7 @@ export function collectMonsters(
       queryable: true,
       cr: a.cr,
       xp: a.xp,
+      edition: a.edition,
     })
   }
   return [...byId.values()].sort(byTitle)
@@ -152,6 +161,7 @@ export function collectSpells(
       level: a.level,
       school: a.school,
       classes: a.classes,
+      edition: a.edition,
     })
   }
   return [...byId.values()].sort(byTitle)
@@ -219,4 +229,27 @@ export function filterSpells(
     }
     return true
   })
+}
+
+/**
+ * Entries narrowed to one edition of the rules.
+ *
+ * **An entry that doesn't declare an edition is always kept**, under every
+ * ruleset — the same rule filterSpells follows for level and classes, and for
+ * the same reason. Untagged content is someone's own homebrew, an article
+ * written in Obsidian, or a library entry seeded before the tag existed (the
+ * seeder's `skipExisting` deliberately never rewrites a file already there).
+ * Hiding any of those would be a view preference silently eating the user's
+ * work, which is the failure this codebase consistently refuses.
+ *
+ * `all` returns the same array rather than a copy: callers feed the result
+ * straight into `useMemo` deps, and a fresh array every render would defeat
+ * theirs.
+ */
+export function filterByEdition(
+  entries: Array<LibraryEntry>,
+  ruleset: Ruleset,
+): Array<LibraryEntry> {
+  if (ruleset === 'all') return entries
+  return entries.filter((e) => e.edition == null || e.edition === ruleset)
 }

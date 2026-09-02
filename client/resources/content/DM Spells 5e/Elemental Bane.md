@@ -4,6 +4,7 @@ level: 4
 school: transmutation
 classes: Druid, Warlock, Wizard, Artificer
 srd: false
+edition: 2014
 ---
 
 # Elemental Bane

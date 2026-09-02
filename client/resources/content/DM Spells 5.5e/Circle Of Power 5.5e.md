@@ -5,6 +5,7 @@ school: abjuration
 classes: Artificer, Cleric, Paladin, Wizard
 srd: false
 source: Player's Handbook
+edition: 2024
 ---
 
 # Circle Of Power

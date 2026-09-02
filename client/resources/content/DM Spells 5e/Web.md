@@ -3,6 +3,7 @@ type: spell
 level: 2
 school: conjuration
 classes: Druid, Sorcerer, Wizard
+edition: 2014
 ---
 
 # Web

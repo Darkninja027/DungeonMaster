@@ -3,6 +3,7 @@ type: spell
 level: 3
 school: conjuration
 classes: Druid, Sorcerer, Wizard
+edition: 2024
 ---
 
 # Sleet Storm

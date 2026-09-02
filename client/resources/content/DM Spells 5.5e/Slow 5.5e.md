@@ -3,6 +3,7 @@ type: spell
 level: 3
 school: transmutation
 classes: Bard, Sorcerer, Wizard
+edition: 2024
 ---
 
 # Slow

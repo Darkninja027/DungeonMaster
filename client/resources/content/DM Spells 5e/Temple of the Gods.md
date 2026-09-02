@@ -4,6 +4,7 @@ level: 7
 school: conjuration
 classes: Cleric
 srd: false
+edition: 2014
 ---
 
 # Temple of the Gods

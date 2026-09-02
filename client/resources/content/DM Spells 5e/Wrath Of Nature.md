@@ -4,6 +4,7 @@ level: 5
 school: evocation
 classes: Druid, Ranger
 srd: false
+edition: 2014
 ---
 
 # Wrath Of Nature

@@ -3,6 +3,7 @@ type: spell
 level: 1
 school: conjuration
 classes: Sorcerer, Wizard
+edition: 2024
 ---
 
 # Grease

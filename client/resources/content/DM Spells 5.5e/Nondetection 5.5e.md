@@ -3,6 +3,7 @@ type: spell
 level: 3
 school: abjuration
 classes: Bard, Ranger, Wizard
+edition: 2024
 ---
 
 # Nondetection

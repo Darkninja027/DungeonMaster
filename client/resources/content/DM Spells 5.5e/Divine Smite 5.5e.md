@@ -3,6 +3,7 @@ type: spell
 level: 1
 school: evocation
 classes: Paladin
+edition: 2024
 ---
 
 # Divine Smite

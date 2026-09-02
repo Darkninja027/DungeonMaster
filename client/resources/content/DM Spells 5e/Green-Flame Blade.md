@@ -4,6 +4,7 @@ level: 0
 school: evocation
 classes: Artificer, Sorcerer (Optional), Warlock (Optional), Wizard (Optional)
 srd: false
+edition: 2014
 ---
 
 # Green-Flame Blade

@@ -60,7 +60,7 @@ const MAX_FILES = 5000
  * once per version rather than on every launch — and so shipping new spells in
  * a later release tops up an existing library instead of being ignored.
  */
-const BUNDLED_CONTENT_VERSION = 1
+const BUNDLED_CONTENT_VERSION = 2
 const SEED_MARKER = '.seeded.json'
 
 /**
@@ -203,6 +203,7 @@ export async function seedBundledContent(): Promise<ImportSummary | null> {
   if (seededVersion(library.path) >= BUNDLED_CONTENT_VERSION) return null
 
   const summary = await copyBundledSets(source, BUNDLED_SETS)
+  await tagExistingEditions(library.path)
 
   atomicWrite(
     path.join(library.path, SEED_MARKER),
@@ -213,6 +214,100 @@ export async function seedBundledContent(): Promise<ImportSummary | null> {
     ),
   )
   return summary
+}
+
+/**
+ * Which edition each bundled filename belongs to, for tagging library files
+ * that predate the `edition` frontmatter key.
+ *
+ * Built from the shipped content rather than from the " 5.5e" filename suffix:
+ * the suffix is a naming convention of the 2024 set, not a fact about the
+ * library, and a user's own "Fireball 5.5e.md" should not be silently claimed
+ * by it. A file the app never shipped stays untagged, which means it keeps
+ * showing under every ruleset — the correct outcome for someone's homebrew.
+ */
+function bundledEditions(source: string): Map<string, string> {
+  const editions = new Map<string, string>()
+  for (const set of BUNDLED_SETS) {
+    const dir = path.join(source, set.dir)
+    if (!fs.existsSync(dir)) continue
+    const edition = set.dir.includes('5.5e') ? '2024' : '2014'
+    for (const name of fs.readdirSync(dir)) {
+      if (name.toLowerCase().endsWith('.md')) {
+        editions.set(`${set.target}/${name.toLowerCase()}`, edition)
+      }
+    }
+  }
+  return editions
+}
+
+/**
+ * Add the `edition` key to library files that were seeded before it existed.
+ *
+ * Needed because `copyBundledSets` skips a file already on disk — which is the
+ * right rule, since it is what stops a re-seed from eating a spell someone
+ * reworded. But it means a library seeded at content version 1 would keep 1,640
+ * untagged articles forever, and the ruleset filter, which shows anything
+ * untagged, would do nothing at all for every existing user.
+ *
+ * So this is deliberately the narrowest possible edit: it inserts one line into
+ * the frontmatter block and touches nothing else. A file that already has the
+ * key, has no frontmatter, or was never shipped by us is left completely alone.
+ * Non-fatal per file for the same reason the import loop is — one article held
+ * open by OneDrive must not sink the rest.
+ */
+async function tagExistingEditions(root: string): Promise<void> {
+  const editions = bundledEditions(bundledContentDir())
+  if (editions.size === 0) return
+
+  for (const folder of LIBRARY_FOLDERS) {
+    const dir = path.join(root, folder)
+    if (!fs.existsSync(dir)) continue
+    for (const name of await fs.promises.readdir(dir)) {
+      if (!name.toLowerCase().endsWith('.md')) continue
+      const edition = editions.get(`${folder}/${name.toLowerCase()}`)
+      if (!edition) continue
+      try {
+        const abs = path.join(dir, name)
+        const text = await fs.promises.readFile(abs, 'utf8')
+        const tagged = withEdition(text, edition)
+        if (tagged !== null) atomicWrite(abs, tagged)
+      } catch {
+        // Locked, unreadable, or vanished mid-walk — the next bump retries.
+      }
+    }
+  }
+}
+
+/**
+ * `text` with `edition: <edition>` added to its frontmatter, or null when there
+ * is nothing to do — no frontmatter block, or a key already present.
+ *
+ * Exported for tests. Preserves the file's existing line endings rather than
+ * normalising them: these files are meant to be opened in Obsidian and edited
+ * by hand, and rewriting every line of one to add a key would be a hostile diff.
+ */
+export function withEdition(text: string, edition: string): string | null {
+  const lines = text.split('\n')
+  const bare = (line: string) => line.replace(/\r$/, '')
+  if (lines.length === 0 || bare(lines[0]) !== '---') return null
+
+  let close = -1
+  for (let i = 1; i < lines.length; i++) {
+    if (bare(lines[i]) === '---') {
+      close = i
+      break
+    }
+  }
+  if (close === -1) return null
+
+  for (let i = 1; i < close; i++) {
+    if (bare(lines[i]).startsWith('edition:')) return null
+  }
+
+  const eol = lines[close].endsWith('\r') ? '\r' : ''
+  lines.splice(close, 0, `edition: ${edition}${eol}`)
+  return lines.join('\n')
 }
 
 /**

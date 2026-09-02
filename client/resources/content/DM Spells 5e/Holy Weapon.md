@@ -4,6 +4,7 @@ level: 5
 school: evocation
 classes: Cleric, Paladin
 srd: false
+edition: 2014
 ---
 
 # Holy Weapon

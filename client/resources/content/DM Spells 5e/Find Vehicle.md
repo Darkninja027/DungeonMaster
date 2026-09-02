@@ -4,6 +4,7 @@ level: 2
 school: conjuration
 classes: Paladin, Sorcerer, Warlock, Wizard
 srd: false
+edition: 2014
 ---
 
 # Find Vehicle

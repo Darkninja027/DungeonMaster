@@ -3,6 +3,7 @@ type: spell
 level: 1
 school: transmutation
 classes: Bard, Druid, Ranger, Wizard
+edition: 2024
 ---
 
 # Longstrider

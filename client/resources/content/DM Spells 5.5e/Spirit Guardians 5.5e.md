@@ -3,6 +3,7 @@ type: spell
 level: 3
 school: conjuration
 classes: Cleric
+edition: 2024
 ---
 
 # Spirit Guardians

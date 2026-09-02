@@ -3,6 +3,7 @@ type: spell
 level: 0
 school: transmutation
 classes: Bard, Druid, Sorcerer, Wizard
+edition: 2024
 ---
 
 # Message

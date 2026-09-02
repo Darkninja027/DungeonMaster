@@ -4,6 +4,7 @@ level: 4
 school: enchantment
 classes: Bard, Druid, Sorcerer, Warlock, Wizard
 srd: false
+edition: 2014
 ---
 
 # Charm Monster

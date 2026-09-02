@@ -5,6 +5,7 @@ school: conjuration
 classes: Cleric, Paladin
 srd: false
 source: Player's Handbook
+edition: 2024
 ---
 
 # Summon Celestial

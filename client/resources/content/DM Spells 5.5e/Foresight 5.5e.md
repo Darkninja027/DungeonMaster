@@ -3,6 +3,7 @@ type: spell
 level: 9
 school: divination
 classes: Bard, Druid, Warlock, Wizard
+edition: 2024
 ---
 
 # Foresight

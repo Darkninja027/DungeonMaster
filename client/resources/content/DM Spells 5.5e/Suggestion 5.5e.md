@@ -3,6 +3,7 @@ type: spell
 level: 2
 school: enchantment
 classes: Bard, Sorcerer, Warlock, Wizard
+edition: 2024
 ---
 
 # Suggestion

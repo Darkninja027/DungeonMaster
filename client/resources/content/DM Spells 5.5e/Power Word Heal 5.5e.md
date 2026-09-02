@@ -3,6 +3,7 @@ type: spell
 level: 9
 school: enchantment
 classes: Bard, Cleric
+edition: 2024
 ---
 
 # Power Word Heal

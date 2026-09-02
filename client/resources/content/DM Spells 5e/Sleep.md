@@ -3,6 +3,7 @@ type: spell
 level: 1
 school: enchantment
 classes: Bard, Sorcerer, Warlock, Wizard
+edition: 2014
 ---
 
 # Sleep

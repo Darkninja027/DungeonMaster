@@ -5,6 +5,7 @@ school: conjuration
 classes: Wizard
 srd: false
 source: Player's Handbook
+edition: 2024
 ---
 
 # Evard's Black Tentacles

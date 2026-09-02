@@ -3,6 +3,7 @@ type: spell
 level: 1
 school: divination
 classes: Paladin, Ranger
+edition: 2014
 ---
 
 # Hunter's Mark

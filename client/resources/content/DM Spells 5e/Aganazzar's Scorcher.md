@@ -4,6 +4,7 @@ level: 2
 school: evocation
 classes: Sorcerer, Wizard
 srd: false
+edition: 2014
 ---
 
 # Aganazzar's Scorcher

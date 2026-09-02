@@ -5,6 +5,7 @@ school: abjuration
 classes: Cleric, Paladin
 srd: false
 source: Player's Handbook
+edition: 2024
 ---
 
 # Aura of Purity

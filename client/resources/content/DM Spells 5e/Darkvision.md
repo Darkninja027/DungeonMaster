@@ -3,6 +3,7 @@ type: spell
 level: 2
 school: transmutation
 classes: Druid, Ranger, Sorcerer, Wizard
+edition: 2014
 ---
 
 # Darkvision

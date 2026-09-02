@@ -5,6 +5,7 @@ school: evocation
 classes: Bard, Druid
 srd: false
 source: Player's Handbook
+edition: 2024
 ---
 
 # Fount of Moonlight

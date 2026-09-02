@@ -3,6 +3,7 @@ type: spell
 level: 3
 school: abjuration
 classes: Sorcerer, Warlock, Wizard
+edition: 2024
 ---
 
 # Counterspell

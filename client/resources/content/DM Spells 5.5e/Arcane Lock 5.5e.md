@@ -3,6 +3,7 @@ type: spell
 level: 2
 school: abjuration
 classes: Wizard
+edition: 2024
 ---
 
 # Arcane Lock

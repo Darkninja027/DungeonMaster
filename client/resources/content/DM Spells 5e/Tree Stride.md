@@ -3,6 +3,7 @@ type: spell
 level: 5
 school: conjuration
 classes: Cleric, Druid, Paladin, Ranger
+edition: 2014
 ---
 
 # Tree Stride

@@ -3,6 +3,7 @@ type: spell
 level: 9
 school: conjuration
 classes: Cleric, Sorcerer, Warlock, Wizard
+edition: 2024
 ---
 
 # Gate

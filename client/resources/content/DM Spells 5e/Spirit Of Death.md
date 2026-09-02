@@ -4,6 +4,7 @@ level: 4
 school: necromancy
 classes: Sorcerer, Warlock, Wizard
 srd: false
+edition: 2014
 ---
 
 # Spirit Of Death

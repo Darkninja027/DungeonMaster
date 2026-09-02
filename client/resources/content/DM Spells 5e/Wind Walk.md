@@ -3,6 +3,7 @@ type: spell
 level: 6
 school: transmutation
 classes: Druid
+edition: 2014
 ---
 
 # Wind Walk

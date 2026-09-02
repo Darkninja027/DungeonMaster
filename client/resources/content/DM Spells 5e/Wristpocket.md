@@ -4,6 +4,7 @@ level: 2
 school: conjuration
 classes: Wizard (Dunamancy)
 srd: false
+edition: 2014
 ---
 
 # Wristpocket

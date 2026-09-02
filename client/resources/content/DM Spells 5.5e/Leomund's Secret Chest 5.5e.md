@@ -5,6 +5,7 @@ school: conjuration
 classes: Artificer, Wizard
 srd: false
 source: Player's Handbook
+edition: 2024
 ---
 
 # Leomund's Secret Chest

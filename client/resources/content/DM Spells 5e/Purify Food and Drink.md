@@ -3,6 +3,7 @@ type: spell
 level: 1
 school: transmutation
 classes: Cleric, Druid, Paladin, Ritual Caster
+edition: 2014
 ---
 
 # Purify Food and Drink

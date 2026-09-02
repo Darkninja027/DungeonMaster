@@ -3,6 +3,7 @@ type: spell
 level: 1
 school: enchantment
 classes: Warlock
+edition: 2024
 ---
 
 # Hex

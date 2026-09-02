@@ -3,6 +3,7 @@ type: spell
 level: 0
 school: conjuration
 classes: Druid, Sorcerer, Warlock, Wizard
+edition: 2014
 ---
 
 # Poison Spray

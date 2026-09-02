@@ -3,6 +3,7 @@ type: spell
 level: 0
 school: evocation
 classes: Bard, Sorcerer, Wizard
+edition: 2014
 ---
 
 # Dancing Lights

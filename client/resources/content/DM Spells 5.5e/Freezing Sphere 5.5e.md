@@ -3,6 +3,7 @@ type: spell
 level: 6
 school: evocation
 classes: Sorcerer, Wizard
+edition: 2024
 ---
 
 # Freezing Sphere

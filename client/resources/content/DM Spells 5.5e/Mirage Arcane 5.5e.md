@@ -3,6 +3,7 @@ type: spell
 level: 7
 school: illusion
 classes: Bard, Druid, Wizard
+edition: 2024
 ---
 
 # Mirage Arcane

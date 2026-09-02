@@ -4,6 +4,7 @@ level: 2
 school: transmutation
 classes: Ranger
 srd: false
+edition: 2014
 ---
 
 # Cordon of Arrows

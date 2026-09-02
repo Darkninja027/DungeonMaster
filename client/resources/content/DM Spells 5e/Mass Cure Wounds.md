@@ -3,6 +3,7 @@ type: spell
 level: 5
 school: conjuration
 classes: Bard, Cleric, Druid
+edition: 2014
 ---
 
 # Mass Cure Wounds

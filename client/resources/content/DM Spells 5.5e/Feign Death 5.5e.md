@@ -5,6 +5,7 @@ school: necromancy
 classes: Bard, Cleric, Druid, Wizard
 srd: false
 source: Player's Handbook
+edition: 2024
 ---
 
 # Feign Death

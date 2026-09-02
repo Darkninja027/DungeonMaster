@@ -3,6 +3,7 @@ type: spell
 level: 5
 school: divination
 classes: Druid, Paladin, Ranger, Ritual Caster
+edition: 2014
 ---
 
 # Commune with Nature

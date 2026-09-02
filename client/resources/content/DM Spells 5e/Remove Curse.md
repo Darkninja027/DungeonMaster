@@ -3,6 +3,7 @@ type: spell
 level: 3
 school: abjuration
 classes: Cleric, Paladin, Warlock, Wizard
+edition: 2014
 ---
 
 # Remove Curse

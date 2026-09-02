@@ -3,6 +3,7 @@ type: spell
 level: 1
 school: abjuration
 classes: Cleric, Paladin, Warlock, Wizard
+edition: 2014
 ---
 
 # Protection from Evil and Good

@@ -5,6 +5,7 @@ school: divination
 classes: Bard, Wizard
 srd: false
 source: Player's Handbook
+edition: 2024
 ---
 
 # Rary's Telepathic Bond

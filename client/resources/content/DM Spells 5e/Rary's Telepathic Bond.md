@@ -4,6 +4,7 @@ level: 5
 school: divination
 classes: Bard (Optional), Wizard
 srd: false
+edition: 2014
 ---
 
 # Rary's Telepathic Bond

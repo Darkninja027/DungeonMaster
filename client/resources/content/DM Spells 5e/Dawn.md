@@ -4,6 +4,7 @@ level: 5
 school: evocation
 classes: Cleric, Wizard
 srd: false
+edition: 2014
 ---
 
 # Dawn

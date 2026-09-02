@@ -4,6 +4,7 @@ level: 3
 school: evocation
 classes: Wizard
 srd: false
+edition: 2014
 ---
 
 # Pulse Wave

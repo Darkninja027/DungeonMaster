@@ -3,6 +3,7 @@ type: spell
 level: 9
 school: transmutation
 classes: Bard, Warlock, Wizard
+edition: 2014
 ---
 
 # True Polymorph

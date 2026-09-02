@@ -3,6 +3,7 @@ type: spell
 level: 0
 school: enchantment
 classes: Bard
+edition: 2014
 ---
 
 # Vicious Mockery

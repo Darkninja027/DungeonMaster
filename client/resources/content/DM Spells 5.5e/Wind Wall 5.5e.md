@@ -3,6 +3,7 @@ type: spell
 level: 3
 school: evocation
 classes: Druid, Ranger
+edition: 2024
 ---
 
 # Wind Wall

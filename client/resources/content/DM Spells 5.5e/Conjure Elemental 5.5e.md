@@ -3,6 +3,7 @@ type: spell
 level: 5
 school: conjuration
 classes: Druid, Wizard
+edition: 2024
 ---
 
 # Conjure Elemental

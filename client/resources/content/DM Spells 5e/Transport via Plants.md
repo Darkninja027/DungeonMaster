@@ -3,6 +3,7 @@ type: spell
 level: 6
 school: conjuration
 classes: Druid
+edition: 2014
 ---
 
 # Transport via Plants

@@ -3,6 +3,7 @@ type: spell
 level: 3
 school: abjuration
 classes: Cleric
+edition: 2024
 ---
 
 # Beacon of Hope

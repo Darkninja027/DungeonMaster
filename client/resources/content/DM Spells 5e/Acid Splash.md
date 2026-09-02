@@ -3,6 +3,7 @@ type: spell
 level: 0
 school: conjuration
 classes: Sorcerer, Wizard
+edition: 2014
 ---
 
 # Acid Splash

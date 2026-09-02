@@ -5,6 +5,7 @@ school: necromancy
 classes: Warlock, Wizard
 srd: false
 source: Player's Handbook
+edition: 2024
 ---
 
 # Summon Undead

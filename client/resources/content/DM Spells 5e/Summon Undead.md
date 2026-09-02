@@ -4,6 +4,7 @@ level: 3
 school: necromancy
 classes: Warlock (Optional), Wizard (Optional)
 srd: false
+edition: 2014
 ---
 
 # Summon Undead

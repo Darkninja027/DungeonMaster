@@ -3,6 +3,7 @@ type: spell
 level: 4
 school: conjuration
 classes: Cleric
+edition: 2014
 ---
 
 # Guardian of Faith

@@ -3,6 +3,7 @@ type: spell
 level: 2
 school: divination
 classes: Bard, Sorcerer, Warlock, Wizard
+edition: 2014
 ---
 
 # Detect Thoughts

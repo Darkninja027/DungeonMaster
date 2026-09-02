@@ -3,6 +3,7 @@ type: spell
 level: 4
 school: divination
 classes: Bard, Cleric, Druid, Paladin, Ranger, Wizard
+edition: 2024
 ---
 
 # Locate Creature

@@ -3,6 +3,7 @@ type: spell
 level: 5
 school: necromancy
 classes: Cleric, Druid
+edition: 2024
 ---
 
 # Contagion

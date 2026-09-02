@@ -24,10 +24,12 @@ import { articleTemplates } from '#/lib/templates'
 import {
   collectSpells,
   entryKey,
+  filterByEdition,
   filterEntries,
   mergeEntries,
 } from '#/lib/bestiary'
 import type { LibraryEntry } from '#/lib/bestiary'
+import { useWorldRuleset } from '#/lib/useWorldSettings'
 import { useLibraryEntries } from '#/lib/useGlobalLibrary'
 import { LibraryImportButton } from '#/components/LibraryImportButton'
 import { VirtualList } from '#/components/VirtualList'
@@ -102,17 +104,27 @@ export function SpellReference({ worldId }: { worldId: string }) {
   const [openId, setOpenId] = useState<string | null>(null)
   const [newSpell, setNewSpell] = useState('')
 
-  // The world's own spell library, plus the global one, merged into one list.
+  // The world's own spell library, plus the global one, merged into one list
+  // and narrowed to the world's rules edition. The filter is applied to the
+  // merged result rather than to the library alone, so a world's own 2014-tagged
+  // spell obeys the setting the same way a shipped one does.
   const library = useLibraryEntries('Spells')
+  const ruleset = useWorldRuleset(worldId)
   const spells = useMemo(
     () =>
-      mergeEntries(
-        // No typed union for the open world: its own spells are whatever sits in
-        // the Spells folder, and it has a live watcher keeping this tree honest.
-        collectSpells(worldId, tree.data, undefined, { folder: SPELLS_FOLDER }),
-        library.entries,
+      filterByEdition(
+        mergeEntries(
+          // No typed union for the open world: its own spells are whatever sits
+          // in the Spells folder, and it has a live watcher keeping this tree
+          // honest.
+          collectSpells(worldId, tree.data, undefined, {
+            folder: SPELLS_FOLDER,
+          }),
+          library.entries,
+        ),
+        ruleset,
       ),
-    [worldId, tree.data, library.entries],
+    [worldId, tree.data, library.entries, ruleset],
   )
 
   const visible = useMemo(() => filterEntries(spells, filter), [spells, filter])

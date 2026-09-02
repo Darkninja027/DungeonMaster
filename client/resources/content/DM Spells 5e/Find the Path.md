@@ -3,6 +3,7 @@ type: spell
 level: 6
 school: divination
 classes: Bard, Cleric, Druid
+edition: 2014
 ---
 
 # Find the Path

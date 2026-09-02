@@ -3,6 +3,7 @@ type: spell
 level: 1
 school: transmutation
 classes: Sorcerer, Warlock, Wizard
+edition: 2024
 ---
 
 # Expeditious Retreat

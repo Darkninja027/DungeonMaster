@@ -3,6 +3,7 @@ type: spell
 level: 3
 school: conjuration
 classes: Cleric, Paladin
+edition: 2014
 ---
 
 # Revivify

@@ -4,6 +4,7 @@ level: 2
 school: transmutation
 classes: Wizard (Graviturgy)
 srd: false
+edition: 2014
 ---
 
 # Immovable Object

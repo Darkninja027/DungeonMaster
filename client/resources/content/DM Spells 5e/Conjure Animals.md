@@ -3,6 +3,7 @@ type: spell
 level: 3
 school: conjuration
 classes: Druid, Ranger
+edition: 2014
 ---
 
 # Conjure Animals

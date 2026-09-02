@@ -3,6 +3,7 @@ type: spell
 level: 6
 school: necromancy
 classes: Cleric
+edition: 2024
 ---
 
 # Harm

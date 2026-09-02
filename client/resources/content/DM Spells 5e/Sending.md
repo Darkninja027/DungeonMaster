@@ -3,6 +3,7 @@ type: spell
 level: 3
 school: evocation
 classes: Bard, Cleric, Warlock, Wizard
+edition: 2014
 ---
 
 # Sending

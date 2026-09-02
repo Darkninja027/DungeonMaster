@@ -3,6 +3,7 @@ type: spell
 level: 6
 school: abjuration
 classes: Cleric, Ritual Caster
+edition: 2014
 ---
 
 # Forbiddance

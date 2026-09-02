@@ -3,6 +3,7 @@ type: spell
 level: 3
 school: divination
 classes: Bard, Cleric, Wizard
+edition: 2024
 ---
 
 # Sending

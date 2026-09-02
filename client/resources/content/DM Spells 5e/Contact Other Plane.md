@@ -3,6 +3,7 @@ type: spell
 level: 5
 school: divination
 classes: Ritual Caster, Warlock, Wizard
+edition: 2014
 ---
 
 # Contact Other Plane

@@ -4,6 +4,7 @@ level: 0
 school: abjuration
 classes: Cleric
 srd: false
+edition: 2014
 ---
 
 # Virtue

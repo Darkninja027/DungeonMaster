@@ -3,6 +3,7 @@ type: spell
 level: 3
 school: transmutation
 classes: Druid, Paladin, Sorcerer, Wizard
+edition: 2014
 ---
 
 # Haste

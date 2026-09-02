@@ -3,6 +3,7 @@ type: spell
 level: 2
 school: enchantment
 classes: Bard, Cleric, Paladin
+edition: 2024
 ---
 
 # Zone of Truth

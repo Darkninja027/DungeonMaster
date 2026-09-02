@@ -3,6 +3,7 @@ type: spell
 level: 1
 school: divination
 classes: Cleric, Druid, Paladin, Ranger
+edition: 2024
 ---
 
 # Detect Poison and Disease

@@ -3,6 +3,7 @@ type: spell
 level: 1
 school: evocation
 classes: Bard, Cleric, Druid
+edition: 2014
 ---
 
 # Healing Word

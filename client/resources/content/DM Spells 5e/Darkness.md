@@ -3,6 +3,7 @@ type: spell
 level: 2
 school: evocation
 classes: Druid, Sorcerer, Warlock, Wizard
+edition: 2014
 ---
 
 # Darkness

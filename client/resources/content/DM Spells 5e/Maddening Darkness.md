@@ -4,6 +4,7 @@ level: 8
 school: evocation
 classes: Warlock, Wizard
 srd: false
+edition: 2014
 ---
 
 # Maddening Darkness

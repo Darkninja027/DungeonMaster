@@ -4,6 +4,7 @@ level: 3
 school: illusion
 classes: Sorcerer, Warlock, Wizard
 srd: false
+edition: 2014
 ---
 
 # Invisibility To Cameras

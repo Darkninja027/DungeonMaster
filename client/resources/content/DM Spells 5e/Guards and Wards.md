@@ -3,6 +3,7 @@ type: spell
 level: 6
 school: abjuration
 classes: Bard, Wizard
+edition: 2014
 ---
 
 # Guards and Wards

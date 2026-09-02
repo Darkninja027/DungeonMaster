@@ -3,6 +3,7 @@ type: spell
 level: 3
 school: transmutation
 classes: Bard, Cleric, Druid, Paladin, Ranger, Warlock
+edition: 2014
 ---
 
 # Plant Growth

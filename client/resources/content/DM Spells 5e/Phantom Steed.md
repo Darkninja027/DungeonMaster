@@ -3,6 +3,7 @@ type: spell
 level: 3
 school: illusion
 classes: Ritual Caster, Wizard
+edition: 2014
 ---
 
 # Phantom Steed

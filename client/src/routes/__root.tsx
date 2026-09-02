@@ -8,6 +8,7 @@ import {
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Castle, Moon, Sun } from 'lucide-react'
 import { UpdateIndicator } from '#/components/UpdateIndicator'
+import { LoadingGate } from '#/components/LoadingGate'
 import { isDark, setTheme } from '#/lib/theme'
 import {
   toggleSidebar,
@@ -107,7 +108,16 @@ function RootLayout() {
           </header>
         )}
         <main className="min-h-0 flex-1">
-          <Outlet />
+          {/* Secondary windows skip the warm-up: they load this same bundle to
+              show a single article to the table, and must not sit behind a
+              spinner waiting on a bestiary they will never open. */}
+          {bare ? (
+            <Outlet />
+          ) : (
+            <LoadingGate>
+              <Outlet />
+            </LoadingGate>
+          )}
         </main>
       </div>
     </QueryClientProvider>

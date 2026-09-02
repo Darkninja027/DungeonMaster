@@ -3,6 +3,7 @@ type: spell
 level: 6
 school: conjuration
 classes: Cleric
+edition: 2014
 ---
 
 # Word of Recall

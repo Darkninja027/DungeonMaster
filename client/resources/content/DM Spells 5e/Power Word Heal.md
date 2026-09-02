@@ -4,6 +4,7 @@ level: 9
 school: evocation
 classes: Bard, Cleric (Optional)
 srd: false
+edition: 2014
 ---
 
 # Power Word: Heal

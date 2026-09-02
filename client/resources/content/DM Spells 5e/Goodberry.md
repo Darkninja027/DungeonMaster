@@ -3,6 +3,7 @@ type: spell
 level: 1
 school: transmutation
 classes: Druid, Ranger
+edition: 2014
 ---
 
 # Goodberry

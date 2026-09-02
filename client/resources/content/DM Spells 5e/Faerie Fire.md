@@ -3,6 +3,7 @@ type: spell
 level: 1
 school: evocation
 classes: Bard, Cleric, Druid, Warlock
+edition: 2014
 ---
 
 # Faerie Fire

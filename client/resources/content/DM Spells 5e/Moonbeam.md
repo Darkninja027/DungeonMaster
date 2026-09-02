@@ -3,6 +3,7 @@ type: spell
 level: 2
 school: evocation
 classes: Druid, Paladin
+edition: 2014
 ---
 
 # Moonbeam

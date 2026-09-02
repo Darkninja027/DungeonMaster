@@ -216,6 +216,28 @@ export function seedWorldSettingsWithMode(root: string, mode: string): void {
 }
 
 /**
+ * Seed a world with the edition of the rules the creator picked.
+ *
+ * Unlike `mode` above, this key *is* stamped on an ordinary new world, because
+ * here the user was actually asked — the create dialog offers the choice, so
+ * the answer is a decision that was made rather than a default invented on
+ * their behalf. A world created by an older build still has no key and parses
+ * to `all`, which is the pre-existing behaviour.
+ *
+ * The caller omits `ruleset` entirely when it has nothing to record, which
+ * lands on plain SEED_SETTINGS and writes no key.
+ */
+export function seedWorldSettingsWithRuleset(
+  root: string,
+  ruleset?: string,
+): void {
+  writeWorldSettingsAtRoot(
+    root,
+    ruleset === undefined ? SEED_SETTINGS : { ...SEED_SETTINGS, ruleset },
+  )
+}
+
+/**
  * The world's settings, scaffolding the class list if it isn't there yet —
  * that's what covers worlds created before this feature existed, and worlds
  * whose file so far holds only the metadata migrated out of world.json.

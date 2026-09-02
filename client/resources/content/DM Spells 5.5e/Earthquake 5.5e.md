@@ -3,6 +3,7 @@ type: spell
 level: 8
 school: transmutation
 classes: Cleric, Druid, Sorcerer
+edition: 2024
 ---
 
 # Earthquake

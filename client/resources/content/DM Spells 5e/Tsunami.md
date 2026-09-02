@@ -4,6 +4,7 @@ level: 8
 school: conjuration
 classes: Druid
 srd: false
+edition: 2014
 ---
 
 # Tsunami

@@ -4,6 +4,7 @@ level: 2
 school: transmutation
 classes: Bard, Druid, Wizard, Artificer
 srd: false
+edition: 2014
 ---
 
 # Skywrite

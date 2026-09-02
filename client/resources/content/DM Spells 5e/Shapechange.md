@@ -3,6 +3,7 @@ type: spell
 level: 9
 school: transmutation
 classes: Druid, Wizard
+edition: 2014
 ---
 
 # Shapechange

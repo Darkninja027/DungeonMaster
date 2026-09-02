@@ -3,6 +3,7 @@ type: spell
 level: 1
 school: conjuration
 classes: Ritual Caster, Wizard
+edition: 2014
 ---
 
 # Floating Disk

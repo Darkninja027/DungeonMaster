@@ -4,6 +4,7 @@ level: 0
 school: necromancy
 classes: Cleric, Warlock, Wizard
 srd: false
+edition: 2014
 ---
 
 # Toll the Dead

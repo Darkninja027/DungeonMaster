@@ -4,6 +4,7 @@ level: 1
 school: abjuration
 classes: Cleric, Paladin
 srd: false
+edition: 2014
 ---
 
 # Ceremony

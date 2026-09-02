@@ -4,6 +4,7 @@ level: 1
 school: abjuration
 classes: Warlock
 srd: false
+edition: 2014
 ---
 
 # Armor of Agathys

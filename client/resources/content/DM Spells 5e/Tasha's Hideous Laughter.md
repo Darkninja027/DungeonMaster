@@ -4,6 +4,7 @@ level: 1
 school: enchantment
 classes: Bard, Wizard
 srd: false
+edition: 2014
 ---
 
 # Tasha's Hideous Laughter

@@ -4,6 +4,7 @@ level: 6
 school: evocation
 classes: Sorcerer (Optional), Wizard
 srd: false
+edition: 2014
 ---
 
 # Otiluke's Freezing Sphere

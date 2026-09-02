@@ -4,6 +4,7 @@ level: 3
 school: transmutation
 classes: Artificer, Druid (Optional), Paladin, Ranger (Optional)
 srd: false
+edition: 2014
 ---
 
 # Elemental Weapon

@@ -3,6 +3,7 @@ type: spell
 level: 7
 school: conjuration
 classes: Bard, Cleric, Sorcerer, Warlock, Wizard
+edition: 2024
 ---
 
 # Etherealness

@@ -65,6 +65,7 @@ const CHANNELS = new Set([
 // allowlist so the renderer can never subscribe to arbitrary IPC channels.
 const EVENT_CHANNELS = new Set([
   'updates:status',
+  'library:status',
   'world:changed',
   'player:content',
 ])

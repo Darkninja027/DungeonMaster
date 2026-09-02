@@ -3,6 +3,7 @@ type: spell
 level: 6
 school: conjuration
 classes: Bard, Cleric, Druid
+edition: 2024
 ---
 
 # Heroes' Feast

@@ -3,6 +3,7 @@ type: spell
 level: 2
 school: transmutation
 classes: Sorcerer, Wizard
+edition: 2014
 ---
 
 # Alter Self

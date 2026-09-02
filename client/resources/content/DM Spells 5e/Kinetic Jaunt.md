@@ -4,6 +4,7 @@ level: 2
 school: transmutation
 classes: Artificer, Bard, Sorcerer, Wizard
 srd: false
+edition: 2014
 ---
 
 # Kinetic Jaunt

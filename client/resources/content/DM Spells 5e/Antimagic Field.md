@@ -3,6 +3,7 @@ type: spell
 level: 8
 school: abjuration
 classes: Cleric, Wizard
+edition: 2014
 ---
 
 # Antimagic Field

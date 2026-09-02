@@ -3,6 +3,7 @@ type: spell
 level: 2
 school: evocation
 classes: Cleric, Druid, Wizard
+edition: 2024
 ---
 
 # Continual Flame

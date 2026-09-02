@@ -3,6 +3,7 @@ type: spell
 level: 2
 school: transmutation
 classes: Bard, Druid
+edition: 2014
 ---
 
 # Heat Metal

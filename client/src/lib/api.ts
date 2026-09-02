@@ -8,6 +8,8 @@
  * folder id is its world-relative directory path. null folder = world root.
  */
 
+import type { Ruleset } from '#/lib/ruleset'
+
 declare global {
   interface Window {
     dmApi: {
@@ -21,6 +23,14 @@ declare global {
 export interface UpdateStatus {
   state: 'checking' | 'available' | 'downloaded' | 'idle' | 'error'
   version?: string
+}
+
+/**
+ * Whether the app is still copying its bundled bestiary and spell list into the
+ * library. Only ever 'seeding' on a first run or after a content update.
+ */
+export interface LibraryStatus {
+  state: 'seeding' | 'ready'
 }
 
 export interface WorldSummary {
@@ -121,6 +131,12 @@ export interface ArticleRef {
   level: number | null
   school: string | null
   classes: Array<string> | null
+  /**
+   * Frontmatter `edition` ("2014" / "2024"), for the ruleset filter. Null when
+   * the article doesn't declare one, which every hand-written article and every
+   * pre-tag library entry looks like — those are always shown.
+   */
+  edition: string | null
 }
 
 /** A saved Smart View: a named frontmatter query, persisted to .dm/views.json. */
@@ -289,8 +305,12 @@ export const api = {
     query: (worldId: string, query: ArticleQuery) =>
       invoke<Array<ArticleRef>>('worlds:query', { worldId, query }),
     /** Directory picker for the parent location; returns null if cancelled. */
-    create: (input: { name: string; description?: string }) =>
-      invoke<WorldSummary | null>('worlds:create', input),
+    create: (input: {
+      name: string
+      description?: string
+      /** Edition of the shared spell list and bestiary — see lib/ruleset.ts. */
+      ruleset?: Ruleset
+    }) => invoke<WorldSummary | null>('worlds:create', input),
     update: (worldId: string, input: { name: string; description?: string }) =>
       invoke<void>('worlds:update', { worldId, ...input }),
     /** Removes the world from the recents list only — the folder stays on disk. */
@@ -457,6 +477,14 @@ export const api = {
   library: {
     /** The configured global library, or null if the user hasn't chosen one. */
     get: () => invoke<LibraryInfo | null>('library:get'),
+    /**
+     * Subscribe to bundled-content seeding status; returns an unsubscribe fn.
+     * Replayed on load, so a listener mounting mid-seed still hears about it.
+     */
+    onStatus: (cb: (status: LibraryStatus) => void) =>
+      window.dmApi.on('library:status', (payload) =>
+        cb(payload as LibraryStatus),
+      ),
     /** Directory picker; scaffolds the folder. Returns null if the user cancels. */
     pick: () => invoke<LibraryInfo | null>('library:pick'),
     /** Forget the library path. The folder itself is left alone. */

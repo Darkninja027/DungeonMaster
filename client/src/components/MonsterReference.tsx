@@ -29,10 +29,12 @@ import { articleTemplates, newArticleContent } from '#/lib/templates'
 import {
   collectMonsters,
   entryKey,
+  filterByEdition,
   filterEntries,
   mergeEntries,
 } from '#/lib/bestiary'
 import type { LibraryEntry } from '#/lib/bestiary'
+import { useWorldRuleset } from '#/lib/useWorldSettings'
 import { useLibraryEntries } from '#/lib/useGlobalLibrary'
 import { LibraryImportButton } from '#/components/LibraryImportButton'
 import { VirtualList } from '#/components/VirtualList'
@@ -202,15 +204,19 @@ export function MonsterReference({ worldId }: { worldId: string }) {
   // Library entries carry the library's world id so every per-row action —
   // fetch, reveal, render — targets the folder the article actually lives in.
   const library = useLibraryEntries('Monsters')
+  const ruleset = useWorldRuleset(worldId)
   const monsters = useMemo(
     () =>
-      mergeEntries(
-        collectMonsters(worldId, tree.data, typed.data, {
-          folder: MONSTERS_FOLDER,
-        }),
-        library.entries,
+      filterByEdition(
+        mergeEntries(
+          collectMonsters(worldId, tree.data, typed.data, {
+            folder: MONSTERS_FOLDER,
+          }),
+          library.entries,
+        ),
+        ruleset,
       ),
-    [worldId, tree.data, typed.data, library.entries],
+    [worldId, tree.data, typed.data, library.entries, ruleset],
   )
 
   // CR/XP for the list rows, taken from the frontmatter the query already

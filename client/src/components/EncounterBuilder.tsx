@@ -1,22 +1,17 @@
 import { useMemo, useState } from 'react'
 import { useQueries, useQuery } from '@tanstack/react-query'
-import {
-  Minus,
-  PictureInPicture2,
-  Play,
-  Plus,
-  Search,
-  X,
-} from 'lucide-react'
+import { Minus, PictureInPicture2, Play, Plus, Search, X } from 'lucide-react'
 import { api } from '#/lib/api'
 import type { ArticleRef } from '#/lib/api'
 import {
   collectMonsters,
   entryKey,
+  filterByEdition,
   filterEntries,
   mergeEntries,
 } from '#/lib/bestiary'
 import type { LibraryEntry } from '#/lib/bestiary'
+import { useWorldRuleset } from '#/lib/useWorldSettings'
 import { useLibraryEntries } from '#/lib/useGlobalLibrary'
 import { Input } from '#/components/ui/input'
 import { VirtualList } from '#/components/VirtualList'
@@ -92,6 +87,7 @@ export function EncounterBuilder({
   })
   // The global bestiary, the same source the Bestiary tab reads.
   const library = useLibraryEntries('Monsters')
+  const ruleset = useWorldRuleset(worldId)
   const characters = useQuery({
     queryKey: ['worlds', worldId, 'characters'],
     queryFn: () => api.characters.list(worldId),
@@ -101,11 +97,14 @@ export function EncounterBuilder({
   // dedupe across worlds, because they really are different articles.
   const monsterList: Array<LibraryEntry> = useMemo(
     () =>
-      mergeEntries(
-        collectMonsters(worldId, tree.data, typed.data),
-        library.entries,
+      filterByEdition(
+        mergeEntries(
+          collectMonsters(worldId, tree.data, typed.data),
+          library.entries,
+        ),
+        ruleset,
       ),
-    [worldId, tree.data, typed.data, library.entries],
+    [worldId, tree.data, typed.data, library.entries, ruleset],
   )
   const visible = useMemo(
     () => filterEntries(monsterList, filter),
@@ -194,7 +193,11 @@ export function EncounterBuilder({
       for (let i = 0; i < n; i++) {
         combatActions.add({
           name: m.title,
-          initiative: rollInitiative(m.worldId, { id: m.articleId, title: m.title }, dexMod),
+          initiative: rollInitiative(
+            m.worldId,
+            { id: m.articleId, title: m.title },
+            dexMod,
+          ),
           hp: sb?.hp ?? 0,
           maxHp: sb?.hp ?? null,
           ac: sb?.ac ?? null,

@@ -4,6 +4,7 @@ level: 4
 school: conjuration
 classes: Druid, Ranger
 srd: false
+edition: 2014
 ---
 
 # Grasping Vine

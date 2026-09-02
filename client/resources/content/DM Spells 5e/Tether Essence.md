@@ -4,6 +4,7 @@ level: 7
 school: necromancy
 classes: Wizard
 srd: false
+edition: 2014
 ---
 
 # Tether Essence

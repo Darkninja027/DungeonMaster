@@ -4,6 +4,7 @@ level: 3
 school: enchantment
 classes: Artificer, Bard, Sorcerer, Wizard
 srd: false
+edition: 2014
 ---
 
 # Catnap

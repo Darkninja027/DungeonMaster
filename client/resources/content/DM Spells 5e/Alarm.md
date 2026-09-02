@@ -3,6 +3,7 @@ type: spell
 level: 1
 school: abjuration
 classes: Ranger, Ritual Caster, Wizard
+edition: 2014
 ---
 
 # Alarm

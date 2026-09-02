@@ -3,6 +3,7 @@ type: spell
 level: 2
 school: evocation
 classes: Druid, Wizard
+edition: 2014
 ---
 
 # Acid Arrow

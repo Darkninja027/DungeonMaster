@@ -3,6 +3,7 @@ type: spell
 level: 9
 school: evocation
 classes: Sorcerer, Wizard
+edition: 2024
 ---
 
 # Meteor Swarm

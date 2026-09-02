@@ -4,6 +4,7 @@ level: 5
 school: necromancy
 classes: Warlock, Wizard
 srd: false
+edition: 2014
 ---
 
 # Negative Energy Flood

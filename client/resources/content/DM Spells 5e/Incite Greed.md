@@ -4,6 +4,7 @@ level: 3
 school: enchantment
 classes: Cleric, Sorcerer, Warlock, Wizard
 srd: false
+edition: 2014
 ---
 
 # Incite Greed

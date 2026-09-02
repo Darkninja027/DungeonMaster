@@ -23,6 +23,22 @@ function sendUpdateStatus(win: BrowserWindow, status: UpdateStatus) {
   if (!win.isDestroyed()) win.webContents.send('updates:status', status)
 }
 
+/**
+ * Whether the bundled content is still being copied into the library.
+ *
+ * Same replay bargain as the updater status above: on a fresh install the seed
+ * starts before the renderer is listening, so the state is remembered and
+ * re-sent on `did-finish-load`. Without that the loading gate would sit on its
+ * generic message through a first run that copies 1,640 files.
+ */
+type LibraryStatus = { state: 'seeding' | 'ready' }
+let lastLibraryStatus: LibraryStatus = { state: 'ready' }
+
+function sendLibraryStatus(win: BrowserWindow, status: LibraryStatus) {
+  lastLibraryStatus = status
+  if (!win.isDestroyed()) win.webContents.send('library:status', status)
+}
+
 registerWorldProtocol()
 
 /**
@@ -105,6 +121,7 @@ if (!app.requestSingleInstanceLock()) {
     // fresh install opens with a full bestiary and spell list. Runs once per
     // bundled-content version and never blocks the window: a failure here is a
     // missing convenience, not a reason to stop launching.
+    sendLibraryStatus(win, { state: 'seeding' })
     void seedBundledContent()
       .then((summary) => {
         if (summary?.copied) {
@@ -114,11 +131,15 @@ if (!app.requestSingleInstanceLock()) {
       .catch((error: unknown) => {
         log.warn('[library] bundled content seed failed', error)
       })
+      // Always cleared, on both paths: a failed seed is a thinner library, not
+      // a reason to leave the renderer waiting on a splash forever.
+      .finally(() => sendLibraryStatus(win, { state: 'ready' }))
 
     // Replay the latest update status to the renderer once it has loaded —
     // updater events can fire before the page is ready to receive them.
     win.webContents.on('did-finish-load', () => {
       sendUpdateStatus(win, lastUpdateStatus)
+      sendLibraryStatus(win, lastLibraryStatus)
     })
 
     // Renderer clicks "Restart to update" -> quit and install the download.

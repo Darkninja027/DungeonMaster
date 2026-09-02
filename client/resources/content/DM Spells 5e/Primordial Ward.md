@@ -4,6 +4,7 @@ level: 6
 school: abjuration
 classes: Druid
 srd: false
+edition: 2014
 ---
 
 # Primordial Ward

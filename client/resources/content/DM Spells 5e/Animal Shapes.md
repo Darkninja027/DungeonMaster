@@ -3,6 +3,7 @@ type: spell
 level: 8
 school: transmutation
 classes: Druid
+edition: 2014
 ---
 
 # Animal Shapes

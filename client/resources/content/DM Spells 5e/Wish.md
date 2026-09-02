@@ -3,6 +3,7 @@ type: spell
 level: 9
 school: conjuration
 classes: Sorcerer, Wizard
+edition: 2014
 ---
 
 # Wish

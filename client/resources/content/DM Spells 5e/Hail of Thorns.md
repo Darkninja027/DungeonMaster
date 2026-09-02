@@ -4,6 +4,7 @@ level: 1
 school: conjuration
 classes: Ranger
 srd: false
+edition: 2014
 ---
 
 # Hail of Thorns

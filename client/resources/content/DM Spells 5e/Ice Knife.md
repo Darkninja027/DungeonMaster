@@ -4,6 +4,7 @@ level: 1
 school: conjuration
 classes: Druid, Sorcerer, Wizard
 srd: false
+edition: 2014
 ---
 
 # Ice Knife

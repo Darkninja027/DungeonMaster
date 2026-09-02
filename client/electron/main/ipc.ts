@@ -52,7 +52,7 @@ import {
   WORLD_SETTINGS_FILE,
   migrateWorldFolder,
   readWorldSettings,
-  seedWorldSettings,
+  seedWorldSettingsWithRuleset,
   writeWorldSettings,
 } from './worldSettings'
 import { readHomebrew, writeHomebrew } from './homebrew'
@@ -98,11 +98,16 @@ function worldSummary(root: string): WorldSummary {
  * Never fatal: a world the user can't write to still opens, and readWorldSettings
  * serves the seed from memory. Skipped if a file is already there — including a
  * corrupt one, which is a hand edit to preserve, not to clobber.
+ *
+ * `ruleset` is only ever passed by worlds:create, where the user was actually
+ * asked. Adopting an existing folder leaves the key absent, which parses to
+ * "show everything" — stamping an edition onto somebody's Obsidian vault
+ * because they opened it here would be a decision they never made.
  */
-function scaffoldSettings(root: string): void {
+function scaffoldSettings(root: string, ruleset?: string): void {
   try {
     if (fs.existsSync(path.join(root, WORLD_SETTINGS_FILE))) return
-    seedWorldSettings(root)
+    seedWorldSettingsWithRuleset(root, ruleset)
   } catch {
     // read-only folder or a race with another window — the getter copes.
   }
@@ -186,7 +191,10 @@ export function registerIpcHandlers() {
 
   ipcMain.handle(
     'worlds:create',
-    async (_e, input: { name: string; description?: string }) => {
+    async (
+      _e,
+      input: { name: string; description?: string; ruleset?: string },
+    ) => {
       const error = nameError(input.name)
       if (error) throw new Error(error)
       const parent = await pickDirectory(
@@ -198,7 +206,7 @@ export function registerIpcHandlers() {
         throw new Error(`"${dir}" already exists and is not empty.`)
       }
       initWorld(dir, input.name.trim(), input.description ?? '')
-      scaffoldSettings(dir)
+      scaffoldSettings(dir, input.ruleset)
       scaffoldGuide(dir)
       addRecentWorld(dir)
       return worldSummary(dir)
@@ -710,7 +718,11 @@ export function registerIpcHandlers() {
       // world fails here rather than in a window that has already opened —
       // every handler funnels through the path guard.
       resolveInWorld(worldRoot(worldId), `${articleId}.md`)
-      showPlayerWindow(worldId, articleId, mode === 'popout' ? 'popout' : 'player')
+      showPlayerWindow(
+        worldId,
+        articleId,
+        mode === 'popout' ? 'popout' : 'player',
+      )
     },
   )
 

@@ -7,6 +7,8 @@ import {
   serializeWorldSettings,
 } from './worldSettings'
 import { findMode } from './worldMode'
+import { parseRuleset } from './ruleset'
+import type { Ruleset } from './ruleset'
 import type { WorldModeInfo } from './worldMode'
 import type { WorldSettings } from './worldSettings'
 
@@ -128,6 +130,23 @@ export function useWorldMode(worldId: string): WorldModeInfo {
  * `staleTime: Infinity` matches `useLibrary`: the vault path changes only when
  * the vault is created, which the home screen seeds into this cache directly.
  */
+/**
+ * The edition of the shared spell list and bestiary this world shows.
+ *
+ * Never returns a null-ish value, for the same reason useWorldMode doesn't:
+ * `placeholderData` makes settings readable on the first render and an unknown
+ * value falls back to the default, so a panel never flickers through an empty
+ * state while loading.
+ *
+ * No vault special-case, unlike the mode above: the vault is "characters, not a
+ * campaign", and a character can be built under either edition, so its ruleset
+ * is the user's to set like any other world's.
+ */
+export function useWorldRuleset(worldId: string): Ruleset {
+  const settings = useWorldSettings(worldId)
+  return parseRuleset(settings.data?.ruleset)
+}
+
 export function useIsVault(worldId: string): boolean {
   const vault = useQuery({
     queryKey: ['vault'],

@@ -3,6 +3,7 @@ type: spell
 level: 6
 school: conjuration
 classes: Wizard
+edition: 2024
 ---
 
 # Instant Summons

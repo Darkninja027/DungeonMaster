@@ -3,6 +3,7 @@ type: spell
 level: 3
 school: transmutation
 classes: Cleric, Sorcerer, Warlock, Wizard
+edition: 2014
 ---
 
 # Blink

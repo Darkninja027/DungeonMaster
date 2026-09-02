@@ -4,6 +4,7 @@ level: 3
 school: conjuration
 classes: Warlock
 srd: false
+edition: 2014
 ---
 
 # Hunger Of Hadar

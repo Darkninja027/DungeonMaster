@@ -3,6 +3,7 @@ type: spell
 level: 1
 school: enchantment
 classes: Bard, Druid, Ranger, Ritual Caster
+edition: 2014
 ---
 
 # Animal Friendship

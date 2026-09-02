@@ -4,6 +4,7 @@ level: 4
 school: abjuration
 classes: Artificer, Wizard
 srd: false
+edition: 2014
 ---
 
 # Mordenkainen's Private Sanctum

@@ -3,6 +3,7 @@ type: spell
 level: 7
 school: conjuration
 classes: Cleric, Sorcerer, Warlock, Wizard
+edition: 2014
 ---
 
 # Plane Shift

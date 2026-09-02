@@ -4,6 +4,7 @@ level: 2
 school: divination
 classes: Druid, Ranger
 srd: false
+edition: 2014
 ---
 
 # Beast Sense

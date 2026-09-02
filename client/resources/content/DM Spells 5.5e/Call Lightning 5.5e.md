@@ -3,6 +3,7 @@ type: spell
 level: 3
 school: conjuration
 classes: Druid
+edition: 2024
 ---
 
 # Call Lightning

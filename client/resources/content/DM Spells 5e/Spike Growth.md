@@ -3,6 +3,7 @@ type: spell
 level: 2
 school: transmutation
 classes: Cleric, Druid, Ranger
+edition: 2014
 ---
 
 # Spike Growth

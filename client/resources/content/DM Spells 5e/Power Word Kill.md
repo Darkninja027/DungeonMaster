@@ -3,6 +3,7 @@ type: spell
 level: 9
 school: enchantment
 classes: Bard, Sorcerer, Warlock, Wizard
+edition: 2014
 ---
 
 # Power Word Kill

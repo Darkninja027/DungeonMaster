@@ -4,6 +4,7 @@ level: 3
 school: evocation
 classes: Paladin
 srd: false
+edition: 2014
 ---
 
 # Blinding Smite

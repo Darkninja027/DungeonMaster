@@ -3,6 +3,7 @@ type: spell
 level: 1
 school: evocation
 classes: Bard, Cleric, Druid, Sorcerer, Wizard
+edition: 2014
 ---
 
 # Thunderwave

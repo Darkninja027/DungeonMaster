@@ -3,6 +3,7 @@ type: spell
 level: 3
 school: transmutation
 classes: Cleric, Druid, Ritual Caster
+edition: 2014
 ---
 
 # Meld into Stone

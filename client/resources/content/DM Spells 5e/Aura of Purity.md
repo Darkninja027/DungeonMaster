@@ -4,6 +4,7 @@ level: 4
 school: abjuration
 classes: Cleric (Optional), Paladin
 srd: false
+edition: 2014
 ---
 
 # Aura of Purity

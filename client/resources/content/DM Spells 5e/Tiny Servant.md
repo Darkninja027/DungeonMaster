@@ -4,6 +4,7 @@ level: 3
 school: transmutation
 classes: Wizard, Artificer
 srd: false
+edition: 2014
 ---
 
 # Tiny Servant

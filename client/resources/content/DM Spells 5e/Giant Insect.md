@@ -3,6 +3,7 @@ type: spell
 level: 4
 school: transmutation
 classes: Druid
+edition: 2014
 ---
 
 # Giant Insect

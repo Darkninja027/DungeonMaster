@@ -4,6 +4,7 @@ level: 3
 school: transmutation
 classes: Druid, Sorcerer, Wizard
 srd: false
+edition: 2014
 ---
 
 # Erupting Earth

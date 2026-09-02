@@ -4,6 +4,7 @@ level: 2
 school: evocation
 classes: Bard, Druid, Sorcerer, Wizard
 srd: false
+edition: 2014
 ---
 
 # Warding Wind

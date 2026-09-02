@@ -3,6 +3,7 @@ type: spell
 level: 1
 school: divination
 classes: Cleric, Druid, Paladin, Ranger, Ritual Caster
+edition: 2014
 ---
 
 # Detect Poison and Disease

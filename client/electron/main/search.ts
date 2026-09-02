@@ -277,6 +277,16 @@ export interface ArticleRef {
   level: number | null
   school: string | null
   classes: Array<string> | null
+  /**
+   * Frontmatter `edition`, carried for the same reason as the fields above: the
+   * spell and bestiary surfaces filter on it without reading every article.
+   *
+   * Null when the article doesn't declare one — which is what a hand-written
+   * spell, an Obsidian-authored monster, and every library entry seeded before
+   * this field existed all look like. Callers must treat that as "show it"
+   * rather than hiding it; see filterByEdition.
+   */
+  edition: string | null
 }
 
 /** Case-insensitive equality between a frontmatter scalar and a query string. */
@@ -336,6 +346,7 @@ export function queryArticles(
       level: scalarNumber(frontmatter?.level),
       school: scalarString(frontmatter?.school),
       classes: scalarList(frontmatter?.classes),
+      edition: scalarString(frontmatter?.edition),
     })
   }
   return results.sort((a, b) =>

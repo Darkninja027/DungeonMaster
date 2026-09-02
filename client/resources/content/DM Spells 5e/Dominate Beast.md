@@ -3,6 +3,7 @@ type: spell
 level: 4
 school: enchantment
 classes: Cleric, Druid, Sorcerer, Warlock
+edition: 2014
 ---
 
 # Dominate Beast

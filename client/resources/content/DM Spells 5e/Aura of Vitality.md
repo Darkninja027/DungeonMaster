@@ -4,6 +4,7 @@ level: 3
 school: evocation
 classes: Cleric (Optional), Druid (Optional), Paladin
 srd: false
+edition: 2014
 ---
 
 # Aura of Vitality

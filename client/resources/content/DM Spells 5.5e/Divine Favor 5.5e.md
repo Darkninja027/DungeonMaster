@@ -3,6 +3,7 @@ type: spell
 level: 1
 school: transmutation
 classes: Paladin
+edition: 2024
 ---
 
 # Divine Favor

@@ -3,6 +3,7 @@ type: spell
 level: 5
 school: abjuration
 classes: Druid
+edition: 2014
 ---
 
 # Antilife Shell

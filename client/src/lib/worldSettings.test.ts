@@ -190,6 +190,7 @@ describe('serializeWorldSettings', () => {
       version: 1,
       liveEdit: 'remember' as const,
       mode: 'dm' as const,
+      ruleset: 'all' as const,
       classes: [],
     }
     const again = parseWorldSettings(
@@ -302,5 +303,46 @@ describe('mode', () => {
     // than relying on a reader knowing what absence means.
     const out = serializeWorldSettings(DEFAULT_SETTINGS) as { mode: string }
     expect(out.mode).toBe('dm')
+  })
+})
+
+describe('ruleset', () => {
+  it('round-trips through serialize and parse', () => {
+    for (const ruleset of ['2014', '2024', 'all'] as const) {
+      const again = parseWorldSettings(
+        JSON.parse(
+          JSON.stringify(
+            serializeWorldSettings({ ...DEFAULT_SETTINGS, ruleset }),
+          ),
+        ),
+      )
+      expect(again.ruleset).toBe(ruleset)
+    }
+  })
+
+  it('defaults to showing everything when the key is absent', () => {
+    // A world written before this field existed is unchanged by its arrival.
+    expect(parseWorldSettings({ classes: [] }).ruleset).toBe('all')
+  })
+
+  it('falls back for a hand-edited value it does not recognise', () => {
+    expect(parseWorldSettings({ classes: [], ruleset: '5.5e' }).ruleset).toBe(
+      'all',
+    )
+  })
+
+  it('survives a malformed class list', () => {
+    // Field-by-field tolerance: one broken key must not cost the rest of the
+    // file. The parse deliberately reads ruleset above the classes guard.
+    const parsed = parseWorldSettings({ classes: 'nonsense', ruleset: '2024' })
+    expect(parsed.ruleset).toBe('2024')
+  })
+
+  it('is written to disk so an older build reads a real value', () => {
+    const raw = serializeWorldSettings({
+      ...DEFAULT_SETTINGS,
+      ruleset: '2024',
+    }) as Record<string, unknown>
+    expect(raw.ruleset).toBe('2024')
   })
 })

@@ -3,6 +3,7 @@ type: spell
 level: 1
 school: divination
 classes: Ranger
+edition: 2024
 ---
 
 # Hunter's Mark

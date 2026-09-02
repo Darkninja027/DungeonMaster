@@ -3,6 +3,7 @@ type: spell
 level: 2
 school: evocation
 classes: Druid
+edition: 2014
 ---
 
 # Flame Blade

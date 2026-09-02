@@ -4,6 +4,7 @@ level: 4
 school: evocation
 classes: Artificer, Wizard
 srd: false
+edition: 2014
 ---
 
 # Otiluke's Resilient Sphere

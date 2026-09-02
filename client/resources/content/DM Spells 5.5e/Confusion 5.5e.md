@@ -3,6 +3,7 @@ type: spell
 level: 4
 school: enchantment
 classes: Bard, Druid, Sorcerer, Wizard
+edition: 2024
 ---
 
 # Confusion

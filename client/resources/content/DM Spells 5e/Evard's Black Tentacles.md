@@ -4,6 +4,7 @@ level: 4
 school: conjuration
 classes: Wizard
 srd: false
+edition: 2014
 ---
 
 # Evard's Black Tentacles

@@ -5,6 +5,7 @@ school: evocation
 classes: Artificer, Bard, Druid, Sorcerer, Warlock, Wizard
 srd: false
 source: Player's Handbook
+edition: 2024
 ---
 
 # Thunderclap

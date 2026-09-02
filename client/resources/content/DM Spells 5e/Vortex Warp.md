@@ -4,6 +4,7 @@ level: 2
 school: conjuration
 classes: Artificer, Sorcerer, Wizard
 srd: false
+edition: 2014
 ---
 
 # Vortex Warp
