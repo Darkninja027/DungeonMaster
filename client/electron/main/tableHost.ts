@@ -5,6 +5,7 @@ import os from 'node:os'
 import { BrowserWindow } from 'electron'
 import { resolveInImages } from './images'
 import { IMAGES_DIR, worldRoot } from './worldStore'
+import { startBeacon, stopBeacon } from './beacon'
 import {
   codeMatches,
   emptyTable,
@@ -101,7 +102,11 @@ function broadcast(kind: string, payload: unknown): void {
 /** Tell the DM window the seat list changed, so its UI can show who is here. */
 function notifyHost(): void {
   if (!session) return
-  const payload = { tableId: session.state.tableId, code: session.state.code, seats: session.state.seats }
+  const payload = {
+    tableId: session.state.tableId,
+    code: session.state.code,
+    seats: session.state.seats,
+  }
   for (const win of BrowserWindow.getAllWindows()) {
     if (!win.isDestroyed()) win.webContents.send('table:seats', payload)
   }
@@ -169,7 +174,10 @@ async function handle(
   res: http.ServerResponse,
 ): Promise<void> {
   if (!session) return json(res, 503, { error: 'No table is running' })
-  const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`)
+  const url = new URL(
+    req.url ?? '/',
+    `http://${req.headers.host ?? 'localhost'}`,
+  )
   const addr = req.socket.remoteAddress ?? 'unknown'
 
   // --- join -----------------------------------------------------------------
@@ -381,6 +389,9 @@ export function hostTable(worldId: string, port = DEFAULT_PORT): TableInfo {
   // With port 0 the OS picks one, so read back what it actually bound.
   const bound = server.address()
   session.port = typeof bound === 'object' && bound ? bound.port : port
+  // Announce on the LAN so a guest needs only the room code. Best effort: a
+  // network that drops broadcast leaves the manual address field as the way in.
+  startBeacon(state.code, session.port)
   return {
     tableId: state.tableId,
     code: state.code,
@@ -399,6 +410,7 @@ export function stopTable(): void {
       /* already gone */
     }
   }
+  stopBeacon()
   session.server.close()
   session = null
   notifyHost()

@@ -1,11 +1,7 @@
 import { useState } from 'react'
 import { Link } from '@tanstack/react-router'
 import { Dices, LogOut, Users, WifiOff } from 'lucide-react'
-import {
-  joinTable,
-  leaveTable,
-  useGuest,
-} from '#/lib/guestStore'
+import { discover, joinTable, leaveTable, useGuest } from '#/lib/guestStore'
 import { BookView } from '#/components/Markdown'
 import { RollHistory } from '#/components/RollHistory'
 import { Button } from '#/components/ui/button'
@@ -34,12 +30,32 @@ export function GuestTable() {
   const [name, setName] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  // Shown only once discovery has actually failed, so the common case is two
+  // fields rather than three.
+  const [manual, setManual] = useState(false)
+  const [searching, setSearching] = useState(false)
 
   const join = async () => {
     setBusy(true)
     setError(null)
     try {
-      await joinTable(address, code, name)
+      let target = address.trim()
+      if (!target) {
+        // Nothing typed: ask the LAN who is hosting this code.
+        setSearching(true)
+        const found = await discover(code)
+        setSearching(false)
+        if (!found) {
+          setManual(true)
+          setError(
+            'No table answered on this network. Ask your DM for the address ' +
+              'shown on their screen and enter it below.',
+          )
+          return
+        }
+        target = found
+      }
+      await joinTable(target, code, name)
     } catch (cause) {
       setError(
         cause instanceof Error
@@ -47,6 +63,7 @@ export function GuestTable() {
           : 'Could not reach that address — check the DM is hosting.',
       )
     } finally {
+      setSearching(false)
       setBusy(false)
     }
   }
@@ -57,19 +74,11 @@ export function GuestTable() {
         <div>
           <h1 className="text-lg font-semibold">Join a table</h1>
           <p className="text-muted-foreground text-sm">
-            Ask your DM for the address and room code shown on their screen.
+            Ask your DM for the room code on their screen. If you are on the
+            same wifi, that is all you need.
           </p>
         </div>
         <div className="space-y-3">
-          <div className="space-y-1">
-            <Label htmlFor="guest-address">Address</Label>
-            <Input
-              id="guest-address"
-              placeholder="192.168.1.42:7777"
-              value={address}
-              onChange={(e) => setAddress(e.target.value)}
-            />
-          </div>
           <div className="space-y-1">
             <Label htmlFor="guest-code">Room code</Label>
             <Input
@@ -89,15 +98,38 @@ export function GuestTable() {
               onChange={(e) => setName(e.target.value)}
             />
           </div>
+          {manual && (
+            <div className="space-y-1">
+              <Label htmlFor="guest-address">Address</Label>
+              <Input
+                id="guest-address"
+                placeholder="192.168.1.42:7777"
+                value={address}
+                onChange={(e) => setAddress(e.target.value)}
+              />
+            </div>
+          )}
         </div>
         {error && <p className="text-destructive text-sm">{error}</p>}
         <Button
-          disabled={busy || !address.trim() || !code.trim() || !name.trim()}
+          disabled={busy || !code.trim() || !name.trim()}
           onClick={() => void join()}
         >
-          Join
+          {searching ? 'Looking for the table…' : 'Join'}
         </Button>
-        <Link to="/" className="text-muted-foreground text-center text-xs underline">
+        {!manual && (
+          <button
+            type="button"
+            className="text-muted-foreground text-center text-xs underline"
+            onClick={() => setManual(true)}
+          >
+            Enter an address manually
+          </button>
+        )}
+        <Link
+          to="/"
+          className="text-muted-foreground text-center text-xs underline"
+        >
           Back to worlds
         </Link>
       </div>

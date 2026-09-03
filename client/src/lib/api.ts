@@ -615,6 +615,16 @@ export const api = {
       invoke<void>('table:show', payload),
     /** Mirror initiative to the guests. No-ops when not hosting. */
     combat: (state: unknown) => invoke<void>('table:combat', { state }),
+    /**
+     * Guest side: find a host on the LAN by room code alone.
+     *
+     * Resolves null when nothing answers within a few seconds — the ordinary
+     * outcome on a network that drops broadcast (client isolation, guest wifi,
+     * some VPNs) or across subnets. Callers fall back to asking for an address
+     * rather than treating null as an error.
+     */
+    find: (code: string) =>
+      invoke<{ address: string; port: number } | null>('table:find', { code }),
     /** Host: the seat list changed. */
     onSeats: (cb: (info: Omit<TableInfo, 'port' | 'addresses'>) => void) =>
       window.dmApi.on('table:seats', (payload) =>

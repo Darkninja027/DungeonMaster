@@ -1,4 +1,8 @@
-import { isCharacterContent, parseCharacter, serializeCharacter } from './character'
+import {
+  isCharacterContent,
+  parseCharacter,
+  serializeCharacter,
+} from './character'
 import type { Character } from './character'
 
 /**

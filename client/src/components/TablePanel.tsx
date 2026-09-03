@@ -1,6 +1,11 @@
 import { useEffect, useState } from 'react'
 import { Copy, Users, Wifi, WifiOff } from 'lucide-react'
-import { refreshTable, startHosting, stopHosting, useTable } from '#/lib/tableStore'
+import {
+  refreshTable,
+  startHosting,
+  stopHosting,
+  useTable,
+} from '#/lib/tableStore'
 import { Button } from '#/components/ui/button'
 import { ScrollArea } from '#/components/ui/scroll-area'
 
@@ -50,7 +55,7 @@ export function TablePanel({ worldId }: { worldId: string }) {
           <p className="text-muted-foreground text-sm">
             Host this world so people at your table can join from their own
             machines. They see what you show them, and every roll lands in one
-            shared history.
+            shared history. On the same wifi, they need only the room code.
           </p>
           {error && <p className="text-destructive text-xs">{error}</p>}
         </div>
@@ -89,7 +94,9 @@ export function TablePanel({ worldId }: { worldId: string }) {
           </div>
         </div>
         <div>
-          <p className="text-muted-foreground text-xs">Address</p>
+          <p className="text-muted-foreground text-xs">
+            Address — only needed if the code alone does not find you
+          </p>
           <div className="flex items-center gap-2">
             <code className="min-w-0 flex-1 truncate font-mono text-sm">
               {address}:{info.port}

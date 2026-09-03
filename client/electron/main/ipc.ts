@@ -65,6 +65,7 @@ import {
 } from './playerWindow'
 import type { ViewerMode } from './playerWindow'
 import { relayRoll } from './rollRelay'
+import { findTable } from './beacon'
 import {
   hostTable,
   pushCombatToTable,
@@ -802,6 +803,13 @@ export function registerIpcHandlers() {
 
   ipcMain.handle('table:combat', (_e, { state }: { state: unknown }) =>
     pushCombatToTable(state),
+  )
+
+  // Guest side: find a host on the LAN by room code alone. Resolves null when
+  // nothing answers, which is the ordinary case on a network that drops
+  // broadcast — the caller then asks for an address instead of erroring.
+  ipcMain.handle('table:find', (_e, { code }: { code: string }) =>
+    findTable(code),
   )
 }
 

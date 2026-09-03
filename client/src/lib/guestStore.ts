@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react'
+import { api } from './api'
 import { mergeRoll, onLocalRoll } from './rollLog'
 import type { RollEntry } from './rollLog'
 import type { Seat } from './api'
@@ -63,9 +64,15 @@ function setState(patch: Partial<GuestState>) {
 
 /** Normalise what someone types: bare host, host:port, or a full URL. */
 export function normalizeAddress(raw: string, defaultPort = 7777): string {
-  const trimmed = raw.trim().replace(/^https?:\/\//i, '').replace(/\/+$/, '')
+  const trimmed = raw
+    .trim()
+    .replace(/^https?:\/\//i, '')
+    .replace(/\/+$/, '')
   return /:\d+$/.test(trimmed) ? trimmed : `${trimmed}:${defaultPort}`
 }
+
+/** Whether the IPC bridge exists — false in unit tests. */
+const bridged = () => typeof window !== 'undefined' && Boolean(window.dmApi)
 
 function base(): string {
   return `http://${state.session?.address ?? ''}`
@@ -81,6 +88,23 @@ async function send(path: string, body: unknown): Promise<Response> {
     },
     body: JSON.stringify(body),
   })
+}
+
+/**
+ * Find the host for this code on the LAN.
+ *
+ * Returns null when nothing answers, which is ordinary rather than an error:
+ * broadcast does not cross subnets and is dropped by access points with client
+ * isolation on. The caller then asks for an address.
+ */
+export async function discover(code: string): Promise<string | null> {
+  if (!bridged()) return null
+  try {
+    const found = await api.table.find(code)
+    return found ? `${found.address}:${found.port}` : null
+  } catch {
+    return null
+  }
 }
 
 /** Ask the host for a seat. Throws with the host's own message on refusal. */

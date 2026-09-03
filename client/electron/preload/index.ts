@@ -65,6 +65,7 @@ const CHANNELS = new Set([
   'table:info',
   'table:show',
   'table:combat',
+  'table:find',
 ])
 
 // Channels the main process may PUSH to the renderer. Kept as a separate

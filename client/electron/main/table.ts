@@ -110,7 +110,9 @@ export function withCharacterClaimed(
   if (takenBy) return state
   return {
     ...state,
-    seats: state.seats.map((s) => (s.id === seatId ? { ...s, characterId } : s)),
+    seats: state.seats.map((s) =>
+      s.id === seatId ? { ...s, characterId } : s,
+    ),
   }
 }
 
