@@ -23,6 +23,7 @@ import {
 import type { PendingCharacter } from '#/lib/guestStore'
 import { api } from '#/lib/api'
 import { useRollLog } from '#/lib/rollLog'
+import { useSpellPanelRequest } from '#/lib/spellPanel'
 import { BookView } from '#/components/Markdown'
 import { PanelRail } from '#/components/PanelRail'
 import type { PanelRailTab } from '#/components/PanelRail'
@@ -80,6 +81,20 @@ export function GuestTable() {
   const [tab, setTab] = useState<GuestTab>('dm')
   const [open, setOpen] = useState(true)
   const [expanded, setExpanded] = useState(false)
+
+  // Clicking a spell on the sheet opens it in the reference, exactly as it
+  // does outside a table. The request is a module store (lib/spellPanel.ts),
+  // so the sheet already fires it and SpellReference already consumes it —
+  // what was missing was opening the tab, which is the only part the panel
+  // owns. SpellReference consumes the request when it mounts, so the switch
+  // has to happen here or the request is dropped with nothing listening.
+  const spellRequest = useSpellPanelRequest()
+  useEffect(() => {
+    if (spellRequest) {
+      setTab('spells')
+      setOpen(true)
+    }
+  }, [spellRequest])
 
   if (!guest.session) return <JoinScreen />
 
