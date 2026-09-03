@@ -104,13 +104,13 @@ async function waitForAcceptable(view: EditorView, timeoutMs = 4000) {
   return false
 }
 
-function makeView(doc: string) {
+function makeView(doc: string, caret = doc.length) {
   const parent = document.createElement('div')
   document.body.appendChild(parent)
   const view = new EditorView({
     state: EditorState.create({
       doc,
-      selection: { anchor: doc.length },
+      selection: { anchor: caret },
       extensions: [liveMarkdown({ articles: () => ARTICLES })],
     }),
     parent,
@@ -148,6 +148,40 @@ describe('wiki autocomplete in the editor', () => {
     expect(accepted).toBe(true)
     // The partial and its brackets are replaced by the finished link.
     expect(after).toBe('See [[Strahd]]')
+  })
+
+  it('does not double the brackets when they are already closed', async () => {
+    // Ctrl+Shift+L wraps the selection and leaves the caret between a
+    // ready-made `[[` and `]]`. Accepting used to write a second closing pair:
+    // `See [[Strahd]]]]`.
+    const view = makeView('See [[Strah]]', 'See [[Strah'.length)
+    startCompletion(view)
+    const accepted = await waitForAcceptable(view)
+    const after = view.state.doc.toString()
+    view.destroy()
+    expect(accepted).toBe(true)
+    expect(after).toBe('See [[Strahd]]')
+  })
+
+  it('keeps text that follows a pre-closed link', async () => {
+    const view = makeView('See [[Strah]] tonight.', 'See [[Strah'.length)
+    startCompletion(view)
+    const accepted = await waitForAcceptable(view)
+    const after = view.state.doc.toString()
+    view.destroy()
+    expect(accepted).toBe(true)
+    expect(after).toBe('See [[Strahd]] tonight.')
+  })
+
+  it('does not eat a following ]] that belongs to something else', async () => {
+    // A single `]` after the caret is not a closing pair and must survive.
+    const view = makeView('See [[Strah] odd', 'See [[Strah'.length)
+    startCompletion(view)
+    const accepted = await waitForAcceptable(view)
+    const after = view.state.doc.toString()
+    view.destroy()
+    expect(accepted).toBe(true)
+    expect(after).toBe('See [[Strahd]]] odd')
   })
 
   it('does not open a panel in ordinary prose', async () => {

@@ -48,11 +48,13 @@ export function SpellsStep({
   // "Cleric". Not always the class's own name: a third caster casts from
   // another class's list. Undefined for a homebrew class, so suggestions are
   // never filtered away by a name nobody's spells mention.
-  // The world's edition, so the picker offers the same spells the Spells panel
-  // shows. Inherited rather than asked again: a character built in a 2024 world
-  // is a 2024 character, and a second control here would be a second place the
-  // answer could live.
-  const ruleset = useWorldRuleset(worldId)
+  // The edition, so the picker offers the same spells the Spells panel shows.
+  // Inherited rather than asked again: a character built in a 2024 world is a
+  // 2024 character, and a second control here would be a second place the
+  // answer could live. `draft.ruleset` is the vault's case — that folder has no
+  // edition of its own, so the dialog seeds one onto the draft.
+  const worldRuleset = useWorldRuleset(worldId)
+  const ruleset = draft.ruleset ?? worldRuleset
   const suggestionsFor = useSpellSuggestions(
     worldId,
     spellListClass(kit, draft.subclassName),

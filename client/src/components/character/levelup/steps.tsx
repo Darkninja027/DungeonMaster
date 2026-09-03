@@ -28,7 +28,7 @@ import {
 } from '#/lib/levelUp'
 import { expandedSpellsFor, findFeat, spellListClass } from '#/lib/tables'
 import { useSpellSuggestions } from '#/lib/useGlobalLibrary'
-import { useWorldRuleset } from '#/lib/useWorldSettings'
+import { useCharacterRuleset } from '#/lib/useWorldSettings'
 import { PickListGroup } from '../create/PickListGroup'
 import { SpellList } from '../create/steps/SpellsStep'
 import { AbilityStepperRow } from '../AbilityStepperRow'
@@ -663,8 +663,9 @@ export function SpellsStep({
   // The list they cast *from*, not the class they are. An Arcane Trickster is a
   // Rogue casting wizard spells, and filtering by "Rogue" matched nothing at
   // all — every wizard spell's frontmatter says Wizard.
-  // Inherited from the world, matching the creation wizard's spells step.
-  const ruleset = useWorldRuleset(worldId)
+  // The character's own edition when it states one (the vault case), else the
+  // world's — matching the creation wizard's spells step.
+  const ruleset = useCharacterRuleset(worldId, character)
   const suggestionsFor = useSpellSuggestions(
     worldId,
     spellListClass(draft.kit, castingAs),

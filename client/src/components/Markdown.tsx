@@ -17,6 +17,7 @@ import {
   linkifyDice,
   parsePages,
   rangeMatches,
+  resolveNoteLinks,
   resolveWikiLinks,
   rollDice,
   splitFrontmatter,
@@ -450,6 +451,7 @@ function createComponents(
   source?: RollSource,
   articles?: Array<{ id: string; title: string }>,
   readOnly?: boolean,
+  onOpenNote?: (title: string) => void,
 ): Components {
   return {
     h1: headingComponent(1),
@@ -566,6 +568,19 @@ function createComponents(
           />
         )
       }
+      if (href?.startsWith('note:')) {
+        const title = decodeURIComponent(href.slice(5))
+        return (
+          <button
+            type="button"
+            title="A note on this character — click to open it"
+            className="text-primary cursor-pointer underline underline-offset-2"
+            onClick={() => onOpenNote?.(title)}
+          >
+            {children}
+          </button>
+        )
+      }
       if (href?.startsWith('missing:')) {
         const title = decodeURIComponent(href.slice(8))
         return (
@@ -615,6 +630,17 @@ interface RenderContext {
   articles?: Array<{ id: string; title: string }>
   worldId?: string
   onCreateMissing?: (title: string) => void
+  /**
+   * Titles of the open character's notes, for the vault — where a missing
+   * [[link]] becomes a note in the character's own frontmatter rather than an
+   * article. Resolved BEFORE articles, but an article of the same name still
+   * wins: see resolveNoteLinks. Empty or absent is an exact passthrough, which
+   * is every non-vault caller. Keep the array referentially stable (useMemo at
+   * the call site) or the body memo below defeats itself.
+   */
+  noteTitles?: Array<string>
+  /** Clicking a resolved note: link — the character route jumps to its tab. */
+  onOpenNote?: (title: string) => void
   /** Where rolls made in this view are attributed in the roll history. */
   source?: RollSource
   /**
@@ -660,6 +686,8 @@ export const InlineMarkdown = memo(function InlineMarkdown({
   articles,
   worldId,
   onCreateMissing,
+  noteTitles,
+  onOpenNote,
   source,
   className,
   readOnly,
@@ -674,8 +702,9 @@ export const InlineMarkdown = memo(function InlineMarkdown({
         source,
         articles,
         readOnly,
+        onOpenNote,
       ),
-    [router, onCreateMissing, worldId, source, articles, readOnly],
+    [router, onCreateMissing, worldId, source, articles, readOnly, onOpenNote],
   )
   // A stat block renders one of these per attribute plus one for its prose,
   // so this pipeline runs many times over per card — worth memoising even
@@ -684,10 +713,16 @@ export const InlineMarkdown = memo(function InlineMarkdown({
     () =>
       linkifyDice(
         articles && worldId != null
-          ? resolveWikiLinks(children, articles, worldId)
-          : children,
+          ? resolveWikiLinks(
+              resolveNoteLinks(children, noteTitles ?? [], articles),
+              articles,
+              worldId,
+            )
+          : // Notes still resolve with no article list — the second arm is the
+            // panel case, and a note has no article to be resolved against.
+            resolveNoteLinks(children, noteTitles ?? []),
       ),
-    [children, articles, worldId],
+    [children, articles, worldId, noteTitles],
   )
   return (
     <div className={className}>
@@ -734,6 +769,8 @@ export const Markdown = memo(function Markdown({
   articles,
   worldId,
   onCreateMissing,
+  noteTitles,
+  onOpenNote,
   source,
   readOnly,
   layout = 'sheets',
@@ -748,8 +785,9 @@ export const Markdown = memo(function Markdown({
         source,
         articles,
         readOnly,
+        onOpenNote,
       ),
-    [router, onCreateMissing, worldId, source, articles, readOnly],
+    [router, onCreateMissing, worldId, source, articles, readOnly, onOpenNote],
   )
   // Two whole-document regex passes; resolveWikiLinks also rebuilds a title
   // map of the world. Memoised so they don't re-run per sheet.
@@ -757,10 +795,16 @@ export const Markdown = memo(function Markdown({
     () =>
       linkifyDice(
         articles && worldId != null
-          ? resolveWikiLinks(children, articles, worldId)
-          : children,
+          ? resolveWikiLinks(
+              resolveNoteLinks(children, noteTitles ?? [], articles),
+              articles,
+              worldId,
+            )
+          : // Notes still resolve with no article list — the second arm is the
+            // panel case, and a note has no article to be resolved against.
+            resolveNoteLinks(children, noteTitles ?? []),
       ),
-    [children, articles, worldId],
+    [children, articles, worldId, noteTitles],
   )
 
   // Sheet count comes from the FIRST sheet's own flow. It holds the same
@@ -840,6 +884,8 @@ export const BookView = memo(function BookView({
   articles,
   worldId,
   onCreateMissing,
+  noteTitles,
+  onOpenNote,
   source,
   audience = 'dm',
   readOnly,
@@ -886,6 +932,8 @@ export const BookView = memo(function BookView({
             articles={articles}
             worldId={worldId}
             onCreateMissing={onCreateMissing}
+            noteTitles={noteTitles}
+            onOpenNote={onOpenNote}
             source={source}
             readOnly={readOnly}
           >

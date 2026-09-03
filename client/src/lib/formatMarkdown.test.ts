@@ -5,6 +5,8 @@ import {
   joinFrontmatter,
   linkifyDice,
   parsePages,
+  resolveNoteLinks,
+  resolveWikiLinks,
   rollDice,
   splitFrontmatter,
   transformDmBlocks,
@@ -136,7 +138,9 @@ describe('transformDmBlocks', () => {
   it('marks a block as a callout blockquote, keeping the text', () => {
     const marked = transformDmBlocks(body, 'mark')
     expect(marked).toContain(`> ${DM_CALLOUT_MARKER}`)
-    expect(marked).toContain('> The barkeep is a doppelganger. That is the secret.')
+    expect(marked).toContain(
+      '> The barkeep is a doppelganger. That is the secret.',
+    )
     expect(marked).not.toContain(':::')
     expect(marked).toContain('The tavern is quiet.')
   })
@@ -280,5 +284,67 @@ describe('transformDmBlocks', () => {
     expect(formatted).toContain('Secret note.')
     // And it must still strip after a Tidy pass.
     expect(transformDmBlocks(formatted, 'strip')).not.toContain('Secret note.')
+  })
+})
+
+describe('resolveNoteLinks', () => {
+  it('rewrites a link naming a note into a note: link', () => {
+    expect(resolveNoteLinks('See [[Waterdeep]] tonight', ['Waterdeep'])).toBe(
+      'See [Waterdeep](note:Waterdeep) tonight',
+    )
+  })
+
+  it('matches case- and space-insensitively, like resolveWikiLinks', () => {
+    expect(resolveNoteLinks('[[ waterdeep ]]', ['Waterdeep'])).toBe(
+      '[waterdeep](note:waterdeep)',
+    )
+  })
+
+  it('keeps the alias label and targets the title', () => {
+    expect(resolveNoteLinks('[[Waterdeep|the city]]', ['Waterdeep'])).toBe(
+      '[the city](note:Waterdeep)',
+    )
+  })
+
+  it('encodes a title with spaces', () => {
+    expect(resolveNoteLinks('[[Sea of Swords]]', ['Sea of Swords'])).toBe(
+      '[Sea of Swords](note:Sea%20of%20Swords)',
+    )
+  })
+
+  it('leaves an unmatched title alone for resolveWikiLinks', () => {
+    expect(resolveNoteLinks('[[Baldur]]', ['Waterdeep'])).toBe('[[Baldur]]')
+  })
+
+  it('is an exact passthrough for an empty list — every non-vault caller', () => {
+    const text = 'A [[link]] and **prose**'
+    expect(resolveNoteLinks(text, [])).toBe(text)
+  })
+
+  it('normalizes the escaped form remark emits', () => {
+    expect(resolveNoteLinks('\\[\\[Waterdeep]]', ['Waterdeep'])).toBe(
+      '[Waterdeep](note:Waterdeep)',
+    )
+  })
+
+  it('rewrites both links on one line (the shared-lastIndex trap)', () => {
+    expect(
+      resolveNoteLinks('[[Waterdeep]] then [[Neverwinter]]', [
+        'Waterdeep',
+        'Neverwinter',
+      ]),
+    ).toBe('[Waterdeep](note:Waterdeep) then [Neverwinter](note:Neverwinter)')
+  })
+
+  it('an article wins over a note of the same name', () => {
+    // Composition is the real contract: notes resolve first, but a title that
+    // is also an article must end up navigable rather than scroll-only.
+    const articles = [{ id: 'Waterdeep', title: 'Waterdeep' }]
+    const out = resolveWikiLinks(
+      resolveNoteLinks('[[Waterdeep]]', ['Waterdeep'], articles),
+      articles,
+      'abc',
+    )
+    expect(out).toBe('[Waterdeep](/worlds/abc/articles/Waterdeep)')
   })
 })

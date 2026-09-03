@@ -35,6 +35,7 @@ import {
 } from '#/lib/bestiary'
 import type { LibraryEntry } from '#/lib/bestiary'
 import { useWorldRuleset } from '#/lib/useWorldSettings'
+import { useOpenCharacterRuleset } from '#/lib/openCharacterRuleset'
 import { useLibraryEntries } from '#/lib/useGlobalLibrary'
 import { LibraryImportButton } from '#/components/LibraryImportButton'
 import { VirtualList } from '#/components/VirtualList'
@@ -204,7 +205,13 @@ export function MonsterReference({ worldId }: { worldId: string }) {
   // Library entries carry the library's world id so every per-row action —
   // fetch, reveal, render — targets the folder the article actually lives in.
   const library = useLibraryEntries('Monsters')
-  const ruleset = useWorldRuleset(worldId)
+  // Prefer the open character's own edition over the world's. The vault has no
+  // ruleset of its own — it holds characters from different games — so beside a
+  // vault sheet the world would say "show both". Null (no sheet open, or one
+  // that defers) falls back to the world, which is the campaign case unchanged.
+  const openCharacterRuleset = useOpenCharacterRuleset()
+  const worldRuleset = useWorldRuleset(worldId)
+  const ruleset = openCharacterRuleset ?? worldRuleset
   const monsters = useMemo(
     () =>
       filterByEdition(

@@ -303,6 +303,53 @@ export function resolveWikiLinks(
     })
 }
 
+/**
+ * Rewrite [[links]] naming one of `noteTitles` into `note:` links, run BEFORE
+ * resolveWikiLinks sees them.
+ *
+ * The vault is characters, not a campaign: a broken link there becomes a note
+ * in the character's own frontmatter, and a note has no article id and so no
+ * URL. Without this pass such a link would keep rendering as `missing:` — a
+ * dashed "click to create it" that recreates the note it already made, forever.
+ *
+ * A separate scheme rather than a fake article link because a note really is a
+ * different kind of target: the renderer scrolls to it, it never navigates. An
+ * unmatched title is returned verbatim so resolveWikiLinks still gets its shot,
+ * which makes an empty list an exact passthrough — every non-vault caller.
+ */
+export function resolveNoteLinks(
+  text: string,
+  noteTitles: Array<string>,
+  articles?: Array<{ title: string }>,
+): string {
+  if (noteTitles.length === 0) return text
+  // An article of the same name outranks a note: it is navigable, and a note
+  // is only scrolled to. This pass runs FIRST (it has to — it consumes the
+  // link before resolveWikiLinks sees it), so the precedence has to be applied
+  // here rather than by ordering. WikiText and useWikiLinkOpener check
+  // articles first for the same reason; all three must agree.
+  const claimed = new Set(
+    (articles ?? []).map((a) => a.title.trim().toLowerCase()),
+  )
+  const known = new Set(
+    noteTitles
+      .map((t) => t.trim().toLowerCase())
+      .filter((t) => !claimed.has(t)),
+  )
+  if (known.size === 0) return text
+  // A fresh regex, never the shared WIKI_LINK: a `g`-flagged object carries a
+  // mutable lastIndex between callers. See WIKI_LINK_SOURCE above.
+  const re = new RegExp(WIKI_LINK_SOURCE, 'g')
+  // remark escapes leading brackets as \[\[ — normalize before matching
+  return text
+    .replaceAll('\\[\\[', '[[')
+    .replace(re, (whole, title: string, display?: string) => {
+      if (!known.has(title.trim().toLowerCase())) return whole
+      const label = (display ?? title).trim()
+      return `[${label}](note:${encodeURIComponent(title.trim())})`
+    })
+}
+
 // Exported for the live-preview decorator, so the editor chips exactly what
 // this module would linkify. See WIKI_LINK_SOURCE for why it's a string.
 /**

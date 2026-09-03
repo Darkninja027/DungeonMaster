@@ -7,6 +7,8 @@ import { serializeCharacter } from '#/lib/character'
 import { buildCharacter } from '#/lib/buildCharacter'
 import type { CharacterDraft, StepId } from '#/lib/characterDraft'
 import { canAdvance, emptyDraft, stepsFor } from '#/lib/characterDraft'
+import { NEW_WORLD_RULESET } from '#/lib/ruleset'
+import { useIsVault } from '#/lib/useWorldSettings'
 import { useTables } from '#/lib/useHomebrew'
 import { articleTemplates } from '#/lib/templates'
 import { Button } from '#/components/ui/button'
@@ -119,6 +121,7 @@ export function CreateCharacterDialog({
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const tables = useTables(worldId)
+  const isVault = useIsVault(worldId)
 
   const [draft, setDraft] = useState<CharacterDraft>(() => emptyDraft(tables))
   const [step, setStep] = useState<StepId>('name')
@@ -136,10 +139,18 @@ export function CreateCharacterDialog({
   // made since it was last closed.
   useEffect(() => {
     if (open) {
-      setDraft(emptyDraft(tablesRef.current))
+      // The vault has no `ruleset` of its own, so the character states one and
+      // the wizard asks. Seeded to the same edition a new world is offered
+      // rather than to `all`, which would mean "show me both" — a choice, not
+      // a default anyone made. A campaign world answers for itself, and the
+      // draft stays null so the sheet records nothing.
+      setDraft({
+        ...emptyDraft(tablesRef.current),
+        ruleset: isVault ? NEW_WORLD_RULESET : null,
+      })
       setStep('name')
     }
-  }, [open])
+  }, [open, isVault])
 
   const steps = useMemo(() => stepsFor(draft), [draft])
   const index = steps.indexOf(step)
@@ -245,7 +256,11 @@ export function CreateCharacterDialog({
           <ScrollArea className="min-h-0 min-w-0">
             <div className="p-5">
               {step === 'name' && (
-                <NameStep draft={draft} onChange={setDraft} />
+                <NameStep
+                  draft={draft}
+                  onChange={setDraft}
+                  askRuleset={isVault}
+                />
               )}
               {step === 'race' && (
                 <RaceStep draft={draft} onChange={setDraft} />

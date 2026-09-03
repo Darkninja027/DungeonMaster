@@ -46,7 +46,9 @@ const BODY = [
 const ARTICLES = [{ id: 'NPCs/Strahd', title: 'Strahd' }]
 
 async function renderBook(props: Parameters<typeof BookView>[0]) {
-  const rootRoute = createRootRoute({ component: () => <BookView {...props} /> })
+  const rootRoute = createRootRoute({
+    component: () => <BookView {...props} />,
+  })
   const router = createRouter({
     routeTree: rootRoute,
     history: createMemoryHistory({ initialEntries: ['/'] }),
@@ -89,7 +91,9 @@ describe('BookView for a player window', () => {
   // click. That is what 'flow' exists to prevent.
   it('renders one growing sheet in flow layout, with no duplicated chips', async () => {
     const long = ['# Aboleth', '']
-      .concat(Array.from({ length: 60 }, (_, i) => `Paragraph ${i} rolls 2d6+3.`))
+      .concat(
+        Array.from({ length: 60 }, (_, i) => `Paragraph ${i} rolls 2d6+3.`),
+      )
       .join('\n')
 
     const sheets = await renderBook({ children: long, worldId: 'abc' })
@@ -165,5 +169,31 @@ describe('BookView for a player window', () => {
     expect(container.textContent).toContain('doppelganger')
     expect(container.querySelector('.dnd-dm-block')).not.toBeNull()
     expect(container.querySelectorAll('button').length).toBeGreaterThan(0)
+  })
+
+  /**
+   * A note: link is the vault's answer to a broken [[link]] — a button that
+   * jumps to the Notes tab. On a projector it must be inert like every other
+   * link: the readOnly guard sits above both the note: and missing: branches,
+   * and this pins that it stays there.
+   */
+  it('renders a note: link as inert text on a projector', async () => {
+    const props = {
+      children: 'The barkeep mentions [[Waterdeep]].',
+      worldId: 'abc',
+      noteTitles: ['Waterdeep'],
+      onOpenNote: () => {
+        throw new Error('a projector must never open a note')
+      },
+    }
+
+    const dm = await renderBook(props)
+    // The DM gets a real button, or the fixture proves nothing.
+    expect(dm.container.querySelectorAll('button').length).toBeGreaterThan(0)
+
+    const player = await renderBook({ ...props, readOnly: true })
+    expect(player.container.querySelectorAll('button').length).toBe(0)
+    expect(player.container.querySelectorAll('a').length).toBe(0)
+    expect(player.container.textContent).toContain('Waterdeep')
   })
 })

@@ -20,6 +20,9 @@ import {
   damageStance,
   effectiveSpeed,
   emptyCharacter,
+  findNoteByTitle,
+  noteFromWikiLink,
+  noteTitles,
   encumbranceTier,
   equipItem,
   equippedIn,
@@ -1949,5 +1952,101 @@ describe('half proficiency', () => {
   it('reads an unknown value as none rather than throwing', () => {
     const text = '---\ntype: character\nhalfProficiency: sideways\n---\n'
     expect(parseCharacter(text).character.halfProficiency).toBeNull()
+  })
+})
+
+describe('notes as [[wiki link]] targets', () => {
+  const notes = [
+    { at: '2026-09-01', title: 'Waterdeep', text: 'A city.' },
+    { at: '2026-09-02', text: 'Neverwinter is north' },
+    { at: '2026-09-03', title: '  Baldur  ', text: '' },
+  ]
+
+  it('finds a note case- and space-insensitively', () => {
+    expect(findNoteByTitle(notes, '  waterdeep ')?.index).toBe(0)
+    expect(findNoteByTitle(notes, 'BALDUR')?.index).toBe(2)
+  })
+
+  it('ignores an untitled note even when its prose would match', () => {
+    // notePreview() of note 1 starts "Neverwinter", but a link must not claim
+    // whatever someone happened to type at the top of an unrelated note.
+    expect(findNoteByTitle(notes, 'Neverwinter')).toBeUndefined()
+  })
+
+  it('returns undefined for a blank title', () => {
+    expect(findNoteByTitle(notes, '   ')).toBeUndefined()
+  })
+
+  it('lists only titled notes', () => {
+    expect(noteTitles(notes)).toEqual(['Waterdeep', 'Baldur'])
+  })
+
+  it('builds a note tagged lore, never session', () => {
+    const note = noteFromWikiLink('  Waterdeep  ', 'Docks are dangerous.')
+    expect(note.title).toBe('Waterdeep')
+    expect(note.tags).toEqual(['lore'])
+    expect(note.at).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+    expect(note.text).toBe('Docks are dangerous.')
+  })
+
+  it('round-trips through serialize/parse with its tags intact', () => {
+    const c = emptyCharacter()
+    c.notes = [noteFromWikiLink('Waterdeep', 'A city on the Sword Coast.')]
+    const { character: back } = parseCharacter(serializeCharacter(c, 'Prose.'))
+    expect(back.notes).toHaveLength(1)
+    expect(back.notes[0].title).toBe('Waterdeep')
+    expect(back.notes[0].tags).toEqual(['lore'])
+    expect(back.notes[0].text).toBe('A city on the Sword Coast.')
+    expect(back.notes[0].at).toBe(c.notes[0].at)
+  })
+})
+
+/**
+ * A character's own rules edition, for the vault — a folder holding characters
+ * from several different games, which therefore has no edition of its own.
+ *
+ * The invariant that matters is that absent stays absent: `null` means "ask the
+ * world", and turning it into a value would silently pin every existing sheet
+ * to whatever the fallback happened to be.
+ */
+describe('character ruleset', () => {
+  it('defaults to null — defer to the world', () => {
+    expect(emptyCharacter().ruleset).toBeNull()
+  })
+
+  it('writes no key when null, so an old sheet is byte-identical', () => {
+    const out = serializeCharacter(emptyCharacter(), 'Prose.')
+    expect(out).not.toContain('ruleset')
+  })
+
+  it('round-trips a stated edition', () => {
+    const c = emptyCharacter()
+    c.ruleset = '2014'
+    const out = serializeCharacter(c, 'Prose.')
+    expect(parseCharacter(out).character.ruleset).toBe('2014')
+  })
+
+  it('parses a missing key as null rather than a default', () => {
+    const { character } = parseCharacter('---\ntype: character\n---\n\nHi.')
+    expect(character.ruleset).toBeNull()
+  })
+
+  it('parses an unknown value as null, not as "all"', () => {
+    // parseRuleset falls back to 'all' for garbage, which is right for a world
+    // and wrong here: 'all' is a real choice ("show me both"), and inventing it
+    // from a typo would state a decision nobody made.
+    const { character } = parseCharacter(
+      '---\ntype: character\nruleset: 5.5e\n---\n\nHi.',
+    )
+    expect(character.ruleset).toBeNull()
+  })
+
+  it('accepts every real id', () => {
+    for (const id of ['2014', '2024', 'all']) {
+      const { character } = parseCharacter(
+        `---\ntype: character\nruleset: "${id}"\n---\n\nHi.`,
+      )
+      expect(character.ruleset).toBe(id)
+    }
   })
 })

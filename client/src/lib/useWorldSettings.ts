@@ -121,6 +121,72 @@ export function useWorldMode(worldId: string): WorldModeInfo {
 }
 
 /**
+ * The edition of the shared spell list and bestiary this world shows.
+ *
+ * Never returns a null-ish value, for the same reason useWorldMode doesn't:
+ * `placeholderData` makes settings readable on the first render and an unknown
+ * value falls back to the default, so a panel never flickers through an empty
+ * state while loading.
+ *
+ * No vault special-case, unlike the mode above — but note the vault's settings
+ * file carries no `ruleset` key, so this lands on `all` there and offers both
+ * editions at once. That is what `useCharacterRuleset` below exists to fix:
+ * the vault holds characters from several different games, so the edition is
+ * the character's to state, not the folder's.
+ */
+export function useWorldRuleset(worldId: string): Ruleset {
+  const settings = useWorldSettings(worldId)
+  return parseRuleset(settings.data?.ruleset)
+}
+
+/**
+ * The edition to offer *this character*, which is the world's answer unless
+ * the character overrides it.
+ *
+ * A campaign world speaks for every character in it, so a sheet there normally
+ * carries no `ruleset` and this is exactly `useWorldRuleset`. The vault cannot
+ * speak for its characters — they come from different games — so a vault sheet
+ * states its own edition and it wins.
+ *
+ * Deliberately not "vault only": the override is a property of the sheet, so a
+ * character carried from the vault into a campaign folder keeps working, and a
+ * campaign character may pin an edition its world disagrees with. The world
+ * stays the default either way, which is what keeps existing sheets unchanged.
+ */
+export function useCharacterRuleset(
+  worldId: string,
+  character: { ruleset: Ruleset | null } | null | undefined,
+): Ruleset {
+  const world = useWorldRuleset(worldId)
+  return character?.ruleset ?? world
+}
+
+/**
+ * The vault check, with its loading state exposed.
+ *
+ * `useIsVault` below flattens "still loading" to false, which is right for the
+ * chrome — one frame of the wrong mode costs nothing. It is wrong for any
+ * decision that WRITES: the missing-link dialog would create an article at the
+ * vault root, which Player mode's sidebar cannot show, so it has to wait rather
+ * than guess. The `['vault']` cache is warm on the home-screen path but cold on
+ * a deep link, an F5 on a character URL, and a second window.
+ */
+export function useVaultCheck(worldId: string): {
+  isVault: boolean
+  isLoading: boolean
+} {
+  const vault = useQuery({
+    queryKey: ['vault'],
+    queryFn: api.vault.get,
+    staleTime: Infinity,
+  })
+  return {
+    isVault: vault.data?.worldId === worldId,
+    isLoading: vault.isLoading,
+  }
+}
+
+/**
  * True when the open world is the personal character vault.
  *
  * Kept as its own hook because two callers want it for different reasons: the
@@ -130,28 +196,6 @@ export function useWorldMode(worldId: string): WorldModeInfo {
  * `staleTime: Infinity` matches `useLibrary`: the vault path changes only when
  * the vault is created, which the home screen seeds into this cache directly.
  */
-/**
- * The edition of the shared spell list and bestiary this world shows.
- *
- * Never returns a null-ish value, for the same reason useWorldMode doesn't:
- * `placeholderData` makes settings readable on the first render and an unknown
- * value falls back to the default, so a panel never flickers through an empty
- * state while loading.
- *
- * No vault special-case, unlike the mode above: the vault is "characters, not a
- * campaign", and a character can be built under either edition, so its ruleset
- * is the user's to set like any other world's.
- */
-export function useWorldRuleset(worldId: string): Ruleset {
-  const settings = useWorldSettings(worldId)
-  return parseRuleset(settings.data?.ruleset)
-}
-
 export function useIsVault(worldId: string): boolean {
-  const vault = useQuery({
-    queryKey: ['vault'],
-    queryFn: api.vault.get,
-    staleTime: Infinity,
-  })
-  return vault.data?.worldId === worldId
+  return useVaultCheck(worldId).isVault
 }

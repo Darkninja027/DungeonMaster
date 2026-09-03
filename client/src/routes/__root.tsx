@@ -6,7 +6,7 @@ import {
   useMatchRoute,
 } from '@tanstack/react-router'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { Castle, Moon, Sun } from 'lucide-react'
+import { Castle, Moon, Settings2, Sun } from 'lucide-react'
 import { UpdateIndicator } from '#/components/UpdateIndicator'
 import { LoadingGate } from '#/components/LoadingGate'
 import { isDark, setTheme } from '#/lib/theme'
@@ -42,6 +42,38 @@ function ThemeToggle() {
       onClick={toggle}
     >
       {dark ? <Sun className="size-4" /> : <Moon className="size-4" />}
+    </Button>
+  )
+}
+
+/**
+ * World settings, for a world with no sidebar to hold the gear.
+ *
+ * That gear is the ONLY route into homebrew, the spell library and the editor
+ * settings anywhere in the app, and it lives in the sidebar header — so a
+ * layout that draws no sidebar (the vault) would strand all three. This
+ * appears only when there is no sidebar, so the ordinary case still reaches
+ * settings where it always did and never shows two gears.
+ */
+function HeaderWorldSettings() {
+  const matchRoute = useMatchRoute()
+  const present = useSidebarPresent()
+  const match = matchRoute({ to: '/worlds/$worldId', fuzzy: true })
+
+  if (present || !match || typeof match === 'boolean') return null
+  const { worldId } = match
+  return (
+    <Button
+      variant="ghost"
+      size="icon"
+      className="size-7"
+      title="World settings — homebrew, library and editor"
+      aria-label="World settings"
+      asChild
+    >
+      <Link to="/worlds/$worldId/settings" params={{ worldId }}>
+        <Settings2 className="size-4" />
+      </Link>
     </Button>
   )
 }
@@ -102,6 +134,7 @@ function RootLayout() {
               Dungeon Master
             </Link>
             <div className="ml-auto flex items-center gap-1">
+              <HeaderWorldSettings />
               <UpdateIndicator />
               <ThemeToggle />
             </div>

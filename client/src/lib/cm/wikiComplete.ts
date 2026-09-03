@@ -91,10 +91,21 @@ export function wikiComplete(options: WikiCompleteOptions = {}): Extension {
     if (!context.explicit && built.query === '' && built.options.length === 0)
       return null
     if (built.options.length === 0) return null
+    /*
+      Swallow a `]]` sitting immediately after the caret. Ctrl+Shift+L wraps the
+      selection and leaves the caret between a ready-made `[[` and `]]`, so
+      typing a title there and accepting wrote `[[Strahd]]` over the `[[Strah`
+      while the original `]]` survived — `[[Strahd]]]]`. The same applies to
+      anything else that pre-closes the brackets, a paste included.
+    */
+    const after = context.state.sliceDoc(
+      context.pos,
+      Math.min(context.pos + 2, line.to),
+    )
     return {
       // Replace from the `[[` itself so `apply` can write the closing pair.
       from: context.pos - built.query.length - 2,
-      to: context.pos,
+      to: after === ']]' ? context.pos + 2 : context.pos,
       options: built.options,
       // Our own filtering already ran, and it is case-insensitive substring
       // rather than CodeMirror's fuzzy default. Letting the default filter run

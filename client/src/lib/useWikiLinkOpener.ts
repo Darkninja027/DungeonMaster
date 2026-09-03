@@ -14,11 +14,20 @@ import { useNavigate } from '@tanstack/react-router'
 export function useWikiLinkOpener({
   worldId,
   articles,
+  noteTitles,
+  onNote,
   onMissing,
 }: {
   /** Optional so panels that don't know their world can still call this. */
   worldId?: string
   articles?: Array<{ id: string; title: string }>
+  /**
+   * Titles of the open character's notes, for the vault — where a missing link
+   * becomes a note rather than an article. Checked after `articles` so an
+   * article always wins: it is navigable, and a note is not.
+   */
+  noteTitles?: Array<string>
+  onNote?: (title: string) => void
   onMissing?: (title: string) => void
 }) {
   const navigate = useNavigate()
@@ -36,8 +45,12 @@ export function useWikiLinkOpener({
         })
         return
       }
+      if (noteTitles?.some((t) => t.trim().toLowerCase() === wanted)) {
+        onNote?.(title.trim())
+        return
+      }
       onMissing?.(title.trim())
     },
-    [navigate, worldId, articles, onMissing],
+    [navigate, worldId, articles, noteTitles, onNote, onMissing],
   )
 }

@@ -157,6 +157,8 @@ function ItemRow({
   worldId,
   articles,
   onCreateMissing,
+  noteTitles,
+  onOpenNote,
 }: {
   item: InventoryItem
   index: number
@@ -170,6 +172,8 @@ function ItemRow({
   worldId: string
   articles?: Array<{ id: string; title: string }>
   onCreateMissing?: (title: string) => void
+  noteTitles?: Array<string>
+  onOpenNote?: (title: string) => void
 }) {
   const name = inventoryItemName(item.text).toLowerCase()
   const inAttacks = character.attacks.some(
@@ -201,6 +205,8 @@ function ItemRow({
               worldId={worldId}
               articles={articles}
               onCreateMissing={onCreateMissing}
+              noteTitles={noteTitles}
+              onOpenNote={onOpenNote}
             />
           </span>
         )}
@@ -383,12 +389,16 @@ export function InventoryTab({
   worldId,
   articles,
   onCreateMissing,
+  noteTitles,
+  onOpenNote,
 }: {
   character: Character
   onChange: (next: Character) => void
   worldId: string
   articles?: Array<{ id: string; title: string }>
   onCreateMissing?: (title: string) => void
+  noteTitles?: Array<string>
+  onOpenNote?: (title: string) => void
 }) {
   const [editing, setEditing] = useState<number | null>(null)
   const [newItem, setNewItem] = useState('')
@@ -563,6 +573,8 @@ export function InventoryTab({
                   worldId={worldId}
                   articles={articles}
                   onCreateMissing={onCreateMissing}
+                  noteTitles={noteTitles}
+                  onOpenNote={onOpenNote}
                 />
               ))}
             </Fragment>

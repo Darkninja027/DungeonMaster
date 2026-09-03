@@ -15,12 +15,16 @@ export function LivePreviewPane({
   articles,
   worldId,
   onCreateMissing,
+  noteTitles,
+  onOpenNote,
   source,
 }: {
   content: string
   articles?: Array<{ id: string; title: string }>
   worldId: string
   onCreateMissing: (title: string) => void
+  noteTitles?: Array<string>
+  onOpenNote?: (title: string) => void
   source?: RollSource
 }) {
   const ref = useRef<HTMLDivElement>(null)
@@ -49,6 +53,8 @@ export function LivePreviewPane({
             articles={articles}
             worldId={worldId}
             onCreateMissing={onCreateMissing}
+            noteTitles={noteTitles}
+            onOpenNote={onOpenNote}
             source={source}
           >
             {deferred}

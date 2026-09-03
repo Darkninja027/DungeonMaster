@@ -521,6 +521,9 @@ export function buildCharacter(draft: CharacterDraft): {
 
   // Identity. The sheet says "Hill Dwarf", not "Dwarf" — a subrace is what a
   // player calls themselves, and findSubrace resolves the full name back.
+  // Null unless the wizard was told to pin one (the vault), in which case the
+  // sheet states its own edition because its folder cannot.
+  c.ruleset = draft.ruleset
   c.race = draft.subraceName.trim() || draft.raceName.trim()
   c.class = draft.className.trim()
   c.subclass = draft.subclassName.trim()

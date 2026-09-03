@@ -16,7 +16,14 @@ import {
 } from 'lucide-react'
 import { api } from '#/lib/api'
 import { revealer } from '#/lib/reveal'
-import { parseCharacter, serializeCharacter } from '#/lib/character'
+import { usePublishCharacterRuleset } from '#/lib/openCharacterRuleset'
+import {
+  findNoteByTitle,
+  noteFromWikiLink,
+  noteTitles,
+  parseCharacter,
+  serializeCharacter,
+} from '#/lib/character'
 import type { Character } from '#/lib/character'
 import { classesFrom } from '#/lib/tables'
 import { useTables } from '#/lib/useHomebrew'
@@ -36,7 +43,7 @@ import type { TocHeading } from '#/lib/toc'
 import { padBlock } from '#/lib/markdownEditing'
 import { snippets } from '#/lib/formatMarkdown'
 import { ImagePickerDialog } from '#/components/ImagePickerDialog'
-import { useWorldSettings } from '#/lib/useWorldSettings'
+import { useIsVault, useWorldSettings } from '#/lib/useWorldSettings'
 import { Button } from '#/components/ui/button'
 import type { RollSource } from '#/lib/rollLog'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '#/components/ui/tabs'
@@ -142,12 +149,45 @@ function CharacterPage() {
       editSeq: next ? prev.editSeq + 1 : prev.editSeq,
     }))
   }, [])
-  // Broken [[link]] clicked in inventory/notes -> offer to create the article.
+  // Controlled so Export PDF can switch to the preview before capturing it,
+  // and so a [[link]] resolving to a note can open the Notes tab.
+  const [tab, setTab] = useState('sheet')
+  // Broken [[link]] clicked in inventory/notes -> offer to create the article,
+  // or, in the vault, a note on this character (see CreateMissingArticleDialog).
   const [missingTitle, setMissingTitle] = useState<string | null>(null)
+  // A note to select once the Notes tab is open. A note created from a link is
+  // always prepended, so that request is always index 0.
+  const [selectNote, setSelectNote] = useState<number | null>(null)
+  // Referentially stable, or every memo downstream that takes it defeats itself.
+  const characterNoteTitles = useMemo(
+    () => noteTitles(character?.notes ?? []),
+    [character?.notes],
+  )
+  // The vault has no `ruleset` of its own — it holds characters from several
+  // different games — so a character there states its own edition and the sheet
+  // offers the control. A campaign world answers for every character in it.
+  const isVault = useIsVault(worldId)
+  // The Spells and Monsters panels are world-scoped, and the vault's world has
+  // no edition to give them. Publish this sheet's own so they follow it.
+  usePublishCharacterRuleset(character?.ruleset ?? null)
+  const clearSelectNote = useCallback(() => setSelectNote(null), [])
+  const goToNote = useCallback((index: number) => {
+    setTab('notes')
+    setSelectNote(index)
+  }, [])
+  const openNoteByTitle = useCallback(
+    (t: string) => {
+      const hit = findNoteByTitle(character?.notes ?? [], t)
+      if (hit) goToNote(hit.index)
+    },
+    [character?.notes, goToNote],
+  )
   // Ctrl+Click / Ctrl+Enter on a [[link]] in the raw backstory text.
   const openWikiLink = useWikiLinkOpener({
     worldId,
     articles: tree.data?.articles,
+    noteTitles: characterNoteTitles,
+    onNote: openNoteByTitle,
     onMissing: setMissingTitle,
   })
   // Formatting shortcuts for the Backstory tab's markdown textarea.
@@ -158,8 +198,6 @@ function CharacterPage() {
     },
     onWikiLinkOpen: openWikiLink,
   })
-  // Controlled so Export PDF can switch to the preview before capturing it.
-  const [tab, setTab] = useState('sheet')
   const [exporting, setExporting] = useState(false)
 
   // --- Story tab: the same three affordances the article editor has ------
@@ -457,6 +495,7 @@ function CharacterPage() {
         onChange={update}
         classes={classes}
         onLevelUp={setLevelUpTo}
+        showRuleset={isVault}
         worldId={worldId}
         articleId={article.data?.id ?? articleId}
         dirty={dirty}
@@ -563,6 +602,8 @@ function CharacterPage() {
           onChange={update}
           source={source}
           articles={tree.data?.articles}
+          noteTitles={characterNoteTitles}
+          onOpenNote={openNoteByTitle}
           onCreateMissing={setMissingTitle}
         />
       </TabsContent>
@@ -572,6 +613,8 @@ function CharacterPage() {
           onChange={update}
           worldId={worldId}
           articles={tree.data?.articles}
+          noteTitles={characterNoteTitles}
+          onOpenNote={openNoteByTitle}
           onCreateMissing={setMissingTitle}
         />
       </TabsContent>
@@ -584,6 +627,8 @@ function CharacterPage() {
           onChange={update}
           worldId={worldId}
           articles={tree.data?.articles}
+          noteTitles={characterNoteTitles}
+          onOpenNote={openNoteByTitle}
           onCreateMissing={setMissingTitle}
         />
       </TabsContent>
@@ -597,7 +642,11 @@ function CharacterPage() {
           onChange={update}
           worldId={worldId}
           articles={tree.data?.articles}
+          noteTitles={characterNoteTitles}
+          onOpenNote={openNoteByTitle}
           onCreateMissing={setMissingTitle}
+          selectIndex={selectNote}
+          onSelectIndexHandled={clearSelectNote}
         />
       </TabsContent>
       <TabsContent value="backstory" className="flex min-h-0 flex-1 flex-col">
@@ -739,6 +788,8 @@ function CharacterPage() {
               articles={tree.data?.articles}
               worldId={worldId}
               source={source}
+              noteTitles={characterNoteTitles}
+              onOpenNote={openNoteByTitle}
               onCreateMissing={setMissingTitle}
             />
           )}
@@ -782,6 +833,22 @@ function CharacterPage() {
         worldId={worldId}
         title={missingTitle}
         onClose={() => setMissingTitle(null)}
+        existingNoteTitles={characterNoteTitles}
+        onOpenNote={openNoteByTitle}
+        onCreateNote={(draft) => {
+          // Prepended, matching NotesTab's own addNote: a note is addressed by
+          // its index, and two insertion points would be two rules. The write
+          // rides update() + the existing debounced autosave — no second path
+          // to the same file.
+          update({
+            ...character,
+            notes: [
+              noteFromWikiLink(draft.title, draft.text),
+              ...character.notes,
+            ],
+          })
+          goToNote(0)
+        }}
       />
 
       <LevelUpDialog

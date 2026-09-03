@@ -84,6 +84,14 @@ interface SheetProps {
   source: RollSource
   articles?: Array<{ id: string; title: string; folderId?: string | null }>
   onCreateMissing?: (title: string) => void
+  /**
+   * Accepted so the character route can pass one prop set to every tab, but
+   * deliberately unused: this tab's only [[link]] surface is a spell name,
+   * which resolves to the spell panel or to an article. A spell resolving to a
+   * character note would be wrong — notes are prose, not the spell list.
+   */
+  noteTitles?: Array<string>
+  onOpenNote?: (title: string) => void
 }
 
 /** A small "roll this" chip: shows the bonus, clicking rolls + logs it. */

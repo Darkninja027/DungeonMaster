@@ -17,6 +17,7 @@ import {
   notePreview,
   preserveLineBreaks,
   sortedNotes,
+  todayLocal,
 } from '#/lib/character'
 import type { Character, CharacterNote } from '#/lib/character'
 import { cn } from '#/lib/utils'
@@ -43,14 +44,6 @@ import { InlineMarkdown, PANEL_PROSE } from '#/components/Markdown'
  * Bodies are full markdown via the app's own renderer, so headings, bullets,
  * [[wiki links]] and clickable dice all behave the way they do in an article.
  */
-
-/** Today as YYYY-MM-DD in local time — `toISOString` would use UTC and can
- *  stamp yesterday's date on an evening session. */
-function today(): string {
-  const d = new Date()
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
-}
 
 /** The tag chips under a note: click to remove while editing. */
 function TagChips({
@@ -266,13 +259,27 @@ export function NotesTab({
   onChange,
   worldId,
   articles,
+  noteTitles,
+  onOpenNote,
   onCreateMissing,
+  selectIndex,
+  onSelectIndexHandled,
 }: {
   character: Character
   onChange: (next: Character) => void
   worldId: string
   articles?: Array<{ id: string; title: string }>
+  noteTitles?: Array<string>
+  onOpenNote?: (title: string) => void
   onCreateMissing?: (title: string) => void
+  /**
+   * Select this note index once, then call `onSelectIndexHandled`. The vault
+   * creates a note from a [[link]] and wants it open; a note is addressed by
+   * index (see below), and a freshly created one is always prepended, so the
+   * caller passes 0.
+   */
+  selectIndex?: number | null
+  onSelectIndexHandled?: () => void
 }) {
   const [query, setQuery] = useState('')
   const [activeTags, setActiveTags] = useState<Array<string>>([])
@@ -301,6 +308,8 @@ export function NotesTab({
   const openWikiLink = useWikiLinkOpener({
     worldId,
     articles,
+    noteTitles,
+    onNote: onOpenNote,
     onMissing: onCreateMissing,
   })
 
@@ -314,12 +323,22 @@ export function NotesTab({
     )
   }, [character.notes, query, activeTags])
 
+  // An explicit request wins over the repair below, which would otherwise
+  // land on shown[0] first — visible whenever a search query is active and
+  // shown[0] is not notes[0].
+  useEffect(() => {
+    if (selectIndex == null) return
+    if (selectIndex < character.notes.length) setSelected(selectIndex)
+    onSelectIndexHandled?.()
+  }, [selectIndex, character.notes.length, onSelectIndexHandled])
+
   // Keep a valid selection: land on the first visible note, and never point at
   // an index the notes array no longer has.
   useEffect(() => {
+    if (selectIndex != null) return
     if (selected !== null && selected < character.notes.length) return
     setSelected(shown.length > 0 ? shown[0].index : null)
-  }, [character.notes.length, shown, selected])
+  }, [character.notes.length, shown, selected, selectIndex])
 
   const note = selected !== null ? character.notes[selected] : undefined
 
@@ -334,7 +353,7 @@ export function NotesTab({
   }
 
   const addNote = () => {
-    const fresh: CharacterNote = { at: today(), text: '' }
+    const fresh: CharacterNote = { at: todayLocal(), text: '' }
     // Prepending shifts every stored index by one, the selection included.
     onChange({ ...character, notes: [fresh, ...character.notes] })
     setSelected(0)
@@ -580,6 +599,8 @@ export function NotesTab({
                       className={PANEL_PROSE}
                       worldId={worldId}
                       articles={articles}
+                      noteTitles={noteTitles}
+                      onOpenNote={onOpenNote}
                       onCreateMissing={onCreateMissing}
                     >
                       {/* Same hard-break handling the sheet uses, or a note

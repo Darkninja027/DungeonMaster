@@ -97,14 +97,22 @@ export function useClaimSidebarToggle(active = true): void {
   }, [active])
 }
 
-/** Declare that this component renders the sidebar, for as long as it lives. */
-export function useRegisterSidebar(): void {
+/**
+ * Declare that this component renders the sidebar, for as long as it lives.
+ *
+ * Pass false where the layout is mounted but draws no sidebar — the vault,
+ * which is one character at a time. `useSidebarPresent` then reports false, so
+ * the header toggle, the title-row toggle and the Ctrl+\ shortcut all stand
+ * down rather than offering to open a panel that isn't there.
+ */
+export function useRegisterSidebar(present = true): void {
   useEffect(() => {
+    if (!present) return
     mounted += 1
     notify()
     return () => {
       mounted = Math.max(0, mounted - 1)
       notify()
     }
-  }, [])
+  }, [present])
 }

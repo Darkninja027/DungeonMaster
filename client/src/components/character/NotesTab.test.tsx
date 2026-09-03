@@ -54,6 +54,37 @@ function renderNotes(notes: Array<CharacterNote>) {
 const bodyBox = () =>
   screen.getByPlaceholderText<HTMLTextAreaElement>(/What happened\?/)
 
+/** The tab with a selection request, the way the vault's note flow drives it. */
+function renderWithSelect(notes: Array<CharacterNote>, selectIndex: number) {
+  const handled = { count: 0 }
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  })
+  function Harness() {
+    const [character, setCharacter] = useState<Character>({
+      ...emptyCharacter(),
+      notes,
+    })
+    return (
+      <NotesTab
+        character={character}
+        onChange={setCharacter}
+        worldId="abc"
+        selectIndex={selectIndex}
+        onSelectIndexHandled={() => {
+          handled.count += 1
+        }}
+      />
+    )
+  }
+  const view = render(
+    <QueryClientProvider client={client}>
+      <Harness />
+    </QueryClientProvider>,
+  )
+  return { ...view, handled }
+}
+
 describe('NotesTab selection', () => {
   it('selects the first note on mount and edits that note', async () => {
     const { seen } = renderNotes([
@@ -175,5 +206,35 @@ describe('NotesTab selection', () => {
     fireEvent.change(bodyBox(), { target: { value: 'tavern edited' } })
     expect(seen.current.notes[1].text).toBe('tavern edited')
     expect(seen.current.notes[0].text).toBe('the ambush')
+  })
+})
+
+/**
+ * The vault creates a note from a [[link]] and wants it open. The selection
+ * repair effect lands on the first VISIBLE note, so with a search active
+ * shown[0] is not notes[0] — which is exactly when a request that loses the
+ * race opens the wrong note. Silently, and over someone's writing.
+ */
+describe('NotesTab selection override', () => {
+  it('opens the requested note, not the first visible one', async () => {
+    const { handled } = renderWithSelect(
+      [noteOf('Waterdeep', 'the new one'), noteOf('Baldur', 'older')],
+      0,
+    )
+    await waitFor(() => expect(bodyBox().value).toBe('the new one'))
+    expect(handled.count).toBeGreaterThan(0)
+  })
+
+  it('wins over the repair effect on mount', async () => {
+    // The real race: on the first render `selected` is still null, so the
+    // repair effect is live and lands on shown[0] — index 0. A request for any
+    // OTHER index is the case that silently opens the wrong note. Asking for 1
+    // here fails the moment the repair stops standing aside.
+    const { handled } = renderWithSelect(
+      [noteOf('Waterdeep', 'the new one'), noteOf('Baldur', 'older')],
+      1,
+    )
+    await waitFor(() => expect(bodyBox().value).toBe('older'))
+    expect(handled.count).toBeGreaterThan(0)
   })
 })

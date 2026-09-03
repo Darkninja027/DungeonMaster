@@ -56,6 +56,7 @@ export function CharacterHeader({
   onChange,
   classes,
   onLevelUp,
+  showRuleset,
   worldId,
   articleId,
   dirty,
@@ -79,6 +80,8 @@ export function CharacterHeader({
   onChange: (next: Character) => void
   classes: Array<ClassInfo>
   onLevelUp: (to: number) => void
+  /** Offer the rules edition — the vault only; see IdentityPopover. */
+  showRuleset?: boolean
   worldId: string
   articleId: string
   dirty: boolean
@@ -142,6 +145,7 @@ export function CharacterHeader({
           onChange={onChange}
           classes={classes}
           onLevelUp={onLevelUp}
+          showRuleset={showRuleset}
         />
       </div>
 
@@ -224,7 +228,9 @@ export function CharacterHeader({
               </Link>
             </DropdownMenuItem>
             <DropdownMenuItem
-              onSelect={() => void api.player.show(worldId, articleId, 'popout')}
+              onSelect={() =>
+                void api.player.show(worldId, articleId, 'popout')
+              }
             >
               <PictureInPicture2 /> Open in new window
             </DropdownMenuItem>
