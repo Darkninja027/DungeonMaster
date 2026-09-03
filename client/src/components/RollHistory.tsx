@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Link } from '@tanstack/react-router'
 import { Trash2 } from 'lucide-react'
 import { clearRollLog, useRollLog } from '#/lib/rollLog'
+import { DiceRoller } from '#/components/DiceRoller'
 import { Button } from '#/components/ui/button'
 import { ScrollArea } from '#/components/ui/scroll-area'
 
@@ -17,12 +18,20 @@ export function RollHistory() {
   // Filter by roll source (article/character), keyed by articleId.
   const [sourceFilter, setSourceFilter] = useState('')
 
+  // The roller stays even with an empty log — an empty log is exactly when
+  // someone wants to roll something, so an early return here would hide it at
+  // the only moment it is the obvious thing on screen.
   if (allRolls.length === 0) {
     return (
-      <p className="text-muted-foreground p-4 text-sm">
-        Click any dice chip or "Roll" button in an article and the result shows
-        up here.
-      </p>
+      <div className="flex h-full flex-col">
+        <div className="border-b">
+          <DiceRoller />
+        </div>
+        <p className="text-muted-foreground p-4 text-sm">
+          Roll something above, or click any dice chip in an article, and the
+          result shows up here.
+        </p>
+      </div>
     )
   }
 
@@ -36,6 +45,9 @@ export function RollHistory() {
 
   return (
     <div className="flex h-full flex-col">
+      <div className="border-b">
+        <DiceRoller />
+      </div>
       <div className="flex items-center gap-2 border-b px-3 py-1.5">
         {sources.size > 1 ? (
           <select

@@ -20,7 +20,10 @@ import {
 } from '#/lib/guestStore'
 import type { PendingCharacter } from '#/lib/guestStore'
 import { api } from '#/lib/api'
+import { useRollLog } from '#/lib/rollLog'
 import { BookView } from '#/components/Markdown'
+import { PanelRail } from '#/components/PanelRail'
+import type { PanelRailTab } from '#/components/PanelRail'
 import { GuestSheet } from '#/components/guest/GuestSheet'
 import { RollHistory } from '#/components/RollHistory'
 import { SpellReference } from '#/components/character/SpellReference'
@@ -55,19 +58,45 @@ const TAB_ICON: Record<GuestTab, LucideIcon> = {
   spells: Sparkles,
 }
 
-const TAB_LABEL: Record<GuestTab, string> = {
+const TAB_TITLE: Record<GuestTab, string> = {
   dm: 'From the DM',
-  rolls: 'Rolls',
+  rolls: 'Roll history',
   spells: 'Spells',
+}
+
+const TAB_HINT: Record<GuestTab, string> = {
+  dm: 'What the DM is showing',
+  rolls: 'Roll history',
+  spells: 'Spell reference',
 }
 
 const TABS: Array<GuestTab> = ['dm', 'rolls', 'spells']
 
 export function GuestTable() {
   const guest = useGuest()
+  const rolls = useRollLog()
   const [tab, setTab] = useState<GuestTab>('dm')
+  const [open, setOpen] = useState(true)
 
   if (!guest.session) return <JoinScreen />
+
+  // Same rail the DM's session panel uses, so the two surfaces cannot drift
+  // into looking like different apps.
+  const railTabs: Array<PanelRailTab<GuestTab>> = TABS.map((entry) => ({
+    id: entry,
+    icon: TAB_ICON[entry],
+    title: TAB_TITLE[entry],
+    hint: TAB_HINT[entry],
+    count: entry === 'rolls' ? rolls.length : guest.shown ? 1 : 0,
+  }))
+
+  const toggle = (next: GuestTab) => {
+    if (open && tab === next) setOpen(false)
+    else {
+      setTab(next)
+      setOpen(true)
+    }
+  }
 
   return (
     <div className="flex h-full">
@@ -75,68 +104,57 @@ export function GuestTable() {
         <GuestSheet />
       </div>
 
-      <aside className="flex w-96 shrink-0 flex-col border-l">
-        <div className="flex items-center gap-2 border-b px-3 py-2">
-          <span className="min-w-0 flex-1 truncate text-sm font-medium">
-            {guest.session.name}
-          </span>
-          {!guest.connected && (
-            <span
-              className="text-muted-foreground flex items-center gap-1 text-xs"
-              title="Reconnecting"
-            >
-              <WifiOff className="size-3" /> offline
+      <PanelRail
+        tabs={railTabs}
+        open={open}
+        active={tab}
+        onToggle={toggle}
+        width="w-96"
+        header={
+          <div className="flex items-center gap-2 border-b px-3 py-2">
+            <span className="min-w-0 flex-1 truncate text-sm font-medium">
+              {guest.session.name}
             </span>
-          )}
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 shrink-0 text-xs"
-            title="Leave the table"
-            onClick={leaveTable}
-          >
-            <LogOut className="size-3.5" /> Leave
-          </Button>
-        </div>
-
-        <div className="flex gap-1 border-b px-2 py-1.5">
-          {TABS.map((entry) => {
-            const Icon = TAB_ICON[entry]
-            return (
-              <Button
-                key={entry}
-                variant={tab === entry ? 'secondary' : 'ghost'}
-                size="sm"
-                className="h-7 flex-1 text-xs"
-                onClick={() => setTab(entry)}
-                title={TAB_LABEL[entry]}
+            {!guest.connected && (
+              <span
+                className="text-muted-foreground flex items-center gap-1 text-xs"
+                title="Reconnecting"
               >
-                <Icon className="size-3.5 shrink-0" />
-                <span className="truncate">{TAB_LABEL[entry]}</span>
-              </Button>
-            )
-          })}
+                <WifiOff className="size-3" /> offline
+              </span>
+            )}
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 shrink-0 text-xs"
+              title="Leave the table"
+              onClick={leaveTable}
+            >
+              <LogOut className="size-3.5" /> Leave
+            </Button>
+          </div>
+        }
+      >
+        <div className="flex h-full flex-col">
+          <div className="min-h-0 flex-1">
+            {tab === 'dm' ? (
+              <DmPane />
+            ) : tab === 'rolls' ? (
+              <RollHistory />
+            ) : (
+              // The spell reference reads the app's global library, so it needs
+              // no world of its own — just as well, since a guest has none.
+              <SpellReference worldId={guest.ownWorldId ?? ''} />
+            )}
+          </div>
+          <div className="flex items-center gap-2 border-t px-3 py-1.5">
+            <Users className="text-muted-foreground size-3.5 shrink-0" />
+            <span className="text-muted-foreground min-w-0 flex-1 truncate text-xs">
+              {guest.seats.map((s) => s.name).join(', ') || 'just you'}
+            </span>
+          </div>
         </div>
-
-        <div className="min-h-0 flex-1">
-          {tab === 'dm' ? (
-            <DmPane />
-          ) : tab === 'rolls' ? (
-            <RollHistory />
-          ) : (
-            // The spell reference reads the app's global library, so it needs
-            // no world of its own — just as well, since a guest has none.
-            <SpellReference worldId={guest.ownWorldId ?? ''} />
-          )}
-        </div>
-
-        <div className="flex items-center gap-2 border-t px-3 py-1.5">
-          <Users className="text-muted-foreground size-3.5 shrink-0" />
-          <span className="text-muted-foreground min-w-0 flex-1 truncate text-xs">
-            {guest.seats.map((s) => s.name).join(', ') || 'just you'}
-          </span>
-        </div>
-      </aside>
+      </PanelRail>
     </div>
   )
 }

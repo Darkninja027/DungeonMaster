@@ -5,8 +5,8 @@ import { useRollLog } from '#/lib/rollLog'
 import { useWorldMode } from '#/lib/useWorldSettings'
 import { useSpellPanelRequest } from '#/lib/spellPanel'
 import { hydrateSession, useCombat } from '#/lib/sessionStore'
-import { cn } from '#/lib/utils'
-import { Button } from '#/components/ui/button'
+import { PanelRail } from '#/components/PanelRail'
+import type { PanelRailTab } from '#/components/PanelRail'
 import { EncounterBuilder } from '#/components/EncounterBuilder'
 import { InitiativeTracker } from '#/components/InitiativeTracker'
 import { MonsterReference } from '#/components/MonsterReference'
@@ -15,12 +15,7 @@ import { TablePanel } from '#/components/TablePanel'
 import { SpellReference } from '#/components/character/SpellReference'
 
 type PanelTab =
-  | 'initiative'
-  | 'encounter'
-  | 'rolls'
-  | 'spells'
-  | 'monsters'
-  | 'table'
+  'initiative' | 'encounter' | 'rolls' | 'spells' | 'monsters' | 'table'
 
 const STORAGE_KEY = 'dm.sessionPanel'
 
@@ -141,66 +136,38 @@ export function SessionPanel({ worldId }: { worldId: string }) {
   // corrects it; render the fallback rather than a blank panel for that frame.
   const shown = tabs.includes(tab) ? tab : tabs[0]
 
+  const railTabs: Array<PanelRailTab<PanelTab>> = tabs.map((entry) => ({
+    id: entry,
+    icon: TAB_ICON[entry],
+    title: TAB_TITLE[entry],
+    hint: TAB_HINT[entry],
+    // Only two tabs carry a "there is something here" dot.
+    count:
+      entry === 'initiative'
+        ? combat.combatants.length
+        : entry === 'rolls'
+          ? rolls.length
+          : 0,
+  }))
+
   return (
-    <div className="flex h-full shrink-0 border-l">
-      {open && (
-        <div className="flex h-full w-85 flex-col border-r">
-          <div className="border-b px-3 py-2">
-            <h3 className="text-sm font-semibold">{TAB_TITLE[shown]}</h3>
-          </div>
-          <div className="min-h-0 flex-1">
-            {shown === 'initiative' ? (
-              <InitiativeTracker worldId={worldId} />
-            ) : shown === 'encounter' ? (
-              <EncounterBuilder
-                worldId={worldId}
-                onRun={() => setPanel({ open: true, tab: 'initiative' })}
-              />
-            ) : shown === 'rolls' ? (
-              <RollHistory />
-            ) : shown === 'spells' ? (
-              <SpellReference worldId={worldId} />
-            ) : shown === 'table' ? (
-              <TablePanel worldId={worldId} />
-            ) : (
-              <MonsterReference worldId={worldId} />
-            )}
-          </div>
-        </div>
+    <PanelRail tabs={railTabs} open={open} active={shown} onToggle={toggle}>
+      {shown === 'initiative' ? (
+        <InitiativeTracker worldId={worldId} />
+      ) : shown === 'encounter' ? (
+        <EncounterBuilder
+          worldId={worldId}
+          onRun={() => setPanel({ open: true, tab: 'initiative' })}
+        />
+      ) : shown === 'rolls' ? (
+        <RollHistory />
+      ) : shown === 'spells' ? (
+        <SpellReference worldId={worldId} />
+      ) : shown === 'table' ? (
+        <TablePanel worldId={worldId} />
+      ) : (
+        <MonsterReference worldId={worldId} />
       )}
-      <div className="flex flex-col items-center gap-1 px-1.5 py-2">
-        {tabs.map((entry) => {
-          const Icon = TAB_ICON[entry]
-          const active = open && shown === entry
-          // Only two tabs carry a "there is something here" dot.
-          const count =
-            entry === 'initiative'
-              ? combat.combatants.length
-              : entry === 'rolls'
-                ? rolls.length
-                : 0
-          return (
-            <Button
-              key={entry}
-              variant={active ? 'secondary' : 'ghost'}
-              size="icon"
-              className="relative size-8"
-              title={TAB_HINT[entry]}
-              onClick={() => toggle(entry)}
-            >
-              <Icon className="size-4" />
-              {count > 0 && (
-                <span
-                  className={cn(
-                    'bg-primary absolute right-1 top-1 size-1.5 rounded-full',
-                    active && 'hidden',
-                  )}
-                />
-              )}
-            </Button>
-          )
-        })}
-      </div>
-    </div>
+    </PanelRail>
   )
 }
