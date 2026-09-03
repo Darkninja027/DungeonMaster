@@ -23,6 +23,7 @@ import {
 import type { OfferedCharacter } from '#/lib/guestStore'
 import { api } from '#/lib/api'
 import {
+  findNoteByTitle,
   isCharacterContent,
   noteTitles,
   parseCharacter,
@@ -38,6 +39,7 @@ import { NotesTab } from '#/components/character/NotesTab'
 import { SheetFitPane, SheetPreview } from '#/components/character/SheetPreview'
 import { Button } from '#/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '#/components/ui/tabs'
+import { Textarea } from '#/components/ui/textarea'
 
 /**
  * The guest's own character — the same tabbed view the DM gets, not a preview.
@@ -107,12 +109,15 @@ function PlayedSheet() {
   // is what it was last loaded from.
   const initial = useMemo(() => parseCharacter(sheet.content), [sheet.content])
   const [character, setCharacter] = useState<Character>(initial.character)
+  const [body, setBody] = useState(initial.body)
   const [tab, setTab] = useState<SheetTabId>('sheet')
   const [saveError, setSaveError] = useState<string | null>(null)
-  const body = initial.body
 
   // A reload from the host, or a fresh claim, replaces the draft.
-  useEffect(() => setCharacter(initial.character), [initial])
+  useEffect(() => {
+    setCharacter(initial.character)
+    setBody(initial.body)
+  }, [initial])
 
   // A vault character's own world, for image resolution and wiki links. A
   // claimed one has no local world, so this stays disabled.
@@ -128,18 +133,32 @@ function PlayedSheet() {
     title: sheet.title,
   }
 
+  /** Write the whole sheet back to this machine's vault. Own characters only. */
+  const saveOwn = (nextCharacter: Character, nextBody: string) => {
+    if (!guest.ownWorldId) return
+    void api.articles
+      .update(guest.ownWorldId, sheet.id, {
+        title: sheet.title,
+        content: serializeCharacter(nextCharacter, nextBody),
+      })
+      .catch(() => setSaveError('Could not save to your vault.'))
+  }
+
+  const updateBody = (next: string) => {
+    setBody(next)
+    setSaveError(null)
+    // Claimed sheets never reach here: the Story tab is read-only for them,
+    // because the host's write allowlist has no body field.
+    if (own) saveOwn(character, next)
+  }
+
   const update = (next: Character) => {
     const prev = character
     setCharacter(next)
     setSaveError(null)
 
     if (own && guest.ownWorldId) {
-      void api.articles
-        .update(guest.ownWorldId, sheet.id, {
-          title: sheet.title,
-          content: serializeCharacter(next, body),
-        })
-        .catch(() => setSaveError('Could not save to your vault.'))
+      saveOwn(next, body)
       return
     }
 
@@ -155,6 +174,19 @@ function PlayedSheet() {
 
   const titles = noteTitles(character.notes)
   const articles = tree.data?.articles
+
+  // A [[link]] on a sheet resolves to one of the character's OWN notes, which
+  // travel inside the sheet and so work identically for a claimed character
+  // and a vault one. Clicking jumps to that note, the same as the DM's route.
+  // Links to world ARTICLES deliberately do not resolve here: for a claimed
+  // sheet they name articles in the host's world, which this app cannot open.
+  const [selectNote, setSelectNote] = useState<number | null>(null)
+  const openNoteByTitle = (t: string) => {
+    const hit = findNoteByTitle(character.notes, t)
+    if (!hit) return
+    setTab('notes')
+    setSelectNote(hit.index)
+  }
 
   return (
     <Tabs
@@ -239,6 +271,7 @@ function PlayedSheet() {
         <SheetTab
           character={character}
           onChange={update}
+          onOpenNote={openNoteByTitle}
           source={source}
           articles={articles}
           noteTitles={titles}
@@ -248,6 +281,7 @@ function PlayedSheet() {
         <InventoryTab
           character={character}
           onChange={update}
+          onOpenNote={openNoteByTitle}
           worldId={source.worldId}
           articles={articles}
           noteTitles={titles}
@@ -260,6 +294,7 @@ function PlayedSheet() {
         <FeaturesTab
           character={character}
           onChange={update}
+          onOpenNote={openNoteByTitle}
           worldId={source.worldId}
           articles={articles}
           noteTitles={titles}
@@ -274,18 +309,50 @@ function PlayedSheet() {
           worldId={source.worldId}
           articles={articles}
           noteTitles={titles}
+          onOpenNote={openNoteByTitle}
+          selectIndex={selectNote}
+          onSelectIndexHandled={() => setSelectNote(null)}
         />
       </TabsContent>
-      <TabsContent
-        value="backstory"
-        className="min-h-0 flex-1 overflow-y-auto p-4"
-      >
-        {body.trim() ? (
-          <Markdown worldId={guest.ownWorldId ?? undefined} articles={articles}>
-            {body}
-          </Markdown>
+      {/* Editable for your OWN character, read-only for one claimed from the
+          DM — the host's write allowlist has no body field, so an editor there
+          would take work and silently drop it. A plain textarea rather than
+          the DM route's live editor: that one carries an image picker, an
+          outline and a live preview, all of which need a world folder a guest
+          does not have. */}
+      <TabsContent value="backstory" className="flex min-h-0 flex-1 flex-col">
+        {own ? (
+          <>
+            <p className="text-muted-foreground shrink-0 border-b px-3 py-1 text-xs">
+              Your character&apos;s prose — saved to your vault as you type.
+            </p>
+            <Textarea
+              value={body}
+              onChange={(e) => updateBody(e.target.value)}
+              aria-label="Backstory"
+              placeholder="Where they came from, who they owe, what they want."
+              className="min-h-0 flex-1 resize-none rounded-none border-0 font-mono text-sm focus-visible:ring-0"
+            />
+          </>
         ) : (
-          <p className="text-muted-foreground text-sm">No backstory written.</p>
+          <div className="min-h-0 flex-1 overflow-y-auto p-4">
+            <p className="text-muted-foreground mb-2 text-xs">
+              The DM owns this sheet, so its story is read-only here.
+            </p>
+            {body.trim() ? (
+              <Markdown
+                worldId={guest.ownWorldId ?? undefined}
+                articles={articles}
+                noteTitles={titles}
+              >
+                {body}
+              </Markdown>
+            ) : (
+              <p className="text-muted-foreground text-sm">
+                No backstory written.
+              </p>
+            )}
+          </div>
         )}
       </TabsContent>
       <TabsContent value="preview" className="min-h-0 flex-1 overflow-y-auto">

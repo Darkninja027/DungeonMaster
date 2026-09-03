@@ -18,6 +18,7 @@ import {
   List,
   Loader2,
   MonitorPlay,
+  MonitorX,
   PictureInPicture2,
   Pencil,
   Save,
@@ -26,6 +27,7 @@ import {
   WandSparkles,
 } from 'lucide-react'
 import { api } from '#/lib/api'
+import { useTable } from '#/lib/tableStore'
 import { REVEAL_LABEL, revealer } from '#/lib/reveal'
 import { isCharacterContent, parseCharacter } from '#/lib/character'
 import { useShortcut } from '#/lib/useShortcut'
@@ -432,6 +434,12 @@ function ArticlePage() {
   // help, because every app write goes through noteSelfWrite and is dropped.
   // pushToPlayerWindow no-ops when no such window is open, so this costs
   // nothing in the common case.
+  // What the LAN table is currently showing, if this app is hosting one.
+  const { info: tableInfo } = useTable()
+  const shownArticleId = tableInfo?.shown?.articleId ?? null
+  const isShownToPlayers =
+    shownArticleId !== null && shownArticleId === articleId
+
   const deferredForPlayers = useDeferredValue(content)
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -441,13 +449,19 @@ function ArticlePage() {
         content: deferredForPlayers,
         title,
       })
-      // The same buffer goes to any LAN guests. No-ops when not hosting, and
-      // deliberately carries no worldId: that is hex of this machine's absolute
-      // path, so it must never cross the wire (see electron/main/tableHost.ts).
-      void api.table.show({ articleId, content: deferredForPlayers, title })
+      // The same buffer goes to LAN guests, but ONLY for the article already
+      // on the table. api.table.show STARTS showing, so calling it here
+      // unconditionally meant opening any article broadcast it to the players
+      // — this effect runs on every article you look at. Showing is an
+      // explicit act; this only keeps an already-shown article live as you
+      // type. It carries no worldId: that is hex of this machine's absolute
+      // path and must never cross the wire (electron/main/tableHost.ts).
+      if (shownArticleId === articleId) {
+        void api.table.show({ articleId, content: deferredForPlayers, title })
+      }
     }, 150)
     return () => clearTimeout(timer)
-  }, [worldId, articleId, deferredForPlayers, title])
+  }, [worldId, articleId, deferredForPlayers, title, shownArticleId])
 
   // Characters preview as a parchment sheet rather than as prose, since all
   // their data lives in the frontmatter that BookView deliberately strips.
@@ -760,16 +774,26 @@ function ArticlePage() {
           >
             <PictureInPicture2 />
           </Button>
+          {/* A toggle rather than a one-way action, because showing is now a
+              state someone can be in and leaving it needed a way out. When a
+              LAN table is running this article IS the thing on the table, so
+              the same button takes it down; with no table it opens the local
+              player window as before. */}
           <Button
-            variant="outline"
+            variant={isShownToPlayers ? 'secondary' : 'outline'}
             size="icon"
             className="size-8"
-            title="Show to players in a second window"
-            onClick={() =>
-              void api.player.show(worldId, article.data?.id ?? articleId)
-            }
+            title={isShownToPlayers ? 'Hide from players' : 'Show to players'}
+            onClick={() => {
+              const id = article.data?.id ?? articleId
+              if (isShownToPlayers) {
+                void api.table.clear()
+                return
+              }
+              void api.player.show(worldId, id)
+            }}
           >
-            <MonitorPlay />
+            {isShownToPlayers ? <MonitorX /> : <MonitorPlay />}
           </Button>
           <Button
             variant="outline"

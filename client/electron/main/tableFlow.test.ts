@@ -381,6 +381,23 @@ describe('a session end to end', () => {
     expect((hello.payload as Record<string, unknown>).shown).toBeNull()
   })
 
+  it('a cleared table stays cleared until the DM shows something again', async () => {
+    // The renderer used to call showAtTable on every article it opened, so
+    // merely LOOKING at an article put it in front of the players — and Stop
+    // was undone by the next keystroke. The host cannot enforce that (a show
+    // is a show), so this pins the half it owns: clearing is durable, and
+    // nothing re-shows on its own.
+    showAtTable({ articleId: 'NPCs/Strahd', content: '# S', title: 'Strahd' })
+    clearTable()
+    expect(tableInfo()!.shown).toBeNull()
+
+    const seat = await join('Sarah')
+    const res = await fetch(`${base}/events?token=${seat.token}`)
+    const [hello] = await collect(res, 1)
+    expect((hello.payload as Record<string, unknown>).shown).toBeNull()
+    expect(tableInfo()!.shown).toBeNull()
+  })
+
   it('tells the DM window when someone joins', async () => {
     await join('Brok')
     const seats = sent.filter((m) => m.channel === 'table:seats')

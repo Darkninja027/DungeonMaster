@@ -11,6 +11,7 @@ import {
   FolderOpen,
   FolderPlus,
   MonitorPlay,
+  MonitorX,
   MoreHorizontal,
   PictureInPicture2,
   Pencil,
@@ -27,6 +28,7 @@ import type { ArticleSummary, FolderNode, WorldTree } from '#/lib/api'
 import { isLibraryFolder } from '#/lib/libraryFolders'
 import { useWorldMode } from '#/lib/useWorldSettings'
 import { REVEAL_LABEL, revealer } from '#/lib/reveal'
+import { useTable } from '#/lib/tableStore'
 import { articleTemplates, newArticleContent } from '#/lib/templates'
 import { cn } from '#/lib/utils'
 import { SmartViews } from '#/components/SmartViews'
@@ -65,6 +67,9 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
   const params = useParams({ strict: false })
   const activeArticleId = params.articleId ?? null
   const reveal = revealer(worldId)
+  // What the LAN table is showing, if this app is hosting one. Null otherwise,
+  // so the indicator and the Hide item simply never appear.
+  const shownArticleId = useTable().info?.shown?.articleId ?? null
 
   const tree = useQuery({
     queryKey: ['worlds', worldId, 'tree'],
@@ -326,6 +331,14 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
       >
         <FileText className="text-muted-foreground size-3.5 shrink-0" />
         <span className="truncate">{article.title}</span>
+        {/* On the table right now. The DM otherwise has no way to tell which
+            article the players are looking at without opening it. */}
+        {shownArticleId === article.id && (
+          <MonitorPlay
+            className="size-3.5 shrink-0 text-emerald-600 dark:text-emerald-500"
+            aria-label="Showing to players"
+          />
+        )}
       </Link>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
@@ -357,11 +370,21 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
             onClick={() => void api.player.show(worldId, article.id, 'popout')}
           >
             <PictureInPicture2 /> Open in new window
-          </DropdownMenuItem>          <DropdownMenuItem
-            onClick={() => void api.player.show(worldId, article.id)}
-          >
-            <MonitorPlay /> Show to players
-          </DropdownMenuItem>
+          </DropdownMenuItem>{' '}
+          {/* Showing is a state, so this is a toggle rather than a one-way
+              action. With a LAN table running it takes the article down; with
+              no table it opens the local player window as it always did. */}
+          {shownArticleId === article.id ? (
+            <DropdownMenuItem onClick={() => void api.table.clear()}>
+              <MonitorX /> Hide from players
+            </DropdownMenuItem>
+          ) : (
+            <DropdownMenuItem
+              onClick={() => void api.player.show(worldId, article.id)}
+            >
+              <MonitorPlay /> Show to players
+            </DropdownMenuItem>
+          )}
           <DropdownMenuItem onClick={() => reveal(`${article.id}.md`)}>
             <FolderOpen /> {REVEAL_LABEL}
           </DropdownMenuItem>
