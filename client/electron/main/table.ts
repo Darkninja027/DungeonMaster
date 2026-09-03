@@ -20,6 +20,16 @@ export interface Seat {
   name: string
   /** Article id of the character this seat rolls as, once claimed. */
   characterId?: string
+  /**
+   * Display name of the character this seat is playing.
+   *
+   * Set for a claimed character from the host's own world, and ALSO for one a
+   * guest brought from their own vault — which the host otherwise knows
+   * nothing about. In that second case the guest supplies it, so it is a
+   * LABEL and never an identity: it is shown beside rolls and is not used to
+   * authorise anything. seatOwns still gates every write.
+   */
+  characterName?: string
   joinedAt: number
 }
 
@@ -103,6 +113,7 @@ export function withCharacterClaimed(
   state: TableState,
   seatId: string,
   characterId: string,
+  characterName?: string,
 ): TableState {
   const takenBy = state.seats.find(
     (s) => s.characterId === characterId && s.id !== seatId,
@@ -111,7 +122,32 @@ export function withCharacterClaimed(
   return {
     ...state,
     seats: state.seats.map((s) =>
-      s.id === seatId ? { ...s, characterId } : s,
+      s.id === seatId ? { ...s, characterId, characterName } : s,
+    ),
+  }
+}
+
+/**
+ * Record what a seat is playing WITHOUT claiming anything.
+ *
+ * For a character the guest brought from their own vault: the host holds no
+ * file, so there is nothing to claim and nothing for two people to collide
+ * over. It exists only so a roll can read "Sarah as Thalia" — which is why it
+ * clears characterId rather than setting one. A label must never become
+ * authorisation, and seatOwns still gates every write.
+ */
+export function withCharacterNamed(
+  state: TableState,
+  seatId: string,
+  characterName: string,
+): TableState {
+  const name = characterName.trim().slice(0, 60)
+  return {
+    ...state,
+    seats: state.seats.map((s) =>
+      s.id === seatId
+        ? { ...s, characterId: undefined, characterName: name || undefined }
+        : s,
     ),
   }
 }

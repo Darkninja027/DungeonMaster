@@ -90,6 +90,14 @@ describe('a session end to end', () => {
     sent.length = 0
     root = fs.mkdtempSync(path.join(os.tmpdir(), 'dm-flow-'))
     fs.writeFileSync(path.join(root, 'world.json'), '{"name":"Barovia"}')
+    // A real sheet, so a claim can pick up its title for the roll label.
+    fs.mkdirSync(path.join(root, 'Characters'), { recursive: true })
+    fs.writeFileSync(
+      path.join(root, 'Characters', 'Thalia.md'),
+      ['---', 'type: character', 'level: 3', '---', '', 'Rooftops.', ''].join(
+        String.fromCharCode(10),
+      ),
+    )
     const info = hostTable(encodeWorldId(root), 0)
     base = `http://127.0.0.1:${info.port}`
   })
@@ -203,6 +211,88 @@ describe('a session end to end', () => {
     const msg = forwarded!.payload as Record<string, unknown>
     expect(msg.characterId).toBe('Characters/Thalia')
     expect(msg.patch).toEqual({ hpCurrent: 12 })
+  })
+
+  it("labels a roll with the claimed character's name", async () => {
+    const seat = await join('Sarah')
+    const post = (p: string, body: unknown) =>
+      fetch(`${base}${p}`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${seat.token}`,
+        },
+        body: JSON.stringify(body),
+      })
+
+    await post('/claim', { characterId: 'Characters/Thalia' })
+    await post('/roll', {
+      id: 'r9',
+      notation: '1d20+5',
+      total: 22,
+      detail: '17 + 5',
+      at: Date.now(),
+    })
+
+    const relayed = sent.filter((m) => m.channel === 'table:roll').at(-1)!
+    const stamped = (relayed.payload as Record<string, unknown>).seat as Record<
+      string,
+      unknown
+    >
+    expect(stamped.name).toBe('Sarah')
+    expect(stamped.character).toBe('Thalia')
+  })
+
+  it('labels a roll with a character the guest brought from their own vault', async () => {
+    const seat = await join('Dave')
+    const post = (p: string, body: unknown) =>
+      fetch(`${base}${p}`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${seat.token}`,
+        },
+        body: JSON.stringify(body),
+      })
+
+    // Nothing is claimed: the host holds no file for this character.
+    await post('/playing', { characterName: 'Brok' })
+    await post('/roll', {
+      id: 'r10',
+      notation: '1d8',
+      total: 6,
+      detail: '6',
+      at: Date.now(),
+    })
+
+    const relayed = sent.filter((m) => m.channel === 'table:roll').at(-1)!
+    const stamped = (relayed.payload as Record<string, unknown>).seat as Record<
+      string,
+      unknown
+    >
+    expect(stamped.name).toBe('Dave')
+    expect(stamped.character).toBe('Brok')
+  })
+
+  it('a named vault character grants no write access', async () => {
+    const seat = await join('Dave')
+    const post = (p: string, body: unknown) =>
+      fetch(`${base}${p}`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${seat.token}`,
+        },
+        body: JSON.stringify(body),
+      })
+
+    // A display label must never become authorisation.
+    await post('/playing', { characterName: 'Thalia' })
+    const res = await post('/sheet', {
+      characterId: 'Characters/Thalia',
+      patch: { hpCurrent: 1 },
+    })
+    expect(res.status).toBe(403)
   })
 
   it('tells the DM window when someone joins', async () => {

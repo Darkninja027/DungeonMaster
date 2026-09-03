@@ -68,6 +68,13 @@ export function RollHistory() {
         <ul className="divide-y">
           {rolls.map((roll) => (
             <li key={roll.id} className="px-3 py-2 text-sm">
+              {roll.seat && (
+                <p className="text-muted-foreground text-xs">
+                  {roll.seat.character
+                    ? `${roll.seat.name} as ${roll.seat.character}`
+                    : roll.seat.name}
+                </p>
+              )}
               <div className="flex items-baseline gap-2">
                 {roll.label && (
                   <span

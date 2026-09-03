@@ -22,6 +22,19 @@ export interface RollSource {
   title: string
 }
 
+/**
+ * Who made a roll, when it came from a LAN guest. Absent for the DM's own.
+ *
+ * Stamped by the host from the seat it authenticated, never taken from the
+ * payload — a guest naming its own seat could otherwise attribute a roll to
+ * someone else. `character` is a display label only.
+ */
+export interface RollSeat {
+  id: string
+  name: string
+  character?: string
+}
+
 export interface RollEntry {
   id: string
   notation: string
@@ -31,6 +44,7 @@ export interface RollEntry {
   detail: string
   at: number
   source?: RollSource
+  seat?: RollSeat
 }
 
 const MAX_ENTRIES = 200
@@ -53,7 +67,9 @@ function notify() {
  */
 function insert(entry: RollEntry): boolean {
   if (entries.some((e) => e.id === entry.id)) return false
-  entries = [entry, ...entries].sort((a, b) => b.at - a.at).slice(0, MAX_ENTRIES)
+  entries = [entry, ...entries]
+    .sort((a, b) => b.at - a.at)
+    .slice(0, MAX_ENTRIES)
   return true
 }
 

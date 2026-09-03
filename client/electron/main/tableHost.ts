@@ -17,6 +17,7 @@ import {
   safeError,
   seatOwns,
   withCharacterClaimed,
+  withCharacterNamed,
   withSeatAdded,
   withSeatRemoved,
 } from './table'
@@ -334,10 +335,18 @@ async function handle(
       (raw as Record<string, unknown> | null)?.characterId,
     )
     if (!characterId) return json(res, 400, { error: 'Malformed request' })
+    let claimedName: string | undefined
+    try {
+      claimedName = getArticle(session.worldId, characterId).title
+    } catch {
+      // A claim for an article that has since gone is refused below by
+      // seatOwns failing, so a missing title is not worth failing here.
+    }
     session.state = withCharacterClaimed(
       session.state,
       guest.seatId,
       characterId,
+      claimedName,
     )
     const ok = seatOwns(session.state, guest.seatId, characterId)
     notifyHost()
@@ -347,16 +356,37 @@ async function handle(
       : json(res, 409, { error: 'Already claimed' })
   }
 
+  // --- a guest is playing a character the host does not hold --------------------
+  // For a character brought from the guest's own vault. Nothing is claimed,
+  // because the host holds no file — this only makes rolls readable as
+  // "Sarah (Thalia)".
+  if (req.method === 'POST' && url.pathname === '/playing') {
+    const raw = await readJson(req)
+    const name = (raw as Record<string, unknown> | null)?.characterName
+    if (typeof name !== 'string') {
+      return json(res, 400, { error: 'Malformed request' })
+    }
+    session.state = withCharacterNamed(session.state, guest.seatId, name)
+    notifyHost()
+    broadcast('seats', session.state.seats)
+    return json(res, 200, { ok: true })
+  }
+
   // --- a guest rolled -------------------------------------------------------
   if (req.method === 'POST' && url.pathname === '/roll') {
     const roll = parseRoll(await readJson(req))
     if (!roll) return json(res, 400, { error: 'Malformed request' })
     const seat = session.state.seats.find((s) => s.id === guest.seatId)
     // The seat is stamped HOST-side. A guest naming its own seat could
-    // attribute a roll to someone else.
+    // attribute a roll to someone else. The character name rides along so the
+    // DM's roll history can read "Sarah (Thalia)" — it is a label the guest
+    // supplied for a vault character, so it is never used to authorise
+    // anything; seatOwns still gates every write.
     const entry = {
       ...roll,
-      seat: seat ? { id: seat.id, name: seat.name } : undefined,
+      seat: seat
+        ? { id: seat.id, name: seat.name, character: seat.characterName }
+        : undefined,
     }
     session.rolls = [...session.rolls, entry].slice(-200)
     broadcast('roll', entry)

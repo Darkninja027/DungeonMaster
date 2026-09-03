@@ -72,6 +72,31 @@ const empty: GuestState = {
   ownWorldId: null,
 }
 
+/**
+ * The character chosen on the join screen, before a table exists to tell.
+ *
+ * Picking who you are is part of sitting down, not something you do after
+ * arriving — so the choice is made first and applied the moment the seat is
+ * granted.
+ */
+export interface PendingCharacter {
+  origin: 'own'
+  worldId: string
+  articleId: string
+  title: string
+  content: string
+}
+
+let pending: PendingCharacter | null = null
+
+export function setPendingCharacter(next: PendingCharacter | null): void {
+  pending = next
+}
+
+export function getPendingCharacter(): PendingCharacter | null {
+  return pending
+}
+
 let state: GuestState = empty
 let stream: EventSource | null = null
 let unsubscribeRolls: (() => void) | null = null
@@ -168,6 +193,17 @@ export async function joinTable(
   // From here on, a roll made on this machine also goes up to the host.
   unsubscribeRolls?.()
   unsubscribeRolls = onLocalRoll(sendRoll)
+  // A character chosen on the join screen is applied now that there is a seat
+  // to attach it to.
+  if (pending) {
+    bringOwnCharacter(
+      pending.worldId,
+      pending.articleId,
+      pending.title,
+      pending.content,
+    )
+    pending = null
+  }
   openStream()
 }
 
@@ -301,6 +337,10 @@ export function bringOwnCharacter(
     ownWorldId: worldId,
     sheet: { id: articleId, title, content },
   })
+  // Tell the host the display name so rolls read "Sarah as Thalia". Nothing is
+  // claimed — the host holds no file — and a failure only costs the label.
+  if (state.session)
+    void send('/playing', { characterName: title }).catch(() => {})
 }
 
 /** Put the character down and go back to the picker. */
@@ -363,6 +403,7 @@ export async function sendSheetPatch(
 }
 
 export function leaveTable(): void {
+  pending = null
   stream?.close()
   stream = null
   unsubscribeRolls?.()
