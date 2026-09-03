@@ -57,11 +57,18 @@ export function GuestTable() {
       }
       await joinTable(target, code, name)
     } catch (cause) {
+      // A network failure surfaces as TypeError("Failed to fetch"), which is
+      // both an Error and useless to a person at a table — so it is translated
+      // rather than shown. Anything else is a message the host actually wrote
+      // ("Wrong room code"), which is worth reading as-is.
+      const raw = cause instanceof Error ? cause.message : ''
       setError(
-        cause instanceof Error
-          ? cause.message
-          : 'Could not reach that address — check the DM is hosting.',
+        !raw || /failed to fetch|networkerror|load failed/i.test(raw)
+          ? 'Could not reach the table. Check the DM is hosting and that you ' +
+              'are on the same network.'
+          : raw,
       )
+      setManual(true)
     } finally {
       setSearching(false)
       setBusy(false)

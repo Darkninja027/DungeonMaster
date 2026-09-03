@@ -112,11 +112,33 @@ function notifyHost(): void {
   }
 }
 
+/**
+ * Headers that let a guest's renderer actually READ the response.
+ *
+ * A guest is a browser context on another machine, so every call here is
+ * cross-origin and the browser discards the response unless told otherwise.
+ * Without these, joining fails as an opaque "failed to fetch" while the server
+ * logs a perfectly successful request — which is exactly as confusing to debug
+ * as it sounds, and is invisible to a Node-based test because Node's fetch does
+ * not enforce CORS.
+ *
+ * '*' is the right origin here. The room code and the per-seat token are what
+ * gate access; the origin of a desktop app's renderer is not a meaningful
+ * identity to check, being a dev-server URL in development and file:// in a
+ * build.
+ */
+const CORS = {
+  'access-control-allow-origin': '*',
+  'access-control-allow-headers': 'content-type, authorization',
+  'access-control-allow-methods': 'GET, POST, OPTIONS',
+} as const
+
 function json(res: http.ServerResponse, status: number, body: unknown): void {
   const text = JSON.stringify(body)
   res.writeHead(status, {
     'content-type': 'application/json',
     'cache-control': 'no-store',
+    ...CORS,
   })
   res.end(text)
 }
@@ -173,6 +195,14 @@ async function handle(
   req: http.IncomingMessage,
   res: http.ServerResponse,
 ): Promise<void> {
+  // Preflight is answered before EVERY other check, auth included: the browser
+  // sends it without credentials, so a 401 here would block the real request
+  // that was about to carry them.
+  if (req.method === 'OPTIONS') {
+    res.writeHead(204, CORS)
+    res.end()
+    return
+  }
   if (!session) return json(res, 503, { error: 'No table is running' })
   const url = new URL(
     req.url ?? '/',
@@ -211,6 +241,7 @@ async function handle(
       'content-type': 'text/event-stream',
       'cache-control': 'no-store',
       connection: 'keep-alive',
+      ...CORS,
     })
     guest.res = res
 
@@ -334,7 +365,7 @@ async function handle(
         rel.slice(IMAGES_DIR.length + 1),
       )
       if (!fs.existsSync(abs)) return json(res, 404, { error: 'Not found' })
-      res.writeHead(200, { 'cache-control': 'max-age=300' })
+      res.writeHead(200, { 'cache-control': 'max-age=300', ...CORS })
       fs.createReadStream(abs).pipe(res)
     } catch (err) {
       json(res, 400, { error: safeError(err) })
@@ -385,6 +416,12 @@ export function hostTable(worldId: string, port = DEFAULT_PORT): TableInfo {
     rolls: [],
     combat: null,
   }
+  // Binds every interface, which includes loopback (so one machine can host and
+  // join itself) and every LAN adapter. It ALSO includes any public or VPN
+  // adapter the machine has, and there is no attempt to hide that: the room
+  // code plus the per-seat token are what actually gate access, not the bind
+  // address. tableInfo() reports only the LAN addresses, so that is what the
+  // DM's panel shows and reads out.
   server.listen(port)
   // With port 0 the OS picks one, so read back what it actually bound.
   const bound = server.address()

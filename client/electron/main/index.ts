@@ -101,7 +101,18 @@ function createWindow() {
   return win
 }
 
-if (!app.requestSingleInstanceLock()) {
+/**
+ * A second copy of the app normally hands focus to the first and quits. That
+ * makes a LAN session impossible to test on one machine, since hosting and
+ * joining are two instances — so DM_ALLOW_SECOND_INSTANCE opts out.
+ *
+ * Dev-only by intent, and it needs its own --user-data-dir to be useful: two
+ * instances sharing one userData directory fight over config.json and the
+ * global library. See docs in the repo, or run-two.mjs which sets both.
+ */
+const allowSecond = process.env.DM_ALLOW_SECOND_INSTANCE === '1'
+
+if (!allowSecond && !app.requestSingleInstanceLock()) {
   app.quit()
 } else {
   app.on('second-instance', () => {

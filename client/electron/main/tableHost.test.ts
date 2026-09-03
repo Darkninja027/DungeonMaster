@@ -22,9 +22,8 @@ vi.mock('electron', () => ({
 }))
 
 const { encodeWorldId } = await import('./sanitize')
-const { hostTable, stopTable, tableInfo, showAtTable } = await import(
-  './tableHost'
-)
+const { hostTable, stopTable, tableInfo, showAtTable } =
+  await import('./tableHost')
 
 let root: string
 let worldId: string
@@ -216,7 +215,11 @@ describe('table host over real HTTP', () => {
   })
 
   it('replays what the DM last showed to a guest that connects later', async () => {
-    showAtTable({ articleId: 'NPCs/Strahd', content: '# Strahd', title: 'Strahd' })
+    showAtTable({
+      articleId: 'NPCs/Strahd',
+      content: '# Strahd',
+      title: 'Strahd',
+    })
     const seat = await join()
     const res = await fetch(`${base}/events?token=${seat.token}`)
     const reader = res.body!.getReader()
@@ -225,6 +228,50 @@ describe('table host over real HTTP', () => {
     expect(text).toContain('hello')
     expect(text).toContain('Strahd')
     await reader.cancel()
+  })
+
+  // A guest renderer is a browser on another machine, so every call is
+  // cross-origin. Node's fetch does not enforce CORS, so these assert on the
+  // HEADERS rather than on whether the request succeeds — the first version of
+  // this server passed every other test here and still failed every real join
+  // with "failed to fetch".
+  it('allows a cross-origin read of the join response', async () => {
+    const info = tableInfo()!
+    const res = await post('/join', { code: info.code, name: 'Sarah' })
+    expect(res.headers.get('access-control-allow-origin')).toBe('*')
+  })
+
+  it('answers a preflight without demanding credentials', async () => {
+    // The browser sends OPTIONS with no Authorization header, so a 401 here
+    // would block the very request that was about to carry the token.
+    const res = await fetch(`${base}/roll`, {
+      method: 'OPTIONS',
+      headers: {
+        origin: 'http://127.0.0.1:4280',
+        'access-control-request-method': 'POST',
+        'access-control-request-headers': 'content-type, authorization',
+      },
+    })
+    expect(res.status).toBe(204)
+    expect(res.headers.get('access-control-allow-origin')).toBe('*')
+    expect(res.headers.get('access-control-allow-headers')).toContain(
+      'authorization',
+    )
+  })
+
+  it('allows a cross-origin read of an error, not just a success', async () => {
+    // A guest must be able to SEE "wrong room code" rather than a generic
+    // network failure.
+    const res = await post('/join', { code: 'ZZZ-999', name: 'Mallory' })
+    expect(res.status).toBe(403)
+    expect(res.headers.get('access-control-allow-origin')).toBe('*')
+  })
+
+  it('allows a cross-origin read of the event stream', async () => {
+    const seat = await join()
+    const res = await fetch(`${base}/events?token=${seat.token}`)
+    expect(res.headers.get('access-control-allow-origin')).toBe('*')
+    await res.body?.cancel()
   })
 
   it('reports no table once stopped', async () => {
