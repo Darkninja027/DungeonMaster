@@ -59,6 +59,7 @@ const CHANNELS = new Set([
   'player:close',
   'player:closeAll',
   'player:push',
+  'rolls:broadcast',
 ])
 
 // Channels the main process may PUSH to the renderer. Kept as a separate
@@ -68,6 +69,7 @@ const EVENT_CHANNELS = new Set([
   'library:status',
   'world:changed',
   'player:content',
+  'rolls:entry',
 ])
 
 contextBridge.exposeInMainWorld('dmApi', {

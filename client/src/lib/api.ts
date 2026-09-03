@@ -9,6 +9,7 @@
  */
 
 import type { Ruleset } from '#/lib/ruleset'
+import type { RollEntry } from '#/lib/rollLog'
 
 declare global {
   interface Window {
@@ -552,5 +553,18 @@ export const api = {
       window.dmApi.on('player:content', (payload) =>
         cb(payload as PlayerContent),
       ),
+  },
+  /**
+   * Cross-window dice rolls. The renderer's roll log is a module-level store,
+   * so it is per-BrowserWindow — a roll made in a popout (where dice stay
+   * rollable on purpose) reaches the DM's session panel only via this relay.
+   * See src/lib/rollLog.ts, which owns the merge and the id dedupe.
+   */
+  rolls: {
+    /** Tell every other window about a roll made in this one. */
+    broadcast: (entry: RollEntry) => invoke<void>('rolls:broadcast', entry),
+    /** Subscribe to rolls made in other windows; returns an unsubscribe fn. */
+    onEntry: (cb: (entry: RollEntry) => void) =>
+      window.dmApi.on('rolls:entry', (payload) => cb(payload as RollEntry)),
   },
 }

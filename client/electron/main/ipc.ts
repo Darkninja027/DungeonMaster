@@ -64,6 +64,7 @@ import {
   showPlayerWindow,
 } from './playerWindow'
 import type { ViewerMode } from './playerWindow'
+import { relayRoll } from './rollRelay'
 import {
   buildIndex,
   dropIndex,
@@ -759,6 +760,14 @@ export function registerIpcHandlers() {
         title: string
       },
     ) => pushToPlayerWindow(payload),
+  )
+
+  // Rolls ---------------------------------------------------------------------
+  // The renderer's roll log is per-process, so a roll made in a popout window
+  // would otherwise never reach the DM's session panel. Relayed to every other
+  // window; the sender already has it. Touches no disk.
+  ipcMain.handle('rolls:broadcast', (e, entry: unknown) =>
+    relayRoll(e.sender, entry),
   )
 }
 
