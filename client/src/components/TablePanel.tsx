@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
-import { Copy, Users, Wifi, WifiOff } from 'lucide-react'
+import { Copy, EyeOff, MonitorPlay, Users, Wifi, WifiOff } from 'lucide-react'
 import {
+  clearShown,
   refreshTable,
   startHosting,
   stopHosting,
@@ -121,6 +122,37 @@ export function TablePanel({ worldId }: { worldId: string }) {
           <p className="text-muted-foreground text-xs">Copied the {copied}.</p>
         )}
         {error && <p className="text-destructive text-xs">{error}</p>}
+      </div>
+
+      {/* What the players are looking at right now. Without this the DM has no
+          way to tell what is on the table, or to take it down again — the only
+          feedback was on the guests' own screens. */}
+      <div className="border-b p-3">
+        <p className="text-muted-foreground text-xs">On the table</p>
+        {info.shown ? (
+          <div className="flex items-center gap-2">
+            <MonitorPlay className="size-3.5 shrink-0 text-emerald-600 dark:text-emerald-500" />
+            <span
+              className="min-w-0 flex-1 truncate text-sm font-medium"
+              title={info.shown.articleId}
+            >
+              {info.shown.title}
+            </span>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 shrink-0 text-xs"
+              title="Stop showing this to the players"
+              onClick={() => void go(clearShown)}
+            >
+              <EyeOff className="size-3.5" /> Stop
+            </Button>
+          </div>
+        ) : (
+          <p className="text-muted-foreground text-sm">
+            Nothing — use Show to players on an article.
+          </p>
+        )}
       </div>
 
       <div className="flex items-center gap-2 border-b px-3 py-1.5">

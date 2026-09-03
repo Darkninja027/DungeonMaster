@@ -43,6 +43,11 @@ export async function startHosting(worldId: string): Promise<TableInfo> {
   return info
 }
 
+/** Take whatever is on the table down. */
+export async function clearShown(): Promise<void> {
+  await api.table.clear()
+}
+
 export async function stopHosting(): Promise<void> {
   await api.table.stop()
   setStatus({ hosting: false, info: null })
@@ -84,7 +89,12 @@ if (bridged()) {
     setStatus({
       hosting: true,
       info: status.info
-        ? { ...status.info, code: next.code, seats: next.seats }
+        ? {
+            ...status.info,
+            code: next.code,
+            seats: next.seats,
+            shown: next.shown,
+          }
         : null,
     })
   })

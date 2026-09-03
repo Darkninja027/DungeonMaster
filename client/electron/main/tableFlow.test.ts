@@ -31,8 +31,14 @@ vi.mock('electron', () => ({
 }))
 
 const { encodeWorldId } = await import('./sanitize')
-const { hostTable, stopTable, tableInfo, showAtTable, pushRollToTable } =
-  await import('./tableHost')
+const {
+  hostTable,
+  stopTable,
+  tableInfo,
+  showAtTable,
+  clearTable,
+  pushRollToTable,
+} = await import('./tableHost')
 
 let root: string
 let base: string
@@ -319,6 +325,60 @@ describe('a session end to end', () => {
     const text = JSON.stringify(hello)
     expect(text).not.toContain(dmWorldId)
     expect(text).not.toContain(root)
+  })
+
+  it('reports what is on the table to the DM window', async () => {
+    expect(tableInfo()!.shown).toBeNull()
+    showAtTable({
+      articleId: 'NPCs/Strahd',
+      content: '# Strahd',
+      title: 'Strahd',
+    })
+    expect(tableInfo()!.shown).toEqual({
+      articleId: 'NPCs/Strahd',
+      title: 'Strahd',
+    })
+    // The DM's own window is told, or its panel could not show the indicator.
+    const seats = sent.filter((m) => m.channel === 'table:seats').at(-1)!
+    expect((seats.payload as Record<string, unknown>).shown).toEqual({
+      articleId: 'NPCs/Strahd',
+      title: 'Strahd',
+    })
+  })
+
+  it('never sends the article content to the DM window, only its identity', async () => {
+    showAtTable({
+      articleId: 'NPCs/Strahd',
+      content: 'THE SECRET PLAN',
+      title: 'Strahd',
+    })
+    const seats = sent.filter((m) => m.channel === 'table:seats').at(-1)!
+    expect(JSON.stringify(seats.payload)).not.toContain('THE SECRET PLAN')
+  })
+
+  it('clears the table and tells the guests', async () => {
+    const seat = await join('Sarah')
+    const res = await fetch(`${base}/events?token=${seat.token}`)
+    const framesPromise = collect(res, 3)
+    await new Promise((r) => setTimeout(r, 50))
+    showAtTable({ articleId: 'NPCs/Strahd', content: '# S', title: 'Strahd' })
+    clearTable()
+
+    const frames = await framesPromise
+    const cleared = frames.filter((f) => f.kind === 'shown').at(-1)
+    // null rather than empty content: a guest must be able to say "nothing on
+    // the table" rather than render a blank article.
+    expect(cleared?.payload).toBeNull()
+    expect(tableInfo()!.shown).toBeNull()
+  })
+
+  it('replays nothing to a guest that joins after the table was cleared', async () => {
+    showAtTable({ articleId: 'NPCs/Strahd', content: '# S', title: 'Strahd' })
+    clearTable()
+    const seat = await join('Late')
+    const res = await fetch(`${base}/events?token=${seat.token}`)
+    const [hello] = await collect(res, 1)
+    expect((hello.payload as Record<string, unknown>).shown).toBeNull()
   })
 
   it('tells the DM window when someone joins', async () => {

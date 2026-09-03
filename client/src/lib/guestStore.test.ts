@@ -1,5 +1,10 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { apply, normalizeAddress, resetGuestForTest } from './guestStore'
+import {
+  apply,
+  guestSnapshot,
+  normalizeAddress,
+  resetGuestForTest,
+} from './guestStore'
 import { clearRollLog, rollLogSnapshot } from './rollLog'
 
 /**
@@ -35,11 +40,26 @@ describe('applying host frames', () => {
   })
 
   it('ignores a malformed shown payload rather than blanking the screen', () => {
-    apply({ kind: 'shown', payload: { articleId: 'A', content: 'x', title: 'T' } })
+    apply({
+      kind: 'shown',
+      payload: { articleId: 'A', content: 'x', title: 'T' },
+    })
     apply({ kind: 'shown', payload: { articleId: 42 } })
+    apply({ kind: 'shown', payload: 'nonsense' })
+    // The last GOOD value must survive a bad frame.
+    expect(guestSnapshot().shown?.title).toBe('T')
+  })
+
+  it('clears the screen when the DM takes it down', () => {
+    apply({
+      kind: 'shown',
+      payload: { articleId: 'A', content: 'x', title: 'T' },
+    })
+    expect(guestSnapshot().shown).not.toBeNull()
+    // null is the DM stopping, and is meaningfully different from a malformed
+    // frame: one clears the screen, the other leaves it alone.
     apply({ kind: 'shown', payload: null })
-    // The last good value must survive a bad frame.
-    expect(rollLogSnapshot()).toHaveLength(0)
+    expect(guestSnapshot().shown).toBeNull()
   })
 
   it('merges a replayed roll history on hello', () => {
@@ -55,7 +75,11 @@ describe('applying host frames', () => {
         ],
       },
     })
-    expect(rollLogSnapshot().map((r) => r.id).sort()).toEqual(['a', 'b'])
+    expect(
+      rollLogSnapshot()
+        .map((r) => r.id)
+        .sort(),
+    ).toEqual(['a', 'b'])
   })
 
   it('drops malformed entries inside a replayed history', () => {

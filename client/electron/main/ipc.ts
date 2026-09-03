@@ -67,6 +67,7 @@ import type { ViewerMode } from './playerWindow'
 import { relayRoll } from './rollRelay'
 import { findTable } from './beacon'
 import {
+  clearTable,
   hostTable,
   isHosting,
   pushCombatToTable,
@@ -818,6 +819,9 @@ export function registerIpcHandlers() {
   ipcMain.handle('table:combat', (_e, { state }: { state: unknown }) =>
     pushCombatToTable(state),
   )
+
+  // Take whatever is on the table down. No-ops when not hosting.
+  ipcMain.handle('table:clear', () => clearTable())
 
   // Guest side: find a host on the LAN by room code alone. Resolves null when
   // nothing answers, which is the ordinary case on a network that drops

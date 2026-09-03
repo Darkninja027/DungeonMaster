@@ -254,7 +254,11 @@ export function apply(frame: { kind?: unknown; payload?: unknown }): void {
       return
     }
     case 'shown':
-      if (isShown(p)) setState({ shown: p })
+      // null is the DM taking it down, and is meaningfully different from a
+      // malformed frame: the first clears the screen, the second must leave
+      // whatever is there alone rather than blanking it on a bad payload.
+      if (p === null) setState({ shown: null })
+      else if (isShown(p)) setState({ shown: p })
       return
     case 'seats':
       if (Array.isArray(p)) setState({ seats: p as Array<Seat> })
@@ -420,6 +424,14 @@ export function useGuest(): GuestState {
     },
     () => state,
   )
+}
+
+/**
+ * The current state, for callers outside React and for tests. Inside a
+ * component use `useGuest` so the read is subscribed.
+ */
+export function guestSnapshot(): GuestState {
+  return state
 }
 
 /** Reset between tests. Not used by the app. */

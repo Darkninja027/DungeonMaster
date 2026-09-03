@@ -108,6 +108,10 @@ function notifyHost(): void {
     tableId: session.state.tableId,
     code: session.state.code,
     seats: session.state.seats,
+    // What the guests are looking at, so the DM's panel can say so and offer
+    // to take it down. Only the identity travels, never the content — the DM
+    // window already has the article.
+    shown: shownRef(),
   }
   for (const win of BrowserWindow.getAllWindows()) {
     if (!win.isDestroyed()) win.webContents.send('table:seats', payload)
@@ -459,12 +463,18 @@ export function lanAddresses(): Array<string> {
   return out
 }
 
+/**
+ * Mirrors TableInfo in src/lib/api.ts — a separate declaration, since main and
+ * the renderer share no types, so a field added here needs adding there too.
+ */
 export interface TableInfo {
   tableId: string
   code: string
   port: number
   addresses: Array<string>
   seats: TableState['seats']
+  /** What the guests are looking at. Identity only, never the content. */
+  shown: { articleId: string; title: string } | null
 }
 
 export function hostTable(worldId: string, port = DEFAULT_PORT): TableInfo {
@@ -507,6 +517,7 @@ export function hostTable(worldId: string, port = DEFAULT_PORT): TableInfo {
     port: session.port,
     addresses: lanAddresses(),
     seats: state.seats,
+    shown: null,
   }
 }
 
@@ -538,7 +549,18 @@ export function tableInfo(): TableInfo | null {
     port: session.port,
     addresses: lanAddresses(),
     seats: session.state.seats,
+    shown: shownRef(),
   }
+}
+
+/** Identity of whatever is on the table, for the DM's own UI. */
+function shownRef(): { articleId: string; title: string } | null {
+  const shown = session?.shown
+  if (typeof shown !== 'object' || shown === null) return null
+  const { articleId, title } = shown as Record<string, unknown>
+  return typeof articleId === 'string' && typeof title === 'string'
+    ? { articleId, title }
+    : null
 }
 
 /** The DM showed an article. Stored for replay, then fanned out. */
@@ -550,6 +572,23 @@ export function showAtTable(payload: {
   if (!session) return
   session.shown = payload
   broadcast('shown', payload)
+  // The DM's own window needs to know too, or its panel cannot show what is
+  // on the table.
+  notifyHost()
+}
+
+/**
+ * Take whatever is on the table down.
+ *
+ * Broadcast as null rather than as empty content, so a guest can say "nothing
+ * on the table" instead of rendering a blank article — and so a guest that
+ * joins afterwards replays nothing rather than the last thing shown.
+ */
+export function clearTable(): void {
+  if (!session) return
+  session.shown = null
+  broadcast('shown', null)
+  notifyHost()
 }
 
 /**

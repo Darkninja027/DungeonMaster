@@ -291,6 +291,8 @@ export interface TableInfo {
   /** LAN addresses a guest can reach this host on. */
   addresses: Array<string>
   seats: Array<Seat>
+  /** What the guests are looking at, if anything. Identity only. */
+  shown: { articleId: string; title: string } | null
 }
 
 /** A sheet edit that arrived from a guest, already validated host-side. */
@@ -613,6 +615,8 @@ export const api = {
     /** Show an article to every guest. No-ops when not hosting. */
     show: (payload: { articleId: string; content: string; title: string }) =>
       invoke<void>('table:show', payload),
+    /** Take whatever is on the table down. No-ops when not hosting. */
+    clear: () => invoke<void>('table:clear'),
     /** Mirror initiative to the guests. No-ops when not hosting. */
     combat: (state: unknown) => invoke<void>('table:combat', { state }),
     /**
