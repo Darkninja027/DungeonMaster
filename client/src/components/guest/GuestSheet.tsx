@@ -25,12 +25,16 @@ import { api } from '#/lib/api'
 import {
   findNoteByTitle,
   isCharacterContent,
+  noteFromWikiLink,
   noteTitles,
   parseCharacter,
   serializeCharacter,
 } from '#/lib/character'
 import type { Character } from '#/lib/character'
 import { Markdown } from '#/components/Markdown'
+import { CreateMissingArticleDialog } from '#/components/CreateMissingArticleDialog'
+import { LiveMarkdownEditor } from '#/components/LiveMarkdownEditor'
+import { useWikiLinkOpener } from '#/lib/useWikiLinkOpener'
 import { SheetTab } from '#/components/character/SheetTab'
 import { InventoryTab } from '#/components/character/InventoryTab'
 import { EquipmentTab } from '#/components/character/EquipmentTab'
@@ -39,7 +43,6 @@ import { NotesTab } from '#/components/character/NotesTab'
 import { SheetFitPane, SheetPreview } from '#/components/character/SheetPreview'
 import { Button } from '#/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '#/components/ui/tabs'
-import { Textarea } from '#/components/ui/textarea'
 
 /**
  * The guest's own character — the same tabbed view the DM gets, not a preview.
@@ -181,12 +184,30 @@ function PlayedSheet() {
   // Links to world ARTICLES deliberately do not resolve here: for a claimed
   // sheet they name articles in the host's world, which this app cannot open.
   const [selectNote, setSelectNote] = useState<number | null>(null)
+  // A [[link]] to a title that has no note yet — Ctrl+click offers to create
+  // it, exactly as the DM's own character route does.
+  const [missingTitle, setMissingTitle] = useState<string | null>(null)
+
   const openNoteByTitle = (t: string) => {
     const hit = findNoteByTitle(character.notes, t)
     if (!hit) return
     setTab('notes')
     setSelectNote(hit.index)
   }
+
+  /**
+   * Ctrl+click on a [[link]] in the story text.
+   *
+   * No worldId is passed: for a claimed sheet a link would name an article in
+   * the HOST's world, which this app cannot open. Notes travel inside the
+   * sheet, so they resolve either way — and an unknown title becomes a new
+   * note rather than dead-ending.
+   */
+  const openWikiLink = useWikiLinkOpener({
+    noteTitles: titles,
+    onNote: openNoteByTitle,
+    onMissing: setMissingTitle,
+  })
 
   return (
     <Tabs
@@ -272,6 +293,7 @@ function PlayedSheet() {
           character={character}
           onChange={update}
           onOpenNote={openNoteByTitle}
+          onCreateMissing={setMissingTitle}
           source={source}
           articles={articles}
           noteTitles={titles}
@@ -282,6 +304,7 @@ function PlayedSheet() {
           character={character}
           onChange={update}
           onOpenNote={openNoteByTitle}
+          onCreateMissing={setMissingTitle}
           worldId={source.worldId}
           articles={articles}
           noteTitles={titles}
@@ -295,6 +318,7 @@ function PlayedSheet() {
           character={character}
           onChange={update}
           onOpenNote={openNoteByTitle}
+          onCreateMissing={setMissingTitle}
           worldId={source.worldId}
           articles={articles}
           noteTitles={titles}
@@ -310,6 +334,7 @@ function PlayedSheet() {
           articles={articles}
           noteTitles={titles}
           onOpenNote={openNoteByTitle}
+          onCreateMissing={setMissingTitle}
           selectIndex={selectNote}
           onSelectIndexHandled={() => setSelectNote(null)}
         />
@@ -325,13 +350,16 @@ function PlayedSheet() {
           <>
             <p className="text-muted-foreground shrink-0 border-b px-3 py-1 text-xs">
               Your character&apos;s prose — saved to your vault as you type.
+              Ctrl+click a [[link]] to open or create a note.
             </p>
-            <Textarea
+            <LiveMarkdownEditor
               value={body}
-              onChange={(e) => updateBody(e.target.value)}
-              aria-label="Backstory"
-              placeholder="Where they came from, who they owe, what they want."
-              className="min-h-0 flex-1 resize-none rounded-none border-0 font-mono text-sm focus-visible:ring-0"
+              onChange={updateBody}
+              onWikiLinkOpen={openWikiLink}
+              articles={articles}
+              currentArticleId={sheet.id}
+              source={source}
+              className="min-h-0 flex-1"
             />
           </>
         ) : (
@@ -355,6 +383,27 @@ function PlayedSheet() {
           </div>
         )}
       </TabsContent>
+      <CreateMissingArticleDialog
+        worldId={guest.ownWorldId ?? ''}
+        title={missingTitle}
+        onClose={() => setMissingTitle(null)}
+        existingNoteTitles={titles}
+        onOpenNote={openNoteByTitle}
+        onCreateNote={(draft) => {
+          // Prepended, matching NotesTab's own addNote: a note is addressed by
+          // its index, and two insertion points would be two rules.
+          update({
+            ...character,
+            notes: [
+              noteFromWikiLink(draft.title, draft.text),
+              ...character.notes,
+            ],
+          })
+          setTab('notes')
+          setSelectNote(0)
+        }}
+      />
+
       <TabsContent value="preview" className="min-h-0 flex-1 overflow-y-auto">
         <SheetFitPane max={1}>
           <SheetPreview
