@@ -441,6 +441,10 @@ function ArticlePage() {
         content: deferredForPlayers,
         title,
       })
+      // The same buffer goes to any LAN guests. No-ops when not hosting, and
+      // deliberately carries no worldId: that is hex of this machine's absolute
+      // path, so it must never cross the wire (see electron/main/tableHost.ts).
+      void api.table.show({ articleId, content: deferredForPlayers, title })
     }, 150)
     return () => clearTimeout(timer)
   }, [worldId, articleId, deferredForPlayers, title])

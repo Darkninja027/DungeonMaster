@@ -141,6 +141,12 @@ function setState(next: CombatState) {
   state = next
   notify()
   scheduleSave()
+  // Mirror initiative to any LAN guests so the table sees turn order and whose
+  // turn it is. No-ops when not hosting, and never persisted by the guest —
+  // the file on the DM's disk stays the only copy.
+  if (typeof window !== 'undefined' && window.dmApi) {
+    void api.table.combat(next).catch(() => {})
+  }
 }
 
 function scheduleSave() {

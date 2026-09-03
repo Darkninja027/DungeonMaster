@@ -207,23 +207,22 @@ export function parseRoll(raw: unknown): RollMessage | null {
 }
 
 /**
- * The fields a guest may change on their own sheet. Deliberately tiny: these
- * are the things that change during play. Anything structural (class, level,
- * abilities, the article path) stays the DM's, and an unlisted field is
- * dropped rather than rejected so one stray key cannot fail a whole update.
+ * The fields a guest may change on their own sheet. Deliberately tiny: HP is
+ * what changes minute to minute at a table, and anything structural (class,
+ * level, abilities, the article path) stays the DM's. An unlisted field is
+ * dropped rather than rejected, so one stray key cannot fail a whole update.
+ *
+ * This list must agree with SheetPatch in src/lib/sheetPatch.ts, which does the
+ * applying — a field accepted here and unknown there is silently discarded
+ * after a successful-looking 200. Conditions and notes are absent because
+ * `Character` has no conditions field and its notes are structured entries
+ * rather than a string; adding either means teaching the applier that shape.
  */
-export const SHEET_PATCH_FIELDS = [
-  'hpCurrent',
-  'hpTemp',
-  'conditions',
-  'notes',
-] as const
+export const SHEET_PATCH_FIELDS = ['hpCurrent', 'hpTemp'] as const
 
 export type SheetPatch = Partial<{
   hpCurrent: number
   hpTemp: number
-  conditions: Array<string>
-  notes: string
 }>
 
 export interface SheetMessage {
@@ -243,14 +242,6 @@ export function parseSheetPatch(raw: unknown): SheetMessage | null {
   if (hpCurrent !== null) patch.hpCurrent = Math.max(0, Math.floor(hpCurrent))
   const hpTemp = num(p.hpTemp)
   if (hpTemp !== null) patch.hpTemp = Math.max(0, Math.floor(hpTemp))
-  if (Array.isArray(p.conditions)) {
-    patch.conditions = p.conditions
-      .filter((c): c is string => typeof c === 'string')
-      .slice(0, 20)
-      .map((c) => c.slice(0, 40))
-  }
-  if (typeof p.notes === 'string') patch.notes = p.notes.slice(0, 4000)
-
   // An empty patch is a no-op write; refuse it so the caller never touches disk
   // for nothing and the guest gets a clear 400 rather than a silent success.
   return Object.keys(patch).length > 0 ? { characterId, patch } : null

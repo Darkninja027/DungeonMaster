@@ -194,11 +194,11 @@ describe('parseSheetPatch', () => {
   it('accepts the allowed fields', () => {
     const out = parseSheetPatch({
       characterId: id,
-      patch: { hpCurrent: 17, hpTemp: 4, notes: 'poisoned' },
+      patch: { hpCurrent: 17, hpTemp: 4 },
     })
     expect(out).toEqual({
       characterId: id,
-      patch: { hpCurrent: 17, hpTemp: 4, notes: 'poisoned' },
+      patch: { hpCurrent: 17, hpTemp: 4 },
     })
   })
 
@@ -229,23 +229,14 @@ describe('parseSheetPatch', () => {
     ).toBeNull()
   })
 
-  it('caps conditions in count and length', () => {
+  it('drops conditions and notes, which the sheet cannot store as scalars', () => {
+    // Character has no conditions field, and its notes are structured entries.
+    // Accepting either here would 200 and then silently discard the change.
     const out = parseSheetPatch({
       characterId: id,
-      patch: {
-        conditions: [...Array(50).keys()].map(() => 'x'.repeat(99)),
-      },
+      patch: { hpCurrent: 5, conditions: ['prone'], notes: 'poisoned' },
     })
-    expect(out?.patch.conditions).toHaveLength(20)
-    expect(out?.patch.conditions?.[0]).toHaveLength(40)
-  })
-
-  it('ignores non-string entries in conditions', () => {
-    const out = parseSheetPatch({
-      characterId: id,
-      patch: { conditions: ['prone', 42, null, 'poisoned'] },
-    })
-    expect(out?.patch.conditions).toEqual(['prone', 'poisoned'])
+    expect(out?.patch).toEqual({ hpCurrent: 5 })
   })
 })
 

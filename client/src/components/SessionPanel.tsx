@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Dices, PawPrint, Skull, Sparkles, Swords } from 'lucide-react'
+import { Dices, PawPrint, Skull, Sparkles, Swords, Wifi } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useRollLog } from '#/lib/rollLog'
 import { useWorldMode } from '#/lib/useWorldSettings'
@@ -11,9 +11,16 @@ import { EncounterBuilder } from '#/components/EncounterBuilder'
 import { InitiativeTracker } from '#/components/InitiativeTracker'
 import { MonsterReference } from '#/components/MonsterReference'
 import { RollHistory } from '#/components/RollHistory'
+import { TablePanel } from '#/components/TablePanel'
 import { SpellReference } from '#/components/character/SpellReference'
 
-type PanelTab = 'initiative' | 'encounter' | 'rolls' | 'spells' | 'monsters'
+type PanelTab =
+  | 'initiative'
+  | 'encounter'
+  | 'rolls'
+  | 'spells'
+  | 'monsters'
+  | 'table'
 
 const STORAGE_KEY = 'dm.sessionPanel'
 
@@ -29,6 +36,7 @@ export const PANEL_TABS: Array<PanelTab> = [
   'rolls',
   'spells',
   'monsters',
+  'table',
 ]
 
 const TAB_TITLE: Record<PanelTab, string> = {
@@ -37,6 +45,7 @@ const TAB_TITLE: Record<PanelTab, string> = {
   rolls: 'Roll history',
   spells: 'Spells',
   monsters: 'Bestiary',
+  table: 'Table',
 }
 
 const TAB_ICON: Record<PanelTab, LucideIcon> = {
@@ -45,6 +54,7 @@ const TAB_ICON: Record<PanelTab, LucideIcon> = {
   rolls: Dices,
   spells: Sparkles,
   monsters: PawPrint,
+  table: Wifi,
 }
 
 /** Rail button tooltips, which read as actions rather than section headings. */
@@ -54,6 +64,7 @@ const TAB_HINT: Record<PanelTab, string> = {
   rolls: 'Roll history',
   spells: 'Spell reference',
   monsters: 'Bestiary',
+  table: 'Host a LAN session',
 }
 
 /**
@@ -149,6 +160,8 @@ export function SessionPanel({ worldId }: { worldId: string }) {
               <RollHistory />
             ) : shown === 'spells' ? (
               <SpellReference worldId={worldId} />
+            ) : shown === 'table' ? (
+              <TablePanel worldId={worldId} />
             ) : (
               <MonsterReference worldId={worldId} />
             )}

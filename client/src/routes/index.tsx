@@ -8,6 +8,7 @@ import {
   Plus,
   UserPlus,
   Users,
+  Wifi,
   X,
 } from 'lucide-react'
 import { api } from '#/lib/api'
@@ -198,6 +199,12 @@ function WorldsPage() {
           </p>
         </div>
         <div className="flex gap-2">
+          {/* Joining needs no world of your own — the host pushes everything. */}
+          <Button variant="outline" asChild>
+            <Link to="/join">
+              <Wifi /> Join a Table
+            </Link>
+          </Button>
           <Button
             variant="outline"
             disabled={openWorld.isPending}

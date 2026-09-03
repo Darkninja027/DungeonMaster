@@ -70,6 +70,24 @@ export function logRoll(entry: Omit<RollEntry, 'id' | 'at'>): void {
   insert(full)
   notify()
   if (bridged()) void api.rolls.broadcast(full).catch(() => {})
+  // If this machine is a GUEST at someone else's table, the roll also goes up
+  // to the host, which stamps the seat and fans it out. Registered rather than
+  // imported so this module keeps no dependency on the network layer — the
+  // markdown renderer imports it, and that must stay cheap.
+  for (const sink of sinks) sink(full)
+}
+
+type RollSink = (entry: RollEntry) => void
+const sinks = new Set<RollSink>()
+
+/**
+ * Also send every locally made roll somewhere else (the LAN host).
+ * Returns an unsubscribe fn. A sink must never call logRoll, or a roll would
+ * loop; guestStore uses mergeRoll for anything arriving the other way.
+ */
+export function onLocalRoll(sink: RollSink): () => void {
+  sinks.add(sink)
+  return () => sinks.delete(sink)
 }
 
 /**

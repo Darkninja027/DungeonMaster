@@ -5,6 +5,7 @@ import { Pencil, Settings2 } from 'lucide-react'
 import { api } from '#/lib/api'
 import { WorldSidebar } from '#/components/WorldSidebar'
 import { WorldModeSwitcher } from '#/components/WorldModeSwitcher'
+import { useGuestSheetWrites } from '#/lib/useGuestSheetWrites'
 import { useIsVault, useWorldMode } from '#/lib/useWorldSettings'
 import { useRegisterSidebar, useSidebarOpen } from '#/lib/sidebarState'
 import { SessionPanel } from '#/components/SessionPanel'
@@ -33,6 +34,9 @@ function WorldLayout() {
   // useSidebarPresent report false, so the toggle and its Ctrl+\ shortcut
   // stand down instead of offering to open an empty panel.
   const isVault = useIsVault(worldId)
+  // Apply sheet edits arriving from LAN guests. No-ops when not hosting, and
+  // mounted here so it runs once per world in the DM window only.
+  useGuestSheetWrites(worldId)
   // The header's toggle lives in __root.tsx, so visibility is a module store.
   useRegisterSidebar(!isVault)
   const sidebarOpen = useSidebarOpen()
