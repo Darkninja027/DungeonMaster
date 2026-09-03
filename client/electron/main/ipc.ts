@@ -68,6 +68,7 @@ import { relayRoll } from './rollRelay'
 import { findTable } from './beacon'
 import {
   hostTable,
+  isHosting,
   pushCombatToTable,
   pushRollToTable,
   showAtTable,
@@ -728,11 +729,26 @@ export function registerIpcHandlers() {
       // world fails here rather than in a window that has already opened —
       // every handler funnels through the path guard.
       resolveInWorld(worldRoot(worldId), `${articleId}.md`)
-      showPlayerWindow(
-        worldId,
-        articleId,
-        mode === 'popout' ? 'popout' : 'player',
-      )
+      const viewer: ViewerMode = mode === 'popout' ? 'popout' : 'player'
+
+      // "Show to players" means one thing when a LAN table is running and
+      // another when it is not, and the DM should not have to think about
+      // which. Hosting: push it to every guest, and open no local window —
+      // the players are looking at their own screens, so a second window here
+      // is just one more thing on the DM's monitor to close.
+      //
+      // A POPOUT is unaffected: it is the DM's own reference on a second
+      // monitor, is explicitly not for players, and stays local while hosting.
+      if (viewer === 'player' && isHosting()) {
+        const article = getArticle(worldId, articleId)
+        showAtTable({
+          articleId,
+          content: article.content,
+          title: article.title,
+        })
+        return
+      }
+      showPlayerWindow(worldId, articleId, viewer)
     },
   )
 
@@ -795,10 +811,8 @@ export function registerIpcHandlers() {
 
   ipcMain.handle(
     'table:show',
-    (
-      _e,
-      payload: { articleId: string; content: string; title: string },
-    ) => showAtTable(payload),
+    (_e, payload: { articleId: string; content: string; title: string }) =>
+      showAtTable(payload),
   )
 
   ipcMain.handle('table:combat', (_e, { state }: { state: unknown }) =>

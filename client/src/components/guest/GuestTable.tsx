@@ -3,6 +3,7 @@ import { Link } from '@tanstack/react-router'
 import { Dices, LogOut, Users, WifiOff } from 'lucide-react'
 import { discover, joinTable, leaveTable, useGuest } from '#/lib/guestStore'
 import { BookView } from '#/components/Markdown'
+import { GuestSheet } from '#/components/guest/GuestSheet'
 import { RollHistory } from '#/components/RollHistory'
 import { Button } from '#/components/ui/button'
 import { Input } from '#/components/ui/input'
@@ -158,6 +159,11 @@ export function GuestTable() {
           </p>
         )}
       </div>
+
+      {/* The player's own sheet, which is where all their rolling happens. */}
+      <aside className="flex w-[26rem] shrink-0 flex-col border-l">
+        <GuestSheet />
+      </aside>
 
       <aside className="flex w-80 shrink-0 flex-col border-l">
         <div className="flex items-center gap-2 border-b px-3 py-2">

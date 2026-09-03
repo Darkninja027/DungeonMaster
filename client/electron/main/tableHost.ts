@@ -4,7 +4,8 @@ import http from 'node:http'
 import os from 'node:os'
 import { BrowserWindow } from 'electron'
 import { resolveInImages } from './images'
-import { IMAGES_DIR, worldRoot } from './worldStore'
+import { IMAGES_DIR, getArticle, worldRoot } from './worldStore'
+import { listCharacters } from './search'
 import { startBeacon, stopBeacon } from './beacon'
 import {
   codeMatches,
@@ -286,6 +287,46 @@ async function handle(
   const guest = seatFor(req, url)
   if (!guest) return json(res, 401, { error: 'Unknown seat' })
 
+  // --- the characters a guest may claim ---------------------------------------
+  // Without this the claim endpoint is unusable: a guest would have to already
+  // know an article id it has no way to discover. Only the id, title and who
+  // holds it — never the sheet, which is the next call and needs the claim.
+  if (req.method === 'GET' && url.pathname === '/characters') {
+    const held = new Map(
+      session.state.seats
+        .filter((seat) => seat.characterId)
+        .map((seat) => [seat.characterId!, seat.name]),
+    )
+    return json(res, 200, {
+      characters: listCharacters(session.worldId).map((c) => ({
+        id: c.id,
+        title: c.title,
+        claimedBy: held.get(c.id) ?? null,
+      })),
+    })
+  }
+
+  // --- the sheet this seat claimed --------------------------------------------
+  // Gated on the claim, not merely on having a seat: a character sheet is the
+  // one piece of world content a guest can read in full, and only their own.
+  if (req.method === 'GET' && url.pathname === '/sheet') {
+    const characterId = parseArticleId(url.searchParams.get('characterId'))
+    if (!characterId) return json(res, 400, { error: 'Malformed request' })
+    if (!seatOwns(session.state, guest.seatId, characterId)) {
+      return json(res, 403, { error: 'Not your character' })
+    }
+    try {
+      const article = getArticle(session.worldId, characterId)
+      return json(res, 200, {
+        id: characterId,
+        title: article.title,
+        content: article.content,
+      })
+    } catch (err) {
+      return json(res, 404, { error: safeError(err) })
+    }
+  }
+
   // --- claim a character ----------------------------------------------------
   if (req.method === 'POST' && url.pathname === '/claim') {
     const raw = await readJson(req)
@@ -451,6 +492,11 @@ export function stopTable(): void {
   session.server.close()
   session = null
   notifyHost()
+}
+
+/** Whether a table is running, for callers that only need the yes/no. */
+export function isHosting(): boolean {
+  return session !== null
 }
 
 export function tableInfo(): TableInfo | null {

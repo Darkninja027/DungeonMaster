@@ -30,6 +30,13 @@ export interface GuestSession {
   name: string
 }
 
+/** A character the host offers, and who (if anyone) already holds it. */
+export interface OfferedCharacter {
+  id: string
+  title: string
+  claimedBy: string | null
+}
+
 export interface GuestState {
   session: GuestSession | null
   connected: boolean
@@ -37,6 +44,20 @@ export interface GuestState {
   seats: Array<Seat>
   combat: unknown
   characterId: string | null
+  /**
+   * Where the claimed character lives.
+   *
+   * 'table' — a sheet in the DM's world, claimed from the offered list. The
+   *   host owns it, so HP edits write back to the DM's disk.
+   * 'own'  — a character from THIS machine's vault, brought to the table. The
+   *   host never sees or stores it; only the rolls are shared. There is
+   *   nothing to write back, because the file is already local.
+   */
+  origin: 'table' | 'own' | null
+  /** The claimed sheet's raw article content, once fetched. */
+  sheet: { id: string; title: string; content: string } | null
+  /** For an 'own' character, the local world id its file lives in. */
+  ownWorldId: string | null
 }
 
 const empty: GuestState = {
@@ -46,6 +67,9 @@ const empty: GuestState = {
   seats: [],
   combat: null,
   characterId: null,
+  origin: null,
+  sheet: null,
+  ownWorldId: null,
 }
 
 let state: GuestState = empty
@@ -76,6 +100,13 @@ const bridged = () => typeof window !== 'undefined' && Boolean(window.dmApi)
 
 function base(): string {
   return `http://${state.session?.address ?? ''}`
+}
+
+/** GET from the host with this seat's bearer token. */
+async function get(path: string): Promise<Response> {
+  return fetch(`${base()}${path}`, {
+    headers: { authorization: `Bearer ${state.session?.token ?? ''}` },
+  })
 }
 
 /** POST to the host with this seat's bearer token. */
@@ -223,7 +254,21 @@ function isRoll(v: unknown): v is RollEntry {
   )
 }
 
-/** Claim a character so this seat may roll as, and edit, that sheet. */
+/** The characters this table offers, with who already holds each. */
+export async function fetchCharacters(): Promise<Array<OfferedCharacter>> {
+  const res = await get('/characters')
+  if (!res.ok) return []
+  const body = (await res.json()) as { characters?: Array<OfferedCharacter> }
+  return Array.isArray(body.characters) ? body.characters : []
+}
+
+/**
+ * Claim a character, then pull its sheet.
+ *
+ * The two are one action from the guest's point of view — a claim you cannot
+ * then read is not worth having — so a failure to load the sheet still leaves
+ * the claim recorded, and the caller can retry with reloadSheet.
+ */
 export async function claimCharacter(characterId: string): Promise<void> {
   const res = await send('/claim', { characterId })
   if (!res.ok) {
@@ -232,7 +277,64 @@ export async function claimCharacter(characterId: string): Promise<void> {
       typeof body.error === 'string' ? body.error : 'Could not claim',
     )
   }
-  setState({ characterId })
+  setState({ characterId, origin: 'table', ownWorldId: null })
+  await reloadSheet()
+}
+
+/**
+ * Play a character from THIS machine's vault instead of one of the DM's.
+ *
+ * The sheet never leaves this machine: the host is told the display name so
+ * rolls can be attributed, and nothing else. No claim is sent, because there is
+ * nothing at the host to claim — which also means no write-back, since the file
+ * is already local and the ordinary editor owns it.
+ */
+export function bringOwnCharacter(
+  worldId: string,
+  articleId: string,
+  title: string,
+  content: string,
+): void {
+  setState({
+    characterId: articleId,
+    origin: 'own',
+    ownWorldId: worldId,
+    sheet: { id: articleId, title, content },
+  })
+}
+
+/** Put the character down and go back to the picker. */
+export function releaseCharacter(): void {
+  setState({
+    characterId: null,
+    origin: null,
+    ownWorldId: null,
+    sheet: null,
+  })
+}
+
+/** Re-read the claimed sheet from the host. */
+export async function reloadSheet(): Promise<void> {
+  const id = state.characterId
+  if (!id) return
+  // An 'own' character lives on this machine; the host has never seen it and
+  // would 403. Its file is refreshed by the ordinary local path instead.
+  if (state.origin !== 'table') return
+  const res = await get(`/sheet?characterId=${encodeURIComponent(id)}`)
+  if (!res.ok) return
+  const body = (await res.json()) as {
+    id?: string
+    title?: string
+    content?: string
+  }
+  if (typeof body.content !== 'string') return
+  setState({
+    sheet: {
+      id: body.id ?? id,
+      title: body.title ?? id,
+      content: body.content,
+    },
+  })
 }
 
 /** Send a roll made on this machine up to the host, which fans it out. */
@@ -248,6 +350,9 @@ export async function sendSheetPatch(
   patch: Record<string, unknown>,
 ): Promise<void> {
   if (!state.characterId) throw new Error('Claim a character first')
+  // Nothing to send for a character the host does not hold — the file is on
+  // this machine and the ordinary editor already wrote it.
+  if (state.origin !== 'table') return
   const res = await send('/sheet', { characterId: state.characterId, patch })
   if (!res.ok) {
     const body = (await res.json()) as Record<string, unknown>

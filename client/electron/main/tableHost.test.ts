@@ -52,6 +52,24 @@ describe('table host over real HTTP', () => {
     fs.mkdirSync(path.join(root, '_images', 'Maps'), { recursive: true })
     fs.writeFileSync(path.join(root, '_images', 'Maps', 'town.png'), 'PNGDATA')
     fs.writeFileSync(path.join(root, 'secret.md'), 'THE DM SECRET')
+    fs.mkdirSync(path.join(root, 'Characters'), { recursive: true })
+    fs.writeFileSync(
+      path.join(root, 'Characters', 'Thalia.md'),
+      [
+        '---',
+        'type: character',
+        'class: Rogue',
+        'level: 3',
+        'hp:',
+        '  current: 24',
+        '  max: 27',
+        '  temp: 0',
+        '---',
+        '',
+        'Rooftops.',
+        '',
+      ].join('\n'),
+    )
     worldId = encodeWorldId(root)
     // Port 0: the OS picks a free one, so back-to-back tests cannot collide
     // on a listener still in TIME_WAIT from the previous case.
@@ -272,6 +290,71 @@ describe('table host over real HTTP', () => {
     const res = await fetch(`${base}/events?token=${seat.token}`)
     expect(res.headers.get('access-control-allow-origin')).toBe('*')
     await res.body?.cancel()
+  })
+
+  it('offers the world characters a guest may claim', async () => {
+    const seat = await join()
+    const res = await fetch(`${base}/characters?token=${seat.token}`)
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as {
+      characters: Array<{ id: string; title: string; claimedBy: string | null }>
+    }
+    const thalia = body.characters.find((c) => c.id === 'Characters/Thalia')
+    expect(thalia).toBeTruthy()
+    expect(thalia!.claimedBy).toBeNull()
+  })
+
+  it('shows who holds a character once claimed', async () => {
+    const seat = await join('Sarah')
+    await post('/claim', { characterId: 'Characters/Thalia' }, seat.token)
+    const res = await fetch(`${base}/characters?token=${seat.token}`)
+    const body = (await res.json()) as {
+      characters: Array<{ id: string; claimedBy: string | null }>
+    }
+    expect(
+      body.characters.find((c) => c.id === 'Characters/Thalia')!.claimedBy,
+    ).toBe('Sarah')
+  })
+
+  it('requires a seat to list characters', async () => {
+    expect((await fetch(`${base}/characters`)).status).toBe(401)
+  })
+
+  it('serves the claimed sheet, and only to the seat holding it', async () => {
+    const sarah = await join('Sarah')
+    const brok = await join('Brok')
+    await post('/claim', { characterId: 'Characters/Thalia' }, sarah.token)
+
+    const mine = await fetch(
+      `${base}/sheet?characterId=Characters%2FThalia&token=${sarah.token}`,
+    )
+    expect(mine.status).toBe(200)
+    expect(((await mine.json()) as { content: string }).content).toContain(
+      'type: character',
+    )
+
+    // Someone else's sheet is not readable, even with a valid seat.
+    const theirs = await fetch(
+      `${base}/sheet?characterId=Characters%2FThalia&token=${brok.token}`,
+    )
+    expect(theirs.status).toBe(403)
+  })
+
+  it('refuses a sheet read for an unclaimed character', async () => {
+    const seat = await join()
+    const res = await fetch(
+      `${base}/sheet?characterId=Characters%2FThalia&token=${seat.token}`,
+    )
+    expect(res.status).toBe(403)
+  })
+
+  it('refuses a traversing sheet read', async () => {
+    const seat = await join()
+    const res = await fetch(
+      `${base}/sheet?characterId=${encodeURIComponent('../../secret')}&token=${seat.token}`,
+    )
+    expect([400, 403]).toContain(res.status)
+    expect(await res.text()).not.toContain('THE DM SECRET')
   })
 
   it('reports no table once stopped', async () => {
