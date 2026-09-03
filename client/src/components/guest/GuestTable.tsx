@@ -1,14 +1,16 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import {
   Dices,
   LogOut,
+  Maximize2,
   MonitorPlay,
   Sparkles,
   UserRound,
   Users,
   WifiOff,
+  X,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import {
@@ -77,6 +79,7 @@ export function GuestTable() {
   const rolls = useRollLog()
   const [tab, setTab] = useState<GuestTab>('dm')
   const [open, setOpen] = useState(true)
+  const [expanded, setExpanded] = useState(false)
 
   if (!guest.session) return <JoinScreen />
 
@@ -138,7 +141,7 @@ export function GuestTable() {
         <div className="flex h-full flex-col">
           <div className="min-h-0 flex-1">
             {tab === 'dm' ? (
-              <DmPane />
+              <DmPane onExpand={() => setExpanded(true)} />
             ) : tab === 'rolls' ? (
               <RollHistory />
             ) : (
@@ -155,12 +158,21 @@ export function GuestTable() {
           </div>
         </div>
       </PanelRail>
+      {expanded && <DmOverlay onClose={() => setExpanded(false)} />}
     </div>
   )
 }
 
-/** What the DM is currently showing, or nothing yet. */
-function DmPane() {
+/**
+ * What the DM is currently showing.
+ *
+ * Expandable, because a statblock or a handout is unreadable in a docked
+ * panel and reading it is the entire point of the DM showing it. The expanded
+ * form is a full-window overlay rather than a second BrowserWindow: a guest
+ * has no world folder, so player:show — which resolves an article id against
+ * a world root — cannot serve them.
+ */
+function DmPane({ onExpand }: { onExpand: () => void }) {
   const guest = useGuest()
   if (!guest.shown) {
     return (
@@ -170,13 +182,70 @@ function DmPane() {
     )
   }
   return (
-    <ScrollArea className="h-full">
-      <div className="p-4">
-        <BookView audience="player" readOnly layout="flow">
-          {guest.shown.content}
-        </BookView>
+    <div className="flex h-full flex-col">
+      <div className="flex shrink-0 items-center gap-2 border-b px-3 py-1">
+        <span className="min-w-0 flex-1 truncate text-xs font-medium">
+          {guest.shown.title}
+        </span>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="size-6 shrink-0"
+          title="Expand to fill the window"
+          onClick={onExpand}
+        >
+          <Maximize2 className="size-3.5" />
+        </Button>
       </div>
-    </ScrollArea>
+      <ScrollArea className="min-h-0 flex-1">
+        <div className="p-4">
+          <BookView audience="player" readOnly layout="flow">
+            {guest.shown.content}
+          </BookView>
+        </div>
+      </ScrollArea>
+    </div>
+  )
+}
+
+/** The same content filling the window, for actually reading it. */
+function DmOverlay({ onClose }: { onClose: () => void }) {
+  const guest = useGuest()
+  // Escape closes it, the same gesture every other dismissible surface uses.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  if (!guest.shown) return null
+  return (
+    <div className="bg-background fixed inset-0 z-50 flex flex-col">
+      <div className="flex shrink-0 items-center gap-2 border-b px-4 py-2">
+        <span className="min-w-0 flex-1 truncate text-sm font-medium">
+          {guest.shown.title}
+        </span>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 shrink-0 text-xs"
+          onClick={onClose}
+        >
+          <X className="size-3.5" /> Close
+        </Button>
+      </div>
+      <ScrollArea className="min-h-0 flex-1">
+        {/* Wider than the panel and centred, which is the whole reason to
+            expand: a statblock reads as a column, not as a ribbon. */}
+        <div className="mx-auto max-w-4xl p-8">
+          <BookView audience="player" readOnly layout="flow">
+            {guest.shown.content}
+          </BookView>
+        </div>
+      </ScrollArea>
+    </div>
   )
 }
 
