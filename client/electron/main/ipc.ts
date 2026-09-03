@@ -66,6 +66,14 @@ import {
 import type { ViewerMode } from './playerWindow'
 import { relayRoll } from './rollRelay'
 import {
+  hostTable,
+  pushCombatToTable,
+  pushRollToTable,
+  showAtTable,
+  stopTable,
+  tableInfo,
+} from './tableHost'
+import {
   buildIndex,
   dropIndex,
   noteDelete,
@@ -766,8 +774,34 @@ export function registerIpcHandlers() {
   // The renderer's roll log is per-process, so a roll made in a popout window
   // would otherwise never reach the DM's session panel. Relayed to every other
   // window; the sender already has it. Touches no disk.
-  ipcMain.handle('rolls:broadcast', (e, entry: unknown) =>
-    relayRoll(e.sender, entry),
+  ipcMain.handle('rolls:broadcast', (e, entry: unknown) => {
+    relayRoll(e.sender, entry)
+    // A roll made anywhere on the host also belongs to the shared table log.
+    pushRollToTable(entry)
+  })
+
+  // Table (LAN session) --------------------------------------------------------
+  // The host serves guests over plain HTTP; see tableHost.ts for the transport
+  // and table.ts for every decision it makes. Note that hosting takes a worldId
+  // but NEVER lets it reach a guest.
+  ipcMain.handle('table:host', (_e, { worldId }: { worldId: string }) =>
+    hostTable(worldId),
+  )
+
+  ipcMain.handle('table:stop', () => stopTable())
+
+  ipcMain.handle('table:info', () => tableInfo())
+
+  ipcMain.handle(
+    'table:show',
+    (
+      _e,
+      payload: { articleId: string; content: string; title: string },
+    ) => showAtTable(payload),
+  )
+
+  ipcMain.handle('table:combat', (_e, { state }: { state: unknown }) =>
+    pushCombatToTable(state),
   )
 }
 

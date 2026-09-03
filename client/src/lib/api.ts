@@ -274,6 +274,37 @@ export interface PlayerContent {
   title: string
 }
 
+/** One participant at a hosted LAN table. Not a WorldMode 'player'. */
+export interface Seat {
+  id: string
+  name: string
+  /** Article id of the character this seat rolls as, once claimed. */
+  characterId?: string
+  joinedAt: number
+}
+
+/** What the host knows about its own running table. */
+export interface TableInfo {
+  tableId: string
+  code: string
+  port: number
+  /** LAN addresses a guest can reach this host on. */
+  addresses: Array<string>
+  seats: Array<Seat>
+}
+
+/** A sheet edit that arrived from a guest, already validated host-side. */
+export interface SheetPatchMessage {
+  seatId: string
+  characterId: string
+  patch: Partial<{
+    hpCurrent: number
+    hpTemp: number
+    conditions: Array<string>
+    notes: string
+  }>
+}
+
 function invoke<T>(channel: string, args?: unknown): Promise<T> {
   return window.dmApi.invoke<T>(channel, args).catch((cause: unknown) => {
     const raw = cause instanceof Error ? cause.message : String(cause)
@@ -566,5 +597,36 @@ export const api = {
     /** Subscribe to rolls made in other windows; returns an unsubscribe fn. */
     onEntry: (cb: (entry: RollEntry) => void) =>
       window.dmApi.on('rolls:entry', (payload) => cb(payload as RollEntry)),
+  },
+  /**
+   * Hosting a LAN session. One DM serves N guests over plain HTTP — see
+   * electron/main/tableHost.ts. A "seat" is a person on another machine;
+   * the word "player" is avoided because it already means three other things
+   * (a WorldMode, a ViewerMode, and a BookView audience).
+   */
+  table: {
+    /** Start hosting the open world. Returns the room code and addresses. */
+    host: (worldId: string) => invoke<TableInfo>('table:host', { worldId }),
+    stop: () => invoke<void>('table:stop'),
+    /** The running table, or null if this app is not hosting. */
+    info: () => invoke<TableInfo | null>('table:info'),
+    /** Show an article to every guest. No-ops when not hosting. */
+    show: (payload: { articleId: string; content: string; title: string }) =>
+      invoke<void>('table:show', payload),
+    /** Mirror initiative to the guests. No-ops when not hosting. */
+    combat: (state: unknown) => invoke<void>('table:combat', { state }),
+    /** Host: the seat list changed. */
+    onSeats: (cb: (info: Omit<TableInfo, 'port' | 'addresses'>) => void) =>
+      window.dmApi.on('table:seats', (payload) =>
+        cb(payload as Omit<TableInfo, 'port' | 'addresses'>),
+      ),
+    /** Host: a guest rolled. */
+    onRoll: (cb: (entry: RollEntry) => void) =>
+      window.dmApi.on('table:roll', (payload) => cb(payload as RollEntry)),
+    /** Host: a guest edited the sheet they claimed. */
+    onSheet: (cb: (msg: SheetPatchMessage) => void) =>
+      window.dmApi.on('table:sheet', (payload) =>
+        cb(payload as SheetPatchMessage),
+      ),
   },
 }

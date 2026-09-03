@@ -1,0 +1,234 @@
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+/**
+ * Integration coverage for the LAN host, against a REAL http server on a real
+ * temp world folder.
+ *
+ * tableHost.ts imports electron for its window fan-out, which does not exist
+ * under vitest, so BrowserWindow is stubbed to no windows — the host-side
+ * webContents.send calls then no-op and everything else runs for real.
+ *
+ * The point of testing this rather than only table.ts is that the guards which
+ * matter most are compositions: an unauthenticated request must be refused
+ * BEFORE any parsing, and an image request must clear both the _images/ prefix
+ * check and resolveInWorld. A pure test cannot see a missing wire.
+ */
+
+vi.mock('electron', () => ({
+  BrowserWindow: { getAllWindows: () => [] },
+}))
+
+const { encodeWorldId } = await import('./sanitize')
+const { hostTable, stopTable, tableInfo, showAtTable } = await import(
+  './tableHost'
+)
+
+let root: string
+let worldId: string
+let base: string
+
+const post = (p: string, body: unknown, token?: string) =>
+  fetch(`${base}${p}`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(body),
+  })
+
+async function join(name = 'Sarah') {
+  const info = tableInfo()!
+  const res = await post('/join', { code: info.code, name })
+  return (await res.json()) as { seatId: string; token: string; name: string }
+}
+
+describe('table host over real HTTP', () => {
+  beforeEach(() => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'dm-table-'))
+    fs.writeFileSync(path.join(root, 'world.json'), '{"name":"Test"}')
+    fs.mkdirSync(path.join(root, '_images', 'Maps'), { recursive: true })
+    fs.writeFileSync(path.join(root, '_images', 'Maps', 'town.png'), 'PNGDATA')
+    fs.writeFileSync(path.join(root, 'secret.md'), 'THE DM SECRET')
+    worldId = encodeWorldId(root)
+    // Port 0: the OS picks a free one, so back-to-back tests cannot collide
+    // on a listener still in TIME_WAIT from the previous case.
+    const info = hostTable(worldId, 0)
+    base = `http://127.0.0.1:${info.port}`
+  })
+
+  afterEach(() => {
+    stopTable()
+    fs.rmSync(root, { recursive: true, force: true })
+  })
+
+  it('rejects a wrong room code and accepts the right one', async () => {
+    const bad = await post('/join', { code: 'ZZZ-999', name: 'Mallory' })
+    expect(bad.status).toBe(403)
+
+    const info = tableInfo()!
+    const good = await post('/join', { code: info.code, name: 'Sarah' })
+    expect(good.status).toBe(200)
+    const seat = (await good.json()) as { token: string; seatId: string }
+    expect(seat.token).toBeTruthy()
+    expect(seat.seatId).toBeTruthy()
+  })
+
+  it('accepts the code lowercased and without its dash', async () => {
+    const info = tableInfo()!
+    const res = await post('/join', {
+      code: info.code.toLowerCase().replace('-', ''),
+      name: 'Sarah',
+    })
+    expect(res.status).toBe(200)
+  })
+
+  it('never returns the world id to a guest', async () => {
+    const info = tableInfo()!
+    const res = await post('/join', { code: info.code, name: 'Sarah' })
+    const text = await res.text()
+    expect(text).not.toContain(worldId)
+    expect(text).not.toContain(root)
+    // The handle a guest does get must not decode to a path.
+    expect(info.tableId).not.toBe(worldId)
+  })
+
+  it('refuses every authenticated route without a token', async () => {
+    for (const p of ['/roll', '/sheet', '/claim']) {
+      const res = await post(p, {})
+      expect(res.status, `${p} must require a seat`).toBe(401)
+    }
+  })
+
+  it('refuses a made-up token', async () => {
+    const res = await post('/roll', {}, 'deadbeef')
+    expect(res.status).toBe(401)
+  })
+
+  it('accepts a roll from a seated guest and stamps the seat host-side', async () => {
+    const seat = await join('Sarah')
+    const res = await post(
+      '/roll',
+      {
+        id: 'r1',
+        notation: '1d20+5',
+        total: 22,
+        detail: '17 + 5',
+        at: Date.now(),
+        // A guest claiming to be someone else must not be believed.
+        seat: { id: 'forged', name: 'The DM' },
+      },
+      seat.token,
+    )
+    expect(res.status).toBe(200)
+  })
+
+  it('rejects a malformed roll', async () => {
+    const seat = await join()
+    const res = await post('/roll', { notation: 'lots' }, seat.token)
+    expect(res.status).toBe(400)
+  })
+
+  it('refuses a sheet write for a character the seat has not claimed', async () => {
+    const seat = await join()
+    const res = await post(
+      '/sheet',
+      { characterId: 'Characters/Thalia', patch: { hpCurrent: 5 } },
+      seat.token,
+    )
+    expect(res.status).toBe(403)
+  })
+
+  it('allows a sheet write after the character is claimed', async () => {
+    const seat = await join()
+    const claim = await post(
+      '/claim',
+      { characterId: 'Characters/Thalia' },
+      seat.token,
+    )
+    expect(claim.status).toBe(200)
+    const res = await post(
+      '/sheet',
+      { characterId: 'Characters/Thalia', patch: { hpCurrent: 5 } },
+      seat.token,
+    )
+    expect(res.status).toBe(200)
+  })
+
+  it('refuses a second guest claiming a taken character', async () => {
+    const a = await join('Sarah')
+    const b = await join('Brok')
+    await post('/claim', { characterId: 'Characters/Thalia' }, a.token)
+    const res = await post(
+      '/claim',
+      { characterId: 'Characters/Thalia' },
+      b.token,
+    )
+    expect(res.status).toBe(409)
+  })
+
+  it('serves an image under _images/', async () => {
+    const seat = await join()
+    const res = await fetch(
+      `${base}/img/${encodeURIComponent('_images/Maps/town.png')}?token=${seat.token}`,
+    )
+    expect(res.status).toBe(200)
+    expect(await res.text()).toBe('PNGDATA')
+  })
+
+  it('refuses a file outside _images/ even though it is inside the world', async () => {
+    const seat = await join()
+    const res = await fetch(
+      `${base}/img/${encodeURIComponent('secret.md')}?token=${seat.token}`,
+    )
+    expect(res.status).toBe(403)
+  })
+
+  it('refuses traversal out of the world folder', async () => {
+    const seat = await join()
+    for (const attempt of [
+      '_images/../secret.md',
+      '_images/../../etc/passwd',
+      '../../../etc/passwd',
+    ]) {
+      const res = await fetch(
+        `${base}/img/${encodeURIComponent(attempt)}?token=${seat.token}`,
+      )
+      expect([403, 400, 404], `${attempt} must not be served`).toContain(
+        res.status,
+      )
+      const body = await res.text()
+      expect(body).not.toContain('THE DM SECRET')
+    }
+  })
+
+  it('never leaks a filesystem path in an error body', async () => {
+    const seat = await join()
+    const res = await fetch(
+      `${base}/img/${encodeURIComponent('_images/nope.png')}?token=${seat.token}`,
+    )
+    const body = await res.text()
+    expect(body).not.toContain(root)
+    expect(body).not.toContain(os.tmpdir())
+  })
+
+  it('replays what the DM last showed to a guest that connects later', async () => {
+    showAtTable({ articleId: 'NPCs/Strahd', content: '# Strahd', title: 'Strahd' })
+    const seat = await join()
+    const res = await fetch(`${base}/events?token=${seat.token}`)
+    const reader = res.body!.getReader()
+    const { value } = await reader.read()
+    const text = new TextDecoder().decode(value)
+    expect(text).toContain('hello')
+    expect(text).toContain('Strahd')
+    await reader.cancel()
+  })
+
+  it('reports no table once stopped', async () => {
+    stopTable()
+    expect(tableInfo()).toBeNull()
+  })
+})

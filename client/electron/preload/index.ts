@@ -60,6 +60,11 @@ const CHANNELS = new Set([
   'player:closeAll',
   'player:push',
   'rolls:broadcast',
+  'table:host',
+  'table:stop',
+  'table:info',
+  'table:show',
+  'table:combat',
 ])
 
 // Channels the main process may PUSH to the renderer. Kept as a separate
@@ -70,6 +75,9 @@ const EVENT_CHANNELS = new Set([
   'world:changed',
   'player:content',
   'rolls:entry',
+  'table:seats',
+  'table:roll',
+  'table:sheet',
 ])
 
 contextBridge.exposeInMainWorld('dmApi', {
