@@ -388,8 +388,9 @@ async function handle(
         ? { id: seat.id, name: seat.name, character: seat.characterName }
         : undefined,
     }
-    session.rolls = [...session.rolls, entry].slice(-200)
-    broadcast('roll', entry)
+    const safe = forGuests(entry)
+    session.rolls = [...session.rolls, safe].slice(-200)
+    broadcast('roll', safe)
     for (const win of BrowserWindow.getAllWindows()) {
       if (!win.isDestroyed()) win.webContents.send('table:roll', entry)
     }
@@ -551,11 +552,38 @@ export function showAtTable(payload: {
   broadcast('shown', payload)
 }
 
+/**
+ * Strip a roll of anything a guest must not see, or cannot use.
+ *
+ * A RollSource carries the world id it came from, and that is hex of the DM's
+ * absolute path (sanitize.ts). Two things go wrong if it crosses the wire: it
+ * leaks the DM's directory layout, and the guest's roll history renders it as
+ * a link into a world that exists only on the host — which on one machine
+ * actually navigates the DM's window, and on a real guest dead-ends.
+ *
+ * The title survives, because "who or what rolled this" is the useful part and
+ * is not a path. The link target does not.
+ */
+function forGuests(entry: unknown): unknown {
+  if (typeof entry !== 'object' || entry === null) return entry
+  const roll = entry as Record<string, unknown>
+  const source = roll.source
+  if (typeof source !== 'object' || source === null) return entry
+  const { title } = source as Record<string, unknown>
+  return {
+    ...roll,
+    // Deliberately no worldId and no articleId: a guest can neither resolve
+    // nor be trusted with either.
+    source: typeof title === 'string' ? { title } : undefined,
+  }
+}
+
 /** A roll made in a DM window, mirrored to the guests. */
 export function pushRollToTable(entry: unknown): void {
   if (!session) return
-  session.rolls = [...session.rolls, entry].slice(-200)
-  broadcast('roll', entry)
+  const safe = forGuests(entry)
+  session.rolls = [...session.rolls, safe].slice(-200)
+  broadcast('roll', safe)
 }
 
 /** Initiative changed on the host. */

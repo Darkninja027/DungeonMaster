@@ -295,6 +295,32 @@ describe('a session end to end', () => {
     expect(res.status).toBe(403)
   })
 
+  it("never sends the DM's world id to a guest in a roll", async () => {
+    // A world id is hex of the DM's absolute path. It is also what RollSource
+    // carries, so a DM's roll would leak it AND render on the guest as a link
+    // into a world that only exists on the host.
+    const dmWorldId = encodeWorldId(root)
+    pushRollToTable({
+      id: 'dm2',
+      notation: '1d20',
+      total: 12,
+      detail: '12',
+      at: 1,
+      source: {
+        worldId: dmWorldId,
+        articleId: 'NPCs/Strahd',
+        title: 'Strahd',
+      },
+    })
+
+    const seat = await join('Sarah')
+    const res = await fetch(`${base}/events?token=${seat.token}`)
+    const [hello] = await collect(res, 1)
+    const text = JSON.stringify(hello)
+    expect(text).not.toContain(dmWorldId)
+    expect(text).not.toContain(root)
+  })
+
   it('tells the DM window when someone joins', async () => {
     await join('Brok')
     const seats = sent.filter((m) => m.channel === 'table:seats')

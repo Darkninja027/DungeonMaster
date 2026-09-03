@@ -112,18 +112,33 @@ export function RollHistory() {
                   {roll.detail}
                 </p>
               )}
-              {roll.source && (
-                <Link
-                  to="/worlds/$worldId/articles/$articleId"
-                  params={{
-                    worldId: roll.source.worldId,
-                    articleId: roll.source.articleId,
-                  }}
-                  className="text-muted-foreground hover:text-foreground text-xs underline"
-                >
-                  {roll.source.title}
-                </Link>
-              )}
+              {roll.source &&
+                // A roll relayed from another machine is LABEL ONLY. Its
+                // source named an article in the host's world, and the ids
+                // are stripped at the wire (forGuests in tableHost.ts)
+                // because a world id is hex of the host's absolute path.
+                //
+                // Guarding on the ids rather than on `seat` is deliberate:
+                // the DM's own rolls reach guests with no seat at all, so a
+                // seat check would leave exactly those rendering a Link with
+                // undefined params — which builds a broken route, and on one
+                // machine testing both ends actually navigates the DM window.
+                (!roll.source.worldId || !roll.source.articleId ? (
+                  <span className="text-muted-foreground text-xs">
+                    {roll.source.title}
+                  </span>
+                ) : (
+                  <Link
+                    to="/worlds/$worldId/articles/$articleId"
+                    params={{
+                      worldId: roll.source.worldId,
+                      articleId: roll.source.articleId,
+                    }}
+                    className="text-muted-foreground hover:text-foreground text-xs underline"
+                  >
+                    {roll.source.title}
+                  </Link>
+                ))}
             </li>
           ))}
         </ul>

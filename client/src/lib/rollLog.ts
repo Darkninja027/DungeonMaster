@@ -16,6 +16,18 @@ import { api } from './api'
  * or two windows would volley the same entry forever.
  */
 
+/**
+ * Where a roll came from — the article or sheet whose dice chip was clicked.
+ *
+ * A roll that arrived over a LAN table carries only `title`: a world id is hex
+ * of the HOST's absolute path, so it is stripped at the wire (forGuests in
+ * electron/main/tableHost.ts) and a guest could not resolve it anyway. The
+ * fields stay required because every LOCAL caller has them and making them
+ * optional pushes undefined through SheetTab and the sheet preview, which use
+ * worldId for images. Renderers must instead treat a relayed source as
+ * label-only — see RollHistory, which links only when the roll is this
+ * machine's own.
+ */
 export interface RollSource {
   worldId: string
   articleId: string
