@@ -1,7 +1,15 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { BrowserWindow, dialog, ipcMain, shell } from 'electron'
-import { addRecentWorld, readConfig, removeRecentWorld } from './recents'
+import {
+  addRecentWorld,
+  readConfig,
+  readRemoteAccess,
+  readRemoteOrigin,
+  removeRecentWorld,
+  writeRemoteAccess,
+  writeRemoteOrigin,
+} from './recents'
 import { ensureVault, findVault, isVaultPath } from './vault'
 import {
   atomicWrite,
@@ -67,6 +75,7 @@ import type { ViewerMode } from './playerWindow'
 import { relayRoll } from './rollRelay'
 import { findTable } from './beacon'
 import {
+  answerJoin,
   clearTable,
   hostTable,
   isHosting,
@@ -826,6 +835,44 @@ export function registerIpcHandlers() {
   // Guest side: find a host on the LAN by room code alone. Resolves null when
   // nothing answers, which is the ordinary case on a network that drops
   // broadcast — the caller then asks for an address instead of erroring.
+  ipcMain.handle(
+    'table:approve',
+    (_e, { ticket, approve }: { ticket: string; approve: boolean }) =>
+      answerJoin(ticket, approve),
+  )
+
+  // Remote access is app-wide rather than per-world, so it lives in
+  // config.json beside libraryRoot rather than in a world folder.
+  ipcMain.handle('table:remote:get', () => ({
+    remoteAccess: readRemoteAccess(),
+    remoteOrigin: readRemoteOrigin(),
+  }))
+
+  ipcMain.handle(
+    'table:remote:set',
+    (
+      _e,
+      {
+        remoteAccess,
+        remoteOrigin,
+      }: {
+        remoteAccess?: boolean
+        remoteOrigin?: string | null
+      },
+    ) => {
+      if (typeof remoteAccess === 'boolean') writeRemoteAccess(remoteAccess)
+      if (remoteOrigin !== undefined) {
+        const trimmed =
+          typeof remoteOrigin === 'string' ? remoteOrigin.trim() : ''
+        writeRemoteOrigin(trimmed === '' ? null : trimmed)
+      }
+      return {
+        remoteAccess: readRemoteAccess(),
+        remoteOrigin: readRemoteOrigin(),
+      }
+    },
+  )
+
   ipcMain.handle('table:find', (_e, { code }: { code: string }) =>
     findTable(code),
   )

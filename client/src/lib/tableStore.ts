@@ -43,6 +43,20 @@ export async function startHosting(worldId: string): Promise<TableInfo> {
   return info
 }
 
+/**
+ * Let a waiting remote guest in, or turn them away.
+ *
+ * The seat is minted in main, not here: the renderer only names the ticket, so
+ * a compromised or buggy window cannot invent a seat.
+ */
+export async function answerJoin(
+  ticket: string,
+  approve: boolean,
+): Promise<void> {
+  await api.table.approve(ticket, approve)
+  await refreshTable()
+}
+
 /** Take whatever is on the table down. */
 export async function clearShown(): Promise<void> {
   await api.table.clear()
@@ -96,6 +110,16 @@ if (bridged()) {
             shown: next.shown,
           }
         : null,
+    })
+  })
+
+  // Someone remote is waiting to be let in. The payload is the whole queue
+  // rather than a delta, so a window that missed an earlier push still shows
+  // the right list.
+  api.table.onJoinRequest((waiting) => {
+    setStatus({
+      hosting: status.hosting,
+      info: status.info ? { ...status.info, waiting } : null,
     })
   })
 

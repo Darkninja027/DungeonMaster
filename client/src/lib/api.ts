@@ -283,7 +283,19 @@ export interface Seat {
   joinedAt: number
 }
 
-/** What the host knows about its own running table. */
+/** Someone waiting for the DM to let them in. Remote joins only. */
+export interface WaitingJoin {
+  ticket: string
+  name: string
+  at: number
+}
+
+/**
+ * What the host knows about its own running table.
+ *
+ * Mirrors TableInfo in electron/main/tableHost.ts — main and the renderer share
+ * no types, so a field added there needs adding here too.
+ */
 export interface TableInfo {
   tableId: string
   code: string
@@ -292,6 +304,29 @@ export interface TableInfo {
   addresses: Array<string>
   seats: Array<Seat>
   /** What the guests are looking at, if anything. Identity only. */
+  shown: { articleId: string; title: string } | null
+  /** Whether this table accepts joins from outside the local network. */
+  remote: boolean
+  /**
+   * The extra secret a remote guest needs, or '' when remote access is off.
+   * Stays in the DM's window; it is never sent to a guest.
+   */
+  remoteSecret: string
+  /** Remote joins waiting to be answered. */
+  waiting: Array<WaitingJoin>
+}
+
+/**
+ * What the host pushes on 'table:seats'.
+ *
+ * Deliberately its own type rather than an Omit of TableInfo: notifyHost sends
+ * a hand-built object, so every field TableInfo gains would otherwise be
+ * claimed here and silently arrive undefined.
+ */
+export interface SeatsMessage {
+  tableId: string
+  code: string
+  seats: Array<Seat>
   shown: { articleId: string; title: string } | null
 }
 
@@ -629,10 +664,28 @@ export const api = {
      */
     find: (code: string) =>
       invoke<{ address: string; port: number } | null>('table:find', { code }),
+    /** Let a waiting remote guest in, or turn them away. */
+    approve: (ticket: string, approve: boolean) =>
+      invoke<boolean>('table:approve', { ticket, approve }),
+    /** Whether remote joining is enabled, and the address to hand out. */
+    remote: {
+      get: () =>
+        invoke<{ remoteAccess: boolean; remoteOrigin: string | null }>(
+          'table:remote:get',
+        ),
+      set: (patch: { remoteAccess?: boolean; remoteOrigin?: string | null }) =>
+        invoke<{ remoteAccess: boolean; remoteOrigin: string | null }>(
+          'table:remote:set',
+          patch,
+        ),
+    },
     /** Host: the seat list changed. */
-    onSeats: (cb: (info: Omit<TableInfo, 'port' | 'addresses'>) => void) =>
-      window.dmApi.on('table:seats', (payload) =>
-        cb(payload as Omit<TableInfo, 'port' | 'addresses'>),
+    onSeats: (cb: (info: SeatsMessage) => void) =>
+      window.dmApi.on('table:seats', (payload) => cb(payload as SeatsMessage)),
+    /** Host: someone remote is waiting to be let in. */
+    onJoinRequest: (cb: (waiting: Array<WaitingJoin>) => void) =>
+      window.dmApi.on('table:joinRequest', (payload) =>
+        cb(payload as Array<WaitingJoin>),
       ),
     /** Host: a guest rolled. */
     onRoll: (cb: (entry: RollEntry) => void) =>

@@ -357,6 +357,34 @@ describe('table host over real HTTP', () => {
     expect(await res.text()).not.toContain('THE DM SECRET')
   })
 
+  it('rejects a token that is a prefix or extension of a valid one', async () => {
+    const seat = await join()
+    expect((await fetch(`${base}/characters?token=${seat.token}`)).status).toBe(
+      200,
+    )
+    for (const bad of [seat.token.slice(0, -1), `${seat.token}a`, '']) {
+      const res = await fetch(`${base}/characters?token=${bad}`)
+      expect(res.status).toBe(401)
+    }
+  })
+
+  it('bounds the bad-code attempt map against many distinct addresses', async () => {
+    // Every request here shares one source address, so this cannot prove the
+    // eviction path — pruneAttempts is unit-tested for that. What it does prove
+    // is that the sweep is actually WIRED into the failure path and that a
+    // rate-limited address still gets its 429 rather than a crash.
+    const info = tableInfo()!
+    for (let i = 0; i < 12; i++) {
+      await post('/join', { code: 'ZZZ-999', name: `M${i}` })
+    }
+    const blocked = await post('/join', { code: 'ZZZ-999', name: 'Mallory' })
+    expect(blocked.status).toBe(429)
+    // A correct code from a blocked address is refused too: the limit is on the
+    // address, not on the guess.
+    const right = await post('/join', { code: info.code, name: 'Sarah' })
+    expect(right.status).toBe(429)
+  })
+
   it('reports no table once stopped', async () => {
     stopTable()
     expect(tableInfo()).toBeNull()

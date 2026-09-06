@@ -65,6 +65,93 @@ Components go through the typed `api` object in `client/src/lib/api.ts`, which
 mirrors the IPC channels. Add methods there — don't scatter raw `invoke` calls
 through components.
 
+### The table (host and guest)
+
+One DM hosts a session; people on other machines join it. `tableHost.ts` is an
+HTTP server on `node:http` with **no new dependency** — Server-Sent Events
+downstream, ordinary POSTs upstream. The traffic is asymmetric and low rate, so
+a websocket would buy little, and `EventSource` brings reconnection with
+backoff for free.
+
+**The vocabulary is deliberate.** The word "player" is never used: it already
+means a `WorldMode`, a `ViewerMode` and a `BookView` audience, and a fourth
+meaning would make all three harder to read. The roles are **HOST** and
+**GUEST**, and a person is a **SEAT**.
+
+**The pure/IO split is the same one `watcher.ts` follows.** Every decision
+lives in `table.ts`, which is Electron-free and covered by `table.test.ts`;
+`tableHost.ts` is the IO shell and is untested directly. The corollary matters
+more than the rule: **a new guard belongs in `table.ts` even when it feels like
+server logic**, because that is the only thing keeping it covered. Integration
+sits in `tableHost.test.ts` (each endpoint's guards), `tableFlow.test.ts` (the
+wiring between them, over a real SSE stream) and `tableRemote.test.ts` (the
+remote path, which needs `readRemoteAccess` mocked *before* import).
+
+**Two security invariants, both easy to break:**
+
+1. **A world id never crosses the wire.** It is hex of the DM's absolute path
+   (`sanitize.ts`), so it would leak the directory layout and mean nothing on
+   the guest's machine. Guests see `tableId`; `forGuests` strips `worldId` and
+   `articleId` off every relayed roll.
+2. **Every inbound value is `unknown` until `table.ts` narrows it.** Over a
+   network that stops being hygiene and becomes the security boundary.
+
+The `/img/` route is the trap: it must resolve through **`resolveInImages`, not
+`resolveInWorld`**, because `_images/../secret.md` clears the `_images/` prefix
+check and still lands inside the world.
+
+**Guest rolls are computed on the guest's machine and are unverifiable.**
+`rollDice()` has no injectable rng, so the host cannot recompute them.
+`parseRoll` only rejects malformed or absurd payloads. That is an accepted
+trade for a friendly table — not an oversight to "fix".
+
+**A dropped stream is not a departure.** `EventSource` reconnects on its own, so
+a seat whose stream closes is reaped only after `SEAT_GRACE_MS`, and a
+reconnect inside that window cancels the reap. Removing the seat immediately
+also deletes its token, so the automatic retry would 401 and strand the guest
+on the join screen.
+
+#### LAN versus remote
+
+`server.listen(port)` takes no host argument, so the host has **always** bound
+every adapter — loopback, LAN, and any public or VPN one. What gates access is
+the room code and the per-seat token, never the bind address.
+
+So "playing over the internet" is a reachability problem, not a server one, and
+it is solved outside the app: **Tailscale is the supported path.** A `100.x`
+address works through CGNAT, is encrypted by WireGuard, and is reachable only
+by devices invited to the tailnet — a stronger boundary than any room code, and
+`lanAddresses()` already surfaces it as an ordinary non-internal IPv4
+interface. Forwarding a port also works and is cleartext; the UI says so
+(`remoteWarning` in `src/lib/remoteAddress.ts`) rather than burying it in docs.
+Building a relay or a rendezvous server was considered and rejected: it would
+contradict "no server and no database" and make the author a service operator.
+
+**`remoteAccess` gates the remote path** and lives in `userData/config.json`
+via `recents.ts`. `hostTable` reads it **from config directly, never from the
+renderer** — the renderer is the less-trusted side of the bridge, and this
+decides whether strangers can reach the table. Parsing is `=== true`, never a
+truthy coerce, because the file is hand-editable.
+
+With it on, a join from a non-private address must also present a 16-character
+`remoteSecret` and then **wait for the DM to approve it**; a join from the LAN
+is exempt from both, so the table at home behaves exactly as it did. The
+address check only ever *exempts* — `remoteAccess` being on is what *requires*
+the secret. That ordering matters because behind a tunnel or reverse proxy the
+socket's peer is loopback, so gating on the address alone would wave through
+precisely the traffic the secret exists to stop. `x-forwarded-for` is never
+consulted: it is set by the caller.
+
+Approval is **202 + a ticket the guest polls**, not a held request, which keeps
+it clear of proxy timeouts and testable. The seat is minted when the DM
+answers, not when the guest next polls, so one ticket can never produce two
+seats.
+
+The beacon (`beacon.ts`, UDP broadcast on 7778) is **LAN-only by definition** —
+broadcast does not cross subnets and dies under AP client isolation. The guest's
+"Over the internet" mode skips discovery entirely rather than burning a
+four-second timeout that can never succeed.
+
 ### SRD tables are an affordance, never a schema
 
 `client/src/lib/srd/` holds SRD 5.1 races, backgrounds, class starting kits and
@@ -405,6 +492,23 @@ shadcn/ui — add components with `pnpm dlx shadcn@latest add <name>`, they land
 `client/src/components/ui/`.
 
 ## Gotchas
+
+- `TableInfo` and `Seat` are declared **twice** — `electron/main/tableHost.ts`
+  and `src/lib/api.ts` — because main and the renderer share no types. A field
+  added to one needs adding to the other. Related: `table:seats` carries its own
+  `SeatsMessage` type rather than an `Omit<TableInfo, …>`, because `notifyHost`
+  hand-builds that payload, so every field `TableInfo` gains would otherwise be
+  claimed by the type and arrive `undefined`.
+- An IPC channel the main process **pushes** goes in the separate
+  `EVENT_CHANNELS` set in the preload, not the invoke allowlist. Put
+  `table:joinRequest` in the wrong one and it fails silently.
+- `npx tsc --noEmit` **does not check the main process** — the root
+  `tsconfig.json` excludes `electron`. Use `npx tsc --noEmit -p
+  electron/tsconfig.json` for anything under `electron/`.
+- In tests, `reader.cancel()` on a `fetch` body does **not** close the server
+  socket — undici keeps it alive, so `req.on('close')` never fires and an SSE
+  disconnection test built on it silently asserts nothing. Drop a stream with an
+  `AbortController` instead; see `openStream` in `tableFlow.test.ts`.
 
 - `client/README.md` is **stale TanStack Start boilerplate** (Nitro servers, server functions, API routes) — none of it applies. Ignore it.
 - `server/` (an empty `Data/` dir) and `scripts/migrate-sqlite.mjs` are **dead remnants** of a removed .NET/SQLite server, kept only for one-time migration. They are not part of the running app.

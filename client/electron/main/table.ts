@@ -162,6 +162,299 @@ export function seatOwns(
   return seat?.characterId === characterId
 }
 
+// --- Where a request came from ----------------------------------------------
+
+/** The CGNAT range Tailscale allocates from (100.64.0.0/10). */
+function inTailscaleRange(a: number, b: number): boolean {
+  return a === 100 && b >= 64 && b <= 127
+}
+
+/**
+ * Whether an address is on the machine or a private network.
+ *
+ * Used to EXEMPT a genuinely local join from the remote secret, never as the
+ * sole gate. Behind a tunnel or reverse proxy the socket's peer is the proxy —
+ * loopback — so an address check alone would wave through exactly the traffic
+ * it was meant to stop. x-forwarded-for is not consulted: it is set by the
+ * caller and is therefore a claim, not evidence.
+ *
+ * Tailscale's range counts as private. It is a WireGuard overlay only invited
+ * devices can reach, which is a stronger boundary than the room code.
+ */
+export function isPrivateAddress(raw: string): boolean {
+  if (!raw) return false
+  let addr = raw.trim().toLowerCase()
+  // Node reports an IPv4 peer on a dual-stack socket as ::ffff:192.168.1.5.
+  if (addr.startsWith('::ffff:')) addr = addr.slice(7)
+  // A zone index (fe80::1%eth0) is not part of the address.
+  const pct = addr.indexOf('%')
+  if (pct !== -1) addr = addr.slice(0, pct)
+  if (addr === '::1' || addr === '::') return true
+  if (addr.includes(':')) {
+    // fc00::/7 — unique local. The high bit of the second nibble is what
+    // separates fc00::/8 from fd00::/8, and both are in the range.
+    return /^f[cd][0-9a-f]{0,2}:/.test(addr) || /^fe[89ab][0-9a-f]?:/.test(addr)
+  }
+  const parts = addr.split('.')
+  if (parts.length !== 4) return false
+  const n = parts.map((x) => (/^\d{1,3}$/.test(x) ? Number(x) : Number.NaN))
+  if (n.some((x) => Number.isNaN(x) || x > 255)) return false
+  const [a, b] = n
+  if (a === 10) return true
+  if (a === 127) return true
+  // 172.16/12 is 172.16 through 172.31 — 172.15 and 172.32 are public, which
+  // is the boundary everyone gets wrong.
+  if (a === 172 && b >= 16 && b <= 31) return true
+  if (a === 192 && b === 168) return true
+  if (a === 169 && b === 254) return true
+  return inTailscaleRange(a, b)
+}
+
+/**
+ * Whether an address looks like a Tailscale one, for labelling in the DM's UI.
+ *
+ * Purely cosmetic — it lets the panel say "works from anywhere" beside the
+ * right row. No network call: lanAddresses() already surfaces the interface,
+ * because a Tailscale adapter is a non-internal IPv4 one like any other.
+ */
+export function isTailscaleAddress(raw: string): boolean {
+  const parts = raw.trim().split('.')
+  if (parts.length !== 4) return false
+  const n = parts.map((x) => (/^\d{1,3}$/.test(x) ? Number(x) : Number.NaN))
+  if (n.some((x) => Number.isNaN(x) || x > 255)) return false
+  return inTailscaleRange(n[0], n[1])
+}
+
+// --- Remote access ----------------------------------------------------------
+
+/**
+ * How many seats a table will hold.
+ *
+ * Generous for D&D and finite on purpose: /join mints a seat and a token per
+ * call, so without a ceiling a leaked code is unbounded allocation plus a seat
+ * list broadcast to every guest on every join.
+ */
+export const MAX_SEATS = 8
+
+/** Whether there is room for another seat. */
+export function canSeat(state: TableState, max = MAX_SEATS): boolean {
+  return state.seats.length < max
+}
+
+/**
+ * The extra secret a remote join must present, on top of the room code.
+ *
+ * The 6-char code is read aloud at a table and is worth ~2^30 — fine against a
+ * rate-limited LAN, thin when anyone on the internet can try. Rather than
+ * lengthening it and ruining the one thing it is good at, a remote join needs
+ * this as well, and the DM pastes origin + code + secret as a single link.
+ */
+const REMOTE_SECRET_LEN = 16
+
+export function makeRemoteSecret(random: () => number = Math.random): string {
+  let out = ''
+  for (let i = 0; i < REMOTE_SECRET_LEN; i++) {
+    out += CODE_ALPHABET[Math.floor(random() * CODE_ALPHABET.length)]
+  }
+  return out
+}
+
+/** Constant-time secret comparison, the same reasoning as codeMatches. */
+export function secretMatches(expected: string, given: string): boolean {
+  const a = Buffer.from(normalizeCode(expected))
+  const b = Buffer.from(normalizeCode(given))
+  if (a.length !== b.length) return false
+  return crypto.timingSafeEqual(a, b)
+}
+
+// --- Per-seat request allowance ---------------------------------------------
+
+/**
+ * A token bucket: `tokens` refills at `ratePerSec` up to `capacity`.
+ *
+ * Only /join was ever limited, which is the right shape for a LAN — everything
+ * past it needs a seat, and a seat was someone in the room. Reachable from
+ * outside, an authenticated seat can still make /roll fan out to every guest
+ * and /sheet fan an IPC message to every window, so the allowance follows the
+ * seat rather than stopping at the door.
+ *
+ * A burst is allowed on purpose: opening a sheet fires several requests at
+ * once, and a strict per-second cap would refuse ordinary use.
+ */
+export interface Bucket {
+  tokens: number
+  last: number
+}
+
+/** Sustained requests per second per seat, and the burst it may spend at once. */
+export const SEAT_RATE_PER_SEC = 5
+export const SEAT_BURST = 20
+
+export function newBucket(now: number, capacity = SEAT_BURST): Bucket {
+  return { tokens: capacity, last: now }
+}
+
+/**
+ * Spend one token, refilling first. Returns false when the seat is over its
+ * allowance — mutates, because the bucket belongs to a long-lived seat.
+ */
+export function takeToken(
+  bucket: Bucket,
+  now: number,
+  ratePerSec = SEAT_RATE_PER_SEC,
+  capacity = SEAT_BURST,
+): boolean {
+  const elapsed = Math.max(0, now - bucket.last) / 1000
+  bucket.tokens = Math.min(capacity, bucket.tokens + elapsed * ratePerSec)
+  bucket.last = now
+  if (bucket.tokens < 1) return false
+  bucket.tokens -= 1
+  return true
+}
+
+// --- Waiting to be let in ---------------------------------------------------
+
+/**
+ * A remote join the DM has not answered yet.
+ *
+ * Only remote joins wait. At a real table you can see who sat down, so making
+ * the DM click for someone in the room is friction with nothing behind it —
+ * over the internet, a leaked code is otherwise a stranger in your seat list.
+ */
+export interface PendingJoin {
+  ticket: string
+  name: string
+  at: number
+  status: 'waiting' | 'approved' | 'denied'
+  /** Set once approved, so the poll can hand back the real seat. */
+  seatId?: string
+  token?: string
+}
+
+/** How long an unanswered request stays on the DM's screen. */
+export const PENDING_TTL_MS = 120_000
+
+/**
+ * How many may queue at once. The pending list is reachable by anyone holding
+ * the code, so without a cap it is simply the unbounded map moved one endpoint
+ * along.
+ */
+export const MAX_PENDING = 16
+
+export function withPendingAdded(
+  pending: Array<PendingJoin>,
+  ticket: string,
+  name: string,
+  at: number,
+): Array<PendingJoin> {
+  return [
+    ...pending,
+    {
+      ticket,
+      name: name.trim().slice(0, 40) || 'Guest',
+      at,
+      status: 'waiting',
+    },
+  ]
+}
+
+/**
+ * Answer one request.
+ *
+ * A ticket that is missing, already answered, or expired is a no-op rather than
+ * an error: the DM's panel and the guest's poll race by nature, and the losing
+ * side must not throw. Approving carries the seat identity, so the poll has
+ * something to hand back — and it is set HERE rather than at poll time, so a
+ * ticket can never mint two seats.
+ */
+export function withPendingAnswered(
+  pending: Array<PendingJoin>,
+  ticket: string,
+  status: 'approved' | 'denied',
+  seat?: { seatId: string; token: string },
+): Array<PendingJoin> {
+  return pending.map((p) =>
+    p.ticket === ticket && p.status === 'waiting'
+      ? { ...p, status, ...(seat ?? {}) }
+      : p,
+  )
+}
+
+/** Drop what has aged out, then cap oldest-first. */
+export function withPendingPruned(
+  pending: Array<PendingJoin>,
+  now: number,
+  ttlMs = PENDING_TTL_MS,
+  max = MAX_PENDING,
+): Array<PendingJoin> {
+  const live = pending.filter((p) => now - p.at < ttlMs)
+  return live.length <= max ? live : live.slice(live.length - max)
+}
+
+/** The ones the DM still has to answer. */
+export function waitingJoins(pending: Array<PendingJoin>): Array<PendingJoin> {
+  return pending.filter((p) => p.status === 'waiting')
+}
+
+// --- Reconnection -----------------------------------------------------------
+
+/**
+ * How long a seat survives with no event stream attached.
+ *
+ * EventSource reconnects on its own with backoff, so a dropped stream is
+ * ordinarily a blip rather than a departure — a lid closed, a wifi handover, a
+ * phone changing cell. Reaping the seat the instant the socket dies would drop
+ * the guest from the table and, worse, invalidate their token, so the automatic
+ * reconnect would then fail with 401 and strand them on the join screen.
+ *
+ * Long enough to cover EventSource's first few retries; short enough that a
+ * guest who really has gone leaves the seat list while the DM still cares.
+ */
+export const SEAT_GRACE_MS = 30_000
+
+// --- Rate limiting ----------------------------------------------------------
+
+/** One address's recent bad attempts. `until` is when the window expires. */
+export interface AttemptRecord {
+  n: number
+  until: number
+}
+
+/**
+ * How many addresses the attempt map may hold before the oldest are evicted.
+ *
+ * A sweep of expired records is not enough on its own: a burst of requests from
+ * many distinct addresses inserts faster than any of them expire, so the map
+ * needs a hard ceiling too. On a LAN neither ever binds; reachable from outside,
+ * the map is otherwise an unbounded allocation any stranger can drive.
+ */
+export const MAX_ATTEMPT_ENTRIES = 4096
+
+/**
+ * Drop expired records, then evict oldest-first down to `maxEntries`.
+ *
+ * Mutates in place — the caller owns a long-lived map and swapping it for a
+ * copy on every request would defeat the point. Eviction is by `until`, so the
+ * entry closest to expiring goes first; that can discard a live limit under a
+ * flood, which is the right trade, since the alternative is unbounded growth.
+ */
+export function pruneAttempts(
+  attempts: Map<string, AttemptRecord>,
+  now: number,
+  maxEntries = MAX_ATTEMPT_ENTRIES,
+): void {
+  for (const [addr, rec] of attempts) {
+    if (rec.until < now) attempts.delete(addr)
+  }
+  if (attempts.size <= maxEntries) return
+  const byExpiry = [...attempts.entries()].sort(
+    (a, b) => a[1].until - b[1].until,
+  )
+  for (const [addr] of byExpiry.slice(0, attempts.size - maxEntries)) {
+    attempts.delete(addr)
+  }
+}
+
 // --- Inbound payload validation --------------------------------------------
 
 /**
@@ -183,6 +476,13 @@ const num = (v: unknown): number | null =>
 export interface JoinRequest {
   code: string
   name: string
+  /**
+   * The extra secret a remote join carries. Optional here rather than in two
+   * shapes: a LAN join legitimately has none, and whether one is REQUIRED is a
+   * question about the host's settings and the caller's address, which this
+   * pure parser cannot see. It only says whether one was supplied.
+   */
+  secret?: string
 }
 
 export function parseJoin(raw: unknown): JoinRequest | null {
@@ -190,7 +490,8 @@ export function parseJoin(raw: unknown): JoinRequest | null {
   const code = str(raw.code)
   const name = str(raw.name)
   if (!code || !name) return null
-  return { code, name: name.slice(0, 40) }
+  const secret = str(raw.secret)
+  return { code, name: name.slice(0, 40), ...(secret ? { secret } : {}) }
 }
 
 /**

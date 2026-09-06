@@ -30,6 +30,7 @@ vi.mock('electron', () => ({
   },
 }))
 
+const { SEAT_GRACE_MS } = await import('./table')
 const { encodeWorldId } = await import('./sanitize')
 const {
   hostTable,
@@ -79,6 +80,20 @@ async function collect(
     await reader.cancel()
   }
   return frames
+}
+
+/**
+ * Open an event stream that can be dropped like a real one.
+ *
+ * reader.cancel() alone is not a disconnect: undici keeps the socket open and
+ * the server's 'close' never fires, so a test built on it silently asserts
+ * nothing. Aborting the request is what the server actually sees when a guest's
+ * wifi drops.
+ */
+function openStream(token: string) {
+  const ac = new AbortController()
+  const res = fetch(`${base}/events?token=${token}`, { signal: ac.signal })
+  return { res, drop: () => ac.abort() }
 }
 
 async function join(name: string) {
@@ -413,5 +428,84 @@ describe('a session end to end', () => {
     const [hello] = await collect(res, 1)
     const payload = hello.payload as Record<string, unknown>
     expect((payload.seats as Array<unknown>).length).toBe(2)
+  })
+
+  it('keeps the seat when a guest reconnects its event stream', async () => {
+    // Flaky wifi drops the stream and EventSource reconnects on its own. Two
+    // things must hold: the superseded connection's close handler must not
+    // retire the seat the guest just restored, and the reconnect must cancel
+    // the reap the drop scheduled — otherwise the seat dies mid-session, 30
+    // seconds after a blip the guest already recovered from.
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      const seat = await join('Sarah')
+
+      const first = openStream(seat.token)
+      await collect(await first.res, 1)
+      first.drop()
+      await vi.advanceTimersByTimeAsync(50)
+
+      const second = openStream(seat.token)
+      const [hello] = await collect(await second.res, 1)
+      expect(hello.kind).toBe('hello')
+
+      // Past the window the first drop scheduled its reap in.
+      await vi.advanceTimersByTimeAsync(SEAT_GRACE_MS + 100)
+
+      expect(tableInfo()!.seats.map((s) => s.name)).toEqual(['Sarah'])
+      // The token still authenticates: the seat was never torn down.
+      const still = await fetch(`${base}/characters?token=${seat.token}`)
+      expect(still.status).toBe(200)
+      second.drop()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('a reconnected seat survives even if the old reap still fires', async () => {
+    // Belt and braces, and deliberately pinned: the reconnect cancels the
+    // pending reap, AND the reap itself re-checks that the seat is still
+    // streamless before removing it. Either alone is enough here, so this
+    // fixes the second in place — without it, any future change that loses the
+    // cancellation would silently start dropping reconnected guests again.
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      const seat = await join('Sarah')
+      const first = openStream(seat.token)
+      await collect(await first.res, 1)
+      first.drop()
+      // Reconnect only just before the original reap is due.
+      await vi.advanceTimersByTimeAsync(SEAT_GRACE_MS - 50)
+      const second = openStream(seat.token)
+      await collect(await second.res, 1)
+      await vi.advanceTimersByTimeAsync(200)
+
+      expect(tableInfo()!.seats.map((s) => s.name)).toEqual(['Sarah'])
+      second.drop()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('holds the seat through the grace period, then lets it go', async () => {
+    // The reconnect fix must not overshoot into never reaping anything. The
+    // seat survives the drop, and the pending reap is what eventually clears
+    // it — driven by fake timers, since the real window is 30 seconds.
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      const seat = await join('Sarah')
+      const stream = openStream(seat.token)
+      await collect(await stream.res, 1)
+      stream.drop()
+      await vi.advanceTimersByTimeAsync(100)
+
+      // Still seated: a dropped socket is a blip until proven otherwise.
+      expect(tableInfo()!.seats.map((s) => s.name)).toEqual(['Sarah'])
+
+      await vi.advanceTimersByTimeAsync(SEAT_GRACE_MS + 100)
+      expect(tableInfo()!.seats).toEqual([])
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

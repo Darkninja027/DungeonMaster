@@ -8,20 +8,34 @@ import { IMAGES_DIR, getArticle, worldRoot } from './worldStore'
 import { listCharacters } from './search'
 import { startBeacon, stopBeacon } from './beacon'
 import {
+  MAX_PENDING,
+  canSeat,
   codeMatches,
   emptyTable,
+  isPrivateAddress,
+  makeRemoteSecret,
+  newBucket,
   parseArticleId,
   parseJoin,
   parseRoll,
   parseSheetPatch,
+  pruneAttempts,
   safeError,
+  SEAT_GRACE_MS,
   seatOwns,
+  secretMatches,
+  takeToken,
+  waitingJoins,
   withCharacterClaimed,
   withCharacterNamed,
+  withPendingAdded,
+  withPendingAnswered,
+  withPendingPruned,
   withSeatAdded,
   withSeatRemoved,
 } from './table'
-import type { TableState } from './table'
+import type { Bucket, PendingJoin, TableState } from './table'
+import { readRemoteAccess } from './recents'
 
 /**
  * LAN session host: one DM serves N guests over plain HTTP.
@@ -66,6 +80,19 @@ interface Guest {
    * write must check rather than assume.
    */
   res?: http.ServerResponse
+  /** The keepalive timer for `res`, cleared whenever that response is replaced. */
+  ping?: ReturnType<typeof setInterval>
+  /**
+   * Pending removal, set when the stream drops and cancelled if it comes back
+   * within SEAT_GRACE_MS. Its presence is what "disconnected but still seated"
+   * means.
+   */
+  reap?: ReturnType<typeof setTimeout>
+  /**
+   * This seat's request allowance. Per seat rather than per address, so one
+   * guest on a shared connection cannot starve another.
+   */
+  bucket: Bucket
 }
 
 interface Session {
@@ -74,12 +101,28 @@ interface Session {
   port: number
   state: TableState
   guests: Map<string, Guest>
+  /**
+   * The same guests keyed by token, so authenticating is a lookup rather than a
+   * scan. Every write to `guests` must write here too — see seatFor.
+   */
+  byToken: Map<string, Guest>
   /** Last thing the DM showed, replayed to a guest the moment it connects. */
   shown: unknown
   /** The shared roll log, replayed on connect. Newest last. */
   rolls: Array<unknown>
   /** Initiative, replayed on connect. */
   combat: unknown
+  /**
+   * Whether this table accepts joins from outside the local network. Read from
+   * config at hostTable time and never from the renderer: the renderer is the
+   * less-trusted side of the bridge, and this decides whether strangers may
+   * reach the table at all.
+   */
+  remote: boolean
+  /** The extra secret a remote join must present. Empty when remote is off. */
+  remoteSecret: string
+  /** Remote joins the DM has not answered yet. */
+  pending: Array<PendingJoin>
 }
 
 let session: Session | null = null
@@ -166,7 +209,16 @@ async function readJson(req: http.IncomingMessage): Promise<unknown> {
   }
 }
 
-/** The seat behind a request, or null if the token is unknown. */
+/**
+ * The seat behind a request, or null if the token is unknown.
+ *
+ * The map lookup finds the candidate; timingSafeEqual is what accepts it. A
+ * plain === would early-exit on the first differing byte, which is exactly the
+ * leak codeMatches goes out of its way to avoid for the weaker of the two
+ * secrets — a token is longer-lived than a room code and deserves at least the
+ * same care. The map is keyed by the full token, so a wrong one simply misses;
+ * the compare defends the case where it does not.
+ */
 function seatFor(req: http.IncomingMessage, url: URL): Guest | null {
   if (!session) return null
   const token =
@@ -174,10 +226,51 @@ function seatFor(req: http.IncomingMessage, url: URL): Guest | null {
     req.headers.authorization?.replace(/^Bearer\s+/i, '') ??
     ''
   if (!token) return null
-  for (const guest of session.guests.values()) {
-    if (guest.token === token) return guest
+  const guest = session.byToken.get(token)
+  if (!guest) return null
+  const a = Buffer.from(guest.token)
+  const b = Buffer.from(token)
+  if (a.length !== b.length) return null
+  return crypto.timingSafeEqual(a, b) ? guest : null
+}
+
+/**
+ * Whether this request must present the remote secret.
+ *
+ * Remote access being ON is the trigger; the address only EXEMPTS a genuinely
+ * local caller. The order matters: behind a tunnel or reverse proxy the peer is
+ * loopback, so gating on the address alone would wave through exactly the
+ * traffic the secret exists to stop.
+ */
+function needsSecret(addr: string): boolean {
+  if (!session?.remote) return false
+  return !isPrivateAddress(addr)
+}
+
+/** Mint a seat and its token, and wire it into both indexes. */
+function seatGuest(name: string): { seatId: string; token: string } {
+  const s = session!
+  const seatId = crypto.randomUUID()
+  const token = crypto.randomBytes(24).toString('hex')
+  s.state = withSeatAdded(s.state, name, seatId, Date.now())
+  const guest: Guest = { seatId, token, bucket: newBucket(Date.now()) }
+  s.guests.set(seatId, guest)
+  s.byToken.set(token, guest)
+  notifyHost()
+  return { seatId, token }
+}
+
+/** Tell the DM's windows about the queue of people waiting to be let in. */
+function notifyPending(): void {
+  if (!session) return
+  const waiting = waitingJoins(session.pending).map((p) => ({
+    ticket: p.ticket,
+    name: p.name,
+    at: p.at,
+  }))
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) win.webContents.send('table:joinRequest', waiting)
   }
-  return null
 }
 
 function rateLimited(addr: string): boolean {
@@ -189,6 +282,10 @@ function rateLimited(addr: string): boolean {
 
 function noteAttempt(addr: string): void {
   const now = Date.now()
+  // Swept here rather than on a timer: this is the only path that grows the
+  // map, so it is the only one that needs to bound it, and no interval has to
+  // outlive a session.
+  pruneAttempts(attempts, now)
   const rec = attempts.get(addr)
   if (!rec || rec.until < now) {
     attempts.set(addr, { n: 1, until: now + ATTEMPT_WINDOW_MS })
@@ -225,16 +322,67 @@ async function handle(
       noteAttempt(addr)
       return json(res, 403, { error: 'Wrong room code' })
     }
-    const seatId = crypto.randomUUID()
-    const token = crypto.randomBytes(24).toString('hex')
-    session.state = withSeatAdded(session.state, body.name, seatId, Date.now())
-    session.guests.set(seatId, { seatId, token })
-    notifyHost()
+    // A remote caller needs the longer secret as well. Counted as a bad attempt
+    // like a wrong code, or the rate limit would only cover half the door.
+    if (needsSecret(addr)) {
+      if (!body.secret || !secretMatches(session.remoteSecret, body.secret)) {
+        noteAttempt(addr)
+        return json(res, 403, { error: 'Wrong room code' })
+      }
+    }
+    if (!canSeat(session.state)) {
+      return json(res, 503, { error: 'The table is full' })
+    }
+
+    // A remote guest waits for the DM. At a real table you can see who sat
+    // down, so making the DM click for someone in the room is friction with
+    // nothing behind it; over the internet a leaked link is otherwise a
+    // stranger in the seat list.
+    if (session.remote && !isPrivateAddress(addr)) {
+      session.pending = withPendingPruned(session.pending, Date.now())
+      if (waitingJoins(session.pending).length >= MAX_PENDING) {
+        return json(res, 503, { error: 'Too many waiting' })
+      }
+      const ticket = crypto.randomBytes(16).toString('hex')
+      session.pending = withPendingAdded(
+        session.pending,
+        ticket,
+        body.name,
+        Date.now(),
+      )
+      notifyPending()
+      // 202 and a ticket, not a held request: an open connection interacts
+      // badly with proxy timeouts and is harder to test than a poll.
+      return json(res, 202, { status: 'waiting', ticket })
+    }
+
+    const { seatId, token } = seatGuest(body.name)
     const seat = session.state.seats.find((s) => s.id === seatId)
     return json(res, 200, {
       tableId: session.state.tableId,
       seatId,
       token,
+      name: seat?.name,
+    })
+  }
+
+  // --- has the DM answered yet? ----------------------------------------------
+  if (req.method === 'GET' && url.pathname === '/join/status') {
+    const ticket = url.searchParams.get('ticket') ?? ''
+    session.pending = withPendingPruned(session.pending, Date.now())
+    const entry = session.pending.find((p) => p.ticket === ticket)
+    // An unknown ticket is one that expired or was never issued. Both read the
+    // same from here, and saying so is more use than a bare 404.
+    if (!entry) return json(res, 404, { error: 'That request expired' })
+    if (entry.status === 'waiting') return json(res, 202, { status: 'waiting' })
+    if (entry.status === 'denied') {
+      return json(res, 403, { error: 'The DM did not let you in' })
+    }
+    const seat = session.state.seats.find((s) => s.id === entry.seatId)
+    return json(res, 200, {
+      tableId: session.state.tableId,
+      seatId: entry.seatId,
+      token: entry.token,
       name: seat?.name,
     })
   }
@@ -249,6 +397,20 @@ async function handle(
       connection: 'keep-alive',
       ...CORS,
     })
+    // A reconnecting guest — flaky wifi, a laptop lid — either still has an
+    // earlier stream on record or is inside the grace period after it dropped.
+    // Cancel the pending reap first: that is what turns an automatic
+    // EventSource retry back into the same seat rather than a lost one.
+    clearTimeout(guest.reap)
+    guest.reap = undefined
+    if (guest.res && guest.res !== res) {
+      clearInterval(guest.ping)
+      try {
+        guest.res.end()
+      } catch {
+        /* already gone */
+      }
+    }
     guest.res = res
 
     // Replay is not an optimisation. A guest joining mid-session would
@@ -275,14 +437,34 @@ async function handle(
         /* reaped below */
       }
     }, 25_000)
+    guest.ping = ping
 
     req.on('close', () => {
       clearInterval(ping)
       if (!session) return
-      session.guests.delete(guest.seatId)
-      session.state = withSeatRemoved(session.state, guest.seatId)
-      notifyHost()
-      broadcast('seats', session.state.seats)
+      // Only the CURRENT stream may retire the seat. When a guest reconnects
+      // fast enough that the new request lands first, this fires for the
+      // superseded response and must do nothing.
+      if (guest.res !== res) return
+      guest.res = undefined
+      // Not removed here. EventSource retries on its own, so a dropped socket
+      // is usually a blip; taking the seat away immediately would also delete
+      // the token, so the automatic retry would then 401 and strand the guest
+      // on the join screen. Reconnecting inside the window cancels this.
+      clearTimeout(guest.reap)
+      guest.reap = setTimeout(() => {
+        if (!session) return
+        const current = session.guests.get(guest.seatId)
+        if (current !== guest || current.res) return
+        session.guests.delete(guest.seatId)
+        session.byToken.delete(guest.token)
+        session.state = withSeatRemoved(session.state, guest.seatId)
+        notifyHost()
+        broadcast('seats', session.state.seats)
+      }, SEAT_GRACE_MS)
+      // Unref so a pending reap cannot hold the process open past a quit; the
+      // table is torn down by stopTable in that case anyway.
+      guest.reap.unref()
     })
     broadcast('seats', session.state.seats)
     return
@@ -291,6 +473,13 @@ async function handle(
   // Everything past here needs a seat.
   const guest = seatFor(req, url)
   if (!guest) return json(res, 401, { error: 'Unknown seat' })
+  // ...and an allowance. /roll fans out to every guest and /sheet fans an IPC
+  // message to every window, so a seat is a lever even after it is legitimate.
+  // Deliberately after auth: an unauthenticated caller must not be able to
+  // spend someone else's budget.
+  if (!takeToken(guest.bucket, Date.now())) {
+    return json(res, 429, { error: 'Slow down' })
+  }
 
   // --- the characters a guest may claim ---------------------------------------
   // Without this the claim endpoint is unusable: a guest would have to already
@@ -475,6 +664,15 @@ export interface TableInfo {
   seats: TableState['seats']
   /** What the guests are looking at. Identity only, never the content. */
   shown: { articleId: string; title: string } | null
+  /** Whether this table accepts joins from outside the local network. */
+  remote: boolean
+  /**
+   * The extra secret a remote guest needs, or '' when remote access is off.
+   * Shown only in the DM's own window — it never crosses the wire to a guest.
+   */
+  remoteSecret: string
+  /** Remote joins waiting for the DM to answer. */
+  waiting: Array<{ ticket: string; name: string; at: number }>
 }
 
 export function hostTable(worldId: string, port = DEFAULT_PORT): TableInfo {
@@ -488,15 +686,25 @@ export function hostTable(worldId: string, port = DEFAULT_PORT): TableInfo {
       else res.end()
     })
   })
+  // Read here, from config, and never taken from the renderer: this decides
+  // whether strangers may reach the table, and the renderer is the less-trusted
+  // side of the bridge. Same reasoning library.ts follows for libraryRoot.
+  const remote = readRemoteAccess()
   session = {
     server,
     worldId,
     port,
     state,
     guests: new Map(),
+    byToken: new Map(),
     shown: null,
     rolls: [],
     combat: null,
+    remote,
+    // Only minted when it is needed, so an inert secret cannot be shown in the
+    // UI and mistaken for one that is doing something.
+    remoteSecret: remote ? makeRemoteSecret() : '',
+    pending: [],
   }
   // Binds every interface, which includes loopback (so one machine can host and
   // join itself) and every LAN adapter. It ALSO includes any public or VPN
@@ -518,12 +726,58 @@ export function hostTable(worldId: string, port = DEFAULT_PORT): TableInfo {
     addresses: lanAddresses(),
     seats: state.seats,
     shown: null,
+    remote,
+    remoteSecret: session.remoteSecret,
+    waiting: [],
   }
+}
+
+/** The queue in the shape the DM's UI wants. */
+function waitingFor(sess: Session): TableInfo['waiting'] {
+  return waitingJoins(sess.pending).map((p) => ({
+    ticket: p.ticket,
+    name: p.name,
+    at: p.at,
+  }))
+}
+
+/**
+ * Let someone in, or turn them away.
+ *
+ * The seat is minted HERE rather than when the guest next polls, so one ticket
+ * can never produce two seats however the DM's clicks and the poll interleave.
+ * withPendingAnswered ignores a ticket that is already answered or gone, which
+ * is what makes a double-click harmless.
+ */
+export function answerJoin(ticket: string, approve: boolean): boolean {
+  if (!session) return false
+  session.pending = withPendingPruned(session.pending, Date.now())
+  const entry = session.pending.find(
+    (p) => p.ticket === ticket && p.status === 'waiting',
+  )
+  if (!entry) return false
+  if (!approve) {
+    session.pending = withPendingAnswered(session.pending, ticket, 'denied')
+    notifyPending()
+    return true
+  }
+  if (!canSeat(session.state)) return false
+  const seat = seatGuest(entry.name)
+  session.pending = withPendingAnswered(
+    session.pending,
+    ticket,
+    'approved',
+    seat,
+  )
+  notifyPending()
+  return true
 }
 
 export function stopTable(): void {
   if (!session) return
   for (const guest of session.guests.values()) {
+    clearInterval(guest.ping)
+    clearTimeout(guest.reap)
     try {
       guest.res?.end()
     } catch {
@@ -534,6 +788,9 @@ export function stopTable(): void {
   session.server.close()
   session = null
   notifyHost()
+  // The queue dies with the table: a ticket outliving the session it belongs to
+  // would be answerable against the next one.
+  notifyPending()
 }
 
 /** Whether a table is running, for callers that only need the yes/no. */
@@ -550,6 +807,9 @@ export function tableInfo(): TableInfo | null {
     addresses: lanAddresses(),
     seats: session.state.seats,
     shown: shownRef(),
+    remote: session.remote,
+    remoteSecret: session.remoteSecret,
+    waiting: waitingFor(session),
   }
 }
 

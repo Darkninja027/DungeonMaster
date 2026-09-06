@@ -106,7 +106,7 @@ export function wikiComplete(options: WikiCompleteOptions = {}): Extension {
       // Replace from the `[[` itself so `apply` can write the closing pair.
       from: context.pos - built.query.length - 2,
       to: after === ']]' ? context.pos + 2 : context.pos,
-      options: built.options,
+options: built.options,
       // Our own filtering already ran, and it is case-insensitive substring
       // rather than CodeMirror's fuzzy default. Letting the default filter run
       // again would re-rank and drop legitimate matches.

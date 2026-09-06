@@ -12,6 +12,22 @@ interface Config {
    * get wiki links, images and portability.
    */
   vaultRoot: string | null
+  /**
+   * Whether the table may be joined from outside the local network.
+   *
+   * Off unless the user turns it on. The host has always bound every adapter,
+   * so this does not open a socket that was closed — it decides whether the
+   * remote-join path is offered at all, and whether /join demands the longer
+   * secret. Silently allowing internet joins would change the security
+   * properties of an app someone installed to keep notes in a folder.
+   */
+  remoteAccess: boolean
+  /**
+   * The address the DM hands to remote players, e.g.
+   * "https://box.tailnet.ts.net:7777". Free text: only the user knows whether
+   * they are on Tailscale, behind a tunnel, or forwarding a port.
+   */
+  remoteOrigin: string | null
 }
 
 function configPath(): string {
@@ -57,6 +73,13 @@ export function readConfig(): Config {
       typeof raw.vaultRoot === 'string' && raw.vaultRoot !== ''
         ? raw.vaultRoot
         : null,
+    // Strict === true, never a truthy coerce: config.json is hand-editable, and
+    // a stray "false" or 0 must not be read as permission to expose the table.
+    remoteAccess: raw.remoteAccess === true,
+    remoteOrigin:
+      typeof raw.remoteOrigin === 'string' && raw.remoteOrigin !== ''
+        ? raw.remoteOrigin
+        : null,
   }
 }
 
@@ -101,4 +124,20 @@ export function readVaultRoot(): string | null {
 
 export function writeVaultRoot(absPath: string | null) {
   writeConfig({ vaultRoot: absPath })
+}
+
+export function readRemoteAccess(): boolean {
+  return readConfig().remoteAccess
+}
+
+export function writeRemoteAccess(on: boolean) {
+  writeConfig({ remoteAccess: on })
+}
+
+export function readRemoteOrigin(): string | null {
+  return readConfig().remoteOrigin
+}
+
+export function writeRemoteOrigin(origin: string | null) {
+  writeConfig({ remoteOrigin: origin })
 }

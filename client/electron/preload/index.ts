@@ -67,6 +67,9 @@ const CHANNELS = new Set([
   'table:combat',
   'table:find',
   'table:clear',
+  'table:approve',
+  'table:remote:get',
+  'table:remote:set',
 ])
 
 // Channels the main process may PUSH to the renderer. Kept as a separate
@@ -80,6 +83,7 @@ const EVENT_CHANNELS = new Set([
   'table:seats',
   'table:roll',
   'table:sheet',
+  'table:joinRequest',
 ])
 
 contextBridge.exposeInMainWorld('dmApi', {

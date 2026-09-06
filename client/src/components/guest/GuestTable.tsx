@@ -16,6 +16,7 @@ import type { LucideIcon } from 'lucide-react'
 import {
   discover,
   joinTable,
+  normalizeBaseUrl,
   leaveTable,
   setPendingCharacter,
   useGuest,
@@ -280,6 +281,14 @@ function JoinScreen() {
   const [busy, setBusy] = useState(false)
   const [manual, setManual] = useState(false)
   const [searching, setSearching] = useState(false)
+  const [waiting, setWaiting] = useState(false)
+  const [secret, setSecret] = useState('')
+  /**
+   * Which way in. Beacon discovery cannot cross the internet, so in 'remote'
+   * mode it is skipped entirely rather than burning a four-second timeout that
+   * can never succeed.
+   */
+  const [how, setHow] = useState<'lan' | 'remote'>('lan')
   const [chosen, setChosen] = useState<PendingCharacter | null>(null)
 
   // This machine's vault. Someone who only ever joins games may have none.
@@ -316,12 +325,24 @@ function JoinScreen() {
     }
   }
 
+  const remote = how === 'remote'
+
   const join = async () => {
     setBusy(true)
     setError(null)
     try {
       let target = address.trim()
+      // Validate before the fetch, so a typo is a specific message rather than
+      // a TypeError surfacing from deep inside fetch.
+      if (target && !normalizeBaseUrl(target)) {
+        setError('That does not look like an address.')
+        return
+      }
       if (!target) {
+        if (remote) {
+          setError('Enter the address your DM sent you.')
+          return
+        }
         setSearching(true)
         const found = await discover(code)
         setSearching(false)
@@ -336,22 +357,32 @@ function JoinScreen() {
         target = found
       }
       setPendingCharacter(chosen)
-      await joinTable(target, code, name)
+      await joinTable(target, code, name, {
+        secret: remote ? secret.trim() : undefined,
+        onWaiting: () => setWaiting(true),
+      })
     } catch (cause) {
       // A network failure surfaces as TypeError("Failed to fetch"), which is
       // both an Error and useless to a person at a table — so it is translated.
       // Anything else is a message the host wrote ("Wrong room code").
       const raw = cause instanceof Error ? cause.message : ''
-      setError(
+      const unreachable =
         !raw || /failed to fetch|networkerror|load failed/i.test(raw)
-          ? 'Could not reach the table. Check the DM is hosting and that you ' +
-              'are on the same network.'
-          : raw,
+      setError(
+        !unreachable
+          ? raw
+          : remote
+            ? // "the same network" is actively misleading here.
+              'Could not reach the table. Check the address is exactly what ' +
+              'your DM sent, and that they are still hosting.'
+            : 'Could not reach the table. Check the DM is hosting and that ' +
+              'you are on the same network.',
       )
       setManual(true)
       setPendingCharacter(null)
     } finally {
       setSearching(false)
+      setWaiting(false)
       setBusy(false)
     }
   }
@@ -363,9 +394,29 @@ function JoinScreen() {
       <div>
         <h1 className="text-lg font-semibold">Join a table</h1>
         <p className="text-muted-foreground text-sm">
-          Ask your DM for the room code on their screen. If you are on the same
-          wifi, that is all you need.
+          {remote
+            ? 'Your DM will send you an address and a guest key. If they use ' +
+              'Tailscale, install it and accept their invite first.'
+            : 'Ask your DM for the room code on their screen. If you are on ' +
+              'the same wifi, that is all you need.'}
         </p>
+      </div>
+
+      <div className="bg-muted flex gap-1 rounded-md p-1">
+        {(['lan', 'remote'] as const).map((mode) => (
+          <Button
+            key={mode}
+            variant={how === mode ? 'secondary' : 'ghost'}
+            size="sm"
+            className="flex-1"
+            onClick={() => {
+              setHow(mode)
+              setError(null)
+            }}
+          >
+            {mode === 'lan' ? 'Same wifi' : 'Over the internet'}
+          </Button>
+        ))}
       </div>
 
       <div className="space-y-3">
@@ -388,14 +439,32 @@ function JoinScreen() {
             onChange={(e) => setName(e.target.value)}
           />
         </div>
-        {manual && (
+        {(manual || remote) && (
           <div className="space-y-1">
-            <Label htmlFor="guest-address">Address</Label>
+            <Label htmlFor="guest-address">
+              {remote ? 'Address or link from your DM' : 'Address'}
+            </Label>
             <Input
               id="guest-address"
-              placeholder="192.168.1.42:7777"
+              placeholder={
+                remote
+                  ? 'https://…  or  100.101.102.103:7777'
+                  : '192.168.1.42:7777'
+              }
               value={address}
               onChange={(e) => setAddress(e.target.value)}
+            />
+          </div>
+        )}
+        {remote && (
+          <div className="space-y-1">
+            <Label htmlFor="guest-secret">Guest key</Label>
+            <Input
+              id="guest-secret"
+              placeholder="From your DM, alongside the code"
+              className="font-mono"
+              value={secret}
+              onChange={(e) => setSecret(e.target.value)}
             />
           </div>
         )}
@@ -442,9 +511,13 @@ function JoinScreen() {
         disabled={busy || !code.trim() || !name.trim()}
         onClick={() => void join()}
       >
-        {searching ? 'Looking for the table…' : 'Join'}
+        {waiting
+          ? 'Waiting for the DM to let you in…'
+          : searching
+            ? 'Looking for the table…'
+            : 'Join'}
       </Button>
-      {!manual && (
+      {!manual && !remote && (
         <button
           type="button"
           className="text-muted-foreground text-center text-xs underline"

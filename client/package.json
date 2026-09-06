@@ -11,8 +11,9 @@
   },
   "main": "dist-electron/main/index.cjs",
   "scripts": {
-    "dev": "concurrently -k \"npm:dev:vite\" \"npm:dev:electron\"",
+    "dev": "concurrently -k \"npm:dev:vite\" \"npm:dev:esbuild\" \"npm:dev:electron\"",
     "dev:vite": "vite dev --port 4280",
+    "dev:esbuild": "node esbuild.electron.mjs --watch",
     "dev:electron": "node esbuild.electron.mjs && wait-on http://localhost:4280 && node run-electron.mjs",
     "build:electron": "node esbuild.electron.mjs",
     "dist": "vite build && node esbuild.electron.mjs && node prepare-electron-dist.mjs && node build-installer.mjs",

@@ -1,8 +1,9 @@
-import { Library, Pencil, Scale, Sparkles } from 'lucide-react'
+import { Library, Pencil, Scale, Sparkles, Wifi } from 'lucide-react'
 import { EditorSection } from './EditorSection'
 import { RulesSection } from './RulesSection'
 import { LibrarySection } from './LibrarySection'
 import { HomebrewSection } from './homebrew/HomebrewSection'
+import { TableSection } from './TableSection'
 import type { LucideIcon } from 'lucide-react'
 
 /**
@@ -54,6 +55,13 @@ export const SETTINGS_SECTIONS: Array<SettingsSection> = [
     icon: Library,
     blurb: 'Shared bestiary and spell list, used by every world.',
     Component: LibrarySection,
+  },
+  {
+    id: 'table',
+    label: 'Table',
+    icon: Wifi,
+    blurb: 'Whether people outside your network can join a session.',
+    Component: TableSection,
   },
 ]
 

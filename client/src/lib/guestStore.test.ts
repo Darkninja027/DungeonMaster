@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import {
   apply,
   guestSnapshot,
-  normalizeAddress,
+  normalizeBaseUrl,
   resetGuestForTest,
 } from './guestStore'
 import { clearRollLog, rollLogSnapshot } from './rollLog'
@@ -12,20 +12,85 @@ import { clearRollLog, rollLogSnapshot } from './rollLog'
  * before it reaches state. These cover the checking, not the transport.
  */
 
-describe('normalizeAddress', () => {
-  it('adds the default port when none is given', () => {
-    expect(normalizeAddress('192.168.1.42')).toBe('192.168.1.42:7777')
+describe('normalizeBaseUrl', () => {
+  it('adds the default port and scheme to a bare host', () => {
+    expect(normalizeBaseUrl('192.168.1.42')).toBe('http://192.168.1.42:7777')
+    expect(normalizeBaseUrl('dm-laptop')).toBe('http://dm-laptop:7777')
   })
 
   it('keeps an explicit port', () => {
-    expect(normalizeAddress('192.168.1.42:9000')).toBe('192.168.1.42:9000')
+    expect(normalizeBaseUrl('192.168.1.42:9000')).toBe(
+      'http://192.168.1.42:9000',
+    )
   })
 
-  it('strips a scheme and trailing slashes someone pasted', () => {
-    expect(normalizeAddress('http://192.168.1.42:9000/')).toBe(
-      '192.168.1.42:9000',
+  it('PRESERVES an explicit scheme rather than stripping it', () => {
+    // The old behaviour stripped this and hardcoded http://, which made a TLS
+    // host impossible to reach at all.
+    expect(normalizeBaseUrl('https://box.tailnet.ts.net')).toBe(
+      'https://box.tailnet.ts.net',
     )
-    expect(normalizeAddress('  https://dm-laptop  ')).toBe('dm-laptop:7777')
+    expect(normalizeBaseUrl('http://192.168.1.42:9000/')).toBe(
+      'http://192.168.1.42:9000',
+    )
+  })
+
+  it('appends no port to an explicit https host, so 443 is used', () => {
+    // Pinning :7777 onto a tunnel or reverse-proxy URL would break it.
+    expect(normalizeBaseUrl('https://dm.example.com')).toBe(
+      'https://dm.example.com',
+    )
+    // ...but an explicit port on https is still honoured.
+    expect(normalizeBaseUrl('https://dm.example.com:8443')).toBe(
+      'https://dm.example.com:8443',
+    )
+  })
+
+  it('still defaults the port for an explicit http host', () => {
+    expect(normalizeBaseUrl('http://192.168.1.42')).toBe(
+      'http://192.168.1.42:7777',
+    )
+  })
+
+  it('drops a path and trailing slashes', () => {
+    expect(normalizeBaseUrl('http://192.168.1.42:9000/join/')).toBe(
+      'http://192.168.1.42:9000',
+    )
+  })
+
+  it('trims surrounding whitespace', () => {
+    expect(normalizeBaseUrl('  192.168.1.42  ')).toBe(
+      'http://192.168.1.42:7777',
+    )
+  })
+
+  it('handles a bracketed IPv6 address', () => {
+    // Tailscale hands these out; the old regex port test got them wrong.
+    expect(normalizeBaseUrl('[fd7a:115c:a1e0::1]')).toBe(
+      'http://[fd7a:115c:a1e0::1]:7777',
+    )
+    expect(normalizeBaseUrl('[fd7a:115c:a1e0::1]:9000')).toBe(
+      'http://[fd7a:115c:a1e0::1]:9000',
+    )
+  })
+
+  it('refuses a scheme that is not http or https', () => {
+    // This string is concatenated into fetch() and EventSource() URLs, so an
+    // unvalidated scheme is an injection surface rather than a typo.
+    expect(normalizeBaseUrl('javascript:alert(1)')).toBeNull()
+    expect(normalizeBaseUrl('file:///etc/passwd')).toBeNull()
+    expect(normalizeBaseUrl('ws://192.168.1.42:7777')).toBeNull()
+  })
+
+  it('refuses credentials and a query string', () => {
+    expect(normalizeBaseUrl('http://user:pass@192.168.1.42:7777')).toBeNull()
+    expect(normalizeBaseUrl('http://192.168.1.42:7777/?token=x')).toBeNull()
+  })
+
+  it('refuses empty or unparseable input', () => {
+    expect(normalizeBaseUrl('')).toBeNull()
+    expect(normalizeBaseUrl('   ')).toBeNull()
+    expect(normalizeBaseUrl('http://')).toBeNull()
   })
 })
 

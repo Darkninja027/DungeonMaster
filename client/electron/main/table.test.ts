@@ -1,16 +1,29 @@
 import { describe, expect, it } from 'vitest'
 import {
+  MAX_PENDING,
+  MAX_SEATS,
+  PENDING_TTL_MS,
+  canSeat,
   codeMatches,
   emptyTable,
+  isPrivateAddress,
+  isTailscaleAddress,
+  makeRemoteSecret,
   makeCode,
   normalizeCode,
   parseArticleId,
   parseJoin,
   parseRoll,
   parseSheetPatch,
+  pruneAttempts,
   safeError,
+  secretMatches,
   seatOwns,
   withCharacterClaimed,
+  waitingJoins,
+  withPendingAdded,
+  withPendingAnswered,
+  withPendingPruned,
   withSeatAdded,
   withSeatRemoved,
 } from './table'
@@ -211,7 +224,9 @@ describe('parseSheetPatch', () => {
   })
 
   it('refuses a patch that would be empty after filtering', () => {
-    expect(parseSheetPatch({ characterId: id, patch: { level: 20 } })).toBeNull()
+    expect(
+      parseSheetPatch({ characterId: id, patch: { level: 20 } }),
+    ).toBeNull()
     expect(parseSheetPatch({ characterId: id, patch: {} })).toBeNull()
   })
 
@@ -240,6 +255,52 @@ describe('parseSheetPatch', () => {
   })
 })
 
+describe('pruneAttempts', () => {
+  const rec = (until: number, n = 1) => ({ n, until })
+
+  it('drops records whose window has passed and keeps live ones', () => {
+    const attempts = new Map([
+      ['10.0.0.1', rec(500)],
+      ['10.0.0.2', rec(1500)],
+      ['10.0.0.3', rec(1000)], // exactly now: not yet expired
+    ])
+    pruneAttempts(attempts, 1000)
+    expect([...attempts.keys()]).toEqual(['10.0.0.2', '10.0.0.3'])
+  })
+
+  it('preserves the count on a record it keeps', () => {
+    const attempts = new Map([['10.0.0.1', rec(2000, 7)]])
+    pruneAttempts(attempts, 1000)
+    expect(attempts.get('10.0.0.1')?.n).toBe(7)
+  })
+
+  it('caps the map when a burst of live addresses outruns expiry', () => {
+    // The case a sweep alone cannot handle: every record is in-window, so
+    // nothing expires, and without the ceiling the map grows without limit.
+    const attempts = new Map<string, { n: number; until: number }>()
+    for (let i = 0; i < 50; i++) attempts.set(`10.0.0.${i}`, rec(1000 + i))
+    pruneAttempts(attempts, 0, 10)
+    expect(attempts.size).toBe(10)
+    // Oldest-first: the ten closest to expiring are the ones that went.
+    expect(attempts.has('10.0.0.0')).toBe(false)
+    expect(attempts.has('10.0.0.39')).toBe(false)
+    expect(attempts.has('10.0.0.40')).toBe(true)
+    expect(attempts.has('10.0.0.49')).toBe(true)
+  })
+
+  it('leaves a map already under the cap alone', () => {
+    const attempts = new Map([['10.0.0.1', rec(2000)]])
+    pruneAttempts(attempts, 1000, 10)
+    expect(attempts.size).toBe(1)
+  })
+
+  it('handles an empty map', () => {
+    const attempts = new Map<string, { n: number; until: number }>()
+    expect(() => pruneAttempts(attempts, 1000, 10)).not.toThrow()
+    expect(attempts.size).toBe(0)
+  })
+})
+
 describe('safeError', () => {
   it('never leaks a filesystem path', () => {
     const err = new Error(
@@ -255,5 +316,205 @@ describe('safeError', () => {
   it('handles a non-Error throw', () => {
     expect(safeError('C:\\secrets')).toBe('Request failed')
     expect(safeError(undefined)).toBe('Request failed')
+  })
+})
+
+describe('isPrivateAddress', () => {
+  it('accepts loopback', () => {
+    expect(isPrivateAddress('127.0.0.1')).toBe(true)
+    expect(isPrivateAddress('127.1.2.3')).toBe(true)
+    expect(isPrivateAddress('::1')).toBe(true)
+  })
+
+  it('accepts the RFC1918 ranges', () => {
+    expect(isPrivateAddress('10.0.0.1')).toBe(true)
+    expect(isPrivateAddress('10.255.255.255')).toBe(true)
+    expect(isPrivateAddress('192.168.1.5')).toBe(true)
+    expect(isPrivateAddress('172.16.0.1')).toBe(true)
+    expect(isPrivateAddress('172.31.255.255')).toBe(true)
+  })
+
+  it('gets the 172.16/12 boundaries right', () => {
+    // The classic off-by-one: the range is 172.16-172.31, not 172.16-172.32
+    // and not all of 172/8.
+    expect(isPrivateAddress('172.15.255.255')).toBe(false)
+    expect(isPrivateAddress('172.32.0.1')).toBe(false)
+    expect(isPrivateAddress('172.0.0.1')).toBe(false)
+  })
+
+  it('accepts link-local and Tailscale', () => {
+    expect(isPrivateAddress('169.254.1.1')).toBe(true)
+    expect(isPrivateAddress('100.64.0.1')).toBe(true)
+    expect(isPrivateAddress('100.127.255.255')).toBe(true)
+  })
+
+  it('gets the Tailscale 100.64/10 boundaries right', () => {
+    expect(isPrivateAddress('100.63.255.255')).toBe(false)
+    expect(isPrivateAddress('100.128.0.1')).toBe(false)
+  })
+
+  it('rejects ordinary public addresses', () => {
+    expect(isPrivateAddress('8.8.8.8')).toBe(false)
+    expect(isPrivateAddress('203.0.113.5')).toBe(false)
+    expect(isPrivateAddress('1.1.1.1')).toBe(false)
+  })
+
+  it('unwraps an IPv4-mapped IPv6 peer', () => {
+    // Node reports this shape on a dual-stack socket.
+    expect(isPrivateAddress('::ffff:192.168.1.5')).toBe(true)
+    expect(isPrivateAddress('::ffff:8.8.8.8')).toBe(false)
+  })
+
+  it('accepts IPv6 unique-local and link-local', () => {
+    expect(isPrivateAddress('fd7a:115c:a1e0::1')).toBe(true)
+    expect(isPrivateAddress('fc00::1')).toBe(true)
+    expect(isPrivateAddress('fe80::1%eth0')).toBe(true)
+  })
+
+  it('rejects a public IPv6 address', () => {
+    expect(isPrivateAddress('2606:4700:4700::1111')).toBe(false)
+  })
+
+  it('rejects malformed input rather than guessing', () => {
+    expect(isPrivateAddress('')).toBe(false)
+    expect(isPrivateAddress('not an address')).toBe(false)
+    expect(isPrivateAddress('10.0.0')).toBe(false)
+    expect(isPrivateAddress('10.0.0.999')).toBe(false)
+    expect(isPrivateAddress('10.0.0.1.5')).toBe(false)
+  })
+})
+
+describe('isTailscaleAddress', () => {
+  it('recognises the CGNAT range and nothing else', () => {
+    expect(isTailscaleAddress('100.64.0.1')).toBe(true)
+    expect(isTailscaleAddress('100.101.102.103')).toBe(true)
+    expect(isTailscaleAddress('100.127.255.255')).toBe(true)
+    expect(isTailscaleAddress('100.63.0.1')).toBe(false)
+    expect(isTailscaleAddress('100.128.0.1')).toBe(false)
+    expect(isTailscaleAddress('192.168.1.5')).toBe(false)
+    expect(isTailscaleAddress('garbage')).toBe(false)
+  })
+})
+
+describe('canSeat', () => {
+  it('fills up to the cap and then refuses', () => {
+    let state = emptyTable('t1', 'ABC-234')
+    for (let i = 0; i < MAX_SEATS; i++) {
+      expect(canSeat(state)).toBe(true)
+      state = withSeatAdded(state, `G${i}`, `s${i}`, i)
+    }
+    expect(canSeat(state)).toBe(false)
+  })
+
+  it('takes an explicit maximum', () => {
+    const state = withSeatAdded(emptyTable('t1', 'ABC-234'), 'Sarah', 'a', 1)
+    expect(canSeat(state, 1)).toBe(false)
+    expect(canSeat(state, 2)).toBe(true)
+  })
+})
+
+describe('the remote secret', () => {
+  it('is longer than the room code and from the same alphabet', () => {
+    const secret = makeRemoteSecret()
+    expect(secret).toHaveLength(16)
+    expect(secret).toMatch(/^[A-Z2-9]+$/)
+    expect(secret).not.toMatch(/[01OIL]/)
+  })
+
+  it('matches case-insensitively and rejects a near miss', () => {
+    const secret = makeRemoteSecret()
+    expect(secretMatches(secret, secret.toLowerCase())).toBe(true)
+    expect(secretMatches(secret, secret.slice(0, -1))).toBe(false)
+    expect(secretMatches(secret, `${secret}A`)).toBe(false)
+    expect(secretMatches(secret, '')).toBe(false)
+  })
+})
+
+describe('pending joins', () => {
+  const add = (list: ReturnType<typeof withPendingAdded>, t: string, at = 0) =>
+    withPendingAdded(list, t, `Guest ${t}`, at)
+
+  it('records a request as waiting', () => {
+    const list = withPendingAdded([], 'tk1', 'Sarah', 100)
+    expect(list).toHaveLength(1)
+    expect(list[0]).toMatchObject({
+      ticket: 'tk1',
+      name: 'Sarah',
+      status: 'waiting',
+    })
+    expect(waitingJoins(list)).toHaveLength(1)
+  })
+
+  it('falls back to Guest for an empty name and caps a long one', () => {
+    expect(withPendingAdded([], 'tk1', '   ', 0)[0].name).toBe('Guest')
+    expect(withPendingAdded([], 'tk2', 'x'.repeat(99), 0)[0].name).toHaveLength(
+      40,
+    )
+  })
+
+  it('carries the seat identity through approval', () => {
+    let list = withPendingAdded([], 'tk1', 'Sarah', 0)
+    list = withPendingAnswered(list, 'tk1', 'approved', {
+      seatId: 's1',
+      token: 'tok',
+    })
+    expect(list[0]).toMatchObject({
+      status: 'approved',
+      seatId: 's1',
+      token: 'tok',
+    })
+    expect(waitingJoins(list)).toHaveLength(0)
+  })
+
+  it('records a denial with no seat', () => {
+    let list = withPendingAdded([], 'tk1', 'Sarah', 0)
+    list = withPendingAnswered(list, 'tk1', 'denied')
+    expect(list[0].status).toBe('denied')
+    expect(list[0].seatId).toBeUndefined()
+  })
+
+  it('never answers the same ticket twice', () => {
+    // Otherwise one request could mint two seats: the DM double-clicks, or the
+    // poll and the click race.
+    let list = withPendingAdded([], 'tk1', 'Sarah', 0)
+    list = withPendingAnswered(list, 'tk1', 'approved', {
+      seatId: 's1',
+      token: 'tok1',
+    })
+    list = withPendingAnswered(list, 'tk1', 'approved', {
+      seatId: 's2',
+      token: 'tok2',
+    })
+    expect(list[0].seatId).toBe('s1')
+    list = withPendingAnswered(list, 'tk1', 'denied')
+    expect(list[0].status).toBe('approved')
+  })
+
+  it('ignores an unknown ticket', () => {
+    const list = withPendingAdded([], 'tk1', 'Sarah', 0)
+    expect(withPendingAnswered(list, 'nope', 'approved')).toEqual(list)
+  })
+
+  it('prunes what has aged out', () => {
+    let list = add(add([], 'old', 0), 'new', PENDING_TTL_MS)
+    list = withPendingPruned(list, PENDING_TTL_MS + 1)
+    expect(list.map((x) => x.ticket)).toEqual(['new'])
+  })
+
+  it('caps the queue oldest-first', () => {
+    let list: ReturnType<typeof withPendingAdded> = []
+    for (let i = 0; i < MAX_PENDING + 5; i++)
+      list = add(list, `t${i}`, 1000 + i)
+    const pruned = withPendingPruned(list, 1000)
+    expect(pruned).toHaveLength(MAX_PENDING)
+    expect(pruned[0].ticket).toBe('t5')
+  })
+
+  it('cannot be answered once it has been pruned away', () => {
+    // A ticket the DM approves after it expired must not resurrect.
+    let list = withPendingAdded([], 'tk1', 'Sarah', 0)
+    list = withPendingPruned(list, PENDING_TTL_MS + 1)
+    expect(list).toHaveLength(0)
+    expect(withPendingAnswered(list, 'tk1', 'approved')).toHaveLength(0)
   })
 })

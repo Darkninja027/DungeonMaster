@@ -22,8 +22,17 @@ export interface Shown {
 }
 
 export interface GuestSession {
-  /** Where the host is, e.g. "192.168.1.42:7777". */
-  address: string
+  /**
+   * The host's full origin, scheme included, e.g. "http://192.168.1.42:7777"
+   * or "https://box.tailnet.ts.net".
+   *
+   * The scheme is STORED rather than assumed. It used to be stripped and
+   * http:// hardcoded at every call site, which made a TLS host — a Tailscale
+   * name behind a proxy, a tunnel URL — impossible to type at all. Named
+   * baseUrl and not `origin` because GuestState.origin already means something
+   * unrelated: where the claimed character came from.
+   */
+  baseUrl: string
   tableId: string
   seatId: string
   token: string
@@ -111,20 +120,57 @@ function setState(patch: Partial<GuestState>) {
   notify()
 }
 
-/** Normalise what someone types: bare host, host:port, or a full URL. */
-export function normalizeAddress(raw: string, defaultPort = 7777): string {
-  const trimmed = raw
-    .trim()
-    .replace(/^https?:\/\//i, '')
-    .replace(/\/+$/, '')
-  return /:\d+$/.test(trimmed) ? trimmed : `${trimmed}:${defaultPort}`
+/**
+ * Normalise what someone types into a full origin, or null if it is not one.
+ *
+ * Accepts a bare host, host:port, or a full URL, and PRESERVES an explicit
+ * scheme — that is the whole point, since the result is concatenated into
+ * fetch() and EventSource() URLs. Which is also why only http and https are
+ * allowed through: anything else here would be an injection surface.
+ *
+ * Port defaulting is scheme-aware. A bare host gets `defaultPort`, because that
+ * is how the LAN has always worked. An explicit https:// with no port gets
+ * NOTHING appended — 443 is right, and pinning :7777 onto a tunnel or reverse
+ * proxy URL would break it.
+ *
+ * Returns null rather than throwing so the join screen can say "that doesn't
+ * look like an address" instead of surfacing a TypeError from deep in fetch.
+ */
+export function normalizeBaseUrl(
+  raw: string,
+  defaultPort = 7777,
+): string | null {
+  const trimmed = raw.trim()
+  if (!trimmed) return null
+  const hadScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed)
+  // new URL, not a regex: it is the only thing that gets bracketed IPv6 right,
+  // and Tailscale hands out IPv6 addresses.
+  let url: URL
+  try {
+    url = new URL(hadScheme ? trimmed : `http://${trimmed}`)
+  } catch {
+    return null
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return null
+  // Credentials and a query string are never part of a host address, and both
+  // would ride along into every request built from this.
+  if (url.username || url.password || url.search) return null
+  if (!url.hostname) return null
+  // A path is dropped rather than rejected: people paste links with a trailing
+  // slash constantly, and that is not an error worth refusing.
+  const port =
+    url.port ||
+    (hadScheme && url.protocol === 'https:' ? '' : String(defaultPort))
+  return port
+    ? `${url.protocol}//${url.hostname}:${port}`
+    : `${url.protocol}//${url.hostname}`
 }
 
 /** Whether the IPC bridge exists — false in unit tests. */
 const bridged = () => typeof window !== 'undefined' && Boolean(window.dmApi)
 
 function base(): string {
-  return `http://${state.session?.address ?? ''}`
+  return state.session?.baseUrl ?? ''
 }
 
 /** GET from the host with this seat's bearer token. */
@@ -157,33 +203,90 @@ export async function discover(code: string): Promise<string | null> {
   if (!bridged()) return null
   try {
     const found = await api.table.find(code)
-    return found ? `${found.address}:${found.port}` : null
+    // A full origin, so every caller handles one shape. The beacon is LAN-only
+    // by definition, and a LAN host is always plain http.
+    return found ? `http://${found.address}:${found.port}` : null
   } catch {
     return null
   }
 }
 
-/** Ask the host for a seat. Throws with the host's own message on refusal. */
-export async function joinTable(
-  rawAddress: string,
-  code: string,
-  name: string,
-): Promise<void> {
-  const address = normalizeAddress(rawAddress)
-  const res = await fetch(`http://${address}/join`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ code, name }),
-  })
-  const body = (await res.json()) as Record<string, unknown>
-  if (!res.ok) {
+/** How long to keep asking whether the DM has answered, and how often. */
+const APPROVAL_TIMEOUT_MS = 120_000
+const APPROVAL_POLL_MS = 2000
+
+/**
+ * Wait for the DM to let us in.
+ *
+ * The host answers a remote join with 202 and a ticket rather than holding the
+ * request open — an open connection interacts badly with proxy timeouts — so
+ * the waiting happens here. `onWaiting` fires once so the UI can say what is
+ * going on instead of looking hung.
+ */
+async function awaitApproval(
+  baseUrl: string,
+  ticket: string,
+  onWaiting?: () => void,
+): Promise<Record<string, unknown>> {
+  onWaiting?.()
+  const deadline = Date.now() + APPROVAL_TIMEOUT_MS
+  for (;;) {
+    await new Promise((r) => setTimeout(r, APPROVAL_POLL_MS))
+    const res = await fetch(
+      `${baseUrl}/join/status?ticket=${encodeURIComponent(ticket)}`,
+    )
+    const body = (await res.json()) as Record<string, unknown>
+    if (res.status === 200) return body
+    if (res.status === 202) {
+      if (Date.now() > deadline) {
+        throw new Error('The DM did not answer. Ask them, then try again.')
+      }
+      continue
+    }
     throw new Error(
       typeof body.error === 'string' ? body.error : 'Could not join',
     )
   }
+}
+
+/**
+ * Ask the host for a seat. Throws with the host's own message on refusal.
+ *
+ * `secret` is the extra key a table that accepts internet joins requires; a LAN
+ * table ignores it. `onWaiting` fires if the DM has to approve first.
+ */
+export async function joinTable(
+  rawAddress: string,
+  code: string,
+  name: string,
+  opts: { secret?: string; onWaiting?: () => void } = {},
+): Promise<void> {
+  const baseUrl = normalizeBaseUrl(rawAddress)
+  if (!baseUrl) throw new Error('That does not look like an address')
+  const res = await fetch(`${baseUrl}/join`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      code,
+      name,
+      ...(opts.secret ? { secret: opts.secret } : {}),
+    }),
+  })
+  let body = (await res.json()) as Record<string, unknown>
+  if (!res.ok && res.status !== 202) {
+    throw new Error(
+      typeof body.error === 'string' ? body.error : 'Could not join',
+    )
+  }
+  // 202 means the DM has to let us in first.
+  if (res.status === 202) {
+    const ticket = typeof body.ticket === 'string' ? body.ticket : ''
+    if (!ticket) throw new Error('Could not join')
+    body = await awaitApproval(baseUrl, ticket, opts.onWaiting)
+  }
   setState({
     session: {
-      address,
+      baseUrl,
       tableId: String(body.tableId),
       seatId: String(body.seatId),
       token: String(body.token),
@@ -212,7 +315,7 @@ function openStream(): void {
   const session = state.session
   if (!session) return
   const es = new EventSource(
-    `http://${session.address}/events?token=${encodeURIComponent(session.token)}`,
+    `${session.baseUrl}/events?token=${encodeURIComponent(session.token)}`,
   )
   stream = es
 
