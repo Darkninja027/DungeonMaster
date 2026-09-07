@@ -5,6 +5,7 @@ school: illusion
 classes: Wizard
 srd: false
 source: Player's Handbook
+edition: 2024
 ---
 
 # Nystul's Magic Aura

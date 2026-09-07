@@ -3,6 +3,7 @@ type: spell
 level: 7
 school: conjuration
 classes: Bard, Sorcerer, Wizard
+edition: 2014
 ---
 
 # Teleport

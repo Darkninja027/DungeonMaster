@@ -1,6 +1,6 @@
 import { WRAPPERS, insertLink } from '#/lib/markdownEditing'
+import type { EditResult, Wrapper } from '#/lib/markdownEditing'
 import { snippets } from '#/lib/formatMarkdown'
-import type { useMarkdownEditor } from '#/lib/useMarkdownEditor'
 import {
   ContextMenu,
   ContextMenuContent,
@@ -24,16 +24,37 @@ import {
 export const MENU_GROUP_LABEL =
   'text-muted-foreground px-2 pt-2 pb-1 text-xs font-semibold uppercase tracking-wide'
 
-type Editor = ReturnType<typeof useMarkdownEditor>
+/**
+ * What this menu needs of an editor, and nothing more.
+ *
+ * Structural on purpose: `useMarkdownEditor`'s return satisfies it as-is (so
+ * every textarea caller is unchanged), and the live CodeMirror surface can
+ * satisfy it too through a small adapter. Typing this as
+ * `ReturnType<typeof useMarkdownEditor>` is what used to weld the menu to a
+ * textarea and left live edit with no right-click menu at all.
+ */
+export interface ContextMenuEditor {
+  /** Sample selection state as the menu opens. Must not preventDefault. */
+  onContextMenu: () => void
+  hasSelection: boolean
+  execEditorCommand: (command: 'cut' | 'copy' | 'paste' | 'selectAll') => void
+  wrap: (wrapper: Wrapper) => void
+  transform: (
+    fn: (text: string, start: number, end: number) => EditResult | null,
+  ) => void
+  insertBlock: (snippet: string) => void
+  insertText: (snippet: string) => void
+}
 
 /**
- * Right-click menu for a markdown textarea: the formatting the app cares about,
- * plus the clipboard items the native menu would have provided.
+ * Right-click menu for a markdown editing surface: the formatting the app cares
+ * about, plus the clipboard items the native menu would have provided.
  *
- * Wraps the textarea rather than living in a toolbar, so the editors with no
+ * Wraps the editor rather than living in a toolbar, so the editors with no
  * toolbar of their own (character notes, backstory, features) get the same
- * affordances as the article editor. Every action routes through the shared
- * `useMarkdownEditor` instance, so edits keep the native undo stack.
+ * affordances as the article editor. Works over both surfaces — the textarea's
+ * `useMarkdownEditor` and the live CodeMirror one — via `ContextMenuEditor`;
+ * both apply edits in a way that keeps their own undo stack intact.
  *
  * Overriding contextmenu costs Chromium's spelling SUGGESTIONS — those are only
  * offered to the main process, never to renderer JS. The red squiggles are
@@ -43,7 +64,7 @@ export function MarkdownContextMenu({
   editor,
   children,
 }: {
-  editor: Editor
+  editor: ContextMenuEditor
   children: React.ReactNode
 }) {
   const { hasSelection, execEditorCommand } = editor

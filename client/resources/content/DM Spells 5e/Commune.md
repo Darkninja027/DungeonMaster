@@ -3,6 +3,7 @@ type: spell
 level: 5
 school: divination
 classes: Cleric, Paladin, Ritual Caster
+edition: 2014
 ---
 
 # Commune

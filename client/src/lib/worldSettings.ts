@@ -12,6 +12,8 @@ import {
 import type { HomebrewSubclass } from './homebrew'
 import { DEFAULT_MODE, parseMode } from './worldMode'
 import type { WorldMode } from './worldMode'
+import { DEFAULT_RULESET, parseRuleset } from './ruleset'
+import type { Ruleset } from './ruleset'
 import type { BackgroundInfo, ClassKit, FeatInfo, RaceInfo } from './srd'
 
 /**
@@ -38,9 +40,13 @@ export const SETTINGS_COMMENT =
   'dice, and a class missing from here still works on a sheet. "mode" picks ' +
   'which parts of the app this world shows — "worldbuilder" (articles only), ' +
   '"dm" (everything) or "player" (characters and spells). It only hides ' +
-  'things on screen: nothing moves on disk and every page stays reachable.'
+  'things on screen: nothing moves on disk and every page stays reachable. ' +
+  '"ruleset" picks which edition of the shared spell list and bestiary this ' +
+  'world shows — "2014", "2024" or "all". It filters those two libraries only: ' +
+  'races, classes and backgrounds are SRD 5.1 whatever this says. An article ' +
+  'with no "edition" in its frontmatter always shows.'
 
-export const SETTINGS_VERSION = 5
+export const SETTINGS_VERSION = 6
 
 /**
  * How the article editor picks its editing surface.
@@ -69,6 +75,12 @@ export interface WorldSettings {
    * blocks a route or moves anything on disk.
    */
   mode: WorldMode
+  /**
+   * Which edition of the shared spell list and bestiary this world shows — see
+   * lib/ruleset.ts. Like `mode`, purely a view preference: it filters two
+   * panels and never blocks a route or moves anything on disk.
+   */
+  ruleset: Ruleset
   /**
    * The world's own metadata, which shares this file. The renderer reads it
    * from WorldSummary (worlds:get) rather than here — these are carried through
@@ -105,6 +117,7 @@ export const DEFAULT_SETTINGS: WorldSettings = {
   version: SETTINGS_VERSION,
   liveEdit: 'remember',
   mode: DEFAULT_MODE,
+  ruleset: DEFAULT_RULESET,
   classes: PHB_CLASSES,
 }
 
@@ -195,8 +208,11 @@ export function parseWorldSettings(raw: unknown): WorldSettings {
   // view, so both are read here and both ride the early return.
   const liveEdit = parseLiveEdit(r.liveEdit)
   const mode = parseMode(r.mode)
+  const ruleset = parseRuleset(r.ruleset)
 
-  if (!Array.isArray(r.classes)) return { ...DEFAULT_SETTINGS, liveEdit, mode }
+  if (!Array.isArray(r.classes)) {
+    return { ...DEFAULT_SETTINGS, liveEdit, mode, ruleset }
+  }
 
   const seen = new Set<string>()
   const classes = r.classes.flatMap((entry): Array<ClassInfo> => {
@@ -246,6 +262,7 @@ export function parseWorldSettings(raw: unknown): WorldSettings {
         : SETTINGS_VERSION,
     liveEdit,
     mode,
+    ruleset,
     ...meta,
     classes,
     ...(races && { races }),
@@ -272,6 +289,7 @@ export function serializeWorldSettings(settings: WorldSettings): unknown {
     _comment: SETTINGS_COMMENT,
     liveEdit: settings.liveEdit,
     mode: settings.mode,
+    ruleset: settings.ruleset,
     ...(settings.name !== undefined && { name: settings.name }),
     ...(settings.description !== undefined && {
       description: settings.description,

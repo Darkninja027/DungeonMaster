@@ -3,6 +3,7 @@ type: spell
 level: 4
 school: evocation
 classes: Sorcerer, Wizard
+edition: 2024
 ---
 
 # Vitriolic Sphere

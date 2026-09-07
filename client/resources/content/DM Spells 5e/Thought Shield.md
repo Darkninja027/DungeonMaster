@@ -4,6 +4,7 @@ level: 2
 school: abjuration
 classes: Sorcerer, Warlock, Wizard
 srd: false
+edition: 2014
 ---
 
 # Thought Shield

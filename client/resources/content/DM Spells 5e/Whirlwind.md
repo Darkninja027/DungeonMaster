@@ -4,6 +4,7 @@ level: 7
 school: evocation
 classes: Druid, Wizard
 srd: false
+edition: 2014
 ---
 
 # Whirlwind

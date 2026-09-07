@@ -23,6 +23,7 @@ import { rollDice } from '#/lib/formatMarkdown'
 import { logRoll } from '#/lib/rollLog'
 import { liveDecorations } from './decorations'
 import { liveTheme } from './theme'
+import { wikiComplete } from './wikiComplete'
 import type { EditResult } from '#/lib/markdownEditing'
 import type { Extension } from '@codemirror/state'
 import type { RollSource } from '#/lib/rollLog'
@@ -97,10 +98,11 @@ function applyTransform(
   return true
 }
 
-const wrapWith = (wrapper: { before: string; after: string }) => (view: EditorView) =>
-  applyTransform(view, (text, start, end) =>
-    toggleWrap(text, { start, end }, wrapper),
-  )
+const wrapWith =
+  (wrapper: { before: string; after: string }) => (view: EditorView) =>
+    applyTransform(view, (text, start, end) =>
+      toggleWrap(text, { start, end }, wrapper),
+    )
 
 export interface LiveMarkdownOptions {
   /** Ctrl+Click / Ctrl+Enter on a [[wiki link]]. */
@@ -109,6 +111,14 @@ export interface LiveMarkdownOptions {
   source?: RollSource
   /** Files pasted or dropped into the editor, for image upload. */
   onFiles?: (files: Array<File>) => void
+  /**
+   * Every article in the world, for `[[` autocomplete. A getter rather than an
+   * array: the editor is built once on mount, while the article list arrives
+   * from a query afterwards and grows as articles are created.
+   */
+  articles?: () => Array<{ id: string; title: string }> | undefined
+  /** The article being edited, so it cannot suggest a link to itself. */
+  currentArticleId?: () => string | undefined
 }
 
 export function liveMarkdown(options: LiveMarkdownOptions = {}): Extension {
@@ -124,11 +134,19 @@ export function liveMarkdown(options: LiveMarkdownOptions = {}): Extension {
     liveDecorations,
     modifierCursor,
     liveTheme,
+    wikiComplete({
+      articles: options.articles,
+      currentId: options.currentArticleId,
+    }),
 
     EditorView.domEventHandlers({
       // Chips are rebuilt often, so the handler lives here rather than on the
       // widget — a listener added in toDOM leaks on every rebuild.
       mousedown(event, view) {
+        // Left button only. A right-click belongs to the context menu: without
+        // this, right-clicking a dice chip silently rolls it and swallows the
+        // menu, and Ctrl+right-click on a [[link]] would navigate away.
+        if (event.button !== 0) return false
         const target = event.target as HTMLElement | null
         const chip = target?.closest<HTMLElement>('.cm-dm-dice')
         if (!chip) {

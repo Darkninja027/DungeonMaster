@@ -3,6 +3,7 @@ type: spell
 level: 8
 school: enchantment
 classes: Bard, Druid, Warlock, Wizard
+edition: 2024
 ---
 
 # Befuddlement

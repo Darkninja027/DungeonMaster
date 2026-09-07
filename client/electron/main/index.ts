@@ -5,6 +5,7 @@ import log from 'electron-log'
 import { registerIpcHandlers } from './ipc'
 import { registerWorldProtocol, handleWorldProtocol } from './images'
 import { seedBundledContent } from './library'
+import { closeAllPlayerWindows } from './playerWindow'
 
 const devServerUrl = process.env.VITE_DEV_SERVER_URL
 
@@ -22,7 +23,30 @@ function sendUpdateStatus(win: BrowserWindow, status: UpdateStatus) {
   if (!win.isDestroyed()) win.webContents.send('updates:status', status)
 }
 
+/**
+ * Whether the bundled content is still being copied into the library.
+ *
+ * Same replay bargain as the updater status above: on a fresh install the seed
+ * starts before the renderer is listening, so the state is remembered and
+ * re-sent on `did-finish-load`. Without that the loading gate would sit on its
+ * generic message through a first run that copies 1,640 files.
+ */
+type LibraryStatus = { state: 'seeding' | 'ready' }
+let lastLibraryStatus: LibraryStatus = { state: 'ready' }
+
+function sendLibraryStatus(win: BrowserWindow, status: LibraryStatus) {
+  lastLibraryStatus = status
+  if (!win.isDestroyed()) win.webContents.send('library:status', status)
+}
+
 registerWorldProtocol()
+
+/**
+ * The DM window. Tracked by reference rather than found via getAllWindows(),
+ * which became ambiguous once player windows existed — that list is creation
+ * ordered, so [0] is not reliably this one.
+ */
+let mainWindow: BrowserWindow | null = null
 
 function createWindow() {
   const win = new BrowserWindow({
@@ -39,7 +63,14 @@ function createWindow() {
     },
   })
 
+  mainWindow = win
   win.once('ready-to-show', () => win.show())
+
+  // Player windows are views onto the DM's article — orphaning one on a
+  // projector after the DM quits is the worst possible failure, so they go
+  // with it. ('close', not 'closed': window-all-closed will not fire while a
+  // player window is still open, so the app would otherwise never quit.)
+  win.on('close', () => closeAllPlayerWindows())
   // Keep our versioned title — the page's <title> would overwrite it on load.
   win.on('page-title-updated', (e) => e.preventDefault())
 
@@ -70,12 +101,23 @@ function createWindow() {
   return win
 }
 
-if (!app.requestSingleInstanceLock()) {
+/**
+ * A second copy of the app normally hands focus to the first and quits. That
+ * makes a LAN session impossible to test on one machine, since hosting and
+ * joining are two instances — so DM_ALLOW_SECOND_INSTANCE opts out.
+ *
+ * Dev-only by intent, and it needs its own --user-data-dir to be useful: two
+ * instances sharing one userData directory fight over config.json and the
+ * global library. See docs in the repo, or run-two.mjs which sets both.
+ */
+const allowSecond = process.env.DM_ALLOW_SECOND_INSTANCE === '1'
+
+if (!allowSecond && !app.requestSingleInstanceLock()) {
   app.quit()
 } else {
   app.on('second-instance', () => {
-    const [win] = BrowserWindow.getAllWindows()
-    if (win) {
+    const win = mainWindow
+    if (win && !win.isDestroyed()) {
       if (win.isMinimized()) win.restore()
       win.focus()
     }
@@ -90,6 +132,7 @@ if (!app.requestSingleInstanceLock()) {
     // fresh install opens with a full bestiary and spell list. Runs once per
     // bundled-content version and never blocks the window: a failure here is a
     // missing convenience, not a reason to stop launching.
+    sendLibraryStatus(win, { state: 'seeding' })
     void seedBundledContent()
       .then((summary) => {
         if (summary?.copied) {
@@ -99,11 +142,15 @@ if (!app.requestSingleInstanceLock()) {
       .catch((error: unknown) => {
         log.warn('[library] bundled content seed failed', error)
       })
+      // Always cleared, on both paths: a failed seed is a thinner library, not
+      // a reason to leave the renderer waiting on a splash forever.
+      .finally(() => sendLibraryStatus(win, { state: 'ready' }))
 
     // Replay the latest update status to the renderer once it has loaded —
     // updater events can fire before the page is ready to receive them.
     win.webContents.on('did-finish-load', () => {
       sendUpdateStatus(win, lastUpdateStatus)
+      sendLibraryStatus(win, lastLibraryStatus)
     })
 
     // Renderer clicks "Restart to update" -> quit and install the download.
@@ -162,7 +209,9 @@ if (!app.requestSingleInstanceLock()) {
     }
 
     app.on('activate', () => {
-      if (BrowserWindow.getAllWindows().length === 0) createWindow()
+      // Keyed on the DM window rather than the window count: a lone player
+      // window would otherwise suppress recreating the one that matters.
+      if (!mainWindow || mainWindow.isDestroyed()) createWindow()
     })
   })
 

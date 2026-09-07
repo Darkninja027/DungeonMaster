@@ -3,6 +3,7 @@ type: spell
 level: 4
 school: conjuration
 classes: Warlock, Wizard
+edition: 2014
 ---
 
 # Black Tentacles

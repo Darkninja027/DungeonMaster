@@ -3,6 +3,7 @@ type: spell
 level: 9
 school: necromancy
 classes: Cleric, Warlock, Wizard
+edition: 2024
 ---
 
 # Astral Projection

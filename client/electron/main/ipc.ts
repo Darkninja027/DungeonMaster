@@ -52,11 +52,30 @@ import {
   WORLD_SETTINGS_FILE,
   migrateWorldFolder,
   readWorldSettings,
-  seedWorldSettings,
+  seedWorldSettingsWithRuleset,
   writeWorldSettings,
 } from './worldSettings'
 import { readHomebrew, writeHomebrew } from './homebrew'
 import { noteSelfWrite, startWatching, stopWatching } from './watcher'
+import {
+  closeAllPlayerWindows,
+  closePlayerWindow,
+  pushToPlayerWindow,
+  showPlayerWindow,
+} from './playerWindow'
+import type { ViewerMode } from './playerWindow'
+import { relayRoll } from './rollRelay'
+import { findTable } from './beacon'
+import {
+  clearTable,
+  hostTable,
+  isHosting,
+  pushCombatToTable,
+  pushRollToTable,
+  showAtTable,
+  stopTable,
+  tableInfo,
+} from './tableHost'
 import {
   buildIndex,
   dropIndex,
@@ -91,11 +110,16 @@ function worldSummary(root: string): WorldSummary {
  * Never fatal: a world the user can't write to still opens, and readWorldSettings
  * serves the seed from memory. Skipped if a file is already there — including a
  * corrupt one, which is a hand edit to preserve, not to clobber.
+ *
+ * `ruleset` is only ever passed by worlds:create, where the user was actually
+ * asked. Adopting an existing folder leaves the key absent, which parses to
+ * "show everything" — stamping an edition onto somebody's Obsidian vault
+ * because they opened it here would be a decision they never made.
  */
-function scaffoldSettings(root: string): void {
+function scaffoldSettings(root: string, ruleset?: string): void {
   try {
     if (fs.existsSync(path.join(root, WORLD_SETTINGS_FILE))) return
-    seedWorldSettings(root)
+    seedWorldSettingsWithRuleset(root, ruleset)
   } catch {
     // read-only folder or a race with another window — the getter copes.
   }
@@ -179,7 +203,10 @@ export function registerIpcHandlers() {
 
   ipcMain.handle(
     'worlds:create',
-    async (_e, input: { name: string; description?: string }) => {
+    async (
+      _e,
+      input: { name: string; description?: string; ruleset?: string },
+    ) => {
       const error = nameError(input.name)
       if (error) throw new Error(error)
       const parent = await pickDirectory(
@@ -191,7 +218,7 @@ export function registerIpcHandlers() {
         throw new Error(`"${dir}" already exists and is not empty.`)
       }
       initWorld(dir, input.name.trim(), input.description ?? '')
-      scaffoldSettings(dir)
+      scaffoldSettings(dir, input.ruleset)
       scaffoldGuide(dir)
       addRecentWorld(dir)
       return worldSummary(dir)
@@ -684,6 +711,123 @@ export function registerIpcHandlers() {
     'library:restore',
     async (_e, { target }: { target: unknown }) =>
       restoreBundledFolder(libraryFolder(target)),
+  )
+
+  // Player window -----------------------------------------------------------
+  // A second, chrome-free window showing one article to the table. Unrelated
+  // to WorldMode's 'player' (src/lib/worldMode.ts).
+  ipcMain.handle(
+    'player:show',
+    (
+      _e,
+      {
+        worldId,
+        articleId,
+        mode,
+      }: { worldId: string; articleId: string; mode?: ViewerMode },
+    ) => {
+      // The id only ever rides in a URL hash, but resolve it anyway so a bad
+      // world fails here rather than in a window that has already opened —
+      // every handler funnels through the path guard.
+      resolveInWorld(worldRoot(worldId), `${articleId}.md`)
+      const viewer: ViewerMode = mode === 'popout' ? 'popout' : 'player'
+
+      // "Show to players" means one thing when a LAN table is running and
+      // another when it is not, and the DM should not have to think about
+      // which. Hosting: push it to every guest, and open no local window —
+      // the players are looking at their own screens, so a second window here
+      // is just one more thing on the DM's monitor to close.
+      //
+      // A POPOUT is unaffected: it is the DM's own reference on a second
+      // monitor, is explicitly not for players, and stays local while hosting.
+      if (viewer === 'player' && isHosting()) {
+        const article = getArticle(worldId, articleId)
+        showAtTable({
+          articleId,
+          content: article.content,
+          title: article.title,
+        })
+        return
+      }
+      showPlayerWindow(worldId, articleId, viewer)
+    },
+  )
+
+  ipcMain.handle(
+    'player:close',
+    (
+      _e,
+      {
+        worldId,
+        articleId,
+        mode,
+      }: { worldId: string; articleId: string; mode?: ViewerMode },
+    ) =>
+      closePlayerWindow(
+        worldId,
+        articleId,
+        mode === 'popout' ? 'popout' : 'player',
+      ),
+  )
+
+  ipcMain.handle('player:closeAll', () => closeAllPlayerWindows())
+
+  // Content relay only — touches no disk. The file watcher cannot do this:
+  // app writes go through noteSelfWrite and are dropped by watcher.ts, so a
+  // DM typing in the DM window is invisible to it.
+  ipcMain.handle(
+    'player:push',
+    (
+      _e,
+      payload: {
+        worldId: string
+        articleId: string
+        content: string
+        title: string
+      },
+    ) => pushToPlayerWindow(payload),
+  )
+
+  // Rolls ---------------------------------------------------------------------
+  // The renderer's roll log is per-process, so a roll made in a popout window
+  // would otherwise never reach the DM's session panel. Relayed to every other
+  // window; the sender already has it. Touches no disk.
+  ipcMain.handle('rolls:broadcast', (e, entry: unknown) => {
+    relayRoll(e.sender, entry)
+    // A roll made anywhere on the host also belongs to the shared table log.
+    pushRollToTable(entry)
+  })
+
+  // Table (LAN session) --------------------------------------------------------
+  // The host serves guests over plain HTTP; see tableHost.ts for the transport
+  // and table.ts for every decision it makes. Note that hosting takes a worldId
+  // but NEVER lets it reach a guest.
+  ipcMain.handle('table:host', (_e, { worldId }: { worldId: string }) =>
+    hostTable(worldId),
+  )
+
+  ipcMain.handle('table:stop', () => stopTable())
+
+  ipcMain.handle('table:info', () => tableInfo())
+
+  ipcMain.handle(
+    'table:show',
+    (_e, payload: { articleId: string; content: string; title: string }) =>
+      showAtTable(payload),
+  )
+
+  ipcMain.handle('table:combat', (_e, { state }: { state: unknown }) =>
+    pushCombatToTable(state),
+  )
+
+  // Take whatever is on the table down. No-ops when not hosting.
+  ipcMain.handle('table:clear', () => clearTable())
+
+  // Guest side: find a host on the LAN by room code alone. Resolves null when
+  // nothing answers, which is the ordinary case on a network that drops
+  // broadcast — the caller then asks for an address instead of erroring.
+  ipcMain.handle('table:find', (_e, { code }: { code: string }) =>
+    findTable(code),
   )
 }
 

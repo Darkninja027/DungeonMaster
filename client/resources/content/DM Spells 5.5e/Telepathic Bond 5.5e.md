@@ -3,6 +3,7 @@ type: spell
 level: 5
 school: divination
 classes: Bard, Wizard
+edition: 2024
 ---
 
 # Telepathic Bond

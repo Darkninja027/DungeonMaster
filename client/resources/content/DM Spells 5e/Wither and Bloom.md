@@ -4,6 +4,7 @@ level: 2
 school: necromancy
 classes: Druid, Sorcerer, Wizard
 srd: false
+edition: 2014
 ---
 
 # Wither and Bloom

@@ -3,6 +3,7 @@ type: spell
 level: 3
 school: abjuration
 classes: Bard, Cleric, Druid, Paladin, Ranger, Sorcerer, Warlock, Wizard
+edition: 2024
 ---
 
 # Dispel Magic

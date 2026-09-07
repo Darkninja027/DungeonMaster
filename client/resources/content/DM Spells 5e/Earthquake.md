@@ -3,6 +3,7 @@ type: spell
 level: 8
 school: evocation
 classes: Cleric, Druid, Sorcerer
+edition: 2014
 ---
 
 # Earthquake

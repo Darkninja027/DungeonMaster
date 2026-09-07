@@ -3,6 +3,7 @@ type: spell
 level: 1
 school: evocation
 classes: Cleric, Sorcerer, Warlock, Wizard
+edition: 2014
 ---
 
 # Burning Hands

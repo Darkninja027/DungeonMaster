@@ -3,6 +3,7 @@ type: spell
 level: 2
 school: divination
 classes: Sorcerer, Warlock, Wizard
+edition: 2024
 ---
 
 # Mind Spike

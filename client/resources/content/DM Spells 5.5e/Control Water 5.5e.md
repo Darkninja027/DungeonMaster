@@ -3,6 +3,7 @@ type: spell
 level: 4
 school: transmutation
 classes: Cleric, Druid, Wizard
+edition: 2024
 ---
 
 # Control Water

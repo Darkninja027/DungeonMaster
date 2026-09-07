@@ -3,6 +3,7 @@ type: spell
 level: 0
 school: evocation
 classes: Warlock
+edition: 2014
 ---
 
 # Eldritch Blast

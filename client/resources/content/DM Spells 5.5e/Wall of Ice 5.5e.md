@@ -3,6 +3,7 @@ type: spell
 level: 6
 school: evocation
 classes: Wizard
+edition: 2024
 ---
 
 # Wall of Ice

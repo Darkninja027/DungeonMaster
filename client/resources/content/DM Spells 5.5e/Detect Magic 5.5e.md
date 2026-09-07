@@ -3,6 +3,7 @@ type: spell
 level: 1
 school: divination
 classes: Bard, Cleric, Druid, Paladin, Ranger, Sorcerer, Warlock, Wizard
+edition: 2024
 ---
 
 # Detect Magic

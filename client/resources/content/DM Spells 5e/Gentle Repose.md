@@ -3,6 +3,7 @@ type: spell
 level: 2
 school: necromancy
 classes: Cleric, Ritual Caster, Wizard
+edition: 2014
 ---
 
 # Gentle Repose

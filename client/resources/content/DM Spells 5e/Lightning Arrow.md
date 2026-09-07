@@ -4,6 +4,7 @@ level: 3
 school: transmutation
 classes: Ranger
 srd: false
+edition: 2014
 ---
 
 # Lightning Arrow

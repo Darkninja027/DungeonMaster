@@ -4,6 +4,7 @@ level: 1
 school: enchantment
 classes: Warlock
 srd: false
+edition: 2014
 ---
 
 # Hex

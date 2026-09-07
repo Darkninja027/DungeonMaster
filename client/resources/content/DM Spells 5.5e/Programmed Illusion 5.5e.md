@@ -3,6 +3,7 @@ type: spell
 level: 6
 school: illusion
 classes: Bard, Wizard
+edition: 2024
 ---
 
 # Programmed Illusion

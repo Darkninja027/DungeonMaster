@@ -3,6 +3,7 @@ type: spell
 level: 5
 school: enchantment
 classes: Bard, Cleric, Wizard
+edition: 2014
 ---
 
 # Modify Memory

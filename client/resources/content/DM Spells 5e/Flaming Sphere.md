@@ -3,6 +3,7 @@ type: spell
 level: 2
 school: conjuration
 classes: Cleric, Druid, Wizard
+edition: 2014
 ---
 
 # Flaming Sphere

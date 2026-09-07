@@ -3,6 +3,7 @@ type: spell
 level: 5
 school: conjuration
 classes: Druid, Ranger
+edition: 2024
 ---
 
 # Tree Stride

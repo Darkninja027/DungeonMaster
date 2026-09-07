@@ -3,6 +3,7 @@ type: spell
 level: 2
 school: abjuration
 classes: Cleric, Paladin
+edition: 2024
 ---
 
 # Warding Bond

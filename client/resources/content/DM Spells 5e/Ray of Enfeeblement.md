@@ -3,6 +3,7 @@ type: spell
 level: 2
 school: necromancy
 classes: Warlock, Wizard
+edition: 2014
 ---
 
 # Ray of Enfeeblement

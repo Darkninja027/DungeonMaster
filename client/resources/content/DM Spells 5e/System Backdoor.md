@@ -4,6 +4,7 @@ level: 4
 school: transmutation
 classes: Sorcerer, Warlock, Wizard
 srd: false
+edition: 2014
 ---
 
 # System Backdoor

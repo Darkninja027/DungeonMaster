@@ -3,6 +3,7 @@ type: spell
 level: 2
 school: illusion
 classes: Bard, Ritual Caster, Wizard
+edition: 2014
 ---
 
 # Magic Mouth

@@ -3,6 +3,7 @@ type: spell
 level: 1
 school: conjuration
 classes: Cleric, Druid, Ranger, Sorcerer, Wizard
+edition: 2014
 ---
 
 # Fog Cloud

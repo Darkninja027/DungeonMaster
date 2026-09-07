@@ -5,6 +5,7 @@ school: evocation
 classes: Sorcerer, Wizard
 srd: false
 source: Player's Handbook
+edition: 2024
 ---
 
 # Otiluke's Freezing Sphere

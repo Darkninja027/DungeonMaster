@@ -4,6 +4,7 @@ level: 5
 school: transmutation
 classes: Ranger
 srd: false
+edition: 2014
 ---
 
 # Swift Quiver

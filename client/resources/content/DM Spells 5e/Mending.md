@@ -3,6 +3,7 @@ type: spell
 level: 0
 school: transmutation
 classes: Cleric, Bard, Druid, Sorcerer, Wizard
+edition: 2014
 ---
 
 # Mending

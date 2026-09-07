@@ -3,6 +3,7 @@ type: spell
 level: 4
 school: divination
 classes: Cleric, Druid, Ritual Caster
+edition: 2014
 ---
 
 # Divination

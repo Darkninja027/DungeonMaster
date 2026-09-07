@@ -3,6 +3,7 @@ type: spell
 level: 1
 school: illusion
 classes: Sorcerer, Wizard
+edition: 2014
 ---
 
 # Color Spray

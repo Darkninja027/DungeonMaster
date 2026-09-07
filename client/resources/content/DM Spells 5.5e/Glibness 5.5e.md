@@ -3,6 +3,7 @@ type: spell
 level: 8
 school: enchantment
 classes: Bard, Warlock
+edition: 2024
 ---
 
 # Glibness

@@ -3,6 +3,7 @@ type: spell
 level: 8
 school: abjuration
 classes: Bard, Wizard
+edition: 2024
 ---
 
 # Mind Blank

@@ -3,6 +3,7 @@ type: spell
 level: 2
 school: abjuration
 classes: Druid, Ranger
+edition: 2024
 ---
 
 # Pass without Trace

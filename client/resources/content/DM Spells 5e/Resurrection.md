@@ -3,6 +3,7 @@ type: spell
 level: 7
 school: necromancy
 classes: Bard, Cleric
+edition: 2014
 ---
 
 # Resurrection

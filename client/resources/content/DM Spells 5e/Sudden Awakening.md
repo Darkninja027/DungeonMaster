@@ -4,6 +4,7 @@ level: 1
 school: enchantment
 classes: Bard, Ranger, Sorcerer, Wizard
 srd: false
+edition: 2014
 ---
 
 # Sudden Awakening

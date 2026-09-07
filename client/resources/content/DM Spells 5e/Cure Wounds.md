@@ -3,6 +3,7 @@ type: spell
 level: 1
 school: evocation
 classes: Bard, Cleric, Druid, Paladin, Ranger
+edition: 2014
 ---
 
 # Cure Wounds

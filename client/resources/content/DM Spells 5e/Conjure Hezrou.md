@@ -4,6 +4,7 @@ level: 7
 school: conjuration
 classes: Sorcerer, Wizard
 srd: false
+edition: 2014
 ---
 
 # Conjure Hezrou

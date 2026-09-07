@@ -3,6 +3,7 @@ type: spell
 level: 4
 school: transmutation
 classes: Druid, Ranger, Sorcerer, Wizard
+edition: 2024
 ---
 
 # Stoneskin

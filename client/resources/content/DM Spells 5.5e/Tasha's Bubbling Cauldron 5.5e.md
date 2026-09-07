@@ -5,6 +5,7 @@ school: conjuration
 classes: Warlock, Wizard
 srd: false
 source: Player's Handbook
+edition: 2024
 ---
 
 # Tasha's Bubbling Cauldron

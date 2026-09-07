@@ -3,6 +3,7 @@ type: spell
 level: 0
 school: necromancy
 classes: Cleric, Druid
+edition: 2024
 ---
 
 # Spare the Dying

@@ -3,6 +3,7 @@ type: spell
 level: 6
 school: enchantment
 classes: Bard, Sorcerer, Wizard
+edition: 2024
 ---
 
 # Mass Suggestion

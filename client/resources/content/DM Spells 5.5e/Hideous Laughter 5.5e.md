@@ -3,6 +3,7 @@ type: spell
 level: 1
 school: enchantment
 classes: Bard, Warlock, Wizard
+edition: 2024
 ---
 
 # Hideous Laughter

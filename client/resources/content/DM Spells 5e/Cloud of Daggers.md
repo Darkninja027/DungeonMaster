@@ -4,6 +4,7 @@ level: 2
 school: conjuration
 classes: Bard, Sorcerer, Warlock, Wizard
 srd: false
+edition: 2014
 ---
 
 # Cloud of Daggers

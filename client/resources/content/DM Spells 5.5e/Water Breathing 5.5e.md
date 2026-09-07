@@ -3,6 +3,7 @@ type: spell
 level: 3
 school: transmutation
 classes: Druid, Ranger, Sorcerer, Wizard
+edition: 2024
 ---
 
 # Water Breathing

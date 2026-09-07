@@ -3,6 +3,7 @@ type: spell
 level: 1
 school: enchantment
 classes: Bard
+edition: 2024
 ---
 
 # Dissonant Whispers

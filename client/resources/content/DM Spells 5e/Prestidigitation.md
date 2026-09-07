@@ -3,6 +3,7 @@ type: spell
 level: 0
 school: transmutation
 classes: Bard, Sorcerer, Warlock, Wizard
+edition: 2014
 ---
 
 # Prestidigitation

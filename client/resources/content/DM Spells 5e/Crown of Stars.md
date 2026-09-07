@@ -4,6 +4,7 @@ level: 7
 school: evocation
 classes: Sorcerer, Warlock, Wizard
 srd: false
+edition: 2014
 ---
 
 # Crown of Stars

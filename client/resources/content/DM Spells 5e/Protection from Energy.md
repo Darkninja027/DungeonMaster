@@ -3,6 +3,7 @@ type: spell
 level: 3
 school: abjuration
 classes: Cleric, Druid, Paladin, Ranger, Sorcerer, Wizard
+edition: 2014
 ---
 
 # Protection from Energy

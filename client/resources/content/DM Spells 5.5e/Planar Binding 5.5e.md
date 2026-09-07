@@ -3,6 +3,7 @@ type: spell
 level: 5
 school: abjuration
 classes: Bard, Cleric, Druid, Warlock, Wizard
+edition: 2024
 ---
 
 # Planar Binding

@@ -3,6 +3,7 @@ type: spell
 level: 0
 school: necromancy
 classes: Druid, Sorcerer, Warlock, Wizard
+edition: 2024
 ---
 
 # Poison Spray

@@ -4,6 +4,7 @@ level: 3
 school: necromancy
 classes: Cleric (Optional), Paladin (Optional), Warlock (Optional), Wizard (Optional)
 srd: false
+edition: 2014
 ---
 
 # Spirit Shroud

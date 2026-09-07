@@ -3,6 +3,7 @@ type: spell
 level: 3
 school: conjuration
 classes: Cleric, Druid, Paladin
+edition: 2014
 ---
 
 # Create Food and Water

@@ -4,6 +4,7 @@ level: 2
 school: illusion
 classes: Bard, Sorcerer, Wizard
 srd: false
+edition: 2014
 ---
 
 # Nathair's Mischief

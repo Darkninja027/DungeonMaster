@@ -5,6 +5,7 @@ school: conjuration
 classes: Warlock
 srd: false
 source: Player's Handbook
+edition: 2024
 ---
 
 # Hunger of Hadar

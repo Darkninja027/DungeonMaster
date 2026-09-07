@@ -3,6 +3,7 @@ type: spell
 level: 4
 school: conjuration
 classes: Bard, Sorcerer, Warlock, Wizard
+edition: 2024
 ---
 
 # Dimension Door

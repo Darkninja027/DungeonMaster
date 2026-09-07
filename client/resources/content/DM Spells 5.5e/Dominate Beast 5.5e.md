@@ -3,6 +3,7 @@ type: spell
 level: 4
 school: enchantment
 classes: Druid, Ranger, Sorcerer
+edition: 2024
 ---
 
 # Dominate Beast

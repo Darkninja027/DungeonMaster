@@ -3,6 +3,7 @@ type: spell
 level: 3
 school: evocation
 classes: Cleric, Druid, Paladin, Ranger, Sorcerer
+edition: 2014
 ---
 
 # Daylight

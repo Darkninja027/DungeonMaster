@@ -5,6 +5,7 @@ import {
   Eraser,
   FilePlus,
   FolderPlus,
+  MonitorX,
   Moon,
   Settings2,
   UserPlus,
@@ -51,6 +52,30 @@ export interface Command {
 }
 
 export const commands: Array<Command> = [
+  {
+    // The only global handle on the secondary windows — player views and
+    // pop-out references alike. One that has drifted onto a disconnected
+    // monitor cannot be closed any other way.
+    id: 'close-player-windows',
+    label: 'Close all extra windows',
+    keywords: [
+      'projector',
+      'players',
+      'second',
+      'screen',
+      'monitor',
+      'show',
+      'popout',
+      'pop out',
+      'reference',
+      'close',
+    ],
+    icon: MonitorX,
+    modes: ['dm'],
+    run: () => {
+      void api.player.closeAll()
+    },
+  },
   {
     id: 'new-article',
     label: 'New article',

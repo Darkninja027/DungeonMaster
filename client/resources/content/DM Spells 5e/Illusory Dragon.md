@@ -4,6 +4,7 @@ level: 8
 school: illusion
 classes: Wizard
 srd: false
+edition: 2014
 ---
 
 # Illusory Dragon

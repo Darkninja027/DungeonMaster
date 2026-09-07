@@ -4,6 +4,7 @@ level: 0
 school: abjuration
 classes: Bard, Sorcerer, Warlock, Wizard
 srd: false
+edition: 2014
 ---
 
 # Blade Ward

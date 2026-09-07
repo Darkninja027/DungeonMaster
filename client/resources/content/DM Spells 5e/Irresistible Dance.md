@@ -3,6 +3,7 @@ type: spell
 level: 6
 school: enchantment
 classes: Bard, Wizard
+edition: 2014
 ---
 
 # Irresistible Dance

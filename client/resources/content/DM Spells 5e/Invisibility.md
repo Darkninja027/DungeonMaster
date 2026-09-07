@@ -3,6 +3,7 @@ type: spell
 level: 2
 school: illusion
 classes: Bard, Druid, Sorcerer, Warlock, Wizard
+edition: 2014
 ---
 
 # Invisibility

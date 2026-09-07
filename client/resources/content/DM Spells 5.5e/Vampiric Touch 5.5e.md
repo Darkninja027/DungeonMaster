@@ -3,6 +3,7 @@ type: spell
 level: 3
 school: necromancy
 classes: Sorcerer, Warlock, Wizard
+edition: 2024
 ---
 
 # Vampiric Touch

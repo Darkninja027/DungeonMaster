@@ -3,6 +3,7 @@ type: spell
 level: 2
 school: transmutation
 classes: Paladin
+edition: 2024
 ---
 
 # Shining Smite

@@ -5,6 +5,7 @@ school: abjuration
 classes: Artificer, Sorcerer, Wizard
 srd: false
 source: Player's Handbook
+edition: 2024
 ---
 
 # Arcane Vigor

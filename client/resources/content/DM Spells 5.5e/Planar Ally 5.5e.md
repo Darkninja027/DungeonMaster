@@ -3,6 +3,7 @@ type: spell
 level: 6
 school: conjuration
 classes: Cleric
+edition: 2024
 ---
 
 # Planar Ally

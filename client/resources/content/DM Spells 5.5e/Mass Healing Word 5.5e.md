@@ -3,6 +3,7 @@ type: spell
 level: 3
 school: abjuration
 classes: Bard, Cleric
+edition: 2024
 ---
 
 # Mass Healing Word

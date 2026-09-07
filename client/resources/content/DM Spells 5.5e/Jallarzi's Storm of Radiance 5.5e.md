@@ -5,6 +5,7 @@ school: evocation
 classes: Warlock, Wizard
 srd: false
 source: Player's Handbook
+edition: 2024
 ---
 
 # Jallarzi's Storm of Radiance

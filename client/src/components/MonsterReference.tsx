@@ -11,7 +11,9 @@ import {
   ChevronRight,
   Copy,
   FolderOpen,
+  MonitorPlay,
   MoreHorizontal,
+  PictureInPicture2,
   Plus,
   Search,
   SquarePen,
@@ -27,10 +29,13 @@ import { articleTemplates, newArticleContent } from '#/lib/templates'
 import {
   collectMonsters,
   entryKey,
+  filterByEdition,
   filterEntries,
   mergeEntries,
 } from '#/lib/bestiary'
 import type { LibraryEntry } from '#/lib/bestiary'
+import { useWorldRuleset } from '#/lib/useWorldSettings'
+import { useOpenCharacterRuleset } from '#/lib/openCharacterRuleset'
 import { useLibraryEntries } from '#/lib/useGlobalLibrary'
 import { LibraryImportButton } from '#/components/LibraryImportButton'
 import { VirtualList } from '#/components/VirtualList'
@@ -200,15 +205,25 @@ export function MonsterReference({ worldId }: { worldId: string }) {
   // Library entries carry the library's world id so every per-row action —
   // fetch, reveal, render — targets the folder the article actually lives in.
   const library = useLibraryEntries('Monsters')
+  // Prefer the open character's own edition over the world's. The vault has no
+  // ruleset of its own — it holds characters from different games — so beside a
+  // vault sheet the world would say "show both". Null (no sheet open, or one
+  // that defers) falls back to the world, which is the campaign case unchanged.
+  const openCharacterRuleset = useOpenCharacterRuleset()
+  const worldRuleset = useWorldRuleset(worldId)
+  const ruleset = openCharacterRuleset ?? worldRuleset
   const monsters = useMemo(
     () =>
-      mergeEntries(
-        collectMonsters(worldId, tree.data, typed.data, {
-          folder: MONSTERS_FOLDER,
-        }),
-        library.entries,
+      filterByEdition(
+        mergeEntries(
+          collectMonsters(worldId, tree.data, typed.data, {
+            folder: MONSTERS_FOLDER,
+          }),
+          library.entries,
+        ),
+        ruleset,
       ),
-    [worldId, tree.data, typed.data, library.entries],
+    [worldId, tree.data, typed.data, library.entries, ruleset],
   )
 
   // CR/XP for the list rows, taken from the frontmatter the query already
@@ -398,6 +413,28 @@ export function MonsterReference({ worldId }: { worldId: string }) {
                         <Copy /> Copy to this world
                       </DropdownMenuItem>
                     )}
+                    {/* monster.worldId, NOT the panel's: a global entry
+                        lives in the library world, and resolving it against
+                        this one would throw. Same reason Reveal below uses
+                        the entry's own id. */}
+                    <DropdownMenuItem
+                      onClick={() =>
+                        void api.player.show(
+                          monster.worldId,
+                          monster.articleId,
+                          'popout',
+                        )
+                      }
+                    >
+                      <PictureInPicture2 /> Open in new window
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() =>
+                        void api.player.show(monster.worldId, monster.articleId)
+                      }
+                    >
+                      <MonitorPlay /> Show to players
+                    </DropdownMenuItem>
                     <DropdownMenuItem
                       onClick={() =>
                         revealer(monster.worldId)(`${monster.articleId}.md`)

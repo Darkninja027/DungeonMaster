@@ -4,6 +4,7 @@ level: 0
 school: necromancy
 classes: Wizard (Dunamancy)
 srd: false
+edition: 2014
 ---
 
 # Sapping Sting

@@ -3,6 +3,7 @@ type: spell
 level: 6
 school: necromancy
 classes: Wizard
+edition: 2014
 ---
 
 # Magic Jar

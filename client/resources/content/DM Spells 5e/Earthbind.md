@@ -4,6 +4,7 @@ level: 2
 school: transmutation
 classes: Druid, Sorcerer, Warlock, Wizard
 srd: false
+edition: 2014
 ---
 
 # Earthbind

@@ -3,6 +3,7 @@ type: spell
 level: 4
 school: transmutation
 classes: Wizard
+edition: 2024
 ---
 
 # Fabricate

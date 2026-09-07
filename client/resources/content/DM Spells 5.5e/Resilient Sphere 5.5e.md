@@ -3,6 +3,7 @@ type: spell
 level: 4
 school: abjuration
 classes: Wizard
+edition: 2024
 ---
 
 # Resilient Sphere

@@ -3,6 +3,7 @@ type: spell
 level: 0
 school: conjuration
 classes: Druid
+edition: 2014
 ---
 
 # Produce Flame

@@ -3,6 +3,7 @@ type: spell
 level: 5
 school: abjuration
 classes: Cleric, Paladin
+edition: 2014
 ---
 
 # Dispel Evil and Good

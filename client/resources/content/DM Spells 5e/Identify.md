@@ -3,6 +3,7 @@ type: spell
 level: 1
 school: divination
 classes: Bard, Cleric, Ritual Caster, Wizard
+edition: 2014
 ---
 
 # Identify

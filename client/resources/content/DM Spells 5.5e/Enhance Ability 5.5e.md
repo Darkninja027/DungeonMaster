@@ -3,6 +3,7 @@ type: spell
 level: 2
 school: transmutation
 classes: Bard, Cleric, Druid, Ranger, Sorcerer, Wizard
+edition: 2024
 ---
 
 # Enhance Ability

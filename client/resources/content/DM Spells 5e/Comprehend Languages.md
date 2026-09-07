@@ -3,6 +3,7 @@ type: spell
 level: 1
 school: divination
 classes: Bard, Ritual Caster, Sorcerer, Warlock, Wizard
+edition: 2014
 ---
 
 # Comprehend Languages

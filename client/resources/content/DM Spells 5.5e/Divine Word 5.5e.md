@@ -3,6 +3,7 @@ type: spell
 level: 7
 school: evocation
 classes: Cleric
+edition: 2024
 ---
 
 # Divine Word

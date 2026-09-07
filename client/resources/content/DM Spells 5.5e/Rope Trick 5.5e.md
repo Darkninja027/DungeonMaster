@@ -3,6 +3,7 @@ type: spell
 level: 2
 school: transmutation
 classes: Wizard
+edition: 2024
 ---
 
 # Rope Trick

@@ -3,6 +3,7 @@ type: spell
 level: 4
 school: abjuration
 classes: Cleric, Paladin
+edition: 2024
 ---
 
 # Death Ward

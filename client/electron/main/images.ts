@@ -75,7 +75,7 @@ function imageUrl(worldId: string, rel: string): string {
  * stays inside the world while leaving _images — and these handlers take
  * caller-supplied folder ids, so confine them explicitly. '' = the _images root.
  */
-function resolveInImages(root: string, rel: string): string {
+export function resolveInImages(root: string, rel: string): string {
   const imagesRoot = resolveInWorld(root, IMAGES_DIR)
   const abs = resolveInWorld(root, rel ? `${IMAGES_DIR}/${rel}` : IMAGES_DIR)
   if (abs !== imagesRoot && !abs.startsWith(imagesRoot + path.sep)) {

@@ -4,6 +4,7 @@ level: 2
 school: enchantment
 classes: Bard, Wizard
 srd: false
+edition: 2014
 ---
 
 # Gift of Gab

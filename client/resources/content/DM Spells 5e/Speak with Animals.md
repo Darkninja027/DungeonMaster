@@ -3,6 +3,7 @@ type: spell
 level: 1
 school: divination
 classes: Bard, Cleric, Druid, Paladin, Ranger, Ritual Caster
+edition: 2014
 ---
 
 # Speak with Animals

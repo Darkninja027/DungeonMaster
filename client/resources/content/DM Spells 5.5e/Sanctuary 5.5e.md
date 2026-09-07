@@ -3,6 +3,7 @@ type: spell
 level: 1
 school: abjuration
 classes: Cleric
+edition: 2024
 ---
 
 # Sanctuary

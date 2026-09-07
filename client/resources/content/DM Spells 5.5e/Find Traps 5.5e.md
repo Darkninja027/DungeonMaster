@@ -3,6 +3,7 @@ type: spell
 level: 2
 school: divination
 classes: Cleric, Druid, Ranger
+edition: 2024
 ---
 
 # Find Traps

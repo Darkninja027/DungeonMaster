@@ -3,6 +3,7 @@ type: spell
 level: 4
 school: illusion
 classes: Bard, Druid, Warlock, Wizard
+edition: 2014
 ---
 
 # Hallucinatory Terrain

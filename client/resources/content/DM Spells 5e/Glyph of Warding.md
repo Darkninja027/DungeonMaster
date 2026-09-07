@@ -3,6 +3,7 @@ type: spell
 level: 3
 school: abjuration
 classes: Bard, Cleric, Wizard
+edition: 2014
 ---
 
 # Glyph of Warding

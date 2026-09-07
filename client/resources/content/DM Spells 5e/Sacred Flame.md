@@ -3,6 +3,7 @@ type: spell
 level: 0
 school: evocation
 classes: Cleric
+edition: 2014
 ---
 
 # Sacred Flame

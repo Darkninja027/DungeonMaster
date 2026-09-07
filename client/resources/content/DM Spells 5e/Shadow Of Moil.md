@@ -4,6 +4,7 @@ level: 4
 school: necromancy
 classes: Warlock
 srd: false
+edition: 2014
 ---
 
 # Shadow Of Moil

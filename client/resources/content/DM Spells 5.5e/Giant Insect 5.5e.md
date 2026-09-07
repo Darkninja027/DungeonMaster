@@ -3,6 +3,7 @@ type: spell
 level: 4
 school: conjuration
 classes: Druid
+edition: 2024
 ---
 
 # Giant Insect

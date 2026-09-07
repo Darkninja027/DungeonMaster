@@ -3,6 +3,7 @@ type: spell
 level: 4
 school: illusion
 classes: Wizard
+edition: 2014
 ---
 
 # Phantasmal Killer

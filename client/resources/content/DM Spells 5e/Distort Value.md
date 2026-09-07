@@ -4,6 +4,7 @@ level: 1
 school: illusion
 classes: Bard, Sorcerer, Warlock, Wizard
 srd: false
+edition: 2014
 ---
 
 # Distort Value

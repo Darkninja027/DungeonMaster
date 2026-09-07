@@ -5,6 +5,7 @@ school: enchantment
 classes: Bard, Sorcerer, Warlock, Wizard
 srd: false
 source: Player's Handbook
+edition: 2024
 ---
 
 # Crown Of Madness

@@ -3,6 +3,7 @@ type: spell
 level: 1
 school: divination
 classes: Bard, Druid, Ranger, Warlock
+edition: 2024
 ---
 
 # Speak with Animals

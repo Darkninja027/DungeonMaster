@@ -3,6 +3,7 @@ type: spell
 level: 6
 school: conjuration
 classes: Cleric, Druid
+edition: 2014
 ---
 
 # Heroes' Feast

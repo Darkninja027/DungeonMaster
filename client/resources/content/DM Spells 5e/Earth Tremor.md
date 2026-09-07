@@ -4,6 +4,7 @@ level: 1
 school: evocation
 classes: Bard, Druid, Sorcerer, Wizard
 srd: false
+edition: 2014
 ---
 
 # Earth Tremor

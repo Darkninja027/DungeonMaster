@@ -3,6 +3,7 @@ type: spell
 level: 6
 school: evocation
 classes: Cleric
+edition: 2014
 ---
 
 # Blade Barrier

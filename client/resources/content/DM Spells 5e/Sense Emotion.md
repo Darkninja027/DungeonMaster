@@ -4,6 +4,7 @@ level: 1
 school: divination
 classes: Bard, Warlock, Wizard
 srd: false
+edition: 2014
 ---
 
 # Sense Emotion

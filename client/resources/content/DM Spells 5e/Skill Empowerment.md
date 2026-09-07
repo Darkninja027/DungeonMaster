@@ -4,6 +4,7 @@ level: 5
 school: transmutation
 classes: Bard, Sorcerer, Wizard, Artificer
 srd: false
+edition: 2014
 ---
 
 # Skill Empowerment

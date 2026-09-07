@@ -3,6 +3,7 @@ type: spell
 level: 0
 school: evocation
 classes: Bard, Druid
+edition: 2024
 ---
 
 # Starry Wisp

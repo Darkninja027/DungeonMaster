@@ -5,6 +5,7 @@ school: enchantment
 classes: Bard, Warlock, Wizard
 srd: false
 source: Player's Handbook
+edition: 2024
 ---
 
 # Tasha's Hideous Laughter

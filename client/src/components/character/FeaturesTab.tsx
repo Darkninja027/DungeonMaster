@@ -213,6 +213,8 @@ function FeatureRow({
   worldId,
   articles,
   onCreateMissing,
+  noteTitles,
+  onOpenNote,
   onWikiLinkOpen,
   onToggle,
   onEdit,
@@ -226,6 +228,8 @@ function FeatureRow({
   worldId?: string
   articles?: Array<{ id: string; title: string }>
   onCreateMissing?: (title: string) => void
+  noteTitles?: Array<string>
+  onOpenNote?: (title: string) => void
   onWikiLinkOpen?: (title: string) => void
   onToggle: () => void
   onEdit: () => void
@@ -327,6 +331,8 @@ function FeatureRow({
                   worldId={worldId}
                   articles={articles}
                   onCreateMissing={onCreateMissing}
+                  noteTitles={noteTitles}
+                  onOpenNote={onOpenNote}
                 >
                   {preserveLineBreaks(entry.text)}
                 </InlineMarkdown>
@@ -352,12 +358,16 @@ export function FeaturesTab({
   worldId,
   articles,
   onCreateMissing,
+  noteTitles,
+  onOpenNote,
 }: {
   character: Character
   onChange: (next: Character) => void
   worldId?: string
   articles?: Array<{ id: string; title: string }>
   onCreateMissing?: (title: string) => void
+  noteTitles?: Array<string>
+  onOpenNote?: (title: string) => void
 }) {
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<Filter>('all')
@@ -365,6 +375,8 @@ export function FeaturesTab({
   const openWikiLink = useWikiLinkOpener({
     worldId,
     articles,
+    noteTitles,
+    onNote: onOpenNote,
     onMissing: onCreateMissing,
   })
   // Keyed by source+index rather than by object identity: rows are recreated on
@@ -479,6 +491,8 @@ export function FeaturesTab({
                 worldId={worldId}
                 articles={articles}
                 onCreateMissing={onCreateMissing}
+                noteTitles={noteTitles}
+                onOpenNote={onOpenNote}
                 onWikiLinkOpen={openWikiLink}
                 onToggle={() => toggle(key)}
                 onEdit={() => {

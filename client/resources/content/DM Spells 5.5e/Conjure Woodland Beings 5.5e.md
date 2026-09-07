@@ -3,6 +3,7 @@ type: spell
 level: 4
 school: conjuration
 classes: Druid, Ranger
+edition: 2024
 ---
 
 # Conjure Woodland Beings

@@ -4,6 +4,7 @@ level: 4
 school: evocation
 classes: Paladin
 srd: false
+edition: 2014
 ---
 
 # Staggering Smite

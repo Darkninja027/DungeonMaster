@@ -4,6 +4,7 @@ level: 5
 school: transmutation
 classes: Druid, Sorcerer, Wizard
 srd: false
+edition: 2014
 ---
 
 # Control Winds

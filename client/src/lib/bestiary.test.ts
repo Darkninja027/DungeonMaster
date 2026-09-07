@@ -3,6 +3,7 @@ import {
   collectMonsters,
   collectSpells,
   entryKey,
+  filterByEdition,
   filterEntries,
   filterSpells,
   mergeEntries,
@@ -38,6 +39,7 @@ const ref = (
   level: null,
   school: null,
   classes: null,
+  edition: null,
   ...extra,
 })
 
@@ -448,5 +450,61 @@ describe('filterSpells by a level ceiling', () => {
     const names = filterSpells(entries, { level: 1 }).map((e) => e.title)
     expect(names).toContain('Charm Person')
     expect(names).not.toContain('Invisibility')
+  })
+})
+
+describe('filterByEdition', () => {
+  const entry = (title: string, edition?: string | null): LibraryEntry => ({
+    worldId: 'w',
+    articleId: `Spells/${title}`,
+    title,
+    global: true,
+    queryable: true,
+    ...(edition === undefined ? {} : { edition }),
+  })
+
+  const entries = [
+    entry('Fireball', '2014'),
+    entry('Fireball 5.5e', '2024'),
+    entry('My Homebrew Spell'),
+    entry('Hand-written', null),
+  ]
+
+  it('keeps only the asked-for edition, plus everything untagged', () => {
+    expect(filterByEdition(entries, '2014').map((e) => e.title)).toEqual([
+      'Fireball',
+      'My Homebrew Spell',
+      'Hand-written',
+    ])
+    expect(filterByEdition(entries, '2024').map((e) => e.title)).toEqual([
+      'Fireball 5.5e',
+      'My Homebrew Spell',
+      'Hand-written',
+    ])
+  })
+
+  it('shows an entry that does not declare an edition under every ruleset', () => {
+    // The rule the whole filter rests on. Untagged content is someone's
+    // homebrew, an Obsidian-written article, or a library entry seeded before
+    // the tag existed — the seeder never rewrites a file already on disk, so
+    // that last group is permanent. Hiding any of them would be a view
+    // preference eating the user's work.
+    for (const ruleset of ['2014', '2024', 'all'] as const) {
+      const titles = filterByEdition(entries, ruleset).map((e) => e.title)
+      expect(titles).toContain('My Homebrew Spell')
+      expect(titles).toContain('Hand-written')
+    }
+  })
+
+  it('returns the same array for "all", so useMemo deps stay stable', () => {
+    expect(filterByEdition(entries, 'all')).toBe(entries)
+  })
+
+  it('is case-sensitive about the tag it was given, not clever about it', () => {
+    // Frontmatter comes through scalarString, which trims but does not
+    // normalise. A stray "2014 " would already have been trimmed; anything
+    // else genuinely is a different value and is treated as untagged-adjacent
+    // only if it matches exactly.
+    expect(filterByEdition([entry('Odd', 'MMXIV')], '2014')).toEqual([])
   })
 })

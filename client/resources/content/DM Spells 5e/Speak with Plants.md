@@ -3,6 +3,7 @@ type: spell
 level: 3
 school: transmutation
 classes: Bard, Druid, Ranger
+edition: 2014
 ---
 
 # Speak with Plants

@@ -3,6 +3,7 @@ type: spell
 level: 4
 school: evocation
 classes: Cleric, Druid, Paladin, Sorcerer, Wizard
+edition: 2014
 ---
 
 # Ice Storm

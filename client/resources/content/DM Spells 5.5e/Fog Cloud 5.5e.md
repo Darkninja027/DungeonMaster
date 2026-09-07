@@ -3,6 +3,7 @@ type: spell
 level: 1
 school: conjuration
 classes: Druid, Ranger, Sorcerer, Wizard
+edition: 2024
 ---
 
 # Fog Cloud

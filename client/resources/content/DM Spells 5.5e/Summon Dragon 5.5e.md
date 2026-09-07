@@ -3,6 +3,7 @@ type: spell
 level: 5
 school: conjuration
 classes: Wizard
+edition: 2024
 ---
 
 # Summon Dragon

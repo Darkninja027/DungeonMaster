@@ -3,6 +3,7 @@ type: spell
 level: 1
 school: evocation
 classes: Sorcerer, Wizard
+edition: 2024
 ---
 
 # Magic Missile

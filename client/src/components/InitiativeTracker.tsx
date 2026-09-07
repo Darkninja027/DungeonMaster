@@ -1,7 +1,14 @@
 import { useEffect, useState } from 'react'
 import { Link } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
-import { ChevronsRight, Minus, Plus, RotateCcw, X } from 'lucide-react'
+import {
+  ChevronsRight,
+  Minus,
+  PictureInPicture2,
+  Plus,
+  RotateCcw,
+  X,
+} from 'lucide-react'
 import { api } from '#/lib/api'
 import {
   combatActions,
@@ -162,7 +169,14 @@ export function InitiativeTracker({ worldId }: { worldId: string }) {
                     {c.articleId ? (
                       <Link
                         to="/worlds/$worldId/articles/$articleId"
-                        params={{ worldId, articleId: c.articleId }}
+                        // The combatant's own world, not the open one: a
+                        // global-library monster's articleId resolves against
+                        // the library. Absent on combatants written before
+                        // that was possible, which means the open world.
+                        params={{
+                          worldId: c.worldId ?? worldId,
+                          articleId: c.articleId,
+                        }}
                         className={cn(
                           'min-w-0 flex-1 truncate font-medium underline-offset-2 hover:underline',
                           down && 'text-destructive line-through',
@@ -184,6 +198,28 @@ export function InitiativeTracker({ worldId }: { worldId: string }) {
                       <span className="text-muted-foreground shrink-0 text-xs">
                         AC {c.ac}
                       </span>
+                    )}
+                    {/* Only a combatant that came from an article can be
+                        opened — a hand-typed one has no articleId, the same
+                        condition the name Link above is gated on. A Combatant
+                        carries no worldId either, so this assumes the open
+                        world, which holds because the encounter builder only
+                        ever queries it. */}
+                    {c.articleId && (
+                      <button
+                        type="button"
+                        className="text-muted-foreground hover:text-foreground shrink-0 opacity-0 group-hover:opacity-100"
+                        title="Open in new window"
+                        onClick={() =>
+                          void api.player.show(
+                            c.worldId ?? worldId,
+                            c.articleId!,
+                            'popout',
+                          )
+                        }
+                      >
+                        <PictureInPicture2 className="size-3.5" />
+                      </button>
                     )}
                     <button
                       type="button"

@@ -3,6 +3,7 @@ type: spell
 level: 6
 school: necromancy
 classes: Bard, Sorcerer, Warlock, Wizard
+edition: 2014
 ---
 
 # Eyebite

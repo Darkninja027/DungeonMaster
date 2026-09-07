@@ -8,6 +8,9 @@
  * folder id is its world-relative directory path. null folder = world root.
  */
 
+import type { Ruleset } from '#/lib/ruleset'
+import type { RollEntry } from '#/lib/rollLog'
+
 declare global {
   interface Window {
     dmApi: {
@@ -21,6 +24,14 @@ declare global {
 export interface UpdateStatus {
   state: 'checking' | 'available' | 'downloaded' | 'idle' | 'error'
   version?: string
+}
+
+/**
+ * Whether the app is still copying its bundled bestiary and spell list into the
+ * library. Only ever 'seeding' on a first run or after a content update.
+ */
+export interface LibraryStatus {
+  state: 'seeding' | 'ready'
 }
 
 export interface WorldSummary {
@@ -121,6 +132,12 @@ export interface ArticleRef {
   level: number | null
   school: string | null
   classes: Array<string> | null
+  /**
+   * Frontmatter `edition` ("2014" / "2024"), for the ruleset filter. Null when
+   * the article doesn't declare one, which every hand-written article and every
+   * pre-tag library entry looks like — those are always shown.
+   */
+  edition: string | null
 }
 
 /** A saved Smart View: a named frontmatter query, persisted to .dm/views.json. */
@@ -140,6 +157,17 @@ export interface Combatant {
   ac: number | null
   note: string
   articleId?: string
+  /**
+   * Which world `articleId` belongs to. Absent means the open world, which is
+   * what every combatant written before the global bestiary could be added
+   * looks like — so an in-progress fight keeps working across the upgrade.
+   *
+   * It has to be stored rather than assumed: a library monster and a world
+   * monster can share an id (both worlds have `Monsters/Goblin`), so resolving
+   * a bare articleId against the open world would open the wrong article, or
+   * none.
+   */
+  worldId?: string
 }
 
 /** Combat state persisted to .dm/session.json inside the world folder. */
@@ -232,6 +260,53 @@ export interface ImportSummary {
  * `Error invoking remote method 'x:y': Error: <real message>`. Strip that here
  * so the message we wrote in the main process is what the user actually reads.
  */
+/**
+ * Which kind of secondary window. See electron/main/playerWindow.ts — the two
+ * modes share plumbing and have deliberately opposite content rules.
+ */
+export type ViewerMode = 'player' | 'popout'
+
+/** What the DM window relays to a viewer window on every edit. */
+export interface PlayerContent {
+  worldId: string
+  articleId: string
+  content: string
+  title: string
+}
+
+/** One participant at a hosted LAN table. Not a WorldMode 'player'. */
+export interface Seat {
+  id: string
+  name: string
+  /** Article id of the character this seat rolls as, once claimed. */
+  characterId?: string
+  joinedAt: number
+}
+
+/** What the host knows about its own running table. */
+export interface TableInfo {
+  tableId: string
+  code: string
+  port: number
+  /** LAN addresses a guest can reach this host on. */
+  addresses: Array<string>
+  seats: Array<Seat>
+  /** What the guests are looking at, if anything. Identity only. */
+  shown: { articleId: string; title: string } | null
+}
+
+/** A sheet edit that arrived from a guest, already validated host-side. */
+export interface SheetPatchMessage {
+  seatId: string
+  characterId: string
+  patch: Partial<{
+    hpCurrent: number
+    hpTemp: number
+    conditions: Array<string>
+    notes: string
+  }>
+}
+
 function invoke<T>(channel: string, args?: unknown): Promise<T> {
   return window.dmApi.invoke<T>(channel, args).catch((cause: unknown) => {
     const raw = cause instanceof Error ? cause.message : String(cause)
@@ -264,8 +339,12 @@ export const api = {
     query: (worldId: string, query: ArticleQuery) =>
       invoke<Array<ArticleRef>>('worlds:query', { worldId, query }),
     /** Directory picker for the parent location; returns null if cancelled. */
-    create: (input: { name: string; description?: string }) =>
-      invoke<WorldSummary | null>('worlds:create', input),
+    create: (input: {
+      name: string
+      description?: string
+      /** Edition of the shared spell list and bestiary — see lib/ruleset.ts. */
+      ruleset?: Ruleset
+    }) => invoke<WorldSummary | null>('worlds:create', input),
     update: (worldId: string, input: { name: string; description?: string }) =>
       invoke<void>('worlds:update', { worldId, ...input }),
     /** Removes the world from the recents list only — the folder stays on disk. */
@@ -432,6 +511,14 @@ export const api = {
   library: {
     /** The configured global library, or null if the user hasn't chosen one. */
     get: () => invoke<LibraryInfo | null>('library:get'),
+    /**
+     * Subscribe to bundled-content seeding status; returns an unsubscribe fn.
+     * Replayed on load, so a listener mounting mid-seed still hears about it.
+     */
+    onStatus: (cb: (status: LibraryStatus) => void) =>
+      window.dmApi.on('library:status', (payload) =>
+        cb(payload as LibraryStatus),
+      ),
     /** Directory picker; scaffolds the folder. Returns null if the user cancels. */
     pick: () => invoke<LibraryInfo | null>('library:pick'),
     /** Forget the library path. The folder itself is left alone. */
@@ -467,5 +554,93 @@ export const api = {
       ),
     /** Quit and install a downloaded update. */
     quitAndInstall: () => invoke<void>('updates:quitAndInstall'),
+  },
+  /**
+   * The player window — a second, chrome-free window showing one article to
+   * the table. Unrelated to WorldMode's `'player'` (lib/worldMode.ts), which
+   * is a per-world chrome setting for someone playing a character.
+   */
+  player: {
+    /**
+     * Open a viewer window for this article, or focus its existing one.
+     *
+     * `'player'` is the table-facing display: :::dm blocks stripped, links and
+     * dice inert. `'popout'` is the DM's own reference window on a second
+     * monitor: nothing stripped, dice still rollable. Keyed separately, so one
+     * article can be open in both at once.
+     */
+    show: (worldId: string, articleId: string, mode: ViewerMode = 'player') =>
+      invoke<void>('player:show', { worldId, articleId, mode }),
+    close: (worldId: string, articleId: string, mode: ViewerMode = 'player') =>
+      invoke<void>('player:close', { worldId, articleId, mode }),
+    /** Close every player window; resolves with how many were open. */
+    closeAll: () => invoke<number>('player:closeAll'),
+    /**
+     * Relay the DM's live editor buffer to the window showing this article.
+     * No-ops in the main process if no such window is open, so the caller
+     * never has to know whether anyone is watching.
+     */
+    push: (payload: PlayerContent) => invoke<void>('player:push', payload),
+    /** Player window: subscribe to pushed content; returns an unsubscribe fn. */
+    onContent: (cb: (payload: PlayerContent) => void) =>
+      window.dmApi.on('player:content', (payload) =>
+        cb(payload as PlayerContent),
+      ),
+  },
+  /**
+   * Cross-window dice rolls. The renderer's roll log is a module-level store,
+   * so it is per-BrowserWindow — a roll made in a popout (where dice stay
+   * rollable on purpose) reaches the DM's session panel only via this relay.
+   * See src/lib/rollLog.ts, which owns the merge and the id dedupe.
+   */
+  rolls: {
+    /** Tell every other window about a roll made in this one. */
+    broadcast: (entry: RollEntry) => invoke<void>('rolls:broadcast', entry),
+    /** Subscribe to rolls made in other windows; returns an unsubscribe fn. */
+    onEntry: (cb: (entry: RollEntry) => void) =>
+      window.dmApi.on('rolls:entry', (payload) => cb(payload as RollEntry)),
+  },
+  /**
+   * Hosting a LAN session. One DM serves N guests over plain HTTP — see
+   * electron/main/tableHost.ts. A "seat" is a person on another machine;
+   * the word "player" is avoided because it already means three other things
+   * (a WorldMode, a ViewerMode, and a BookView audience).
+   */
+  table: {
+    /** Start hosting the open world. Returns the room code and addresses. */
+    host: (worldId: string) => invoke<TableInfo>('table:host', { worldId }),
+    stop: () => invoke<void>('table:stop'),
+    /** The running table, or null if this app is not hosting. */
+    info: () => invoke<TableInfo | null>('table:info'),
+    /** Show an article to every guest. No-ops when not hosting. */
+    show: (payload: { articleId: string; content: string; title: string }) =>
+      invoke<void>('table:show', payload),
+    /** Take whatever is on the table down. No-ops when not hosting. */
+    clear: () => invoke<void>('table:clear'),
+    /** Mirror initiative to the guests. No-ops when not hosting. */
+    combat: (state: unknown) => invoke<void>('table:combat', { state }),
+    /**
+     * Guest side: find a host on the LAN by room code alone.
+     *
+     * Resolves null when nothing answers within a few seconds — the ordinary
+     * outcome on a network that drops broadcast (client isolation, guest wifi,
+     * some VPNs) or across subnets. Callers fall back to asking for an address
+     * rather than treating null as an error.
+     */
+    find: (code: string) =>
+      invoke<{ address: string; port: number } | null>('table:find', { code }),
+    /** Host: the seat list changed. */
+    onSeats: (cb: (info: Omit<TableInfo, 'port' | 'addresses'>) => void) =>
+      window.dmApi.on('table:seats', (payload) =>
+        cb(payload as Omit<TableInfo, 'port' | 'addresses'>),
+      ),
+    /** Host: a guest rolled. */
+    onRoll: (cb: (entry: RollEntry) => void) =>
+      window.dmApi.on('table:roll', (payload) => cb(payload as RollEntry)),
+    /** Host: a guest edited the sheet they claimed. */
+    onSheet: (cb: (msg: SheetPatchMessage) => void) =>
+      window.dmApi.on('table:sheet', (payload) =>
+        cb(payload as SheetPatchMessage),
+      ),
   },
 }

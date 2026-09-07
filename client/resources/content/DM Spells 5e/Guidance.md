@@ -3,6 +3,7 @@ type: spell
 level: 0
 school: divination
 classes: Cleric, Druid
+edition: 2014
 ---
 
 # Guidance

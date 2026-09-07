@@ -4,6 +4,7 @@ level: 1
 school: enchantment
 classes: Sorcerer, Warlock, Wizard
 srd: false
+edition: 2014
 ---
 
 # Id Insinuation

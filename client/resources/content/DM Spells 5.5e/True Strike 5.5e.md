@@ -3,6 +3,7 @@ type: spell
 level: 0
 school: divination
 classes: Bard, Sorcerer, Warlock, Wizard
+edition: 2024
 ---
 
 # True Strike

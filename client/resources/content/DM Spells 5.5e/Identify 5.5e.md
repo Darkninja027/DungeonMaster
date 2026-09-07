@@ -3,6 +3,7 @@ type: spell
 level: 1
 school: divination
 classes: Bard, Wizard
+edition: 2024
 ---
 
 # Identify

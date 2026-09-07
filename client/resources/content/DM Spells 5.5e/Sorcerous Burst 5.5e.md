@@ -3,6 +3,7 @@ type: spell
 level: 0
 school: evocation
 classes: Sorcerer
+edition: 2024
 ---
 
 # Sorcerous Burst

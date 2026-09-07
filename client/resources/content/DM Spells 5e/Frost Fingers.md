@@ -4,6 +4,7 @@ level: 1
 school: evocation
 classes: Wizard
 srd: false
+edition: 2014
 ---
 
 # Frost Fingers

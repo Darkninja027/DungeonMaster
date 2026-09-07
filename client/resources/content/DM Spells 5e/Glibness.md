@@ -3,6 +3,7 @@ type: spell
 level: 8
 school: transmutation
 classes: Bard, Warlock
+edition: 2014
 ---
 
 # Glibness

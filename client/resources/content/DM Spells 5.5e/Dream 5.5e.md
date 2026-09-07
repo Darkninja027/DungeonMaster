@@ -3,6 +3,7 @@ type: spell
 level: 5
 school: illusion
 classes: Bard, Warlock, Wizard
+edition: 2024
 ---
 
 # Dream

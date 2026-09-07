@@ -3,6 +3,7 @@ type: spell
 level: 0
 school: evocation
 classes: Bard, Cleric, Sorcerer, Wizard
+edition: 2014
 ---
 
 # Light

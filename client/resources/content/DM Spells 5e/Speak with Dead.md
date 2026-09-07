@@ -3,6 +3,7 @@ type: spell
 level: 3
 school: necromancy
 classes: Bard, Cleric
+edition: 2014
 ---
 
 # Speak with Dead

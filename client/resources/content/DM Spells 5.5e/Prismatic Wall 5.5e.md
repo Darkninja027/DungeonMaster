@@ -3,6 +3,7 @@ type: spell
 level: 9
 school: abjuration
 classes: Bard, Wizard
+edition: 2024
 ---
 
 # Prismatic Wall

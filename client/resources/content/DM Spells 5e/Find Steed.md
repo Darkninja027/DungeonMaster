@@ -3,6 +3,7 @@ type: spell
 level: 2
 school: conjuration
 classes: Paladin
+edition: 2014
 ---
 
 # Find Steed

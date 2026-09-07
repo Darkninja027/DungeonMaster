@@ -4,6 +4,7 @@ level: 1
 school: transmutation
 classes: Ranger
 srd: false
+edition: 2014
 ---
 
 # Zephyr Strike

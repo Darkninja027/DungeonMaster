@@ -3,6 +3,7 @@ type: spell
 level: 1
 school: evocation
 classes: Warlock
+edition: 2024
 ---
 
 # Hellish Rebuke

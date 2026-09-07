@@ -3,6 +3,7 @@ type: spell
 level: 2
 school: transmutation
 classes: Paladin, Ranger, Sorcerer, Wizard
+edition: 2024
 ---
 
 # Magic Weapon

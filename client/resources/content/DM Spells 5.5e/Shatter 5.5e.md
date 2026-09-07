@@ -3,6 +3,7 @@ type: spell
 level: 2
 school: evocation
 classes: Bard, Sorcerer, Wizard
+edition: 2024
 ---
 
 # Shatter

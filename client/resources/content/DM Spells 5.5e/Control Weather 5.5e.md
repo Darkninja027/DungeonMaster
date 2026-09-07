@@ -3,6 +3,7 @@ type: spell
 level: 8
 school: transmutation
 classes: Cleric, Druid, Wizard
+edition: 2024
 ---
 
 # Control Weather

@@ -5,6 +5,7 @@ school: abjuration
 classes: Warlock
 srd: false
 source: Player's Handbook
+edition: 2024
 ---
 
 # Armor of Agathys

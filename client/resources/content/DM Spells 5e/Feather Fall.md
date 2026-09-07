@@ -3,6 +3,7 @@ type: spell
 level: 1
 school: transmutation
 classes: Bard, Sorcerer, Wizard
+edition: 2014
 ---
 
 # Feather Fall

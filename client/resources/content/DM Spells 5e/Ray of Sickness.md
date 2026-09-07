@@ -4,6 +4,7 @@ level: 1
 school: necromancy
 classes: Sorcerer, Wizard
 srd: false
+edition: 2014
 ---
 
 # Ray of Sickness

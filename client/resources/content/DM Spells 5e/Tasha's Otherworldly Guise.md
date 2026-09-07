@@ -4,6 +4,7 @@ level: 6
 school: transmutation
 classes: Sorcerer (Optional), Warlock (Optional), Wizard (Optional)
 srd: false
+edition: 2014
 ---
 
 # Tasha's Otherworldly Guise

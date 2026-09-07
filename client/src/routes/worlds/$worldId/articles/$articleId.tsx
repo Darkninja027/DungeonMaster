@@ -17,6 +17,9 @@ import {
   Link2,
   List,
   Loader2,
+  MonitorPlay,
+  MonitorX,
+  PictureInPicture2,
   Pencil,
   Save,
   Trash2,
@@ -24,6 +27,7 @@ import {
   WandSparkles,
 } from 'lucide-react'
 import { api } from '#/lib/api'
+import { useTable } from '#/lib/tableStore'
 import { REVEAL_LABEL, revealer } from '#/lib/reveal'
 import { isCharacterContent, parseCharacter } from '#/lib/character'
 import { useShortcut } from '#/lib/useShortcut'
@@ -56,6 +60,7 @@ import {
   MENU_GROUP_LABEL as INSERT_GROUP_LABEL,
   MarkdownContextMenu,
 } from '#/components/MarkdownContextMenu'
+import type { ContextMenuEditor } from '#/components/MarkdownContextMenu'
 import { TableOfContents } from '#/components/TableOfContents'
 import { SidebarToggle } from '#/components/SidebarToggle'
 import {
@@ -76,6 +81,7 @@ import { useMarkdownEditor } from '#/lib/useMarkdownEditor'
 import { useWikiLinkOpener } from '#/lib/useWikiLinkOpener'
 import { CreateMissingArticleDialog } from '#/components/CreateMissingArticleDialog'
 import { LiveMarkdownEditor } from '#/components/LiveMarkdownEditor'
+import { LivePreviewPane } from '#/components/LivePreviewPane'
 import { padBlock } from '#/lib/markdownEditing'
 import { useWorldSettings } from '#/lib/useWorldSettings'
 import type { LiveEditorHandle } from '#/components/LiveMarkdownEditor'
@@ -131,61 +137,6 @@ function loadLiveEdit(): boolean {
   } catch {
     return false
   }
-}
-
-/**
- * Side-by-side live preview for the Write tab. The book pages are a fixed
- * 816px wide, so the pane scales them to fit its own width.
- */
-function LivePreviewPane({
-  content,
-  articles,
-  worldId,
-  onCreateMissing,
-  source,
-}: {
-  content: string
-  articles?: Array<{ id: string; title: string }>
-  worldId: string
-  onCreateMissing: (title: string) => void
-  source?: RollSource
-}) {
-  const ref = useRef<HTMLDivElement>(null)
-  const [scale, setScale] = useState(0.6)
-  // Defer keystrokes so typing stays snappy while the preview catches up.
-  const deferred = useDeferredValue(content)
-
-  useEffect(() => {
-    const el = ref.current
-    if (!el) return
-    const measure = () => setScale(Math.min(1, (el.clientWidth - 24) / 840))
-    measure()
-    const observer = new ResizeObserver(measure)
-    observer.observe(el)
-    return () => observer.disconnect()
-  }, [])
-
-  return (
-    <div
-      ref={ref}
-      className="w-1/2 shrink-0 overflow-y-auto border-l bg-stone-800/90 dark:bg-stone-950"
-    >
-      <div className="p-3" style={{ zoom: scale }}>
-        {deferred.trim() ? (
-          <BookView
-            articles={articles}
-            worldId={worldId}
-            onCreateMissing={onCreateMissing}
-            source={source}
-          >
-            {deferred}
-          </BookView>
-        ) : (
-          <p className="text-stone-400">Start typing to see the preview.</p>
-        )}
-      </div>
-    </div>
-  )
 }
 
 function ArticlePage() {
@@ -296,7 +247,9 @@ function ArticlePage() {
    */
   const worldLiveEdit = useWorldSettings(worldId).data?.liveEdit ?? 'remember'
   const liveEdit =
-    worldLiveEdit === 'remember' ? rememberedLiveEdit : worldLiveEdit === 'always'
+    worldLiveEdit === 'remember'
+      ? rememberedLiveEdit
+      : worldLiveEdit === 'always'
 
   /**
    * Jump to a heading. Where that lands depends on the tab: the Write tab puts
@@ -472,6 +425,44 @@ function ArticlePage() {
     [rollSource, worldId, articleId, title],
   )
 
+  // Mirror the live editor buffer to a player window showing this article.
+  // Deferred and debounced: the push crosses two IPC hops and re-parses a
+  // whole article on the far side, so a keystroke-rate push would make typing
+  // stutter. 150ms reads as live and is well under the 2s autosave.
+  //
+  // This is how the player window updates at all — the file watcher cannot
+  // help, because every app write goes through noteSelfWrite and is dropped.
+  // pushToPlayerWindow no-ops when no such window is open, so this costs
+  // nothing in the common case.
+  // What the LAN table is currently showing, if this app is hosting one.
+  const { info: tableInfo } = useTable()
+  const shownArticleId = tableInfo?.shown?.articleId ?? null
+  const isShownToPlayers =
+    shownArticleId !== null && shownArticleId === articleId
+
+  const deferredForPlayers = useDeferredValue(content)
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      void api.player.push({
+        worldId,
+        articleId,
+        content: deferredForPlayers,
+        title,
+      })
+      // The same buffer goes to LAN guests, but ONLY for the article already
+      // on the table. api.table.show STARTS showing, so calling it here
+      // unconditionally meant opening any article broadcast it to the players
+      // — this effect runs on every article you look at. Showing is an
+      // explicit act; this only keeps an already-shown article live as you
+      // type. It carries no worldId: that is hex of this machine's absolute
+      // path and must never cross the wire (electron/main/tableHost.ts).
+      if (shownArticleId === articleId) {
+        void api.table.show({ articleId, content: deferredForPlayers, title })
+      }
+    }, 150)
+    return () => clearTimeout(timer)
+  }, [worldId, articleId, deferredForPlayers, title, shownArticleId])
+
   // Characters preview as a parchment sheet rather than as prose, since all
   // their data lives in the frontmatter that BookView deliberately strips.
   const isCharacter = isCharacterContent(content)
@@ -526,6 +517,37 @@ function ArticlePage() {
       else editor.insertBlock(snippet)
     },
     [editor],
+  )
+
+  /**
+   * Whether the live editor had a selection when its context menu opened.
+   *
+   * State rather than a live read, for the same reason `useMarkdownEditor`
+   * samples its own: opening the Radix menu moves focus off the editor, so by
+   * the time Cut/Copy render, the selection no longer reflects what was
+   * highlighted.
+   */
+  const [liveHasSelection, setLiveHasSelection] = useState(false)
+
+  /**
+   * The live surface, shaped as the context menu expects. Lets live edit reuse
+   * `MarkdownContextMenu` rather than growing a second, drifting copy of it.
+   * Insert routes through the shims above so the menu and the Insert dropdown
+   * stay on one path.
+   */
+  const liveMenuEditor = useMemo<ContextMenuEditor>(
+    () => ({
+      onContextMenu: () =>
+        setLiveHasSelection(liveEditorRef.current?.hasSelection() ?? false),
+      hasSelection: liveHasSelection,
+      execEditorCommand: (command) =>
+        liveEditorRef.current?.execCommand(command),
+      wrap: (wrapper) => liveEditorRef.current?.wrap(wrapper),
+      transform: (fn) => liveEditorRef.current?.transform(fn),
+      insertBlock,
+      insertText: insertAtCursor,
+    }),
+    [liveHasSelection, insertBlock, insertAtCursor],
   )
 
   /**
@@ -640,6 +662,9 @@ function ArticlePage() {
                 >
                   Read-aloud box
                 </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => insertBlock(snippets.dmOnly)}>
+                  DM-only block
+                </DropdownMenuItem>
                 <DropdownMenuItem
                   onClick={() => insertBlock(snippets.statBlock)}
                 >
@@ -734,6 +759,42 @@ function ArticlePage() {
               if (dirty) setExternalChange(true)
             }}
           />
+          <Button
+            variant="outline"
+            size="icon"
+            className="size-8"
+            title="Open in a new window for reference"
+            onClick={() =>
+              void api.player.show(
+                worldId,
+                article.data?.id ?? articleId,
+                'popout',
+              )
+            }
+          >
+            <PictureInPicture2 />
+          </Button>
+          {/* A toggle rather than a one-way action, because showing is now a
+              state someone can be in and leaving it needed a way out. When a
+              LAN table is running this article IS the thing on the table, so
+              the same button takes it down; with no table it opens the local
+              player window as before. */}
+          <Button
+            variant={isShownToPlayers ? 'secondary' : 'outline'}
+            size="icon"
+            className="size-8"
+            title={isShownToPlayers ? 'Hide from players' : 'Show to players'}
+            onClick={() => {
+              const id = article.data?.id ?? articleId
+              if (isShownToPlayers) {
+                void api.table.clear()
+                return
+              }
+              void api.player.show(worldId, id)
+            }}
+          >
+            {isShownToPlayers ? <MonitorX /> : <MonitorPlay />}
+          </Button>
           <Button
             variant="outline"
             size="icon"
@@ -849,19 +910,17 @@ function ArticlePage() {
               {/* Deliberately NOT exclusive with the split pane below: the
                   book preview is the trusted renderer, so seeing both at once
                   is how you check what live edit is painting. */}
-              {tab === 'write' &&
-                !parsedCharacter &&
-                worldLiveEdit === 'remember' && (
-                  <Button
-                    variant={liveEdit ? 'secondary' : 'ghost'}
-                    size="sm"
-                    className="h-8 text-xs"
-                    title="Experimental: hide markdown syntax while editing. No [[ ]] or image autocomplete. Set a default for the whole world in Settings."
-                    onClick={() => setRememberedLiveEdit((v) => !v)}
-                  >
-                    <WandSparkles className="size-3.5" /> Live edit
-                  </Button>
-                )}
+              {tab === 'write' && worldLiveEdit === 'remember' && (
+                <Button
+                  variant={liveEdit ? 'secondary' : 'ghost'}
+                  size="sm"
+                  className="h-8 text-xs"
+                  title="Experimental: hide markdown syntax while editing. No _images/ path autocomplete yet. Set a default for the whole world in Settings."
+                  onClick={() => setRememberedLiveEdit((v) => !v)}
+                >
+                  <WandSparkles className="size-3.5" /> Live edit
+                </Button>
+              )}
               {tab === 'write' && (
                 <Button
                   variant={livePreview ? 'secondary' : 'ghost'}
@@ -873,17 +932,15 @@ function ArticlePage() {
                   <Columns2 className="size-3.5" /> Live preview
                 </Button>
               )}
-              {!parsedCharacter && (
-                <Button
-                  variant={tocOpen ? 'secondary' : 'ghost'}
-                  size="sm"
-                  className="h-8 text-xs"
-                  title="Show the article outline"
-                  onClick={() => setTocOpen((v) => !v)}
-                >
-                  <List className="size-3.5" /> Outline
-                </Button>
-              )}
+              <Button
+                variant={tocOpen ? 'secondary' : 'ghost'}
+                size="sm"
+                className="h-8 text-xs"
+                title="Show the article outline"
+                onClick={() => setTocOpen((v) => !v)}
+              >
+                <List className="size-3.5" /> Outline
+              </Button>
             </div>
           </div>
           <TabsContent value="write" className="flex min-h-0 flex-1 flex-col">
@@ -944,127 +1001,135 @@ function ArticlePage() {
               </div>
             )}
             <div className="flex min-h-0 flex-1">
-              {liveEdit && !parsedCharacter ? (
-                <LiveMarkdownEditor
-                  ref={liveEditorRef}
-                  value={content}
-                  className="min-h-0 min-w-0 flex-1 overflow-hidden"
-                  source={rollSource}
-                  onWikiLinkOpen={openWikiLink}
-                  onFiles={uploadAndInsert}
-                  onChange={(next) => {
-                    setContent(next)
-                    // Load-bearing: useArticleEditorSave's debounce keys on
-                    // editSeq, which only advances through setDirty. Without
-                    // this, edits are typed, shown, and never written to disk
-                    // while the button still reads "Saved".
-                    setDirty(true)
-                  }}
-                  onSelectionChange={(offset) => {
-                    const line = content.slice(0, offset).split('\n').length - 1
-                    setActiveHeadingId(activeHeadingAt(headings, line)?.id ?? null)
-                  }}
-                />
+              {liveEdit ? (
+                <MarkdownContextMenu editor={liveMenuEditor}>
+                  <LiveMarkdownEditor
+                    ref={liveEditorRef}
+                    value={content}
+                    className="min-h-0 min-w-0 flex-1 overflow-hidden"
+                    source={rollSource}
+                    onWikiLinkOpen={openWikiLink}
+                    onFiles={uploadAndInsert}
+                    articles={tree.data?.articles}
+                    currentArticleId={article.data?.id ?? articleId}
+                    onChange={(next) => {
+                      setContent(next)
+                      // Load-bearing: useArticleEditorSave's debounce keys on
+                      // editSeq, which only advances through setDirty. Without
+                      // this, edits are typed, shown, and never written to disk
+                      // while the button still reads "Saved".
+                      setDirty(true)
+                    }}
+                    onSelectionChange={(offset) => {
+                      const line =
+                        content.slice(0, offset).split('\n').length - 1
+                      setActiveHeadingId(
+                        activeHeadingAt(headings, line)?.id ?? null,
+                      )
+                    }}
+                  />
+                </MarkdownContextMenu>
               ) : (
-              <MarkdownContextMenu editor={editor}>
-                <Textarea
-                  ref={textareaRef}
-                  value={content}
-                  placeholder="Write your lore in markdown…"
-                  className={cn(
-                    'h-full min-h-0 flex-1 resize-none rounded-none border-none font-mono text-sm shadow-none focus-visible:ring-0',
-                    // Ctrl held over a [[link]]: show it is clickable.
-                    editor.wikiLinkHovered && 'cursor-pointer',
-                  )}
-                  onMouseMove={editor.onMouseMove}
-                  onMouseLeave={editor.onMouseLeave}
-                  onChange={(e) => {
-                    setContent(e.target.value)
-                    setDirty(true)
-                    requestAnimationFrame(updateQueries)
-                  }}
-                  onClick={(e) => {
-                    // Ctrl+Click opens a [[link]]; a plain click just moves
-                    // the caret, which the autocomplete needs to re-read.
-                    editor.onClick(e)
-                    updateQueries()
-                  }}
-                  onPaste={(e) => {
-                    const files = Array.from(e.clipboardData.files)
-                    if (files.some((f) => f.type.startsWith('image/'))) {
-                      e.preventDefault()
-                      uploadAndInsert(files)
-                    }
-                  }}
-                  onDragOver={(e) => {
-                    // Only claim the drop for files — the textarea's own text-drag
-                    // behaviour must keep working.
-                    if (e.dataTransfer.types.indexOf('Files') >= 0)
-                      e.preventDefault()
-                  }}
-                  onDrop={(e) => {
-                    const files = Array.from(e.dataTransfer.files)
-                    if (files.some((f) => f.type.startsWith('image/'))) {
-                      e.preventDefault()
-                      uploadAndInsert(files)
-                    }
-                  }}
-                  onKeyUp={(e) => {
-                    if (
-                      ![
-                        'ArrowDown',
-                        'ArrowUp',
-                        'Enter',
-                        'Tab',
-                        'Escape',
-                      ].includes(e.key)
-                    )
+                <MarkdownContextMenu editor={editor}>
+                  <Textarea
+                    ref={textareaRef}
+                    value={content}
+                    placeholder="Write your lore in markdown…"
+                    className={cn(
+                      'h-full min-h-0 flex-1 resize-none rounded-none border-none font-mono text-sm shadow-none focus-visible:ring-0',
+                      // Ctrl held over a [[link]]: show it is clickable.
+                      editor.wikiLinkHovered && 'cursor-pointer',
+                    )}
+                    onMouseMove={editor.onMouseMove}
+                    onMouseLeave={editor.onMouseLeave}
+                    onChange={(e) => {
+                      setContent(e.target.value)
+                      setDirty(true)
+                      requestAnimationFrame(updateQueries)
+                    }}
+                    onClick={(e) => {
+                      // Ctrl+Click opens a [[link]]; a plain click just moves
+                      // the caret, which the autocomplete needs to re-read.
+                      editor.onClick(e)
                       updateQueries()
-                  }}
-                  onBeforeInput={editor.onBeforeInput}
-                  onKeyDown={(e) => {
-                    if (imageQuery !== null && imageMatches.length > 0) {
+                    }}
+                    onPaste={(e) => {
+                      const files = Array.from(e.clipboardData.files)
+                      if (files.some((f) => f.type.startsWith('image/'))) {
+                        e.preventDefault()
+                        uploadAndInsert(files)
+                      }
+                    }}
+                    onDragOver={(e) => {
+                      // Only claim the drop for files — the textarea's own text-drag
+                      // behaviour must keep working.
+                      if (e.dataTransfer.types.indexOf('Files') >= 0)
+                        e.preventDefault()
+                    }}
+                    onDrop={(e) => {
+                      const files = Array.from(e.dataTransfer.files)
+                      if (files.some((f) => f.type.startsWith('image/'))) {
+                        e.preventDefault()
+                        uploadAndInsert(files)
+                      }
+                    }}
+                    onKeyUp={(e) => {
+                      if (
+                        ![
+                          'ArrowDown',
+                          'ArrowUp',
+                          'Enter',
+                          'Tab',
+                          'Escape',
+                        ].includes(e.key)
+                      )
+                        updateQueries()
+                    }}
+                    onBeforeInput={editor.onBeforeInput}
+                    onKeyDown={(e) => {
+                      if (imageQuery !== null && imageMatches.length > 0) {
+                        if (e.key === 'ArrowDown') {
+                          e.preventDefault()
+                          setImageIndex((i) => (i + 1) % imageMatches.length)
+                        } else if (e.key === 'ArrowUp') {
+                          e.preventDefault()
+                          setImageIndex(
+                            (i) =>
+                              (i - 1 + imageMatches.length) %
+                              imageMatches.length,
+                          )
+                        } else if (e.key === 'Enter' || e.key === 'Tab') {
+                          e.preventDefault()
+                          completeImagePath(imageMatches[imageIndex])
+                        } else if (e.key === 'Escape') {
+                          setImageQuery(null)
+                        }
+                        return
+                      }
+                      if (linkQuery === null || linkMatches.length === 0)
+                        return editor.onKeyDown(e)
                       if (e.key === 'ArrowDown') {
                         e.preventDefault()
-                        setImageIndex((i) => (i + 1) % imageMatches.length)
+                        setLinkIndex((i) => (i + 1) % linkMatches.length)
                       } else if (e.key === 'ArrowUp') {
                         e.preventDefault()
-                        setImageIndex(
+                        setLinkIndex(
                           (i) =>
-                            (i - 1 + imageMatches.length) % imageMatches.length,
+                            (i - 1 + linkMatches.length) % linkMatches.length,
                         )
                       } else if (e.key === 'Enter' || e.key === 'Tab') {
                         e.preventDefault()
-                        completeImagePath(imageMatches[imageIndex])
+                        completeLink(linkMatches[linkIndex].title)
                       } else if (e.key === 'Escape') {
-                        setImageQuery(null)
+                        setLinkQuery(null)
+                      } else {
+                        // Anything the suggestion strip doesn't claim (Ctrl+B and
+                        // friends) still belongs to the formatting shortcuts.
+                        editor.onKeyDown(e)
                       }
-                      return
-                    }
-                    if (linkQuery === null || linkMatches.length === 0)
-                      return editor.onKeyDown(e)
-                    if (e.key === 'ArrowDown') {
-                      e.preventDefault()
-                      setLinkIndex((i) => (i + 1) % linkMatches.length)
-                    } else if (e.key === 'ArrowUp') {
-                      e.preventDefault()
-                      setLinkIndex(
-                        (i) =>
-                          (i - 1 + linkMatches.length) % linkMatches.length,
-                      )
-                    } else if (e.key === 'Enter' || e.key === 'Tab') {
-                      e.preventDefault()
-                      completeLink(linkMatches[linkIndex].title)
-                    } else if (e.key === 'Escape') {
-                      setLinkQuery(null)
-                    } else {
-                      // Anything the suggestion strip doesn't claim (Ctrl+B and
-                      // friends) still belongs to the formatting shortcuts.
-                      editor.onKeyDown(e)
-                    }
-                  }}
-                />
-              </MarkdownContextMenu>
+                    }}
+                  />
+                </MarkdownContextMenu>
               )}
               {livePreview && (
                 <LivePreviewPane
@@ -1110,7 +1175,7 @@ function ArticlePage() {
             </div>
           </TabsContent>
         </Tabs>
-        {tocOpen && !parsedCharacter && (
+        {tocOpen && (
           <TableOfContents
             headings={headings}
             activeId={activeHeadingId}

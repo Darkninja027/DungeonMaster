@@ -3,6 +3,7 @@ type: spell
 level: 1
 school: conjuration
 classes: Bard, Ritual Caster, Warlock, Wizard
+edition: 2014
 ---
 
 # Unseen Servant

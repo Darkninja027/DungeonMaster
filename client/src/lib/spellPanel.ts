@@ -27,12 +27,20 @@ export function consumeSpellPanelRequest(): void {
   notify()
 }
 
+/**
+ * The pending request, for callers outside React and for tests. Inside a
+ * component use `useSpellPanelRequest` so the read is subscribed.
+ */
+export function spellPanelRequest(): SpellPanelRequest | null {
+  return requested
+}
+
+/** Subscribe to changes; returns an unsubscribe fn. What the hook uses. */
+export function subscribeSpellPanel(cb: () => void): () => void {
+  listeners.add(cb)
+  return () => listeners.delete(cb)
+}
+
 export function useSpellPanelRequest(): SpellPanelRequest | null {
-  return useSyncExternalStore(
-    (cb) => {
-      listeners.add(cb)
-      return () => listeners.delete(cb)
-    },
-    () => requested,
-  )
+  return useSyncExternalStore(subscribeSpellPanel, () => requested)
 }

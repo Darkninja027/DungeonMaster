@@ -4,6 +4,7 @@ level: 0
 school: conjuration
 classes: Druid, Sorcerer, Warlock, Wizard
 srd: false
+edition: 2014
 ---
 
 # Infestation

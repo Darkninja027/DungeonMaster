@@ -5,6 +5,7 @@ school: illusion
 classes: Bard, Sorcerer, Wizard
 srd: false
 source: Player's Handbook
+edition: 2024
 ---
 
 # Greater Invisibility

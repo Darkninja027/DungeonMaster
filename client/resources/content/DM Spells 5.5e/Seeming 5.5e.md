@@ -3,6 +3,7 @@ type: spell
 level: 5
 school: illusion
 classes: Bard, Sorcerer, Wizard
+edition: 2024
 ---
 
 # Seeming

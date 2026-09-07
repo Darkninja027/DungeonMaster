@@ -4,6 +4,7 @@ level: 5
 school: evocation
 classes: Sorcerer, Wizard
 srd: false
+edition: 2014
 ---
 
 # Immolation

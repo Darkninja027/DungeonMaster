@@ -4,6 +4,7 @@ level: 4
 school: conjuration
 classes: Paladin
 srd: false
+edition: 2014
 ---
 
 # Find Greater Steed

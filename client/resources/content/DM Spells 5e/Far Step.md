@@ -4,6 +4,7 @@ level: 5
 school: conjuration
 classes: Sorcerer, Warlock, Wizard
 srd: false
+edition: 2014
 ---
 
 # Far Step

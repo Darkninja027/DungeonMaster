@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Link } from '@tanstack/react-router'
 import { Trash2 } from 'lucide-react'
 import { clearRollLog, useRollLog } from '#/lib/rollLog'
+import { DiceRoller } from '#/components/DiceRoller'
 import { Button } from '#/components/ui/button'
 import { ScrollArea } from '#/components/ui/scroll-area'
 
@@ -17,12 +18,20 @@ export function RollHistory() {
   // Filter by roll source (article/character), keyed by articleId.
   const [sourceFilter, setSourceFilter] = useState('')
 
+  // The roller stays even with an empty log — an empty log is exactly when
+  // someone wants to roll something, so an early return here would hide it at
+  // the only moment it is the obvious thing on screen.
   if (allRolls.length === 0) {
     return (
-      <p className="text-muted-foreground p-4 text-sm">
-        Click any dice chip or "Roll" button in an article and the result shows
-        up here.
-      </p>
+      <div className="flex h-full flex-col">
+        <div className="border-b">
+          <DiceRoller />
+        </div>
+        <p className="text-muted-foreground p-4 text-sm">
+          Roll something above, or click any dice chip in an article, and the
+          result shows up here.
+        </p>
+      </div>
     )
   }
 
@@ -36,6 +45,9 @@ export function RollHistory() {
 
   return (
     <div className="flex h-full flex-col">
+      <div className="border-b">
+        <DiceRoller />
+      </div>
       <div className="flex items-center gap-2 border-b px-3 py-1.5">
         {sources.size > 1 ? (
           <select
@@ -68,6 +80,13 @@ export function RollHistory() {
         <ul className="divide-y">
           {rolls.map((roll) => (
             <li key={roll.id} className="px-3 py-2 text-sm">
+              {roll.seat && (
+                <p className="text-muted-foreground text-xs">
+                  {roll.seat.character
+                    ? `${roll.seat.name} as ${roll.seat.character}`
+                    : roll.seat.name}
+                </p>
+              )}
               <div className="flex items-baseline gap-2">
                 {roll.label && (
                   <span
@@ -93,18 +112,33 @@ export function RollHistory() {
                   {roll.detail}
                 </p>
               )}
-              {roll.source && (
-                <Link
-                  to="/worlds/$worldId/articles/$articleId"
-                  params={{
-                    worldId: roll.source.worldId,
-                    articleId: roll.source.articleId,
-                  }}
-                  className="text-muted-foreground hover:text-foreground text-xs underline"
-                >
-                  {roll.source.title}
-                </Link>
-              )}
+              {roll.source &&
+                // A roll relayed from another machine is LABEL ONLY. Its
+                // source named an article in the host's world, and the ids
+                // are stripped at the wire (forGuests in tableHost.ts)
+                // because a world id is hex of the host's absolute path.
+                //
+                // Guarding on the ids rather than on `seat` is deliberate:
+                // the DM's own rolls reach guests with no seat at all, so a
+                // seat check would leave exactly those rendering a Link with
+                // undefined params — which builds a broken route, and on one
+                // machine testing both ends actually navigates the DM window.
+                (!roll.source.worldId || !roll.source.articleId ? (
+                  <span className="text-muted-foreground text-xs">
+                    {roll.source.title}
+                  </span>
+                ) : (
+                  <Link
+                    to="/worlds/$worldId/articles/$articleId"
+                    params={{
+                      worldId: roll.source.worldId,
+                      articleId: roll.source.articleId,
+                    }}
+                    className="text-muted-foreground hover:text-foreground text-xs underline"
+                  >
+                    {roll.source.title}
+                  </Link>
+                ))}
             </li>
           ))}
         </ul>

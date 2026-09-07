@@ -3,6 +3,7 @@ type: spell
 level: 9
 school: conjuration
 classes: Cleric
+edition: 2014
 ---
 
 # Mass Heal

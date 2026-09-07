@@ -3,6 +3,7 @@ type: spell
 level: 1
 school: abjuration
 classes: Bard, Cleric, Druid
+edition: 2024
 ---
 
 # Healing Word

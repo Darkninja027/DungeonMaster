@@ -3,6 +3,7 @@ type: spell
 level: 2
 school: enchantment
 classes: Bard, Cleric, Sorcerer, Warlock, Wizard
+edition: 2014
 ---
 
 # Suggestion

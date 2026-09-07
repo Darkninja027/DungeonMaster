@@ -3,6 +3,7 @@ type: spell
 level: 1
 school: evocation
 classes: Cleric
+edition: 2024
 ---
 
 # Guiding Bolt

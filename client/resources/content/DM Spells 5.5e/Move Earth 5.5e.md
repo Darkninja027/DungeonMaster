@@ -3,6 +3,7 @@ type: spell
 level: 6
 school: transmutation
 classes: Druid, Sorcerer, Wizard
+edition: 2024
 ---
 
 # Move Earth

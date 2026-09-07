@@ -3,6 +3,7 @@ type: spell
 level: 7
 school: transmutation
 classes: Wizard
+edition: 2014
 ---
 
 # Sequester

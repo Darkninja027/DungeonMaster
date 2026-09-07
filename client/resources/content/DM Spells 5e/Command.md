@@ -3,6 +3,7 @@ type: spell
 level: 1
 school: enchantment
 classes: Cleric, Paladin, Warlock
+edition: 2014
 ---
 
 # Command

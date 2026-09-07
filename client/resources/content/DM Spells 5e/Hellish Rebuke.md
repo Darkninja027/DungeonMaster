@@ -3,6 +3,7 @@ type: spell
 level: 1
 school: evocation
 classes: Paladin, Warlock
+edition: 2014
 ---
 
 # Hellish Rebuke

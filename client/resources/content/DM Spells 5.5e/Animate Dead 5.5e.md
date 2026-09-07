@@ -3,6 +3,7 @@ type: spell
 level: 3
 school: necromancy
 classes: Cleric, Wizard
+edition: 2024
 ---
 
 # Animate Dead

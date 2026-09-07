@@ -4,6 +4,7 @@ level: 2
 school: illusion
 classes: Wizard
 srd: false
+edition: 2014
 ---
 
 # Nystul's Magic Aura

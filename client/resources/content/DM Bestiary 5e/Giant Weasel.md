@@ -3,6 +3,7 @@ type: monster
 tags: []
 cr: "1/8"
 xp: 25
+edition: 2014
 ---
 
 ```statblock

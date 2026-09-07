@@ -4,6 +4,7 @@ level: 4
 school: conjuration
 classes: Warlock (Optional), Wizard
 srd: false
+edition: 2014
 ---
 
 # Summon Greater Demon

@@ -3,6 +3,7 @@ type: spell
 level: 4
 school: illusion
 classes: Bard, Druid, Sorcerer, Warlock, Wizard
+edition: 2014
 ---
 
 # Greater Invisibility

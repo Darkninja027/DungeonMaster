@@ -3,6 +3,7 @@ type: spell
 level: 3
 school: abjuration
 classes: Bard, Cleric, Druid, Paladin, Sorcerer, Warlock, Wizard
+edition: 2014
 ---
 
 # Dispel Magic

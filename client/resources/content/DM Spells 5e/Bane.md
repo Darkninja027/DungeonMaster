@@ -3,6 +3,7 @@ type: spell
 level: 1
 school: enchantment
 classes: Bard, Cleric, Paladin
+edition: 2014
 ---
 
 # Bane

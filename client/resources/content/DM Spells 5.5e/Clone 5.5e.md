@@ -3,6 +3,7 @@ type: spell
 level: 8
 school: necromancy
 classes: Wizard
+edition: 2024
 ---
 
 # Clone

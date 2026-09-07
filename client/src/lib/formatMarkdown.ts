@@ -113,6 +113,135 @@ export function serializePages(pages: Array<BookPage>): string {
 }
 
 /**
+ * DM-only blocks: content the DM sees but the players never do.
+ *
+ *   :::dm
+ *   Strahd already knows they are coming.
+ *   :::
+ *
+ * Three-colon containers because Obsidian renders an unknown one as literal
+ * text and round-trips it untouched — a world folder has to stay readable
+ * there. `%%dm%%` was rejected because Obsidian's own comment syntax hides
+ * content in BOTH views, which defeats the DM-side box, and HTML comments
+ * because Tidy's remark round-trip strips them.
+ *
+ * The fence run may be longer than three (::::) and the `dm` word is
+ * case-insensitive; the closer is a bare run of colons.
+ */
+const DM_OPEN = /^ {0,3}(:{3,})[ \t]*dm[ \t]*$/i
+const DM_CLOSE = /^ {0,3}(:{3,})[ \t]*$/
+/** Same grammar as toc.ts's FENCE — a code fence opener, ``` or ~~~. */
+const CODE_FENCE = /^ {0,3}(`{3,}|~{3,})/
+
+/**
+ * The marker `mark` mode emits as the first line of its blockquote. Chosen to
+ * mirror GitHub/Obsidian callout syntax, and parsed by remark-gfm already —
+ * which is why this needs no remark plugin. It is purely an internal
+ * representation: the form on disk is always `:::dm`.
+ */
+export const DM_CALLOUT_MARKER = '[!dm]'
+
+/**
+ * Strip or mark up every `:::dm` block.
+ *
+ * - `'strip'` removes them entirely. This is what the player window renders,
+ *   so it is the security-critical direction.
+ * - `'mark'` rewrites each into a blockquote led by DM_CALLOUT_MARKER, which
+ *   the renderer styles as a tinted "DM only" box.
+ *
+ * Runs BEFORE parsePages, so in `strip` mode a \page inside a block vanishes
+ * with it and the player's page count legitimately differs from the DM's. In
+ * `mark` mode a \page or \columns line inside a block is dropped instead: the
+ * block becomes one blockquote, and a page break through the middle of it
+ * would split the box across two sheets and render broken.
+ *
+ * Three deliberate rules, each of which has a test:
+ *   1. An UNCLOSED block strips to the end of the document. A DM who forgot
+ *      the closing ::: has written secret content, so leaking it is the
+ *      catastrophic failure and truncating the players' view is the
+ *      recoverable one. Fail closed.
+ *   2. `:::dm` inside a code fence is literal text and survives both modes —
+ *      the fence state machine tracks the fence CHARACTER and run length, so
+ *      a ~~~ line cannot close a ``` block (same rule as toc.ts).
+ *   3. No nesting. A second opener while already inside a block is content.
+ */
+export function transformDmBlocks(
+  text: string,
+  mode: 'strip' | 'mark',
+): string {
+  // Split on either line ending and rejoin with \n, exactly as parsePages
+  // does: article content on disk may be CRLF (Obsidian on Windows), and a
+  // trailing \r would defeat the anchored $ in DM_OPEN — which fails by
+  // leaving the block unrecognised, i.e. by putting a secret on the projector.
+  const lines = text.split(/\r?\n/)
+  const out: Array<string> = []
+  let openFence: string | null = null
+  let inDm = false
+
+  for (const line of lines) {
+    const fence = line.match(CODE_FENCE)
+
+    // Inside a code fence nothing is a marker — but the fence still has to be
+    // tracked while inside a DM block, or a ::: within a fenced example would
+    // close the block early.
+    if (openFence) {
+      if (
+        fence &&
+        fence[1][0] === openFence[0] &&
+        fence[1].length >= openFence.length &&
+        line.slice(line.indexOf(fence[1]) + fence[1].length).trim() === ''
+      ) {
+        openFence = null
+      }
+      if (!inDm) out.push(line)
+      else if (mode === 'mark') out.push(`> ${line}`)
+      continue
+    }
+
+    if (fence) {
+      openFence = fence[1]
+      if (!inDm) out.push(line)
+      else if (mode === 'mark') out.push(`> ${line}`)
+      continue
+    }
+
+    if (!inDm) {
+      if (DM_OPEN.test(line)) {
+        inDm = true
+        if (mode === 'mark') {
+          // The marker needs its own paragraph inside the blockquote, or
+          // remark's lazy continuation folds it into the first line of the
+          // content and the renderer cannot tell the two apart. The bare `>`
+          // is what forces the break.
+          out.push(`> ${DM_CALLOUT_MARKER}`)
+          out.push('>')
+        }
+        continue
+      }
+      out.push(line)
+      continue
+    }
+
+    // Inside a DM block.
+    if (DM_CLOSE.test(line)) {
+      inDm = false
+      continue
+    }
+    if (mode === 'mark') {
+      const trimmed = line.trim()
+      // A page break inside a callout is meaningless — see the doc comment.
+      if (PAGE_MARKER.test(trimmed) || COLUMNS_MARKER.test(trimmed)) continue
+      out.push(`> ${line}`)
+    }
+    // strip mode: drop the line. An unclosed block therefore runs to EOF.
+  }
+
+  // A stripped block leaves the blank lines that surrounded it behind, which
+  // would otherwise stack up as vertical space on the players' page.
+  return out.join('\n').replace(/\n{3,}/g, '\n\n')
+}
+
+/**
  * Parse and re-serialize markdown to normalize formatting: aligns table
  * pipes, fixes heading/list spacing, and consistent emphasis markers.
  * Runs per page so \page / \columns markers survive untouched.
@@ -174,9 +303,63 @@ export function resolveWikiLinks(
     })
 }
 
+/**
+ * Rewrite [[links]] naming one of `noteTitles` into `note:` links, run BEFORE
+ * resolveWikiLinks sees them.
+ *
+ * The vault is characters, not a campaign: a broken link there becomes a note
+ * in the character's own frontmatter, and a note has no article id and so no
+ * URL. Without this pass such a link would keep rendering as `missing:` — a
+ * dashed "click to create it" that recreates the note it already made, forever.
+ *
+ * A separate scheme rather than a fake article link because a note really is a
+ * different kind of target: the renderer scrolls to it, it never navigates. An
+ * unmatched title is returned verbatim so resolveWikiLinks still gets its shot,
+ * which makes an empty list an exact passthrough — every non-vault caller.
+ */
+export function resolveNoteLinks(
+  text: string,
+  noteTitles: Array<string>,
+  articles?: Array<{ title: string }>,
+): string {
+  if (noteTitles.length === 0) return text
+  // An article of the same name outranks a note: it is navigable, and a note
+  // is only scrolled to. This pass runs FIRST (it has to — it consumes the
+  // link before resolveWikiLinks sees it), so the precedence has to be applied
+  // here rather than by ordering. WikiText and useWikiLinkOpener check
+  // articles first for the same reason; all three must agree.
+  const claimed = new Set(
+    (articles ?? []).map((a) => a.title.trim().toLowerCase()),
+  )
+  const known = new Set(
+    noteTitles
+      .map((t) => t.trim().toLowerCase())
+      .filter((t) => !claimed.has(t)),
+  )
+  if (known.size === 0) return text
+  // A fresh regex, never the shared WIKI_LINK: a `g`-flagged object carries a
+  // mutable lastIndex between callers. See WIKI_LINK_SOURCE above.
+  const re = new RegExp(WIKI_LINK_SOURCE, 'g')
+  // remark escapes leading brackets as \[\[ — normalize before matching
+  return text
+    .replaceAll('\\[\\[', '[[')
+    .replace(re, (whole, title: string, display?: string) => {
+      if (!known.has(title.trim().toLowerCase())) return whole
+      const label = (display ?? title).trim()
+      return `[${label}](note:${encodeURIComponent(title.trim())})`
+    })
+}
+
 // Exported for the live-preview decorator, so the editor chips exactly what
 // this module would linkify. See WIKI_LINK_SOURCE for why it's a string.
-export const DICE_NOTATION = String.raw`\d{0,2}d\d{1,3}(?:[+-]\d{1,3})?`
+/**
+ * The `NdN` core stays tight — no space before or after the `d` — because
+ * "you have 1 d6 left" is prose, not a roll. Only the modifier may be spaced,
+ * since `1d6 + 3` is how people actually type damage. rollDice() strips
+ * whitespace before parsing, so a spaced notation rolls the same as a tight
+ * one; this grammar is only about what becomes a clickable chip.
+ */
+export const DICE_NOTATION = String.raw`\d{0,2}d\d{1,3}(?:\s*[+-]\s*\d{1,3})?`
 const CODE_SPANS = '```[\\s\\S]*?```|`[^`\\n]*`'
 // A complete named-roll link, either form: [Short Sword](2d6+3) or (dice:2d6+3)
 export const NAMED_ROLL_SOURCE = String.raw`\[([^\]\n]+)\]\((?:dice:)?(${DICE_NOTATION})\)`
@@ -271,6 +454,13 @@ export const snippets = {
   ].join('\n'),
   readAloud:
     '> Boxed read-aloud text: describe the scene to your players here.',
+  // Stripped from the player window entirely (transformDmBlocks); shown to the
+  // DM as a tinted box. The Insert menu is how anyone discovers this syntax.
+  dmOnly: [
+    ':::dm',
+    'Only you can see this. The player window strips it entirely.',
+    ':::',
+  ].join('\n'),
   divider: '---',
   namedRoll: '[Short Sword](1d20+5)',
   // #hidename must trail the label: the chip shows only the dice, while roll

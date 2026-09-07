@@ -3,6 +3,7 @@ type: spell
 level: 1
 school: conjuration
 classes: Druid
+edition: 2014
 ---
 
 # Entangle

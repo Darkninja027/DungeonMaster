@@ -5,7 +5,8 @@ import { Pencil, Settings2 } from 'lucide-react'
 import { api } from '#/lib/api'
 import { WorldSidebar } from '#/components/WorldSidebar'
 import { WorldModeSwitcher } from '#/components/WorldModeSwitcher'
-import { useWorldMode } from '#/lib/useWorldSettings'
+import { useGuestSheetWrites } from '#/lib/useGuestSheetWrites'
+import { useIsVault, useWorldMode } from '#/lib/useWorldSettings'
 import { useRegisterSidebar, useSidebarOpen } from '#/lib/sidebarState'
 import { SessionPanel } from '#/components/SessionPanel'
 import { CommandPalette } from '#/components/CommandPalette'
@@ -27,8 +28,17 @@ export const Route = createFileRoute('/worlds/$worldId')({
 function WorldLayout() {
   const { worldId } = Route.useParams()
   const shows = useWorldMode(worldId).shows
+  // The vault is one character at a time: everything in the sidebar is either
+  // about a campaign it doesn't have, or a character list the home screen
+  // already offers. Not rendering it (rather than collapsing it) is what makes
+  // useSidebarPresent report false, so the toggle and its Ctrl+\ shortcut
+  // stand down instead of offering to open an empty panel.
+  const isVault = useIsVault(worldId)
+  // Apply sheet edits arriving from LAN guests. No-ops when not hosting, and
+  // mounted here so it runs once per world in the DM window only.
+  useGuestSheetWrites(worldId)
   // The header's toggle lives in __root.tsx, so visibility is a module store.
-  useRegisterSidebar()
+  useRegisterSidebar(!isVault)
   const sidebarOpen = useSidebarOpen()
   const queryClient = useQueryClient()
   const world = useQuery({
@@ -78,7 +88,7 @@ function WorldLayout() {
 
   return (
     <div className="flex h-full">
-      {sidebarOpen && (
+      {sidebarOpen && !isVault && (
         <div className="flex h-full w-72 shrink-0 flex-col">
           <div className="group flex items-start gap-1 border-b border-r px-3 py-2">
             <div className="min-w-0 flex-1">

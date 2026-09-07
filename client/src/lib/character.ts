@@ -1,5 +1,7 @@
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 import { joinFrontmatter, splitFrontmatter } from './formatMarkdown'
+import { RULESET_IDS } from './ruleset'
+import type { Ruleset } from './ruleset'
 
 /**
  * A character is a normal markdown article whose YAML frontmatter carries
@@ -370,6 +372,58 @@ export function notePreview(text: string): string {
 }
 
 /**
+ * Today as YYYY-MM-DD in local time — `toISOString` would use UTC and can
+ * stamp yesterday's date on an evening session.
+ */
+export function todayLocal(): string {
+  const d = new Date()
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+}
+
+/**
+ * The note a [[wiki link]] title refers to, or undefined. Case- and
+ * space-insensitive, the same rule resolveWikiLinks and useWikiLinkOpener use —
+ * a link typed [[waterdeep]] must find the note titled "Waterdeep", or the
+ * vault would offer to create a duplicate that differs only in case.
+ *
+ * Matches on `title` only, never on notePreview(text): an untitled note's
+ * preview is its first line of prose, and letting a link claim that would make
+ * resolution depend on what someone happened to type at the top of an
+ * unrelated note.
+ */
+export function findNoteByTitle(
+  notes: Array<CharacterNote>,
+  title: string,
+): { note: CharacterNote; index: number } | undefined {
+  const wanted = title.trim().toLowerCase()
+  if (!wanted) return undefined
+  const index = notes.findIndex(
+    (n) => (n.title ?? '').trim().toLowerCase() === wanted,
+  )
+  return index === -1 ? undefined : { note: notes[index], index }
+}
+
+/** Note titles, for wiki-link resolution. An untitled note has no target. */
+export function noteTitles(notes: Array<CharacterNote>): Array<string> {
+  return notes.map((n) => n.title?.trim() ?? '').filter((t) => t !== '')
+}
+
+/**
+ * A note for a [[link]] the vault had nowhere else to put. Tagged `lore` rather
+ * than SESSION_TAG on purpose: sessionNotes() gates what prints on the sheet,
+ * and a stub note has no business appearing under a "Session Notes" caption.
+ */
+export function noteFromWikiLink(title: string, text: string): CharacterNote {
+  return {
+    at: todayLocal(),
+    title: title.trim(),
+    tags: ['lore'],
+    text,
+  }
+}
+
+/**
  * A class feature gained at a given level — "Cunning Action" at rogue 2, a
  * subclass feature at 3. Features above the character's current level are kept
  * (so you can plan a build ahead of time) and shown greyed out.
@@ -590,6 +644,23 @@ export interface Character {
    */
   halfProficiency: HalfProficiency | null
   /**
+   * Which edition's spells and bestiary this character is offered, when the
+   * world it lives in cannot say.
+   *
+   * A campaign world answers this for every character in it (worldSettings
+   * `ruleset`), and that stays the rule — this field is `null` there and the
+   * world wins. The vault is the case it exists for: it holds characters from
+   * several different games at once, so "one edition per folder" is the wrong
+   * shape. Aria can be 2024 while Bryn is 2014.
+   *
+   * Null (the usual case, and every sheet written before this existed) means
+   * "ask the world", which lands on the world's own setting or `all`.
+   *
+   * Filtering is a view concern only, exactly as lib/ruleset.ts says: nothing
+   * is deleted, and switching to `all` shows everything again.
+   */
+  ruleset: Ruleset | null
+  /**
    * Other proficiencies. Free text so homebrew and individually granted weapons
    * survive; `ARMOR_PROFICIENCIES` / `WEAPON_CATEGORIES` are editor affordances,
    * not filters. Known tokens store lowercase, free text keeps its own casing.
@@ -684,6 +755,7 @@ export function emptyCharacter(): Character {
     skills: [],
     expertise: [],
     halfProficiency: null,
+    ruleset: null,
     armor: [],
     weapons: [],
     tools: [],
@@ -1835,6 +1907,11 @@ export function parseCharacter(content: string): {
   // the sheet from opening.
   const half = str(r.halfProficiency, '').trim().toLowerCase()
   c.halfProficiency = half === 'all' || half === 'physical' ? half : null
+  // Not parseRuleset: that falls back to 'all' for anything unknown, which
+  // would turn "absent" into a decision. Absent has to stay null — it is what
+  // means "ask the world".
+  const rules = str(r.ruleset, '').trim().toLowerCase()
+  c.ruleset = RULESET_IDS.includes(rules as Ruleset) ? (rules as Ruleset) : null
 
   // Deliberately unfiltered, unlike skills above: an unrecognised entry is
   // homebrew or an individually granted weapon, not a mistake to discard.
@@ -2060,6 +2137,9 @@ export function serializeCharacter(character: Character, body: string): string {
     ...(character.halfProficiency
       ? { halfProficiency: character.halfProficiency }
       : {}),
+    // Same omit-when-absent rule: a character that defers to its world writes
+    // no key, so an old sheet round-trips byte-identically.
+    ...(character.ruleset ? { ruleset: character.ruleset } : {}),
     armor: character.armor,
     weapons: character.weapons,
     tools: character.tools,

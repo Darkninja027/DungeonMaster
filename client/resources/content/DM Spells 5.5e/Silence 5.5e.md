@@ -3,6 +3,7 @@ type: spell
 level: 2
 school: illusion
 classes: Bard, Cleric, Ranger
+edition: 2024
 ---
 
 # Silence

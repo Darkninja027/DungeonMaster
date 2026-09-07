@@ -4,6 +4,7 @@ level: 1
 school: conjuration
 classes: Warlock
 srd: false
+edition: 2014
 ---
 
 # Arms of Hadar

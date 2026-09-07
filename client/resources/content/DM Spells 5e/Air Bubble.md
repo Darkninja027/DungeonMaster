@@ -4,6 +4,7 @@ level: 2
 school: conjuration
 classes: Artificer, Druid, Ranger, Sorcerer, Wizard
 srd: false
+edition: 2014
 ---
 
 # Air Bubble

@@ -3,6 +3,7 @@ type: spell
 level: 8
 school: evocation
 classes: Druid, Sorcerer, Wizard
+edition: 2014
 ---
 
 # Sunburst

@@ -3,6 +3,7 @@ type: spell
 level: 5
 school: conjuration
 classes: Druid, Sorcerer, Wizard
+edition: 2014
 ---
 
 # Cloudkill

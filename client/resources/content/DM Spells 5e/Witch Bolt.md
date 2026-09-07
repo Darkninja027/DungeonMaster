@@ -4,6 +4,7 @@ level: 1
 school: evocation
 classes: Sorcerer, Warlock, Wizard
 srd: false
+edition: 2014
 ---
 
 # Witch Bolt

@@ -4,6 +4,7 @@ level: 4
 school: conjuration
 classes: Artificer, Wizard (Optional)
 srd: false
+edition: 2014
 ---
 
 # Summon Construct

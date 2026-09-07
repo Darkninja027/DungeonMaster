@@ -5,6 +5,7 @@ school: transmutation
 classes: Artificer, Druid
 srd: false
 source: Player's Handbook
+edition: 2024
 ---
 
 # Thorn Whip

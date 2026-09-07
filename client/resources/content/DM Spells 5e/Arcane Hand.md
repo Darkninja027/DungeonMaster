@@ -3,6 +3,7 @@ type: spell
 level: 5
 school: evocation
 classes: Wizard
+edition: 2014
 ---
 
 # Arcane Hand

@@ -4,6 +4,7 @@ level: 2
 school: conjuration
 classes: Druid, Sorcerer, Wizard
 srd: false
+edition: 2014
 ---
 
 # Dust Devil

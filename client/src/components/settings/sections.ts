@@ -1,5 +1,6 @@
-import { Library, Pencil, Sparkles } from 'lucide-react'
+import { Library, Pencil, Scale, Sparkles } from 'lucide-react'
 import { EditorSection } from './EditorSection'
+import { RulesSection } from './RulesSection'
 import { LibrarySection } from './LibrarySection'
 import { HomebrewSection } from './homebrew/HomebrewSection'
 import type { LucideIcon } from 'lucide-react'
@@ -30,6 +31,13 @@ export const SETTINGS_SECTIONS: Array<SettingsSection> = [
     icon: Pencil,
     blurb: 'How articles open for editing.',
     Component: EditorSection,
+  },
+  {
+    id: 'rules',
+    label: 'Rules',
+    icon: Scale,
+    blurb: "Which edition's spells and monsters this world uses.",
+    Component: RulesSection,
   },
   // These last two are the odd ones out: app-wide rather than per-world, so
   // they don't belong among the settings this world saves for itself.

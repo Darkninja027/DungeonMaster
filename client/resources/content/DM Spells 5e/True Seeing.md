@@ -3,6 +3,7 @@ type: spell
 level: 6
 school: divination
 classes: Bard, Cleric, Sorcerer, Warlock, Wizard
+edition: 2014
 ---
 
 # True Seeing

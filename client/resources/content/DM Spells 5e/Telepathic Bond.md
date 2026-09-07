@@ -3,6 +3,7 @@ type: spell
 level: 5
 school: divination
 classes: Wizard
+edition: 2014
 ---
 
 # Telepathic Bond

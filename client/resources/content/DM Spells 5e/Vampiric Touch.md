@@ -3,6 +3,7 @@ type: spell
 level: 3
 school: necromancy
 classes: Warlock, Wizard
+edition: 2014
 ---
 
 # Vampiric Touch

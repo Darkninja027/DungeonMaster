@@ -4,6 +4,7 @@ level: 3
 school: abjuration
 classes: Artificer, Bard (Optional), Sorcerer (Optional), Warlock (Optional), Wizard (Optional)
 srd: false
+edition: 2014
 ---
 
 # Intellect Fortress

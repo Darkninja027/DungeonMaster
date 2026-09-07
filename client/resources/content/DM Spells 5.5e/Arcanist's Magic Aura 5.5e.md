@@ -3,6 +3,7 @@ type: spell
 level: 2
 school: illusion
 classes: Wizard
+edition: 2024
 ---
 
 # Arcanist's Magic Aura

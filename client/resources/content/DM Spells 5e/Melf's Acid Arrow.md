@@ -4,6 +4,7 @@ level: 2
 school: evocation
 classes: Wizard
 srd: false
+edition: 2014
 ---
 
 # Melf's Acid Arrow

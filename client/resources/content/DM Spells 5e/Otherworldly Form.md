@@ -4,6 +4,7 @@ level: 6
 school: transmutation
 classes: Cleric, Sorcerer, Warlock, Wizard
 srd: false
+edition: 2014
 ---
 
 # Otherworldly Form

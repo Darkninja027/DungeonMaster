@@ -3,6 +3,7 @@ type: spell
 level: 7
 school: transmutation
 classes: Bard, Cleric, Sorcerer, Warlock, Wizard
+edition: 2014
 ---
 
 # Etherealness

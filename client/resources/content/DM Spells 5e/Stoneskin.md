@@ -3,6 +3,7 @@ type: spell
 level: 4
 school: abjuration
 classes: Cleric, Druid, Paladin, Ranger, Sorcerer, Wizard
+edition: 2014
 ---
 
 # Stoneskin

@@ -35,7 +35,8 @@ export const liveTheme = EditorView.theme({
   '.cm-dm-strike': { textDecoration: 'line-through', opacity: '0.7' },
   '.cm-dm-code': {
     fontFamily: 'var(--font-mono, ui-monospace, monospace)',
-    backgroundColor: 'color-mix(in oklab, var(--muted-foreground) 18%, transparent)',
+    backgroundColor:
+      'color-mix(in oklab, var(--muted-foreground) 18%, transparent)',
     borderRadius: '3px',
     padding: '0.05em 0.3em',
   },
@@ -54,7 +55,8 @@ export const liveTheme = EditorView.theme({
 
   // Blockquote: a bar down the line, standing in for the hidden `>`.
   '.cm-dm-quote': {
-    borderLeft: '3px solid color-mix(in oklab, var(--primary) 50%, transparent)',
+    borderLeft:
+      '3px solid color-mix(in oklab, var(--primary) 50%, transparent)',
     paddingLeft: '0.75ch',
     fontStyle: 'italic',
   },
@@ -149,5 +151,37 @@ export const liveTheme = EditorView.theme({
     minWidth: '7ch',
     paddingRight: '1.5ch',
     fontVariantNumeric: 'tabular-nums',
+  },
+
+  // --- [[ ]] autocomplete --------------------------------------------------
+  // CodeMirror's default completion panel is hard-coded light, so it is
+  // unreadable in dark mode. Restated against the app's tokens like everything
+  // else here.
+  '.cm-tooltip.cm-tooltip-autocomplete': {
+    backgroundColor: 'var(--popover)',
+    color: 'var(--popover-foreground)',
+    border: '1px solid var(--border)',
+    borderRadius: 'var(--radius, 6px)',
+    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.18)',
+    overflow: 'hidden',
+  },
+  '.cm-tooltip.cm-tooltip-autocomplete > ul': {
+    fontFamily: 'inherit',
+    maxHeight: '16rem',
+  },
+  '.cm-tooltip.cm-tooltip-autocomplete > ul > li': {
+    padding: '0.25rem 0.6rem',
+    lineHeight: '1.5',
+  },
+  '.cm-tooltip.cm-tooltip-autocomplete > ul > li[aria-selected]': {
+    backgroundColor: 'var(--accent)',
+    color: 'var(--accent-foreground)',
+  },
+  // The folder an article lives in, shown after the title.
+  '.cm-completionDetail': {
+    marginLeft: '0.75ch',
+    fontStyle: 'normal',
+    opacity: '0.6',
+    fontSize: '0.85em',
   },
 })

@@ -4,6 +4,7 @@ level: 0
 school: transmutation
 classes: Druid
 srd: false
+edition: 2014
 ---
 
 # Primal Savagery

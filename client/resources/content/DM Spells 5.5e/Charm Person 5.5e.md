@@ -3,6 +3,7 @@ type: spell
 level: 1
 school: enchantment
 classes: Bard, Druid, Sorcerer, Warlock, Wizard
+edition: 2024
 ---
 
 # Charm Person

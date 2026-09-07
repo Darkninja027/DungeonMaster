@@ -5,6 +5,7 @@ school: enchantment
 classes: Sorcerer, Warlock, Wizard
 srd: false
 source: Player's Handbook
+edition: 2024
 ---
 
 # Mind Sliver

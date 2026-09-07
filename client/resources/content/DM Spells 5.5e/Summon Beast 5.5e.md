@@ -5,6 +5,7 @@ school: conjuration
 classes: Druid, Ranger
 srd: false
 source: Player's Handbook
+edition: 2024
 ---
 
 # Summon Beast

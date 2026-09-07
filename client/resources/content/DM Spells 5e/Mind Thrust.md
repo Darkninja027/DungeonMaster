@@ -4,6 +4,7 @@ level: 2
 school: enchantment
 classes: Sorcerer, Warlock, Wizard
 srd: false
+edition: 2014
 ---
 
 # Mind Thrust

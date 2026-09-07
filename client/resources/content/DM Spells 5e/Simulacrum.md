@@ -3,6 +3,7 @@ type: spell
 level: 7
 school: illusion
 classes: Wizard
+edition: 2014
 ---
 
 # Simulacrum

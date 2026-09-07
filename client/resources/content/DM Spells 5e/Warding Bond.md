@@ -3,6 +3,7 @@ type: spell
 level: 2
 school: abjuration
 classes: Cleric
+edition: 2014
 ---
 
 # Warding Bond

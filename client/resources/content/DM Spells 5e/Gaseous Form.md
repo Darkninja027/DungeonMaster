@@ -3,6 +3,7 @@ type: spell
 level: 3
 school: transmutation
 classes: Druid, Sorcerer, Warlock, Wizard
+edition: 2014
 ---
 
 # Gaseous Form

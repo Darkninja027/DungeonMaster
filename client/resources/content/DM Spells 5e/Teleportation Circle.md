@@ -3,6 +3,7 @@ type: spell
 level: 5
 school: conjuration
 classes: Bard, Sorcerer, Wizard
+edition: 2014
 ---
 
 # Teleportation Circle

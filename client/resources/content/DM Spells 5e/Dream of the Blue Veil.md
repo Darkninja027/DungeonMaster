@@ -4,6 +4,7 @@ level: 7
 school: conjuration
 classes: Bard (Optional), Sorcerer (Optional), Warlock (Optional), Wizard (Optional)
 srd: false
+edition: 2014
 ---
 
 # Dream of the Blue Veil

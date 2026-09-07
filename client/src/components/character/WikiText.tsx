@@ -10,11 +10,20 @@ export function WikiText({
   text,
   worldId,
   articles,
+  noteTitles,
+  onOpenNote,
   onCreateMissing,
 }: {
   text: string
   worldId: string
   articles?: Array<{ id: string; title: string }>
+  /**
+   * The open character's note titles, for the vault. Checked only when no
+   * article matched, so an article always wins — it is navigable, a note is
+   * not. Mirrors resolveNoteLinks in formatMarkdown.ts.
+   */
+  noteTitles?: Array<string>
+  onOpenNote?: (title: string) => void
   onCreateMissing?: (title: string) => void
 }) {
   const parts = text.split(/(\[\[[^\][\n]+\]\])/)
@@ -30,6 +39,22 @@ export function WikiText({
           (a) => a.title.toLowerCase() === title.toLowerCase(),
         )
         if (!target) {
+          const isNote = noteTitles?.some(
+            (t) => t.trim().toLowerCase() === title.toLowerCase(),
+          )
+          if (isNote && onOpenNote) {
+            return (
+              <button
+                key={i}
+                type="button"
+                title="A note on this character — click to open it"
+                className="text-primary cursor-pointer underline underline-offset-2"
+                onClick={() => onOpenNote(title)}
+              >
+                {label}
+              </button>
+            )
+          }
           if (!onCreateMissing) {
             return (
               <span key={i} className="underline decoration-dashed opacity-70">

@@ -3,6 +3,7 @@ type: spell
 level: 7
 school: transmutation
 classes: Druid, Sorcerer, Wizard
+edition: 2014
 ---
 
 # Reverse Gravity

@@ -3,6 +3,7 @@ type: spell
 level: 6
 school: evocation
 classes: Cleric, Druid
+edition: 2014
 ---
 
 # Heal

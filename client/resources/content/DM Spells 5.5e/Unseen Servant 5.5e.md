@@ -3,6 +3,7 @@ type: spell
 level: 1
 school: conjuration
 classes: Bard, Warlock, Wizard
+edition: 2024
 ---
 
 # Unseen Servant

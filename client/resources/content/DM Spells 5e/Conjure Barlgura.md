@@ -4,6 +4,7 @@ level: 4
 school: conjuration
 classes: Sorcerer, Wizard
 srd: false
+edition: 2014
 ---
 
 # Conjure Barlgura

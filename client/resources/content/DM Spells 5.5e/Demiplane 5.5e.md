@@ -3,6 +3,7 @@ type: spell
 level: 8
 school: conjuration
 classes: Sorcerer, Warlock, Wizard
+edition: 2024
 ---
 
 # Demiplane

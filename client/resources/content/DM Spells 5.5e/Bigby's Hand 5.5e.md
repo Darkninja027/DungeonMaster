@@ -5,6 +5,7 @@ school: evocation
 classes: Artificer, Sorcerer, Wizard
 srd: false
 source: Player's Handbook
+edition: 2024
 ---
 
 # Bigby's Hand

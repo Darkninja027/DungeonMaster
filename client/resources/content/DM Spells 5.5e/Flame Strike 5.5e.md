@@ -3,6 +3,7 @@ type: spell
 level: 5
 school: evocation
 classes: Cleric
+edition: 2024
 ---
 
 # Flame Strike

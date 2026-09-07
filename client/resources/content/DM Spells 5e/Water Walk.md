@@ -3,6 +3,7 @@ type: spell
 level: 3
 school: transmutation
 classes: Cleric, Druid, Ranger, Ritual Caster, Sorcerer
+edition: 2014
 ---
 
 # Water Walk

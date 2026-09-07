@@ -3,6 +3,7 @@ type: spell
 level: 6
 school: transmutation
 classes: Sorcerer, Wizard
+edition: 2014
 ---
 
 # Disintegrate

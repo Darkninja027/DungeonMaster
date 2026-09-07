@@ -3,6 +3,7 @@ type: spell
 level: 3
 school: illusion
 classes: Wizard
+edition: 2024
 ---
 
 # Phantom Steed

@@ -4,6 +4,7 @@ level: 1
 school: transmutation
 classes: Wizard (Dunamancy)
 srd: false
+edition: 2014
 ---
 
 # Magnify Gravity

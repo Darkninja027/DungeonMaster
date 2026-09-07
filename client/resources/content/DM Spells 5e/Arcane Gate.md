@@ -4,6 +4,7 @@ level: 6
 school: conjuration
 classes: Sorcerer, Warlock, Wizard
 srd: false
+edition: 2014
 ---
 
 # Arcane Gate

@@ -4,6 +4,7 @@ level: 1
 school: transmutation
 classes: Sorcerer, Wizard, Artificer
 srd: false
+edition: 2014
 ---
 
 # Catapult

@@ -3,6 +3,7 @@ type: spell
 level: 6
 school: necromancy
 classes: Sorcerer, Warlock, Wizard
+edition: 2024
 ---
 
 # Circle of Death

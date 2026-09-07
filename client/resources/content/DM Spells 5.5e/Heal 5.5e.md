@@ -3,6 +3,7 @@ type: spell
 level: 6
 school: abjuration
 classes: Cleric, Druid
+edition: 2024
 ---
 
 # Heal

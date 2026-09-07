@@ -12,6 +12,8 @@ import {
   PopoverTrigger,
 } from '#/components/ui/popover'
 import { NumField } from '#/components/character/NumField'
+import { DEFAULT_RULESET, RULESETS } from '#/lib/ruleset'
+import type { Ruleset } from '#/lib/ruleset'
 import { cn } from '#/lib/utils'
 
 /**
@@ -47,11 +49,18 @@ export function IdentityPopover({
   onChange,
   classes,
   onLevelUp,
+  showRuleset,
 }: {
   character: Character
   onChange: (next: Character) => void
   classes: Array<ClassInfo>
   onLevelUp: (to: number) => void
+  /**
+   * Offer the rules edition. True only where the folder cannot answer — the
+   * vault — matching the creation wizard's own rule. A campaign world sets this
+   * once in its settings for every character in it.
+   */
+  showRuleset?: boolean
 }) {
   const uid = useId()
   const summary = identitySummary(character)
@@ -169,6 +178,34 @@ export function IdentityPopover({
               onChange({ ...character, alignment: e.target.value })
             }
           />
+
+          {showRuleset && (
+            <>
+              <Label htmlFor={`${uid}-ruleset`} className={label}>
+                Rules
+              </Label>
+              <select
+                id={`${uid}-ruleset`}
+                className={cn(
+                  'border-input bg-background rounded-md border px-2',
+                  field,
+                )}
+                value={character.ruleset ?? DEFAULT_RULESET}
+                onChange={(e) =>
+                  onChange({
+                    ...character,
+                    ruleset: e.target.value as Ruleset,
+                  })
+                }
+              >
+                {RULESETS.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.label}
+                  </option>
+                ))}
+              </select>
+            </>
+          )}
 
           <Label htmlFor={`${uid}-level`} className={label}>
             Level

@@ -3,6 +3,7 @@ type: spell
 level: 3
 school: necromancy
 classes: Cleric, Druid, Paladin, Ranger
+edition: 2024
 ---
 
 # Revivify

@@ -4,6 +4,7 @@ level: 7
 school: transmutation
 classes: Wizard
 srd: false
+edition: 2014
 ---
 
 # Create Magen

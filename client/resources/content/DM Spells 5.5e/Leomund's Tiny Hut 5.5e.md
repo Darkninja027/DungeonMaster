@@ -5,6 +5,7 @@ school: evocation
 classes: Bard, Wizard
 srd: false
 source: Player's Handbook
+edition: 2024
 ---
 
 # Leomund's Tiny Hut

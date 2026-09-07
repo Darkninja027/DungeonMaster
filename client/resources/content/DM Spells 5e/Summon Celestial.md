@@ -4,6 +4,7 @@ level: 5
 school: conjuration
 classes: Cleric (Optional), Paladin (Optional)
 srd: false
+edition: 2014
 ---
 
 # Summon Celestial

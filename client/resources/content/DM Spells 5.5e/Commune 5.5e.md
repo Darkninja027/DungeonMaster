@@ -3,6 +3,7 @@ type: spell
 level: 5
 school: divination
 classes: Cleric
+edition: 2024
 ---
 
 # Commune

@@ -4,6 +4,7 @@ level: 0
 school: evocation
 classes: Cleric
 srd: false
+edition: 2014
 ---
 
 # Hand of Radiance

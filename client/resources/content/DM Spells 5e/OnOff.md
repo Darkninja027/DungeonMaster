@@ -4,6 +4,7 @@ level: 0
 school: transmutation
 classes: Sorcerer, Warlock, Wizard
 srd: false
+edition: 2014
 ---
 
 # On/Off

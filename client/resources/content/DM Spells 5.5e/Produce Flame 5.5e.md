@@ -3,6 +3,7 @@ type: spell
 level: 0
 school: conjuration
 classes: Druid
+edition: 2024
 ---
 
 # Produce Flame

@@ -5,6 +5,7 @@ school: evocation
 classes: Sorcerer, Warlock, Wizard
 srd: false
 source: Player's Handbook
+edition: 2024
 ---
 
 # Witch Bolt

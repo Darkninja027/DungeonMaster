@@ -3,6 +3,7 @@ type: spell
 level: 9
 school: abjuration
 classes: Warlock, Wizard
+edition: 2024
 ---
 
 # Imprisonment

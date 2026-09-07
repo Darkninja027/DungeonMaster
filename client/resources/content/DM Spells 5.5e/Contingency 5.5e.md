@@ -3,6 +3,7 @@ type: spell
 level: 6
 school: abjuration
 classes: Wizard
+edition: 2024
 ---
 
 # Contingency

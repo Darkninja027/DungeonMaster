@@ -61,11 +61,7 @@ function inTableHeader(tree: Tree, pos: number): boolean {
 
 /** True when `pos` sits inside a code span or fence. */
 function inCode(tree: Tree, pos: number): boolean {
-  for (
-    let n: SyntaxNode | null = tree.resolveInner(pos, 1);
-    n;
-    n = n.parent
-  ) {
+  for (let n: SyntaxNode | null = tree.resolveInner(pos, 1); n; n = n.parent) {
     if (
       n.name === 'InlineCode' ||
       n.name === 'FencedCode' ||
@@ -354,7 +350,10 @@ function frontmatterEnd(state: EditorState, out: Array<Pending>): number {
   return 0
 }
 
-function build(view: EditorView): DecorationSet {
+function build(view: EditorView): {
+  decorations: DecorationSet
+  atomic: DecorationSet
+} {
   const out: Array<Pending> = []
   // An unfocused editor has no meaningful cursor, but its selection still
   // reads as offset 0 — which would "reveal" whatever starts the document,
@@ -374,18 +373,37 @@ function build(view: EditorView): DecorationSet {
   // Two passes each emit in document order, but merged they are not ordered at
   // all — and CodeMirror throws on unsorted input. Sort once, at the end.
   out.sort(bySortOrder)
-  return Decoration.set(
-    out.map((p) => p.deco.range(p.from, p.to)),
-    true,
-  )
+  return {
+    decorations: Decoration.set(
+      out.map((p) => p.deco.range(p.from, p.to)),
+      true,
+    ),
+    /*
+      Only the decorations that actually COLLAPSE text may be atomic, which is
+      exactly the replace ones (`point` is true for a replace, false for a
+      mark). Making the whole set atomic swept up the plain styling marks too —
+      and `cm-dm-wikilink` spans the entire link label, so one backspace inside
+      `[[Strahdd]]` deleted the whole label rather than the typo. The caret
+      still must not enter a hidden `**`, which is what atomic ranges are for;
+      styling a range is no reason to make it indivisible.
+    */
+    atomic: Decoration.set(
+      out.filter((p) => p.deco.point).map((p) => p.deco.range(p.from, p.to)),
+      true,
+    ),
+  }
 }
 
 export const liveDecorations = ViewPlugin.fromClass(
   class {
     decorations: DecorationSet
+    /** The collapsing subset — see the note in `build`. */
+    atomic: DecorationSet
 
     constructor(view: EditorView) {
-      this.decorations = build(view)
+      const built = build(view)
+      this.decorations = built.decorations
+      this.atomic = built.atomic
     }
 
     update(update: ViewUpdate) {
@@ -400,7 +418,9 @@ export const liveDecorations = ViewPlugin.fromClass(
         update.viewportChanged ||
         update.focusChanged
       ) {
-        this.decorations = build(update.view)
+        const built = build(update.view)
+        this.decorations = built.decorations
+        this.atomic = built.atomic
       }
     }
   },
@@ -409,9 +429,13 @@ export const liveDecorations = ViewPlugin.fromClass(
     // Hidden `**` is zero pixels wide but two characters long. Without atomic
     // ranges the caret steps into the collapsed region and appears stuck —
     // this is not polish, the editor feels broken within seconds.
+    //
+    // `atomic`, NOT `decorations`: see the note in `build`. Handing the whole
+    // set over made every styled range indivisible, so backspacing a typo in a
+    // [[wiki link]] deleted the entire label.
     provide: (plugin) =>
       EditorView.atomicRanges.of(
-        (view) => view.plugin(plugin)?.decorations ?? Decoration.none,
+        (view) => view.plugin(plugin)?.atomic ?? Decoration.none,
       ),
   },
 )

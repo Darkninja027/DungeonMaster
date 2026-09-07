@@ -3,6 +3,7 @@ type: spell
 level: 3
 school: abjuration
 classes: Bard, Cleric, Ranger, Wizard
+edition: 2014
 ---
 
 # Nondetection

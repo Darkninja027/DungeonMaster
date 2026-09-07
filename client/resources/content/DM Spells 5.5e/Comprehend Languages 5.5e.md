@@ -3,6 +3,7 @@ type: spell
 level: 1
 school: divination
 classes: Bard, Sorcerer, Warlock, Wizard
+edition: 2024
 ---
 
 # Comprehend Languages

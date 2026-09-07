@@ -3,6 +3,7 @@ type: spell
 level: 0
 school: transmutation
 classes: Bard, Sorcerer, Wizard
+edition: 2014
 ---
 
 # Message

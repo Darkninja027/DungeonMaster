@@ -5,6 +5,7 @@ school: abjuration
 classes: Cleric, Druid, Paladin
 srd: false
 source: Player's Handbook
+edition: 2024
 ---
 
 # Aura of Vitality

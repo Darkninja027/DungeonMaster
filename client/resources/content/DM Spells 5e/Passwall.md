@@ -3,6 +3,7 @@ type: spell
 level: 5
 school: transmutation
 classes: Druid, Wizard
+edition: 2014
 ---
 
 # Passwall

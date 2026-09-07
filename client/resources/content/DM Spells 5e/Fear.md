@@ -3,6 +3,7 @@ type: spell
 level: 3
 school: illusion
 classes: Bard, Sorcerer, Warlock, Wizard
+edition: 2014
 ---
 
 # Fear

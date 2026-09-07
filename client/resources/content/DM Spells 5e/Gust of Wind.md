@@ -3,6 +3,7 @@ type: spell
 level: 2
 school: evocation
 classes: Cleric, Druid, Sorcerer, Wizard
+edition: 2014
 ---
 
 # Gust of Wind

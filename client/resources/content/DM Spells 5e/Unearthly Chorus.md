@@ -4,6 +4,7 @@ level: 1
 school: illusion
 classes: Bard
 srd: false
+edition: 2014
 ---
 
 # Unearthly Chorus

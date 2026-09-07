@@ -3,6 +3,7 @@ type: spell
 level: 4
 school: conjuration
 classes: Wizard
+edition: 2014
 ---
 
 # Secret Chest

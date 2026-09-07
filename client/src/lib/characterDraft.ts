@@ -11,6 +11,7 @@
  */
 
 import type { Ability } from './character'
+import type { Ruleset } from './ruleset'
 import { ABILITIES, ABILITY_NAMES, skillIdFor } from './character'
 import { emptyAbilityDraft, abilitiesValid } from './abilityMethods'
 import type { AbilityDraft } from './abilityMethods'
@@ -64,6 +65,16 @@ export interface CharacterDraft {
   kits: Array<ClassKit>
   /** Feats offered for the Variant Human pick. Homebrew-only; see lib/srd/feats.ts. */
   feats: Array<FeatInfo>
+
+  /**
+   * The edition this character is built under, written onto the sheet.
+   *
+   * Null in a campaign world, whose own `ruleset` already answers for every
+   * character in it — the wizard inherits it and records nothing, so a sheet
+   * there is unchanged. The vault sets it: it has no edition of its own, so
+   * the answer has to live on the character.
+   */
+  ruleset: Ruleset | null
 
   raceName: string
   subraceName: string
@@ -129,6 +140,7 @@ export function emptyDraft(
     : classesOrTables
   return {
     name: '',
+    ruleset: null,
     races: tables.races,
     backgrounds: tables.backgrounds,
     kits: tables.kits,

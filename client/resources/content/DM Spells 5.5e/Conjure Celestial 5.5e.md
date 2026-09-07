@@ -3,6 +3,7 @@ type: spell
 level: 7
 school: conjuration
 classes: Cleric
+edition: 2024
 ---
 
 # Conjure Celestial

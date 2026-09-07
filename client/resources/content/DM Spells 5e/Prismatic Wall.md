@@ -3,6 +3,7 @@ type: spell
 level: 9
 school: abjuration
 classes: Wizard
+edition: 2014
 ---
 
 # Prismatic Wall

@@ -3,6 +3,7 @@ type: spell
 level: 7
 school: evocation
 classes: Bard, Wizard
+edition: 2024
 ---
 
 # Arcane Sword

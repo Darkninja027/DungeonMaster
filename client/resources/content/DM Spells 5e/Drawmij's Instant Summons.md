@@ -4,6 +4,7 @@ level: 6
 school: conjuration
 classes: Wizard
 srd: false
+edition: 2014
 ---
 
 # Drawmij's Instant Summons

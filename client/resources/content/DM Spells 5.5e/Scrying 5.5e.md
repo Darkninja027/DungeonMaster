@@ -3,6 +3,7 @@ type: spell
 level: 5
 school: divination
 classes: Bard, Cleric, Druid, Warlock, Wizard
+edition: 2024
 ---
 
 # Scrying

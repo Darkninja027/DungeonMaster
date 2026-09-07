@@ -3,6 +3,7 @@ type: spell
 level: 5
 school: conjuration
 classes: Cleric, Druid, Sorcerer
+edition: 2014
 ---
 
 # Insect Plague

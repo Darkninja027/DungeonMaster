@@ -3,6 +3,7 @@ type: spell
 level: 6
 school: evocation
 classes: Cleric, Druid, Sorcerer, Wizard
+edition: 2024
 ---
 
 # Sunbeam

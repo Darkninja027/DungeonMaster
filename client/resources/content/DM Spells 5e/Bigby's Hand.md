@@ -4,6 +4,7 @@ level: 5
 school: evocation
 classes: Artificer, Sorcerer (Optional), Wizard
 srd: false
+edition: 2014
 ---
 
 # Bigby's Hand

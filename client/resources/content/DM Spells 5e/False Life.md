@@ -3,6 +3,7 @@ type: spell
 level: 1
 school: necromancy
 classes: Sorcerer, Wizard
+edition: 2014
 ---
 
 # False Life

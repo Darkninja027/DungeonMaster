@@ -3,6 +3,7 @@ import {
   toggleSidebar,
   useClaimSidebarToggle,
   useSidebarOpen,
+  useSidebarPresent,
 } from '#/lib/sidebarState'
 import { Button } from '#/components/ui/button'
 import { cn } from '#/lib/utils'
@@ -26,7 +27,13 @@ export function SidebarToggle({
   claim?: boolean
 }) {
   const open = useSidebarOpen()
-  useClaimSidebarToggle(claim)
+  const present = useSidebarPresent()
+  // Nothing to toggle: the vault renders no sidebar, and a button that opens an
+  // empty rail is worse than no button. Claimed before the bail-out so the hook
+  // order stays fixed, and so the app header's fallback isn't offered either —
+  // it checks useSidebarPresent too.
+  useClaimSidebarToggle(claim && present)
+  if (!present) return null
 
   return (
     <Button

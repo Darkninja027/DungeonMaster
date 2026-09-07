@@ -1,4 +1,6 @@
 import type { CharacterDraft } from '#/lib/characterDraft'
+import { DEFAULT_RULESET, RULESETS } from '#/lib/ruleset'
+import type { Ruleset } from '#/lib/ruleset'
 import { nameProblem } from '#/lib/characterDraft'
 import { Input } from '#/components/ui/input'
 import { Label } from '#/components/ui/label'
@@ -31,9 +33,19 @@ const ALIGNMENT_NAMES: Record<string, string> = {
 export function NameStep({
   draft,
   onChange,
+  askRuleset,
 }: {
   draft: CharacterDraft
   onChange: (next: CharacterDraft) => void
+  /**
+   * Ask which edition this character plays under.
+   *
+   * True only where the folder cannot answer — the vault, which holds
+   * characters from several different games and so has no `ruleset` of its
+   * own. A campaign world does answer, and asking there would be a second
+   * place the same fact could live.
+   */
+  askRuleset?: boolean
 }) {
   // Only complain once they have typed something — an error on an untouched
   // field is nagging, not helping.
@@ -59,6 +71,30 @@ export function NameStep({
           </p>
         )}
       </div>
+
+      {askRuleset && (
+        <div className="grid gap-2">
+          <Label htmlFor="wizard-ruleset">Rules</Label>
+          <select
+            id="wizard-ruleset"
+            className="border-input bg-background h-9 w-56 rounded-md border px-2 text-sm"
+            value={draft.ruleset ?? DEFAULT_RULESET}
+            onChange={(e) =>
+              onChange({ ...draft, ruleset: e.target.value as Ruleset })
+            }
+          >
+            {RULESETS.map((r) => (
+              <option key={r.id} value={r.id}>
+                {r.label}
+              </option>
+            ))}
+          </select>
+          <p className="text-muted-foreground text-xs">
+            Which edition&rsquo;s spells and monsters this character is offered.
+            Changeable later on the sheet.
+          </p>
+        </div>
+      )}
 
       <div className="grid gap-2">
         <Label htmlFor="wizard-alignment">Alignment</Label>

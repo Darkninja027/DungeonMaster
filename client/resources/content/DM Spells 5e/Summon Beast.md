@@ -4,6 +4,7 @@ level: 2
 school: conjuration
 classes: Druid (Optional), Ranger (Optional)
 srd: false
+edition: 2014
 ---
 
 # Summon Beast

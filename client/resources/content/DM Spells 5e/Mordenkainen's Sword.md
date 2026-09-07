@@ -4,6 +4,7 @@ level: 7
 school: evocation
 classes: Bard, Wizard
 srd: false
+edition: 2014
 ---
 
 # Mordenkainen's Sword

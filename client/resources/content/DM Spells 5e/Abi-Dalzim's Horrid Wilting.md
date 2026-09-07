@@ -4,6 +4,7 @@ level: 8
 school: necromancy
 classes: Sorcerer, Wizard
 srd: false
+edition: 2014
 ---
 
 # Abi-Dalzim's Horrid Wilting

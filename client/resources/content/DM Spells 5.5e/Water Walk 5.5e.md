@@ -3,6 +3,7 @@ type: spell
 level: 3
 school: transmutation
 classes: Cleric, Druid, Ranger, Sorcerer
+edition: 2024
 ---
 
 # Water Walk

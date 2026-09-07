@@ -8,11 +8,15 @@ import {
   Plus,
   UserPlus,
   Users,
+  Wifi,
   X,
 } from 'lucide-react'
 import { api } from '#/lib/api'
 import type { WorldSummary } from '#/lib/api'
 import { REVEAL_LABEL, revealer } from '#/lib/reveal'
+import { NEW_WORLD_RULESET, RULESETS } from '#/lib/ruleset'
+import type { Ruleset } from '#/lib/ruleset'
+import { cn } from '#/lib/utils'
 import { CreateCharacterDialog } from '#/components/character/create/CreateCharacterDialog'
 import { Button } from '#/components/ui/button'
 import {
@@ -151,6 +155,11 @@ function WorldsPage() {
   const [open, setOpen] = useState(false)
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
+  // Defaults to the current rules rather than "show everything": someone
+  // starting a world today is most likely playing them, and the setting is one
+  // click to change. An existing world is never narrowed this way — an absent
+  // key still parses to "show everything".
+  const [ruleset, setRuleset] = useState<Ruleset>(NEW_WORLD_RULESET)
 
   const goTo = (world: WorldSummary | null) => {
     void queryClient.invalidateQueries({ queryKey: ['worlds'] })
@@ -158,6 +167,7 @@ function WorldsPage() {
       setOpen(false)
       setName('')
       setDescription('')
+      setRuleset(NEW_WORLD_RULESET)
       void navigate({ to: '/worlds/$worldId', params: { worldId: world.id } })
     }
   }
@@ -189,6 +199,12 @@ function WorldsPage() {
           </p>
         </div>
         <div className="flex gap-2">
+          {/* Joining needs no world of your own — the host pushes everything. */}
+          <Button variant="outline" asChild>
+            <Link to="/join">
+              <Wifi /> Join a Table
+            </Link>
+          </Button>
           <Button
             variant="outline"
             disabled={openWorld.isPending}
@@ -225,6 +241,32 @@ function WorldsPage() {
                     onChange={(e) => setDescription(e.target.value)}
                   />
                 </div>
+                <div className="grid gap-2">
+                  <Label>Rules edition</Label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {RULESETS.map((option) => (
+                      <button
+                        key={option.id}
+                        type="button"
+                        aria-pressed={ruleset === option.id}
+                        title={option.blurb}
+                        className={cn(
+                          'rounded-md border px-3 py-2 text-sm',
+                          ruleset === option.id
+                            ? 'border-primary bg-accent'
+                            : 'hover:bg-accent/50',
+                        )}
+                        onClick={() => setRuleset(option.id)}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-muted-foreground text-xs">
+                    Which edition's spells and monsters this world offers. You
+                    can change it later in Settings.
+                  </p>
+                </div>
                 <p className="text-muted-foreground text-xs">
                   You'll pick where to create the world folder next.
                 </p>
@@ -237,7 +279,9 @@ function WorldsPage() {
               <DialogFooter>
                 <Button
                   disabled={!name.trim() || createWorld.isPending}
-                  onClick={() => createWorld.mutate({ name, description })}
+                  onClick={() =>
+                    createWorld.mutate({ name, description, ruleset })
+                  }
                 >
                   Create
                 </Button>

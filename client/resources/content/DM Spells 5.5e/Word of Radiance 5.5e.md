@@ -5,6 +5,7 @@ school: evocation
 classes: Cleric
 srd: false
 source: Player's Handbook
+edition: 2024
 ---
 
 # Word of Radiance

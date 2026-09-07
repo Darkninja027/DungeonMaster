@@ -3,6 +3,7 @@ type: spell
 level: 2
 school: evocation
 classes: Druid, Sorcerer
+edition: 2024
 ---
 
 # Flame Blade

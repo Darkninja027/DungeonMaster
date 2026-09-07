@@ -3,6 +3,7 @@ type: spell
 level: 7
 school: transmutation
 classes: Bard, Cleric, Druid
+edition: 2014
 ---
 
 # Regenerate

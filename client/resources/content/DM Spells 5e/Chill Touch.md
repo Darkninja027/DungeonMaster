@@ -3,6 +3,7 @@ type: spell
 level: 0
 school: necromancy
 classes: Sorcerer, Warlock, Wizard
+edition: 2014
 ---
 
 # Chill Touch

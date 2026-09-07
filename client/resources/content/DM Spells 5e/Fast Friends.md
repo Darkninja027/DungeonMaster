@@ -4,6 +4,7 @@ level: 3
 school: enchantment
 classes: Bard, Cleric, Wizard
 srd: false
+edition: 2014
 ---
 
 # Fast Friends

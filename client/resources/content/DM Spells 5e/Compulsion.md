@@ -3,6 +3,7 @@ type: spell
 level: 4
 school: enchantment
 classes: Bard
+edition: 2014
 ---
 
 # Compulsion

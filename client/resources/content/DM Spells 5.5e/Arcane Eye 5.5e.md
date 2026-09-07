@@ -3,6 +3,7 @@ type: spell
 level: 4
 school: divination
 classes: Wizard
+edition: 2024
 ---
 
 # Arcane Eye

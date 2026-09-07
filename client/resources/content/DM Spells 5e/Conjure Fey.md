@@ -3,6 +3,7 @@ type: spell
 level: 6
 school: conjuration
 classes: Druid, Warlock
+edition: 2014
 ---
 
 # Conjure Fey

@@ -3,6 +3,7 @@ type: spell
 level: 2
 school: illusion
 classes: Sorcerer, Wizard
+edition: 2024
 ---
 
 # Blur

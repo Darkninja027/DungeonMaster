@@ -4,6 +4,7 @@ level: 3
 school: conjuration
 classes: Ranger
 srd: false
+edition: 2014
 ---
 
 # Conjure Barrage

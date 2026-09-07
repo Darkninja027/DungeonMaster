@@ -3,6 +3,7 @@ type: spell
 level: 8
 school: enchantment
 classes: Druid, Wizard
+edition: 2014
 ---
 
 # Antipathy/Sympathy

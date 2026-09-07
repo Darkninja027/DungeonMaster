@@ -4,6 +4,7 @@ level: 1
 school: divination
 classes: Druid, Ranger
 srd: false
+edition: 2014
 ---
 
 # Beast Bond

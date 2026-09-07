@@ -4,6 +4,7 @@ level: 1
 school: abjuration
 classes: Artificer, Druid, Ranger, Sorcerer, Wizard
 srd: false
+edition: 2014
 ---
 
 # Absorb Elements

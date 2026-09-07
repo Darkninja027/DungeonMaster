@@ -3,6 +3,7 @@ type: spell
 level: 7
 school: abjuration
 classes: Bard, Cleric, Druid, Wizard
+edition: 2024
 ---
 
 # Symbol
