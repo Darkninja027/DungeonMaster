@@ -138,7 +138,10 @@ function DialogTitle({
   return (
     <DialogPrimitive.Title
       data-slot="dialog-title"
-      className={cn('text-lg leading-none font-semibold', className)}
+      // `tome-heading` here rather than at each call site: every dialog in the
+      // app gets the sourcebook's voice from one edit, and a caller that wants
+      // something else still overrides via className.
+      className={cn('tome-heading text-lg leading-none', className)}
       {...props}
     />
   )

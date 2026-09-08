@@ -28,7 +28,8 @@ function describeQuery(query: ArticleQuery): string {
   const parts: Array<string> = []
   if (query.type) parts.push(`type:${query.type}`)
   for (const t of query.tags ?? []) parts.push(`tag:${t}`)
-  for (const [k, v] of Object.entries(query.fields ?? {})) parts.push(`${k}:${v}`)
+  for (const [k, v] of Object.entries(query.fields ?? {}))
+    parts.push(`${k}:${v}`)
   return parts.join(' ') || 'no filters (matches nothing)'
 }
 
@@ -39,7 +40,11 @@ function describeQuery(query: ArticleQuery): string {
  */
 /** Clean a typed value: drop wrapping [ ] and quotes people copy from YAML. */
 function cleanValue(raw: string): string {
-  return raw.trim().replace(/^\[|\]$/g, '').replace(/^["']|["']$/g, '').trim()
+  return raw
+    .trim()
+    .replace(/^\[|\]$/g, '')
+    .replace(/^["']|["']$/g, '')
+    .trim()
 }
 
 function parseQueryInput(text: string): ArticleQuery {
@@ -150,7 +155,7 @@ export function SmartViews({
   return (
     <div className="border-b">
       <div className="flex items-center justify-between px-3 py-2">
-        <span className="text-muted-foreground flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide">
+        <span className="tome-label flex items-center gap-1.5">
           <Filter className="size-3.5" /> Smart Views
         </span>
         <Button
@@ -189,7 +194,10 @@ export function SmartViews({
         ))}
       </div>
 
-      <Dialog open={editor !== null} onOpenChange={(o) => !o && setEditor(null)}>
+      <Dialog
+        open={editor !== null}
+        onOpenChange={(o) => !o && setEditor(null)}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>
@@ -206,9 +214,7 @@ export function SmartViews({
             onKeyDown={(e) => e.key === 'Enter' && submitEditor()}
           />
           <div>
-            <p className="text-muted-foreground mb-1 text-xs font-semibold uppercase tracking-wide">
-              Query
-            </p>
+            <p className="tome-label mb-1">Query</p>
             <Input
               value={editor?.text ?? ''}
               placeholder="type:monster tag:undead region:Barovia"
@@ -225,10 +231,7 @@ export function SmartViews({
             </p>
           </div>
           <DialogFooter>
-            <Button
-              disabled={!editor?.name.trim()}
-              onClick={submitEditor}
-            >
+            <Button disabled={!editor?.name.trim()} onClick={submitEditor}>
               {editor?.id ? 'Save' : 'Create'}
             </Button>
           </DialogFooter>
@@ -263,7 +266,7 @@ function SmartViewRow({
 
   return (
     <div>
-      <div className="hover:bg-accent group flex items-center gap-1 rounded px-2 py-1 text-sm">
+      <div className="tome-row group flex items-center gap-1 rounded px-2 py-1 text-sm">
         <button
           type="button"
           className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
@@ -274,7 +277,7 @@ function SmartViewRow({
           ) : (
             <ChevronRight className="size-3.5 shrink-0" />
           )}
-          <Filter className="size-3.5 shrink-0 text-sky-600" />
+          <Filter className="text-(--tome-gold) size-3.5 shrink-0" />
           <span className="truncate font-medium">{view.name}</span>
           <span className="text-muted-foreground shrink-0 text-xs">
             {results.isSuccess ? count : '…'}
@@ -316,7 +319,8 @@ function SmartViewRow({
               params={{ worldId, articleId: article.id }}
               className={cn(
                 'hover:bg-accent flex items-center gap-1.5 rounded py-1 pl-9 pr-2 text-sm',
-                activeArticleId === article.id && 'bg-accent font-medium',
+                activeArticleId === article.id &&
+                  'bg-(--tome-tint) font-medium text-(--tome-head)',
               )}
             >
               <FileText className="text-muted-foreground size-3.5 shrink-0" />

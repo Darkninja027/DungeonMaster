@@ -316,8 +316,9 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
         setDropTarget(undefined)
       }}
       className={cn(
-        'hover:bg-accent group flex items-center gap-1 rounded px-2 py-1 text-sm',
-        activeArticleId === article.id && 'bg-accent font-medium',
+        'tome-row group flex items-center gap-1 rounded px-2 py-1 text-sm',
+        activeArticleId === article.id &&
+          'bg-(--tome-tint) font-medium text-(--tome-head)',
         dragItem?.type === 'article' &&
           dragItem.id === article.id &&
           'opacity-50',
@@ -427,8 +428,9 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
           }}
           {...dropHandlers(folder.id)}
           className={cn(
-            'hover:bg-accent group flex items-center gap-1 rounded px-2 py-1 text-sm',
-            dropTarget === folder.id && 'bg-accent ring-primary/50 ring-2',
+            'tome-row group flex items-center gap-1 rounded px-2 py-1 text-sm',
+            dropTarget === folder.id &&
+              'bg-(--tome-tint) ring-(--tome-gold)/60 ring-2',
             dragItem?.type === 'folder' &&
               dragItem.id === folder.id &&
               'opacity-50',
@@ -445,7 +447,7 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
             ) : (
               <ChevronDown className="size-3.5 shrink-0" />
             )}
-            <FolderIcon className="size-3.5 shrink-0 text-amber-600" />
+            <FolderIcon className="text-(--tome-gold) size-3.5 shrink-0" />
             <span className="truncate font-medium">{folder.name}</span>
           </button>
           <DropdownMenu>
@@ -529,9 +531,7 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
       {shows.characters && (
         <div className="border-b">
           <div className="flex items-center justify-between px-3 pt-2">
-            <span className="text-muted-foreground text-xs font-semibold uppercase tracking-wide">
-              Characters
-            </span>
+            <span className="tome-label">Characters</span>
             <Button
               variant="ghost"
               size="icon"
@@ -552,8 +552,9 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
               <div
                 key={ch.id}
                 className={cn(
-                  'group hover:bg-accent flex items-center rounded pr-1 text-sm',
-                  activeArticleId === ch.id && 'bg-accent font-medium',
+                  'tome-row group flex items-center rounded pr-1 text-sm',
+                  activeArticleId === ch.id &&
+                    'bg-(--tome-tint) font-medium text-(--tome-head)',
                 )}
               >
                 <Link
@@ -615,9 +616,7 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
       {shows.contentTree && (
         <>
           <div className="flex items-center justify-between border-b px-3 py-2">
-            <span className="text-muted-foreground text-xs font-semibold uppercase tracking-wide">
-              Content
-            </span>
+            <span className="tome-label">Content</span>
             <div className="flex gap-1">
               <Button
                 variant="ghost"
@@ -691,7 +690,7 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
                     key={result.id}
                     to="/worlds/$worldId/articles/$articleId"
                     params={{ worldId, articleId: result.id }}
-                    className="hover:bg-accent block rounded px-2 py-1.5"
+                    className="tome-row block rounded px-2 py-1.5"
                     onClick={() => setSearchInput('')}
                   >
                     <span className="flex items-center gap-1.5 text-sm font-medium">
@@ -714,7 +713,7 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
                   'min-h-full p-2',
                   dragItem &&
                     dropTarget === null &&
-                    'bg-accent/40 rounded ring-primary/30 ring-1',
+                    'bg-(--tome-tint) rounded ring-(--tome-gold)/40 ring-1',
                 )}
                 {...dropHandlers(null)}
               >
@@ -765,9 +764,7 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
           />
           {dialog?.mode === 'new-article' && (
             <div>
-              <p className="text-muted-foreground mb-2 text-xs font-semibold uppercase tracking-wide">
-                Template
-              </p>
+              <p className="tome-label mb-2">Template</p>
               <div className="grid grid-cols-2 gap-2">
                 {articleTemplates.map((template) => (
                   <button

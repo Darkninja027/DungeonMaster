@@ -4,6 +4,7 @@ import {
   collectSpells,
   entryKey,
   filterByEdition,
+  filterByScope,
   filterEntries,
   filterSpells,
   mergeEntries,
@@ -506,5 +507,69 @@ describe('filterByEdition', () => {
     // else genuinely is a different value and is treated as untagged-adjacent
     // only if it matches exactly.
     expect(filterByEdition([entry('Odd', 'MMXIV')], '2014')).toEqual([])
+  })
+})
+
+describe('filterByScope', () => {
+  const entries = mergeEntries(
+    [
+      {
+        worldId: WORLD,
+        articleId: 'Monsters/Goblin',
+        title: 'Goblin',
+        global: false,
+        queryable: true,
+      },
+      {
+        worldId: WORLD,
+        articleId: 'Monsters/Zarbo',
+        title: 'Zarbo the Unready',
+        global: false,
+        queryable: true,
+      },
+    ],
+    [
+      {
+        worldId: LIB,
+        articleId: 'Monsters/Ankheg',
+        title: 'Ankheg',
+        global: true,
+        queryable: true,
+      },
+      {
+        worldId: LIB,
+        articleId: 'Monsters/Mimic',
+        title: 'Mimic',
+        global: true,
+        queryable: true,
+      },
+    ],
+  )
+
+  it('drops every global entry and keeps every world one', () => {
+    expect(filterByScope(entries, 'world').map((e) => e.title)).toEqual([
+      'Goblin',
+      'Zarbo the Unready',
+    ])
+  })
+
+  it('returns the same array for "all", so useMemo deps stay stable', () => {
+    // toBe rather than toEqual on purpose: the identity is the contract. A
+    // regression to an unconditional .filter() would pass toEqual and quietly
+    // rebuild every consumer's memo on each render.
+    expect(filterByScope(entries, 'all')).toBe(entries)
+  })
+
+  it('keeps the merged title order', () => {
+    // The filter narrows a sorted list; it must not reorder what survives.
+    const titles = filterByScope(entries, 'world').map((e) => e.title)
+    expect(titles).toEqual([...titles].sort())
+  })
+
+  it('returns nothing rather than falling back when a world has no own entries', () => {
+    // The empty-state message is what explains this; silently showing the
+    // library instead would make the toggle look broken.
+    const globalOnly = entries.filter((e) => e.global)
+    expect(filterByScope(globalOnly, 'world')).toEqual([])
   })
 })

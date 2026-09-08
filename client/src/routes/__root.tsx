@@ -6,10 +6,12 @@ import {
   useMatchRoute,
 } from '@tanstack/react-router'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { Castle, Moon, Settings2, Sun } from 'lucide-react'
+import { Castle, Moon, Palette, Settings2, Sun } from 'lucide-react'
 import { UpdateIndicator } from '#/components/UpdateIndicator'
 import { LoadingGate } from '#/components/LoadingGate'
 import { isDark, setTheme } from '#/lib/theme'
+import { SKINS, getSkin, setSkin } from '#/lib/skin'
+import type { Skin } from '#/lib/skin'
 import {
   toggleSidebar,
   useHeaderTogglePreferred,
@@ -18,6 +20,14 @@ import {
 import { SidebarToggle } from '#/components/SidebarToggle'
 import { useShortcut } from '#/lib/useShortcut'
 import { Button } from '#/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from '#/components/ui/dropdown-menu'
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } },
@@ -26,6 +36,56 @@ const queryClient = new QueryClient({
 export const Route = createRootRoute({
   component: RootLayout,
 })
+
+/**
+ * The skin picker: which visual identity the app wears.
+ *
+ * Sits beside the light/dark toggle because the two are the same kind of
+ * choice — app-wide, instant, stored in localStorage, and orthogonal to each
+ * other. A radio group rather than a cycling button: with only two skins a
+ * toggle would work, but the names are the point and a third skin is a CSS-only
+ * change that shouldn't need this component rewritten.
+ */
+function SkinPicker() {
+  const [skin, setSkinState] = useState(getSkin())
+  const choose = (next: Skin) => {
+    setSkin(next)
+    setSkinState(next)
+  }
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="size-7"
+          title="Appearance — pick a style set"
+          aria-label="Appearance"
+        >
+          <Palette className="size-4" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-64">
+        <DropdownMenuLabel>Style set</DropdownMenuLabel>
+        <DropdownMenuRadioGroup
+          value={skin}
+          onValueChange={(v) => choose(v as Skin)}
+        >
+          {SKINS.map((entry) => (
+            <DropdownMenuRadioItem key={entry.id} value={entry.id}>
+              <span>
+                <span className="font-medium">{entry.label}</span>
+                <span className="text-muted-foreground block text-xs">
+                  {entry.hint}
+                </span>
+              </span>
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
 
 function ThemeToggle() {
   const [dark, setDark] = useState(isDark())
@@ -125,17 +185,28 @@ function RootLayout() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <div className="flex h-screen flex-col">
+      {/* The shell paints the ground so no route can render transparent over
+          the browser default — every route below is free to paint its own. */}
+      <div className="bg-background flex h-screen flex-col">
         {!bare && (
-          <header className="flex items-center gap-2 border-b px-4 py-2">
+          /* `bg-background` explicitly: the header declares no background of
+             its own, so it let the body's leftover teal gradient show through
+             and clashed with whatever the page below it painted. */
+          <header className="bg-background flex items-center gap-2 border-b px-4 py-2">
             <HeaderSidebarToggle />
-            <Link to="/" className="flex items-center gap-2 font-semibold">
+            {/* `font-display` so the wordmark tracks the active skin and never
+                reads as a different app sitting on the home screen's masthead. */}
+            <Link
+              to="/"
+              className="font-display flex items-center gap-2 text-[0.95rem] font-semibold tracking-wide"
+            >
               <Castle className="size-5" />
               Dungeon Master
             </Link>
             <div className="ml-auto flex items-center gap-1">
               <HeaderWorldSettings />
               <UpdateIndicator />
+              <SkinPicker />
               <ThemeToggle />
             </div>
           </header>

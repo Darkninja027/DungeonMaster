@@ -21,8 +21,7 @@ import {
  * (unclickable) row, so headings take the app's section-header style — the one
  * CONTENT and CHARACTERS use in the sidebar.
  */
-export const MENU_GROUP_LABEL =
-  'text-muted-foreground px-2 pt-2 pb-1 text-xs font-semibold uppercase tracking-wide'
+export const MENU_GROUP_LABEL = 'tome-label px-2 pt-2 pb-1'
 
 /**
  * What this menu needs of an editor, and nothing more.

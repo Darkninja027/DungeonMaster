@@ -7,12 +7,16 @@ import {
   collectMonsters,
   entryKey,
   filterByEdition,
+  filterByScope,
   filterEntries,
   mergeEntries,
 } from '#/lib/bestiary'
 import type { LibraryEntry } from '#/lib/bestiary'
+import { loadLibraryScope } from '#/lib/libraryScope'
+import type { LibraryScope } from '#/lib/libraryScope'
 import { useWorldRuleset } from '#/lib/useWorldSettings'
 import { useLibraryEntries } from '#/lib/useGlobalLibrary'
+import { LibraryScopeButton } from '#/components/LibraryScopeButton'
 import { Input } from '#/components/ui/input'
 import { VirtualList } from '#/components/VirtualList'
 import { initiativeBonus, parseCharacter, signed } from '#/lib/character'
@@ -76,6 +80,11 @@ export function EncounterBuilder({
   // the open world's).
   const [party, setParty] = useState<Set<string>>(new Set())
   const [filter, setFilter] = useState('')
+  // Shares its stored key with the Bestiary panel: the same list in two places,
+  // so the two agreeing is the point.
+  const [scope, setScope] = useState<LibraryScope>(() =>
+    loadLibraryScope('monsters'),
+  )
 
   const tree = useQuery({
     queryKey: ['worlds', worldId, 'tree'],
@@ -97,14 +106,17 @@ export function EncounterBuilder({
   // dedupe across worlds, because they really are different articles.
   const monsterList: Array<LibraryEntry> = useMemo(
     () =>
-      filterByEdition(
-        mergeEntries(
-          collectMonsters(worldId, tree.data, typed.data),
-          library.entries,
+      filterByScope(
+        filterByEdition(
+          mergeEntries(
+            collectMonsters(worldId, tree.data, typed.data),
+            library.entries,
+          ),
+          ruleset,
         ),
-        ruleset,
+        scope,
       ),
-    [worldId, tree.data, typed.data, library.entries, ruleset],
+    [worldId, tree.data, typed.data, library.entries, ruleset, scope],
   )
   const visible = useMemo(
     () => filterEntries(monsterList, filter),
@@ -236,9 +248,7 @@ export function EncounterBuilder({
         <div className="space-y-4 p-2">
           {/* Monsters */}
           <section>
-            <h4 className="text-muted-foreground mb-1 px-1 text-xs font-semibold uppercase tracking-wide">
-              Monsters
-            </h4>
+            <h4 className="tome-label mb-1 px-1">Monsters</h4>
             {/* Searchable, and it has to be: merging the global bestiary in
                 puts ~330 entries here, which a flat list cannot serve. Same
                 shape as the Bestiary tab next door. */}
@@ -261,6 +271,15 @@ export function EncounterBuilder({
                 </button>
               )}
             </div>
+            {library.entries.length > 0 && (
+              <div className="mb-1 flex px-1">
+                <LibraryScopeButton
+                  scope={scope}
+                  kind="monsters"
+                  onChange={setScope}
+                />
+              </div>
+            )}
             {(tree.isLoading || typed.isLoading) && (
               <p className="text-muted-foreground px-1 text-sm">Loading…</p>
             )}
@@ -272,8 +291,10 @@ export function EncounterBuilder({
               empty={
                 <p className="text-muted-foreground p-4 text-sm">
                   {filter
-                    ? 'No monsters match.'
-                    : 'No monsters yet. Create an article from the Monster template.'}
+                    ? `No monsters match${scope === 'world' ? " in this world's own bestiary." : '.'}`
+                    : scope === 'world'
+                      ? 'This world has no monsters of its own. Switch to All to add from the global bestiary.'
+                      : 'No monsters yet. Create an article from the Monster template.'}
                 </p>
               }
               renderRow={(m) => {
@@ -331,9 +352,7 @@ export function EncounterBuilder({
 
           {/* Party */}
           <section>
-            <h4 className="text-muted-foreground mb-1 px-1 text-xs font-semibold uppercase tracking-wide">
-              Party
-            </h4>
+            <h4 className="tome-label mb-1 px-1">Party</h4>
             {characterList.length === 0 && (
               <p className="text-muted-foreground px-1 text-sm">
                 No characters yet.

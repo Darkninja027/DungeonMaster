@@ -598,7 +598,7 @@ function ArticlePage() {
             a keystroke — hence blur/Enter, not `dirty`. */}
         <Input
           value={title}
-          className="max-w-md border-none text-lg font-semibold shadow-none focus-visible:ring-1"
+          className="tome-heading max-w-md border-none text-lg shadow-none focus-visible:ring-1"
           onChange={(e) => {
             setTitle(e.target.value)
             titleDirtyRef.current = true

@@ -90,13 +90,13 @@ function WorldLayout() {
     <div className="flex h-full">
       {sidebarOpen && !isVault && (
         <div className="flex h-full w-72 shrink-0 flex-col">
-          <div className="group flex items-start gap-1 border-b border-r px-3 py-2">
+          <div className="group border-b-(--tome-gold) flex items-start gap-1 border-r border-b-2 px-3 py-2">
             <div className="min-w-0 flex-1">
-              <h2 className="truncate font-semibold">
+              <h2 className="tome-heading truncate text-base">
                 {world.data?.name ?? '…'}
               </h2>
               {world.data?.description && (
-                <p className="text-muted-foreground truncate text-xs">
+                <p className="tome-quiet truncate text-xs">
                   {world.data.description}
                 </p>
               )}

@@ -7,9 +7,12 @@ export const Route = createFileRoute('/worlds/$worldId/')({
 
 function WorldHome() {
   return (
-    <div className="text-muted-foreground flex h-full flex-col items-center justify-center gap-3">
-      <BookOpen className="size-12" />
-      <p>Select an article from the sidebar, or create a new one.</p>
+    <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
+      <BookOpen aria-hidden className="text-(--tome-gold) size-10 opacity-60" />
+      <h2 className="tome-heading text-base">Nothing open</h2>
+      <p className="tome-quiet max-w-[42ch] text-sm">
+        Select an article from the sidebar, or create a new one.
+      </p>
     </div>
   )
 }

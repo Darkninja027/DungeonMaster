@@ -287,6 +287,20 @@ export interface ArticleRef {
    * rather than hiding it; see filterByEdition.
    */
   edition: string | null
+  /**
+   * Frontmatter `class` / `race`, for the same reason as every field above: the
+   * home screen's roster names each character by what they are, and reading it
+   * here costs nothing beyond what the scan already parsed. `level` is shared
+   * with spells rather than repeated.
+   *
+   * Free text on disk, exactly as `lib/srd/` requires — this is whatever the
+   * file says ("Hill Dwarf", "Bard", a homebrew name), never a looked-up id, so
+   * a class the tables have never heard of still displays. Null when absent,
+   * which is what a hand-written or Obsidian-authored character looks like, and
+   * every caller must render that as "nothing" rather than "undefined".
+   */
+  class: string | null
+  race: string | null
 }
 
 /** Case-insensitive equality between a frontmatter scalar and a query string. */
@@ -347,6 +361,8 @@ export function queryArticles(
       school: scalarString(frontmatter?.school),
       classes: scalarList(frontmatter?.classes),
       edition: scalarString(frontmatter?.edition),
+      class: scalarString(frontmatter?.class),
+      race: scalarString(frontmatter?.race),
     })
   }
   return results.sort((a, b) =>

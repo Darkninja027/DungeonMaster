@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { Loader2 } from 'lucide-react'
+import { Castle, Loader2 } from 'lucide-react'
 import { api } from '#/lib/api'
 import type { LibraryStatus } from '#/lib/api'
 import {
@@ -109,13 +109,18 @@ export function LoadingGate({ children }: { children: React.ReactNode }) {
   if (ready) return children
 
   return (
-    <div className="flex h-full items-center justify-center p-6">
+    <div className="tome-page flex h-full items-center justify-center p-6">
       <div className="flex flex-col items-center gap-3 text-center">
-        <Loader2 className="text-muted-foreground size-6 animate-spin" />
-        <p className="text-sm font-medium">
+        <Castle aria-hidden className="text-(--tome-gold) size-9" />
+        <p className="font-display text-(--tome-head) text-xl font-semibold tracking-wide">
+          Dungeon Master
+        </p>
+        <hr className="gold-rule w-35" />
+        <Loader2 className="text-(--tome-gold) mt-2 size-5 animate-spin" />
+        <p className="text-(--tome-ink) text-sm font-medium">
           {seeding ? 'Setting up your library…' : 'Loading global assets'}
         </p>
-        <p className="text-muted-foreground max-w-xs text-xs">
+        <p className="font-serif text-(--tome-soft) max-w-xs text-sm italic">
           {seeding
             ? 'Copying the bundled bestiary and spell list. This only happens once.'
             : 'Reading the shared bestiary and spell list.'}

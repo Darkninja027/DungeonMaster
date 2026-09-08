@@ -455,14 +455,29 @@ export const api = {
       invoke<void>('images:reveal', { worldId, imageId }),
   },
   characters: {
-    /** Articles whose frontmatter declares `type: character`, sorted by title. */
+    /**
+     * Articles whose frontmatter declares `type: character`, sorted by title.
+     *
+     * `class`, `race` and `level` ride along because the scan behind this has
+     * already parsed them — the alternative was reading every character's full
+     * text to re-derive three values it threw away, which is the same trade
+     * `cr`/`xp` made for the bestiary. All three are nullable: a character
+     * hand-written in Obsidian declares none of them, and a caller must render
+     * that as nothing rather than as a gap.
+     */
     list: (worldId: string) =>
-      invoke<Array<{ id: string; folderId: string | null; title: string }>>(
-        'characters:list',
-        {
-          worldId,
-        },
-      ),
+      invoke<
+        Array<{
+          id: string
+          folderId: string | null
+          title: string
+          class: string | null
+          race: string | null
+          level: number | null
+        }>
+      >('characters:list', {
+        worldId,
+      }),
   },
   session: {
     /** Combat/session state stored in the world folder; null if none saved. */

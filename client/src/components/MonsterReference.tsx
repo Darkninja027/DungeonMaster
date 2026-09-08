@@ -30,14 +30,18 @@ import {
   collectMonsters,
   entryKey,
   filterByEdition,
+  filterByScope,
   filterEntries,
   mergeEntries,
 } from '#/lib/bestiary'
 import type { LibraryEntry } from '#/lib/bestiary'
+import { loadLibraryScope } from '#/lib/libraryScope'
+import type { LibraryScope } from '#/lib/libraryScope'
 import { useWorldRuleset } from '#/lib/useWorldSettings'
 import { useOpenCharacterRuleset } from '#/lib/openCharacterRuleset'
 import { useLibraryEntries } from '#/lib/useGlobalLibrary'
 import { LibraryImportButton } from '#/components/LibraryImportButton'
+import { LibraryScopeButton } from '#/components/LibraryScopeButton'
 import { VirtualList } from '#/components/VirtualList'
 import { Button } from '#/components/ui/button'
 import {
@@ -116,6 +120,11 @@ export function MonsterReference({ worldId }: { worldId: string }) {
   const [filter, setFilter] = useState('')
   const [openId, setOpenId] = useState<string | null>(null)
   const [newMonster, setNewMonster] = useState('')
+  // Lazy initialiser: localStorage is read once, not on every render. Shares
+  // its key with the encounter builder — same list, two places.
+  const [scope, setScope] = useState<LibraryScope>(() =>
+    loadLibraryScope('monsters'),
+  )
 
   // Create a bestiary entry and jump to its article to write the stat block.
   const createMonster = useMutation({
@@ -214,16 +223,22 @@ export function MonsterReference({ worldId }: { worldId: string }) {
   const ruleset = openCharacterRuleset ?? worldRuleset
   const monsters = useMemo(
     () =>
-      filterByEdition(
-        mergeEntries(
-          collectMonsters(worldId, tree.data, typed.data, {
-            folder: MONSTERS_FOLDER,
-          }),
-          library.entries,
+      // Scope is applied here rather than after the search box so everything
+      // derived below sees the same list — notably the CR fallback, which would
+      // otherwise fetch articles for rows nobody can see.
+      filterByScope(
+        filterByEdition(
+          mergeEntries(
+            collectMonsters(worldId, tree.data, typed.data, {
+              folder: MONSTERS_FOLDER,
+            }),
+            library.entries,
+          ),
+          ruleset,
         ),
-        ruleset,
+        scope,
       ),
-    [worldId, tree.data, typed.data, library.entries, ruleset],
+    [worldId, tree.data, typed.data, library.entries, ruleset, scope],
   )
 
   // CR/XP for the list rows, taken from the frontmatter the query already
@@ -304,6 +319,13 @@ export function MonsterReference({ worldId }: { worldId: string }) {
               </button>
             )}
           </div>
+          {library.entries.length > 0 && (
+            <LibraryScopeButton
+              scope={scope}
+              kind="monsters"
+              onChange={setScope}
+            />
+          )}
           <LibraryImportButton target="Monsters" />
         </div>
         {libraryUnavailable && (
@@ -320,8 +342,10 @@ export function MonsterReference({ worldId }: { worldId: string }) {
         empty={
           <p className="text-muted-foreground p-4 text-sm">
             {needle
-              ? 'No monsters match.'
-              : 'The bestiary is empty. Add one below to start a stat block.'}
+              ? `No monsters match${scope === 'world' ? " in this world's own bestiary." : '.'}`
+              : scope === 'world'
+                ? 'This world has no monsters of its own yet. Add one below, or switch to All to see the global library.'
+                : 'The bestiary is empty. Add one below to start a stat block.'}
           </p>
         }
         renderRow={(monster) => {
