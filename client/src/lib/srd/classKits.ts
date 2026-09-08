@@ -3687,6 +3687,11 @@ export const SRD_CLASS_KITS: Array<ClassKit> = [
       // from it daily.
       spellsKnown: 6,
       prepares: true,
+      // Two more spells copied into the book at every level after the first.
+      // Deliberately NOT `spellsKnownByLevel`: that table is a *cap* on spells
+      // known, and a wizard has none — the book only ever grows. Without this
+      // a wizard gained nothing but cantrips at every level-up, forever.
+      spellbook: { perLevel: 2 },
       listLabel: 'Wizard spells',
       slotsByLevel: {
         1: [2],

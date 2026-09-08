@@ -653,8 +653,13 @@ export function SpellsStep({
   const before = slotsAtLevel(draft.kit, draft.from, castingAs) ?? []
   const after = slotsAtLevel(draft.kit, draft.to, castingAs) ?? []
   const plan = levelUpPlan(character, draft)
-  const { cantripsToPick, spellsToPick, spellsGranted, alwaysPreparedGained } =
-    plan
+  const {
+    cantripsToPick,
+    spellsToPick,
+    spellbookToPick,
+    spellsGranted,
+    alwaysPreparedGained,
+  } = plan
   // Every spell level the character now has slots for, not just the highest:
   // "a spell of a level for which you have spell slots" means a 7th-level
   // Arcane Trickster may learn a 1st *or* a 2nd level spell. `filterSpells`
@@ -692,6 +697,19 @@ export function SpellsStep({
       ]),
     [character.spells, spellsGranted, alwaysPreparedGained],
   )
+  /**
+   * The two levelled pickers must not offer each other's answers.
+   *
+   * A wizard sees only the spellbook picker today, so this bites only for a
+   * homebrew class offering both — but `chosenSpells` de-dupes on commit, so
+   * without it the sheet would quietly show one row for two spent choices.
+   */
+  const chosenElsewhere = (mine: Array<string>) =>
+    new Set(
+      [...draft.spells, ...draft.spellbook]
+        .filter((name) => !mine.includes(name))
+        .map((name) => name.trim().toLowerCase()),
+    )
   const offer = (level: number, upTo = false) =>
     suggestionsFor(level, upTo).filter(
       (name) => !have.has(name.trim().toLowerCase()),
@@ -761,6 +779,7 @@ export function SpellsStep({
       </div>
       {(cantripsToPick > 0 ||
         spellsToPick > 0 ||
+        spellbookToPick > 0 ||
         spellsGranted.length > 0 ||
         alwaysPreparedGained.length > 0) && (
         <div className="space-y-4">
@@ -840,7 +859,10 @@ export function SpellsStep({
               label="New spells"
               count={spellsToPick}
               values={draft.spells}
-              suggestions={offer(highestSpellLevel, true)}
+              suggestions={offer(highestSpellLevel, true).filter(
+                (name) =>
+                  !chosenElsewhere(draft.spells).has(name.trim().toLowerCase()),
+              )}
               expanded={
                 expandedOffer.length > 0
                   ? {
@@ -850,6 +872,27 @@ export function SpellsStep({
                   : undefined
               }
               onChange={(spells) => onChange({ ...draft, spells })}
+            />
+          )}
+
+          {/*
+            A wizard's own picker. Separate from "New spells" because the two
+            count differently — a spellbook has no cap, so this is a flat two
+            per level rather than a table row — and because a wizard's
+            `spellsToPick` is always 0, being a preparer.
+          */}
+          {spellbookToPick > 0 && (
+            <SpellList
+              label="Copied into your spellbook"
+              count={spellbookToPick}
+              values={draft.spellbook}
+              suggestions={offer(highestSpellLevel, true).filter(
+                (name) =>
+                  !chosenElsewhere(draft.spellbook).has(
+                    name.trim().toLowerCase(),
+                  ),
+              )}
+              onChange={(spellbook) => onChange({ ...draft, spellbook })}
             />
           )}
 
