@@ -283,16 +283,77 @@ export interface Seat {
   joinedAt: number
 }
 
+/**
+ * One of this host's addresses, with why it is ranked where it is.
+ *
+ * Mirrors LanCandidate in electron/main/lan.ts — main and the renderer share no
+ * types, so a field added there needs adding here too.
+ */
+export interface LanCandidate {
+  address: string
+  /** The OS's name for the adapter, e.g. "vEthernet (Default Switch)". */
+  iface: string
+  netmask: string
+  broadcast: string
+  kind: 'private' | 'public' | 'apipa'
+  virtual: boolean
+  /** 0 is a real NIC on a private network; 4 is a self-assigned address. */
+  rank: number
+}
+
+/** Whether LAN discovery is actually working. Mirrors beacon.ts. */
+export interface BeaconStatus {
+  state: 'off' | 'running' | 'failed'
+  interfaces: Array<{ iface: string; address: string; broadcast: string }>
+  failures: number
+  error?: string
+}
+
 /** What the host knows about its own running table. */
 export interface TableInfo {
   tableId: string
   code: string
   port: number
-  /** LAN addresses a guest can reach this host on. */
+  /** LAN addresses a guest can reach this host on, best first. */
   addresses: Array<string>
+  /** The same addresses, with the metadata behind the ranking. */
+  candidates: Array<LanCandidate>
   seats: Array<Seat>
   /** What the guests are looking at, if anything. Identity only. */
   shown: { articleId: string; title: string } | null
+  beacon: BeaconStatus
+  /** False while the socket is still binding, or if binding failed. */
+  listening: boolean
+}
+
+/**
+ * The `table:seats` push payload.
+ *
+ * Spelled out rather than an Omit of TableInfo: main sends exactly these four
+ * fields (notifyHost in tableHost.ts), so an Omit was already claiming the push
+ * carried more than it did, and every field added to TableInfo widened the lie.
+ */
+export interface SeatsUpdate {
+  tableId: string
+  code: string
+  seats: Array<Seat>
+  shown: { articleId: string; title: string } | null
+}
+
+/** Whether Windows is letting guests reach this machine. */
+export interface FirewallState {
+  /** False off Windows, where there is nothing to configure. */
+  applicable: boolean
+  /** Null when the check itself could not answer. */
+  present: boolean | null
+  error?: string
+}
+
+export interface FirewallResult {
+  ok: boolean
+  /** True when the DM dismissed the Windows permission prompt. */
+  cancelled: boolean
+  message: string
 }
 
 /** A sheet edit that arrived from a guest, already validated host-side. */
@@ -644,11 +705,24 @@ export const api = {
      */
     find: (code: string) =>
       invoke<{ address: string; port: number } | null>('table:find', { code }),
+    /**
+     * Whether the inbound firewall rules exist. A plain read — no elevation, so
+     * this is safe to call whenever the panel opens.
+     */
+    firewallState: () => invoke<FirewallState>('table:firewallState'),
+    /**
+     * Add the inbound firewall rules, raising one Windows permission prompt.
+     *
+     * The DM can dismiss that prompt, so the result says what actually
+     * happened rather than assuming success.
+     */
+    firewall: () => invoke<FirewallResult>('table:firewall'),
     /** Host: the seat list changed. */
-    onSeats: (cb: (info: Omit<TableInfo, 'port' | 'addresses'>) => void) =>
-      window.dmApi.on('table:seats', (payload) =>
-        cb(payload as Omit<TableInfo, 'port' | 'addresses'>),
-      ),
+    onSeats: (cb: (info: SeatsUpdate) => void) =>
+      window.dmApi.on('table:seats', (payload) => cb(payload as SeatsUpdate)),
+    /** Host: hosting health changed — bind state, or the beacon's. */
+    onStatus: (cb: (info: TableInfo) => void) =>
+      window.dmApi.on('table:status', (payload) => cb(payload as TableInfo)),
     /** Host: a guest rolled. */
     onRoll: (cb: (entry: RollEntry) => void) =>
       window.dmApi.on('table:roll', (payload) => cb(payload as RollEntry)),

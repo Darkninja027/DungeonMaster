@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import {
+  beaconStatus,
   decodeBeacon,
   encodeBeacon,
   findTable,
@@ -74,5 +75,62 @@ describe('beacon over a real socket', () => {
 
   it('resolves null when nothing is hosting at all', async () => {
     expect(await findTable('ABC-234', 600)).toBeNull()
+  })
+
+  it('finds itself, which is how one machine hosts and joins', async () => {
+    // Carried by the per-interface sender's DIRECTED broadcast, not by the
+    // limited-broadcast socket. Pinned because the reverse was assumed once.
+    const status = startBeacon('ABC-234', 7777)
+    expect(status.state).toBe('running')
+    expect(await findTable('ABC-234', 3000)).not.toBeNull()
+  })
+
+  it('reports the interfaces it is announcing on', () => {
+    const status = startBeacon('ABC-234', 7777)
+    expect(status.state).toBe('running')
+    // Every announced interface carries the address it is bound to and the
+    // broadcast it shouts at, which is what the DM's panel reports.
+    for (const iface of status.interfaces) {
+      expect(iface.address).toMatch(/^\d+\.\d+\.\d+\.\d+$/)
+      expect(iface.broadcast).toMatch(/^\d+\.\d+\.\d+\.\d+$/)
+      expect(iface.iface).toBeTruthy()
+    }
+  })
+
+  it('keeps announcing when one adapter is unusable', async () => {
+    // The old beacon called stopBeacon() from its single error handler, so one
+    // bad adapter killed discovery outright. TEST-NET-1 cannot be bound here.
+    const status = startBeacon('ABC-234', 7777, [
+      {
+        address: '192.0.2.77',
+        iface: 'Broken',
+        netmask: '255.255.255.0',
+        broadcast: '192.0.2.255',
+        kind: 'public',
+        virtual: false,
+        rank: 1,
+      },
+    ])
+    expect(status.state).toBe('running')
+    // The limited-broadcast sender survives the bogus one, so a guest on this
+    // machine can still discover the table.
+    expect(await findTable('ABC-234', 3000)).not.toBeNull()
+    expect(beaconStatus().state).not.toBe('off')
+  })
+
+  it('reports failure when there is no usable sender at all', () => {
+    // Nothing to announce on and no way to reach anyone: the panel must be able
+    // to say so rather than promising the room code is enough.
+    const status = startBeacon('ABC-234', 7777, [])
+    expect(['running', 'failed']).toContain(status.state)
+  })
+
+  it('stops cleanly, and stopping twice is safe', () => {
+    startBeacon('ABC-234', 7777)
+    stopBeacon()
+    expect(beaconStatus().state).toBe('off')
+    expect(beaconStatus().interfaces).toEqual([])
+    stopBeacon()
+    expect(beaconStatus().state).toBe('off')
   })
 })

@@ -66,6 +66,7 @@ import {
 import type { ViewerMode } from './playerWindow'
 import { relayRoll } from './rollRelay'
 import { findTable } from './beacon'
+import { ensureFirewall, firewallState } from './firewall'
 import {
   clearTable,
   hostTable,
@@ -829,6 +830,17 @@ export function registerIpcHandlers() {
   ipcMain.handle('table:find', (_e, { code }: { code: string }) =>
     findTable(code),
   )
+
+  // Windows Firewall. Checking is a plain read; adding raises one UAC prompt,
+  // which the DM can refuse — see firewall.ts. The port comes from the running
+  // table rather than the renderer, so a compromised renderer cannot ask for a
+  // hole on an arbitrary port.
+  ipcMain.handle('table:firewallState', () => firewallState())
+
+  ipcMain.handle('table:firewall', () => {
+    const info = tableInfo()
+    return ensureFirewall(info?.port ?? 7777)
+  })
 }
 
 /**

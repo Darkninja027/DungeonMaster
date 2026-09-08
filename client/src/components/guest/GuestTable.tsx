@@ -328,8 +328,10 @@ function JoinScreen() {
         if (!found) {
           setManual(true)
           setError(
-            'No table answered on this network. Ask your DM for the address ' +
-              'shown on their screen and enter it below.',
+            'No table answered on this network. Check you are both on the ' +
+              'same network — not one on wifi and one on a cable to a ' +
+              'different switch — then ask your DM for the address shown on ' +
+              'their screen and enter it below.',
           )
           return
         }

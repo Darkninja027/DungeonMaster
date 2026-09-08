@@ -1,5 +1,15 @@
 import { useEffect, useState } from 'react'
-import { Copy, EyeOff, MonitorPlay, Users, Wifi, WifiOff } from 'lucide-react'
+import {
+  Copy,
+  EyeOff,
+  MonitorPlay,
+  ShieldAlert,
+  Users,
+  Wifi,
+  WifiOff,
+} from 'lucide-react'
+import { api } from '#/lib/api'
+import type { FirewallState, LanCandidate } from '#/lib/api'
 import {
   clearShown,
   refreshTable,
@@ -22,10 +32,45 @@ export function TablePanel({ worldId }: { worldId: string }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState<string | null>(null)
+  const [showAll, setShowAll] = useState(false)
+  const [firewall, setFirewall] = useState<FirewallState | null>(null)
+  const [firewallNote, setFirewallNote] = useState<string | null>(null)
+  const [fixing, setFixing] = useState(false)
 
   // A window opened after hosting began still needs to show the code, so ask
   // main what is running rather than assuming this window started it.
   useEffect(() => void refreshTable(), [])
+
+  // Whether Windows is letting guests in. A plain read, no elevation — and the
+  // answer is the difference between "nobody can connect" and "all fine", so
+  // it is worth knowing before the DM starts debugging their wifi.
+  useEffect(() => {
+    if (!hosting) return
+    let live = true
+    void api.table
+      .firewallState()
+      .then((state) => live && setFirewall(state))
+      .catch(() => live && setFirewall(null))
+    return () => {
+      live = false
+    }
+  }, [hosting])
+
+  const fixFirewall = async () => {
+    setFixing(true)
+    setFirewallNote(null)
+    try {
+      const result = await api.table.firewall()
+      setFirewallNote(result.message)
+      setFirewall(await api.table.firewallState())
+    } catch (cause) {
+      setFirewallNote(
+        cause instanceof Error ? cause.message : 'Could not change the firewall',
+      )
+    } finally {
+      setFixing(false)
+    }
+  }
 
   const go = async (fn: () => Promise<unknown>) => {
     setBusy(true)
@@ -56,7 +101,8 @@ export function TablePanel({ worldId }: { worldId: string }) {
           <p className="text-muted-foreground text-sm">
             Host this world so people at your table can join from their own
             machines. They see what you show them, and every roll lands in one
-            shared history. On the same wifi, they need only the room code.
+            shared history. On the same wifi, they usually need only the room
+            code — and this panel will show an address if they do not.
           </p>
           {error && <p className="text-destructive text-xs">{error}</p>}
         </div>
@@ -71,8 +117,60 @@ export function TablePanel({ worldId }: { worldId: string }) {
     )
   }
 
-  // Any of these works; the first is usually the one on the same wifi.
-  const address = info.addresses[0] ?? 'localhost'
+  // Ranked in main by lan.ts, so [0] is the best guess rather than whatever
+  // the OS happened to enumerate first. This used to be an unranked list, and
+  // on a machine with a Hyper-V switch and six link-local adapters the panel
+  // confidently showed an address no guest could ever reach.
+  const candidates: Array<LanCandidate> = info.candidates
+  // Real NICs only, unless there are none — two machines on a direct cable are
+  // both link-local, and telling them they have no address helps nobody.
+  const usable = candidates.filter((c) => c.rank <= 1)
+  const shown = usable.length > 0 ? usable : candidates
+  const hidden = candidates.filter((c) => !shown.includes(c))
+  // Indexing an array types as non-undefined here, so length is what actually
+  // says whether there is an address at all — a machine with no adapters is
+  // rare but must not render "undefined:7777".
+  const hasAddress = shown.length > 0
+  const best = shown[0]
+  const address = hasAddress ? best.address : 'localhost'
+  const discovering =
+    info.beacon.state === 'running' && info.beacon.interfaces.length > 0
+  // Only when we actually know. A failed check must not accuse the firewall.
+  const blocked = firewall?.applicable === true && firewall.present === false
+
+  /** One address row, with what it is and a copy button. */
+  const addressRow = (c: LanCandidate, primary: boolean) => (
+    <div key={c.address} className="flex items-center gap-2">
+      <div className="min-w-0 flex-1">
+        <code
+          className={
+            primary
+              ? 'block truncate font-mono text-sm'
+              : 'text-muted-foreground block truncate font-mono text-xs'
+          }
+        >
+          {c.address}:{info.port}
+        </code>
+        <p className="text-muted-foreground truncate text-[11px]">
+          {c.iface}
+          {c.kind === 'apipa'
+            ? ' — no network address; works only on a direct cable'
+            : c.virtual
+              ? ' — virtual adapter, usually not reachable'
+              : ''}
+        </p>
+      </div>
+      <Button
+        variant="ghost"
+        size="icon"
+        className="size-7 shrink-0"
+        title={`Copy ${c.address}`}
+        onClick={() => copy(`${c.address}:${info.port}`, c.address)}
+      >
+        <Copy className="size-3.5" />
+      </Button>
+    </div>
+  )
 
   return (
     <div className="flex h-full flex-col">
@@ -96,28 +194,84 @@ export function TablePanel({ worldId }: { worldId: string }) {
         </div>
         <div>
           <p className="text-muted-foreground text-xs">
-            Address — only needed if the code alone does not find you
+            {discovering
+              ? 'Address — only needed if the code alone does not find you'
+              : 'Address — give this to your players'}
           </p>
-          <div className="flex items-center gap-2">
-            <code className="min-w-0 flex-1 truncate font-mono text-sm">
+          {hasAddress ? (
+            <div className="space-y-1.5">
+              {addressRow(best, true)}
+              {shown.slice(1).map((c) => addressRow(c, false))}
+            </div>
+          ) : (
+            <code className="block font-mono text-sm">
               {address}:{info.port}
             </code>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-7 shrink-0"
-              title="Copy the address"
-              onClick={() => copy(`${address}:${info.port}`, 'address')}
-            >
-              <Copy className="size-3.5" />
-            </Button>
-          </div>
-          {info.addresses.length > 1 && (
-            <p className="text-muted-foreground mt-1 text-xs">
-              Also reachable on {info.addresses.slice(1).join(', ')}
-            </p>
+          )}
+          {hidden.length > 0 && (
+            <>
+              <button
+                type="button"
+                className="text-muted-foreground hover:text-foreground mt-1 text-xs underline"
+                onClick={() => setShowAll((v) => !v)}
+              >
+                {showAll ? 'Hide' : `Other addresses (${hidden.length})`}
+              </button>
+              {/* Kept reachable rather than removed: the ranking is a
+                  heuristic, and a DM on an unusual network needs the escape
+                  hatch more than a tidy panel. */}
+              {showAll && (
+                <div className="mt-1.5 space-y-1.5">
+                  {hidden.map((c) => addressRow(c, false))}
+                </div>
+              )}
+            </>
           )}
         </div>
+
+        {/* Discovery's real state. The old panel promised the room code was
+            enough even when the beacon had died on startup. */}
+        {!discovering && (
+          <p className="text-muted-foreground text-xs">
+            Automatic discovery is not working on this network — your players
+            will need to type the address above.
+          </p>
+        )}
+
+        {!info.listening && (
+          <p className="text-destructive text-xs">
+            The table is not accepting connections — something else may already
+            be using port {info.port}.
+          </p>
+        )}
+
+        {/* Windows drops inbound connections unless a rule exists, and nothing
+            ever created one. Invisible from this machine, because loopback is
+            exempt: hosting and joining yourself works perfectly while every
+            other machine times out. */}
+        {blocked && (
+          <div className="border-destructive/40 bg-destructive/5 space-y-2 rounded border p-2">
+            <p className="text-xs">
+              <ShieldAlert className="mr-1 inline size-3.5 align-[-2px]" />
+              Windows is blocking incoming connections, so your players cannot
+              reach this table.
+            </p>
+            <Button
+              size="sm"
+              className="w-full"
+              disabled={fixing}
+              onClick={() => void fixFirewall()}
+            >
+              {fixing ? 'Asking Windows…' : 'Allow players to connect'}
+            </Button>
+            <p className="text-muted-foreground text-[11px]">
+              Windows will ask for permission.
+            </p>
+          </div>
+        )}
+        {firewallNote && (
+          <p className="text-muted-foreground text-xs">{firewallNote}</p>
+        )}
         {copied && (
           <p className="text-muted-foreground text-xs">Copied the {copied}.</p>
         )}

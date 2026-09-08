@@ -99,6 +99,11 @@ if (bridged()) {
     })
   })
 
+  // Hosting health: the bind completing, or the beacon dying. This replaces the
+  // whole info because it comes from one builder in main (currentInfo), so it
+  // is never staler than what a refresh would fetch.
+  api.table.onStatus((next) => setStatus({ hosting: true, info: next }))
+
   // A guest's roll is a roll like any other: it goes in the same shared log the
   // DM's own rolls do. mergeRoll rather than logRoll, or the host would
   // re-broadcast a roll back to the table it just came from.
