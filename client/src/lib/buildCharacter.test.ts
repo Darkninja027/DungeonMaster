@@ -1012,6 +1012,41 @@ describe('skill and tool picks', () => {
     expect(character.spellSlots[1]).toBeUndefined()
   })
 
+  it('leaves a wizard’s starting spellbook unprepared', () => {
+    // A wizard's six starting picks are what they *know* — the spells copied
+    // into the spellbook — not what they have prepared. What is prepared from
+    // that book is a daily decision the sheet owns.
+    //
+    // These used to arrive `prepared: true`, which put every new wizard over
+    // their own allowance before the player had touched anything: six rows
+    // against an `INT mod + level` limit of four at 1st, so the sheet read
+    // "6 / 4" on a brand-new character.
+    const draft = {
+      ...emptyDraft(SRD_TABLES),
+      name: 'Zephyr',
+      className: 'Wizard',
+      raceName: 'Human',
+      backgroundName: 'Sage',
+      abilities: {
+        ...emptyDraft(SRD_TABLES).abilities,
+        method: 'manual' as const,
+        manual: { str: 8, dex: 14, con: 14, int: 16, wis: 12, cha: 10 },
+      },
+      cantrips: ['Fire Bolt'],
+      spells: ['Magic Missile', 'Shield'],
+    }
+    const { character } = buildCharacter(draft)
+
+    const missile = character.spells.find((s) => s.name === 'Magic Missile')
+    expect(missile).toBeDefined()
+    expect(missile?.prepared).toBeFalsy()
+    // Nothing is counted against the limit on a fresh sheet.
+    expect(preparedCount(character)).toBe(0)
+    // The limit itself is untouched — a wizard really does prepare, so the
+    // allowance still has to be there to prepare *into*.
+    expect(character.preparedLimit).toBeGreaterThan(0)
+  })
+
   it('never marks a feat spell prepared', () => {
     // It costs no slot and no preparation. Marking it prepared would spend a
     // caster's limit on a spell that never needed it.

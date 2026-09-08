@@ -27,7 +27,7 @@ import {
   slotsAtLevel,
 } from '#/lib/levelUp'
 import { expandedSpellsFor, findFeat, spellListClass } from '#/lib/tables'
-import { useSpellSuggestions } from '#/lib/useGlobalLibrary'
+import { useSpellMeta, useSpellSuggestions } from '#/lib/useGlobalLibrary'
 import { useCharacterRuleset } from '#/lib/useWorldSettings'
 import { PickListGroup } from '../create/PickListGroup'
 import { SpellList } from '../create/steps/SpellsStep'
@@ -676,6 +676,8 @@ export function SpellsStep({
     spellListClass(draft.kit, castingAs),
     ruleset,
   )
+  // Unfiltered by design — a lookup keyed by name, shared by every picker here.
+  const spellMeta = useSpellMeta(worldId, ruleset)
   /**
    * Suggestions minus what the character already has, so a choice cannot be
    * spent on a spell they would get anyway.
@@ -848,6 +850,7 @@ export function SpellsStep({
             <SpellList
               label="New cantrips"
               count={cantripsToPick}
+              meta={spellMeta}
               values={draft.cantrips}
               suggestions={offer(0)}
               onChange={(cantrips) => onChange({ ...draft, cantrips })}
@@ -858,6 +861,7 @@ export function SpellsStep({
             <SpellList
               label="New spells"
               count={spellsToPick}
+              meta={spellMeta}
               values={draft.spells}
               suggestions={offer(highestSpellLevel, true).filter(
                 (name) =>
@@ -885,6 +889,7 @@ export function SpellsStep({
             <SpellList
               label="Copied into your spellbook"
               count={spellbookToPick}
+              meta={spellMeta}
               values={draft.spellbook}
               suggestions={offer(highestSpellLevel, true).filter(
                 (name) =>

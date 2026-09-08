@@ -364,9 +364,15 @@ describe('canAdvance', () => {
     expect(canAdvance(draft, 'equipment')).toBe(true)
   })
 
-  it('gates spells on the exact known counts', () => {
+  it('never gates spells, so they can be chosen later', () => {
+    // Deliberately ungated, matching the level-up wizard's own spells step: the
+    // counts are what the table says you may take, not a bill to settle. This
+    // used to require them exactly, which was the one gate in this wizard that
+    // blocked on something the sheet is perfectly happy to have empty.
     const base = { ...emptyDraft(SRD_TABLES), className: 'Wizard' }
-    expect(canAdvance(base, 'spells')).toBe(false)
+    expect(canAdvance(base, 'spells')).toBe(true)
+    const partial = { ...base, cantrips: ['Fire Bolt'], spells: ['Shield'] }
+    expect(canAdvance(partial, 'spells')).toBe(true)
     const filled = {
       ...base,
       cantrips: ['Fire Bolt', 'Mage Hand', 'Prestidigitation'],
@@ -380,6 +386,11 @@ describe('canAdvance', () => {
       ],
     }
     expect(canAdvance(filled, 'spells')).toBe(true)
+  })
+
+  it('a non-caster still passes the spells gate', () => {
+    const draft = { ...emptyDraft(SRD_TABLES), className: 'Fighter' }
+    expect(canAdvance(draft, 'spells')).toBe(true)
   })
 
   it('review is always reachable', () => {

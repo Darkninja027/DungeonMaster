@@ -52,6 +52,115 @@ describe('Combobox', () => {
     expect(onCommit).not.toHaveBeenCalledWith('fire')
   })
 
+  it('reopens the list after a pick, so a second one needs no re-focus', () => {
+    // The box is an add-to-a-list field: it clears itself ready for the next
+    // entry, but the only thing that reopens the list is `onFocus`, and a pick
+    // made with `mousedown` never moves focus — so nothing could fire it. The
+    // list stayed shut until you clicked away and back, which reads as broken.
+    const onCommit = vi.fn()
+    render(
+      <InDialog>
+        <Combobox options={SPELLS} onCommit={onCommit} />
+      </InDialog>,
+    )
+
+    const input = screen.getByRole('combobox')
+    fireEvent.focus(input)
+    fireEvent.change(input, { target: { value: 'fire' } })
+    fireEvent.mouseDown(screen.getByRole('option', { name: 'Fire Bolt' }))
+
+    expect(onCommit).toHaveBeenCalledWith('Fire Bolt')
+    // Still open, and showing the whole list again — the query has cleared, so
+    // every option matches the empty string.
+    expect(screen.getByRole('option', { name: 'Mage Hand' })).toBeTruthy()
+    expect(input.getAttribute('aria-expanded')).toBe('true')
+  })
+
+  it('reopens after an Enter pick too', () => {
+    const onCommit = vi.fn()
+    render(
+      <InDialog>
+        <Combobox options={SPELLS} onCommit={onCommit} />
+      </InDialog>,
+    )
+
+    const input = screen.getByRole('combobox')
+    fireEvent.focus(input)
+    fireEvent.change(input, { target: { value: 'fire' } })
+    fireEvent.keyDown(input, { key: 'ArrowDown' })
+    fireEvent.keyDown(input, { key: 'Enter' })
+
+    expect(onCommit).toHaveBeenCalledWith('Fire Bolt')
+    expect(input.getAttribute('aria-expanded')).toBe('true')
+  })
+
+  it('controlled: a pick does NOT reopen the list', () => {
+    // The value *is* the answer there, so a reopened list would hang over the
+    // next field rather than waiting for a second entry that never comes.
+    function Harness() {
+      const [value, setValue] = useState('')
+      return (
+        <InDialog>
+          <Combobox options={SPELLS} value={value} onCommit={setValue} />
+        </InDialog>
+      )
+    }
+    render(<Harness />)
+
+    const input = screen.getByRole('combobox')
+    fireEvent.focus(input)
+    fireEvent.change(input, { target: { value: 'fire' } })
+    fireEvent.mouseDown(screen.getByRole('option', { name: 'Fire Bolt' }))
+
+    expect(input.getAttribute('aria-expanded')).toBe('false')
+  })
+
+  it('shows a muted note beside an option that has one', () => {
+    render(
+      <InDialog>
+        <Combobox
+          options={SPELLS}
+          meta={{
+            'Fire Bolt': 'Cantrip · Evocation',
+            Fireball: '3rd · Evocation',
+          }}
+          onCommit={vi.fn()}
+        />
+      </InDialog>,
+    )
+    fireEvent.focus(screen.getByRole('combobox'))
+
+    // The note rides on the row, so the accessible name carries both halves.
+    expect(
+      screen.getByRole('option', { name: /Fire Bolt/ }).textContent,
+    ).toContain('Cantrip · Evocation')
+    // An option with no entry renders the bare name, exactly as before.
+    expect(
+      screen.getByRole('option', { name: /Mage Hand/ }).textContent.trim(),
+    ).toBe('Mage Hand')
+  })
+
+  it('commits the name alone, never the note', () => {
+    // The value stored is still just the spell name — the note is decoration on
+    // the row, and free text on disk is unchanged.
+    const onCommit = vi.fn()
+    render(
+      <InDialog>
+        <Combobox
+          options={SPELLS}
+          meta={{ Fireball: '3rd · Evocation' }}
+          onCommit={onCommit}
+        />
+      </InDialog>,
+    )
+    const input = screen.getByRole('combobox')
+    fireEvent.focus(input)
+    fireEvent.change(input, { target: { value: 'fireb' } })
+    fireEvent.mouseDown(screen.getByRole('option', { name: /Fireball/ }))
+
+    expect(onCommit).toHaveBeenCalledWith('Fireball')
+  })
+
   it('ranks prefix matches above substring matches', () => {
     render(
       <InDialog>

@@ -74,9 +74,21 @@ export function Combobox({
   emptyLabel = 'No match — press Enter to use what you typed',
   id,
   disabled,
+  meta,
 }: {
   options: Array<string>
   onCommit: (value: string) => void
+  /**
+   * An optional muted note per option, shown right-aligned on its row — for
+   * spells, "2nd · Evocation".
+   *
+   * A lookup beside `options` rather than a richer option type, because the
+   * value committed is still just the string: every call site stores a name,
+   * the free-text rule is unchanged, and the six comboboxes with nothing to
+   * annotate stay exactly as they were. Absent, or missing an entry, simply
+   * renders the name alone.
+   */
+  meta?: Record<string, string>
   /**
    * Controlled mode. When given, the input shows this and `onCommit` fires on
    * every keystroke — the field *is* the stored value, as for "which feat did
@@ -145,7 +157,7 @@ export function Combobox({
     setOpen(true)
   }
 
-  const commit = (raw: string) => {
+  const commit = (raw: string, keepOpen = false) => {
     const text = raw.trim()
     // Controlled fields keep what was typed — the value *is* the answer, so
     // clearing it would throw away the thing the caller is storing. Uncontrolled
@@ -157,7 +169,18 @@ export function Combobox({
       setDraft('')
     }
     setActive(-1)
-    setOpen(false)
+    // `keepOpen` is for a pick made while the input still holds focus.
+    //
+    // Closing there stranded the list: the box is an add-to-a-list field, so it
+    // has just cleared itself ready for the next entry, but the only thing that
+    // reopens the list is `onFocus` — and focus never left, so it could not fire
+    // again. Picking a second spell meant clicking away and back, which reads as
+    // the list being broken. Reopening is also simply what the cleared box now
+    // means: an empty query whose matches are the whole list again.
+    //
+    // Never for a controlled field, where the value *is* the answer and a
+    // reopened list would hang over the next field.
+    setOpen(keepOpen && !controlled)
   }
 
   // Publish "a list is open" for the enclosing dialog's Escape guard, and be
@@ -188,7 +211,9 @@ export function Combobox({
       setActive((i) => Math.max(i - 1, -1))
     } else if (e.key === 'Enter') {
       e.preventDefault()
-      commit(active >= 0 ? (matches[active] ?? query) : query)
+      // Focus stays in the box, so the list reopens for the next entry — see
+      // `keepOpen` in `commit`.
+      commit(active >= 0 ? (matches[active] ?? query) : query, true)
     } else if (e.key === 'Escape') {
       // Just close the list. Stopping the key from also closing the dialog is
       // `DialogContent`'s job, via `isComboboxListOpen` — see the note on
@@ -271,7 +296,10 @@ export function Combobox({
                   type="button"
                   tabIndex={-1}
                   className={cn(
-                    'block w-full px-2 py-1 text-left text-sm',
+                    // `flex` rather than `block` so an annotated row can push
+                    // its note to the right edge. With no note the name is the
+                    // only child, so the row looks exactly as it always did.
+                    'flex w-full items-baseline gap-3 px-2 py-1 text-left text-sm',
                     i === active
                       ? 'bg-accent text-accent-foreground'
                       : 'hover:bg-accent/60',
@@ -279,11 +307,30 @@ export function Combobox({
                   // mousedown, not click: click fires after blur, which would
                   // already have committed the half-typed query instead.
                   onMouseDown={(e) => {
+                    // The list's own `onMouseDown` already prevented default, so
+                    // focus never left the input — which is exactly why the list
+                    // has to be told to stay open.
                     e.preventDefault()
-                    commit(option)
+                    commit(option, true)
                   }}
                 >
-                  {option}
+                  {/* `truncate` on the name, not the note: a long spell name
+                      should give way to "2nd · Evocation" rather than push it
+                      off the row, since the note is the part that is hard to
+                      guess from the name. */}
+                  <span className="truncate">{option}</span>
+                  {meta?.[option] && (
+                    <span
+                      className={cn(
+                        'ml-auto shrink-0 text-xs',
+                        i === active
+                          ? 'text-accent-foreground/70'
+                          : 'text-muted-foreground',
+                      )}
+                    >
+                      {meta[option]}
+                    </span>
+                  )}
                 </button>
               ))}
             </div>
