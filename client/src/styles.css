@@ -469,6 +469,58 @@ a {
     background-color: var(--background);
     color: var(--foreground);
   }
+
+  /* Native scrollbars, matched to the Radix ScrollArea thumb (a `bg-border`
+     pill in a 10px track — see components/ui/scroll-area.tsx). Roll history
+     and the wizard dialogs use that component and have always looked right;
+     the ~37 plain `overflow-y-auto` containers everywhere else got Chromium's
+     default chrome instead, which was the one piece of unstyled browser UI
+     left in the app.
+
+     Done in CSS rather than by converting those containers: several are
+     virtualized lists or CodeMirror surfaces where wrapping them in a Radix
+     scroller would break scrolling outright. One rule covers all of them.
+
+     Both syntaxes are here on purpose. `scrollbar-color` is the standard and
+     is what Firefox and any future engine would read; `::-webkit-scrollbar`
+     is what this Electron build actually honours, and it is the only one that
+     can round the thumb and inset it from the track edge. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  /* Transparent, so a scroller inherits whatever surface it sits on rather
+     than cutting a grey channel through a card or the sidebar. */
+  ::-webkit-scrollbar-track,
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background-color: var(--border);
+    border-radius: 9999px;
+    /* A transparent border plus background-clip is the only way to inset the
+       thumb inside the track; padding does nothing on this pseudo-element. */
+    border: 3px solid transparent;
+    background-clip: content-box;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: var(--muted-foreground);
+  }
+
+  /* Chromium draws arrow buttons at each end by default; the Radix scroller
+     has none, and they are what make a native scrollbar read as browser
+     chrome rather than app chrome. */
+  ::-webkit-scrollbar-button {
+    display: none;
+  }
 }
 
 /* ---------------------------------------------------------------------------
