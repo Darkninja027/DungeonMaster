@@ -75,6 +75,7 @@ import { Separator } from '#/components/ui/separator'
 import { DefenseChips } from './DefenseChips'
 import { hasSpellcasting } from './SheetPreview'
 import { NumField } from './NumField'
+import { Panel as Section, Pips } from './Panel'
 
 const SPELLS_FOLDER = 'Spells'
 
@@ -119,38 +120,6 @@ function RollChip({
       <Dices className="size-3" />
       {notation ?? signed(bonus ?? 0)}
     </Button>
-  )
-}
-
-function Pips({
-  count,
-  total,
-  onChange,
-  className,
-  gapClassName,
-}: {
-  count: number
-  total: number
-  onChange: (next: number) => void
-  /** Fill colour for a spent pip. Defaults to `bg-primary`. */
-  className?: string
-  /** Container gap. The slot ribbon packs nine of these into a narrow cell. */
-  gapClassName?: string
-}) {
-  return (
-    <span className={cn('inline-flex', gapClassName ?? 'gap-1')}>
-      {Array.from({ length: total }, (_, i) => (
-        <button
-          key={i}
-          type="button"
-          className={cn(
-            'size-3.5 rounded-full border',
-            i < count ? (className ?? 'bg-primary') : 'bg-transparent',
-          )}
-          onClick={() => onChange(i + 1 === count ? i : i + 1)}
-        />
-      ))}
-    </span>
   )
 }
 
@@ -283,25 +252,6 @@ function visibleSlotLevels(c: Character): number {
     0,
   )
   return Math.min(9, Math.max(3, highest + 1))
-}
-
-function Section({
-  title,
-  children,
-  className,
-}: {
-  title: string
-  children: React.ReactNode
-  className?: string
-}) {
-  return (
-    <section className={cn('rounded-md border p-2', className)}>
-      <h3 className="text-muted-foreground mb-1 text-xs font-semibold uppercase tracking-wide">
-        {title}
-      </h3>
-      {children}
-    </section>
-  )
 }
 
 /** Free-text list: type and press Enter to add, click the x to remove. */
@@ -1024,26 +974,6 @@ export function SheetTab({
                   </div>
                 )
               })}
-            </div>
-          </Section>
-
-          <Section title="Currency">
-            <div className="flex flex-wrap items-center gap-3 text-sm">
-              {(['pp', 'gp', 'ep', 'sp', 'cp'] as const).map((coin) => (
-                <label key={coin} className="flex items-center gap-1">
-                  <span className="text-muted-foreground text-xs uppercase">
-                    {coin}
-                  </span>
-                  <NumField
-                    value={c.currency[coin]}
-                    min={0}
-                    className="w-14"
-                    onCommit={(v) =>
-                      set({ currency: { ...c.currency, [coin]: v } })
-                    }
-                  />
-                </label>
-              ))}
             </div>
           </Section>
         </div>

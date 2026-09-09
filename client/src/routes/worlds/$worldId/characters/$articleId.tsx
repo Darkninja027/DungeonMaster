@@ -9,7 +9,6 @@ import {
   List,
   Package,
   ScrollText,
-  Shield,
   Sparkles,
   StickyNote,
   WandSparkles,
@@ -52,8 +51,7 @@ import { cn } from '#/lib/utils'
 import { CharacterHeader } from '#/components/character/CharacterHeader'
 import { LevelUpDialog } from '#/components/character/levelup/LevelUpDialog'
 import { SheetTab } from '#/components/character/SheetTab'
-import { InventoryTab } from '#/components/character/InventoryTab'
-import { EquipmentTab } from '#/components/character/EquipmentTab'
+import { GearTab } from '#/components/character/gear/GearTab'
 import { FeaturesTab } from '#/components/character/FeaturesTab'
 import { NotesTab } from '#/components/character/NotesTab'
 import {
@@ -527,23 +525,15 @@ function CharacterPage() {
             <span className="hidden @[53rem]/hdr:inline">Sheet</span>
           </TabsTrigger>
           <TabsTrigger
-            value="inventory"
-            aria-label="Inventory"
+            value="gear"
+            aria-label="Gear"
             className="shrink-0 px-1.5 text-xs"
           >
             <Package className="size-3.5" />
-            <span className="hidden @[53rem]/hdr:inline">Inv</span>
+            <span className="hidden @[53rem]/hdr:inline">Gear</span>
             <span className="tabular-nums opacity-70">
               {character.inventory.length}
             </span>
-          </TabsTrigger>
-          <TabsTrigger
-            value="equipment"
-            aria-label="Equipment"
-            className="shrink-0 px-1.5 text-xs"
-          >
-            <Shield className="size-3.5" />
-            <span className="hidden @[53rem]/hdr:inline">Equip</span>
           </TabsTrigger>
           <TabsTrigger
             value="features"
@@ -607,8 +597,8 @@ function CharacterPage() {
           onCreateMissing={setMissingTitle}
         />
       </TabsContent>
-      <TabsContent value="inventory" className="min-h-0 flex-1 overflow-y-auto">
-        <InventoryTab
+      <TabsContent value="gear" className="min-h-0 flex-1 overflow-y-auto">
+        <GearTab
           character={character}
           onChange={update}
           worldId={worldId}
@@ -617,9 +607,6 @@ function CharacterPage() {
           onOpenNote={openNoteByTitle}
           onCreateMissing={setMissingTitle}
         />
-      </TabsContent>
-      <TabsContent value="equipment" className="min-h-0 flex-1 overflow-y-auto">
-        <EquipmentTab character={character} onChange={update} />
       </TabsContent>
       <TabsContent value="features" className="min-h-0 flex-1 overflow-y-auto">
         <FeaturesTab

@@ -6,7 +6,6 @@ import {
   Package,
   RefreshCw,
   ScrollText,
-  Shield,
   Sparkles,
   StickyNote,
   UserRound,
@@ -36,8 +35,7 @@ import { CreateMissingArticleDialog } from '#/components/CreateMissingArticleDia
 import { LiveMarkdownEditor } from '#/components/LiveMarkdownEditor'
 import { useWikiLinkOpener } from '#/lib/useWikiLinkOpener'
 import { SheetTab } from '#/components/character/SheetTab'
-import { InventoryTab } from '#/components/character/InventoryTab'
-import { EquipmentTab } from '#/components/character/EquipmentTab'
+import { GearTab } from '#/components/character/gear/GearTab'
 import { FeaturesTab } from '#/components/character/FeaturesTab'
 import { NotesTab } from '#/components/character/NotesTab'
 import { SheetFitPane, SheetPreview } from '#/components/character/SheetPreview'
@@ -47,7 +45,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '#/components/ui/tabs'
 /**
  * The guest's own character — the same tabbed view the DM gets, not a preview.
  *
- * The tabs are the REAL ones (SheetTab, InventoryTab, …), which is possible
+ * The tabs are the REAL ones (SheetTab, GearTab, …), which is possible
  * because every one of them works off `character` + `onChange` and never
  * touches disk itself. Only where a change goes differs:
  *
@@ -64,13 +62,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '#/components/ui/tabs'
  */
 
 type SheetTabId =
-  | 'sheet'
-  | 'inventory'
-  | 'equipment'
-  | 'features'
-  | 'notes'
-  | 'backstory'
-  | 'preview'
+  'sheet' | 'gear' | 'features' | 'notes' | 'backstory' | 'preview'
 
 export function GuestSheet() {
   const guest = useGuest()
@@ -248,14 +240,11 @@ function PlayedSheet() {
         <TabsTrigger value="sheet" className="shrink-0 px-1.5 text-xs">
           <ScrollText className="size-3.5" /> Sheet
         </TabsTrigger>
-        <TabsTrigger value="inventory" className="shrink-0 px-1.5 text-xs">
-          <Package className="size-3.5" /> Inv
+        <TabsTrigger value="gear" className="shrink-0 px-1.5 text-xs">
+          <Package className="size-3.5" /> Gear
           <span className="tabular-nums opacity-70">
             {character.inventory.length}
           </span>
-        </TabsTrigger>
-        <TabsTrigger value="equipment" className="shrink-0 px-1.5 text-xs">
-          <Shield className="size-3.5" /> Equip
         </TabsTrigger>
         <TabsTrigger value="features" className="shrink-0 px-1.5 text-xs">
           <Sparkles className="size-3.5" /> Feats
@@ -299,8 +288,8 @@ function PlayedSheet() {
           noteTitles={titles}
         />
       </TabsContent>
-      <TabsContent value="inventory" className="min-h-0 flex-1 overflow-y-auto">
-        <InventoryTab
+      <TabsContent value="gear" className="min-h-0 flex-1 overflow-y-auto">
+        <GearTab
           character={character}
           onChange={update}
           onOpenNote={openNoteByTitle}
@@ -309,9 +298,6 @@ function PlayedSheet() {
           articles={articles}
           noteTitles={titles}
         />
-      </TabsContent>
-      <TabsContent value="equipment" className="min-h-0 flex-1 overflow-y-auto">
-        <EquipmentTab character={character} onChange={update} />
       </TabsContent>
       <TabsContent value="features" className="min-h-0 flex-1 overflow-y-auto">
         <FeaturesTab
