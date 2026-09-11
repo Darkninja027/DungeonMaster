@@ -429,6 +429,32 @@ a {
   color: var(--tome-soft);
 }
 
+/* The house panel on the character sheet's tabs (Panel.tsx, used by SheetTab
+   and the Gear rail). Its border was shadcn's `--border`, which sits at ~1.2:1
+   on the light ground and is effectively invisible.
+
+   `--tome-line` was the obvious swap and is NOT enough on its own: at 0.14-0.18
+   alpha it composites to ~1.3:1, which is no more visible than the grey it
+   replaces. That token is tuned for rules *inside* a surface, not for the edge
+   of one. So the edge is mixed from `--tome-head` — the skin's strongest ink,
+   and already role-swapped for dark — at the alpha where all four combinations
+   clear ~2.5:1 and the card reads as a card.
+
+   Only the colour is set, never the `border` shorthand: a shorthand here would
+   reset the width supplied by Panel's own `border` utility, the same trap
+   `.tome-spine` above documents. */
+.tome-panel {
+  border-color: color-mix(in oklab, var(--tome-head) 42%, transparent);
+  background: var(--tome-tint);
+}
+
+/* A panel's own title sits above a sidebar label in the hierarchy, so it takes
+   the heading role rather than `--tome-soft`. That also picks up Sourcebook's
+   light/dark role swap for free — red on parchment, gold on dark. */
+.tome-panel > .tome-label {
+  color: var(--tome-head);
+}
+
 /* A heading inside app chrome — a panel title, a world name, a settings h1. */
 .tome-heading {
   font-family: var(--font-display);

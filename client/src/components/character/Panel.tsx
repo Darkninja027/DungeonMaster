@@ -19,10 +19,8 @@ export function Panel({
   className?: string
 }) {
   return (
-    <section className={cn('rounded-md border p-2', className)}>
-      <h3 className="text-muted-foreground mb-1 text-xs font-semibold uppercase tracking-wide">
-        {title}
-      </h3>
+    <section className={cn('tome-panel rounded-md border p-2', className)}>
+      <h3 className="tome-label mb-1">{title}</h3>
       {children}
     </section>
   )
