@@ -32,7 +32,7 @@ import { useWorldSettings } from '#/lib/useWorldSettings'
 import { Button } from '#/components/ui/button'
 import { Input } from '#/components/ui/input'
 import { Textarea } from '#/components/ui/textarea'
-import { InlineMarkdown, PANEL_PROSE } from '#/components/Markdown'
+import { InlineMarkdown, READING_PROSE } from '#/components/Markdown'
 
 /**
  * Session notes, organised. Each note carries an optional title, a date, any
@@ -596,7 +596,7 @@ export function NotesTab({
                 <div className="w-1/2 shrink-0 overflow-y-auto border-l p-3">
                   {note.text.trim() ? (
                     <InlineMarkdown
-                      className={PANEL_PROSE}
+                      className={READING_PROSE}
                       worldId={worldId}
                       articles={articles}
                       noteTitles={noteTitles}

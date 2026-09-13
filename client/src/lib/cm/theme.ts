@@ -1,4 +1,5 @@
 import { EditorView } from '@codemirror/view'
+import { CELL_GUTTER } from './tableLayout'
 
 /**
  * How decorated markdown looks inside the editor.
@@ -151,6 +152,17 @@ export const liveTheme = EditorView.theme({
     paddingTop: '0.15em',
   },
 
+  // --- Thematic break ------------------------------------------------------
+  // The page rule above is structural and says so, in labelled dashed gold. A
+  // `---` is prose furniture — a scene change — so it is a plain gold hairline
+  // across the column, which is what the renderer draws for it too.
+  '.cm-dm-rule': {
+    display: 'inline-block',
+    width: '100%',
+    verticalAlign: 'middle',
+    borderTop: '2px solid var(--tome-gold-soft)',
+  },
+
   // --- Blocks --------------------------------------------------------------
   '.cm-dm-fence': {
     backgroundColor:
@@ -158,10 +170,10 @@ export const liveTheme = EditorView.theme({
   },
 
   // --- Tables --------------------------------------------------------------
-  // Each row is its own .cm-line, so there is no <table> to lay out and column
-  // widths can't be shared. Tabular numerals plus a per-cell min-width gets
-  // the columns close to aligned; a real grid would need the rows to be siblings
-  // inside one element, which the editor's line model rules out.
+  // Each row is its own .cm-line, so there is no <table> to lay out and the
+  // browser can't share a column width between rows. lib/cm/tableLayout.ts
+  // measures the table instead and gives every cell in a column the same `ch`
+  // width as an inline style, which the monospace body makes exact.
   // Colour and weight, but not Cinzel — a header cell is user text that has to
   // stay column-aligned with the monospace rows beneath it, and the small-caps
   // face breaks both the alignment and any lowercase in it.
@@ -177,10 +189,15 @@ export const liveTheme = EditorView.theme({
   '.cm-dm-table-sep': {
     display: 'none',
   },
+  // Width is set per cell, in `ch`, by the decorator. `top` alignment is what
+  // makes a squeezed prose column readable: it wraps inside its own box and the
+  // short cells beside it stay on the row's first line instead of centring
+  // themselves against three lines of text.
   '.cm-dm-cell': {
     display: 'inline-block',
-    minWidth: '7ch',
-    paddingRight: '1.5ch',
+    verticalAlign: 'top',
+    paddingRight: `${CELL_GUTTER}ch`,
+    overflowWrap: 'break-word',
     fontVariantNumeric: 'tabular-nums',
   },
 

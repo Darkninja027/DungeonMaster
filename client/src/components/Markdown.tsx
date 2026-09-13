@@ -626,6 +626,31 @@ function createComponents(
 export const PANEL_PROSE =
   'text-sm [&_h1]:text-sm [&_h1]:font-semibold [&_h2]:text-sm [&_h2]:font-semibold [&_h3]:text-sm [&_h3]:font-semibold [&_li]:ml-4 [&_li]:list-disc [&_p]:my-1 [&_table]:my-1 [&_td]:border [&_td]:px-1 [&_th]:border [&_th]:px-1'
 
+/**
+ * Prose styling for markdown rendered in a reading column — the notes live
+ * preview — rather than in a cramped sheet panel.
+ *
+ * InlineMarkdown renders a bare <div>, and Tailwind's reset zeroes the default
+ * margin on every block element, so without a class like this paragraphs,
+ * headings, lists and rules all butt straight up against each other with no
+ * gap at all. PANEL_PROSE squeezes that deliberately, because a sidebar has no
+ * room to spare; this is the same renderer given the vertical rhythm the book
+ * page has, so what you read beside the editor is spaced like what you wrote.
+ */
+export const READING_PROSE =
+  'text-sm leading-relaxed ' +
+  '[&_h1]:mt-5 [&_h1]:mb-2 [&_h1]:text-lg [&_h1]:font-semibold ' +
+  '[&_h2]:mt-5 [&_h2]:mb-2 [&_h2]:text-base [&_h2]:font-semibold ' +
+  '[&_h3]:mt-4 [&_h3]:mb-1.5 [&_h3]:text-sm [&_h3]:font-semibold ' +
+  '[&_h4]:mt-4 [&_h4]:mb-1.5 [&_h4]:text-sm [&_h4]:font-semibold ' +
+  '[&_p]:my-3 ' +
+  '[&_ul]:my-3 [&_ol]:my-3 [&_li]:my-1 [&_li]:ml-5 [&_ul_li]:list-disc [&_ol_li]:list-decimal ' +
+  '[&_blockquote]:my-3 [&_blockquote]:border-l-2 [&_blockquote]:pl-3 [&_blockquote]:italic ' +
+  '[&_hr]:my-5 [&_hr]:border-t [&_hr]:border-border ' +
+  '[&_pre]:my-3 [&_img]:my-3 ' +
+  '[&_table]:my-3 [&_td]:border [&_td]:px-1.5 [&_td]:py-0.5 [&_th]:border [&_th]:px-1.5 [&_th]:py-0.5 ' +
+  '[&>*:first-child]:mt-0 [&>*:last-child]:mb-0 '
+
 interface RenderContext {
   articles?: Array<{ id: string; title: string }>
   worldId?: string

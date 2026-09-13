@@ -57,6 +57,26 @@ export class DiceWidget extends WidgetType {
 }
 
 /**
+ * A `---` thematic break, drawn as the divider it renders to rather than left
+ * as three literal hyphens. Inline-in-a-line for the same reason as the page
+ * rule below: the marker still occupies a real line in the document, and a
+ * block widget would change that line's height.
+ */
+export class ThematicBreakWidget extends WidgetType {
+  eq(): boolean {
+    // Every thematic break is the same hairline, so a rebuilt widget is
+    // interchangeable with the one already on screen.
+    return true
+  }
+
+  toDOM(): HTMLElement {
+    const rule = document.createElement('span')
+    rule.className = 'cm-dm-rule'
+    return rule
+  }
+}
+
+/**
  * The `\page` / `\columns N` markers, shown as a labelled rule instead of raw
  * text. Inline-in-a-line rather than a block widget: a block widget changes
  * line heights, and the marker still occupies a real line in the document.
@@ -75,5 +95,29 @@ export class PageRuleWidget extends WidgetType {
     rule.className = 'cm-dm-pagerule'
     rule.textContent = this.label
     return rule
+  }
+}
+
+/**
+ * The empty column in a row written `| Sworn || 1 |`.
+ *
+ * Lezer emits no TableCell for it, so there is nothing to hang a width on and
+ * every column after the hole slides left. This is the hole, given the width
+ * its column is owed and nothing else to say for itself.
+ */
+export class TableSpacerWidget extends WidgetType {
+  constructor(readonly width: number) {
+    super()
+  }
+
+  eq(other: TableSpacerWidget): boolean {
+    return other.width === this.width
+  }
+
+  toDOM(): HTMLElement {
+    const cell = document.createElement('span')
+    cell.className = 'cm-dm-cell'
+    cell.style.width = `${this.width}ch`
+    return cell
   }
 }
