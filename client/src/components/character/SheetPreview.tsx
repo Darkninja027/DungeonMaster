@@ -1818,9 +1818,16 @@ export function SheetPreview({
           DM-only blocks rendered raw AND printed, defeating the print rule that
           exists to keep them off a page a player might be handed.
         */
-        <BookView articles={articles} worldId={worldId} source={source} framed>
-          {proseDoc}
-        </BookView>
+        <div className="dnd-cs-prose contents">
+          <BookView
+            articles={articles}
+            worldId={worldId}
+            source={source}
+            framed
+          >
+            {proseDoc}
+          </BookView>
+        </div>
       )}
     </div>
   )

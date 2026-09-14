@@ -1684,6 +1684,17 @@ a {
   font-style: italic;
 }
 
+/* The printed backstory rides BookView, so its sheets are ordinary book pages
+   at `.dnd-page`'s 1.05rem — a third larger than the 13px every other page of
+   the sheet is set in, which reads as a different document bound in by mistake.
+   Scoped to the sheet's own copy (SheetPreview wraps it in .dnd-cs-prose): the
+   Story tab and article previews are book pages and keep the book's size. Every
+   heading, the drop cap and blockquotes are sized in `em`, so they follow this
+   down on their own and the page keeps its proportions. */
+.dnd-cs-prose .dnd-page {
+  font-size: 13px;
+}
+
 /* Spell cards: the rules text of every spell on the sheet, so a printed sheet
    is playable with no book and no laptop. Built on the features page's
    vocabulary on purpose — .dnd-cs-feature-name for the title and
