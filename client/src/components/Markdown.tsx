@@ -25,6 +25,7 @@ import {
 } from '#/lib/formatMarkdown'
 import type { DiceResult } from '#/lib/formatMarkdown'
 import { focusImage } from '#/lib/playerFocus'
+import { SheetFrame } from '#/components/SheetFrame'
 import { logRoll } from '#/lib/rollLog'
 import type { RollSource } from '#/lib/rollLog'
 import {
@@ -678,6 +679,15 @@ interface RenderContext {
    */
   audience?: 'dm' | 'player'
   /**
+   * Draw the decorative gold frame on each sheet (components/SheetFrame.tsx).
+   *
+   * Opt-in rather than always-on: it belongs to the printed character sheet,
+   * whose backstory pages render through BookView, and an article read in the
+   * book view is not that. Ignored in `'flow'` layout, where the sheet grows
+   * and a fixed 816x1056 frame would sit in the wrong place.
+   */
+  framed?: boolean
+  /**
    * A read-only surface — the player window. Dice chips, rollable-table Roll
    * bars and every link render as inert text instead. See the `a` override for
    * why this is a real prop rather than a CSS rule.
@@ -799,6 +809,7 @@ export const Markdown = memo(function Markdown({
   source,
   readOnly,
   layout = 'sheets',
+  framed,
 }: { children: string; columns?: 1 | 2 } & RenderContext) {
   const router = useRouter()
   const components = useMemo(
@@ -878,6 +889,7 @@ export const Markdown = memo(function Markdown({
     <>
       {Array.from({ length: layout === 'flow' ? 1 : sheetCount }, (_, i) => (
         <div key={i} className="dnd-page">
+          {framed && layout !== 'flow' && <SheetFrame />}
           <div className="dnd-frame">
             <div
               ref={i === 0 ? measureRef : undefined}
@@ -915,6 +927,7 @@ export const BookView = memo(function BookView({
   audience = 'dm',
   readOnly,
   layout = 'sheets',
+  framed,
 }: { children: string } & RenderContext) {
   // Frontmatter (character stats etc.) is data, not prose — never render it.
   // Memoised: this re-splits the whole document, and every page's body string
@@ -961,6 +974,7 @@ export const BookView = memo(function BookView({
             onOpenNote={onOpenNote}
             source={source}
             readOnly={readOnly}
+            framed={framed}
           >
             {page.body}
           </Markdown>

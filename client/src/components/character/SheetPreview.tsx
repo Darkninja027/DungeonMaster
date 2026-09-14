@@ -70,6 +70,7 @@ import { openSpellInPanel } from '#/lib/spellPanel'
 import { useLibraryEntries } from '#/lib/useGlobalLibrary'
 import { cn } from '#/lib/utils'
 import { BookView, InlineMarkdown } from '#/components/Markdown'
+import { SheetFrame } from '#/components/SheetFrame'
 import { WikiText } from './WikiText'
 
 /**
@@ -653,6 +654,7 @@ function CorePage({
 
   return (
     <div className="dnd-page">
+      <SheetFrame />
       <div className="dnd-cs">
         <Banner title={title}>
           {/* "Human Champion Fighter 7" — the subclass sits in front of the
@@ -1024,6 +1026,7 @@ function FeaturesPage({
 
   return (
     <div className="dnd-page">
+      <SheetFrame />
       <div className="dnd-cs">
         <Banner title={`${title} — ${pageLabel}`} small>
           {[c.race, c.class, `Level ${c.level}`].filter(Boolean).join(' ')}
@@ -1115,6 +1118,7 @@ function SpellPage({
 
   return (
     <div className="dnd-page">
+      <SheetFrame />
       <div className="dnd-cs">
         <Banner title={`${title} — ${pageLabel}`} small />
         <div className="dnd-cs-body">
@@ -1305,6 +1309,7 @@ function SpellCardsPage({
 
   return (
     <div className="dnd-page">
+      <SheetFrame />
       <div className="dnd-cs">
         <Banner title={`${title} — ${pageLabel}`} small>
           {[c.race, c.class, `Level ${c.level}`].filter(Boolean).join(' ')}
@@ -1466,6 +1471,7 @@ function GearPage({
 
   return (
     <div className="dnd-page">
+      <SheetFrame />
       <div className="dnd-cs">
         <Banner title={`${title} — ${pageLabel}`} small />
         <div className="dnd-cs-body">
@@ -1576,6 +1582,7 @@ function NotesPage({
 }) {
   return (
     <div className="dnd-page">
+      <SheetFrame />
       <div className="dnd-cs">
         <Banner title={`${title} — ${pageLabel}`} small>
           {[c.race, c.class, `Level ${c.level}`].filter(Boolean).join(' ')}
@@ -1811,7 +1818,7 @@ export function SheetPreview({
           DM-only blocks rendered raw AND printed, defeating the print rule that
           exists to keep them off a page a player might be handed.
         */
-        <BookView articles={articles} worldId={worldId} source={source}>
+        <BookView articles={articles} worldId={worldId} source={source} framed>
           {proseDoc}
         </BookView>
       )}
