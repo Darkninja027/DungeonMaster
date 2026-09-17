@@ -1695,6 +1695,42 @@ a {
   font-size: 13px;
 }
 
+/* Same reasoning for an oversize session note, which rides BookView for the
+   same reason the backstory does — see SheetPreview's longNotes. It sits beside
+   the note cards on the sheets before it, so it has to read at the sheet's size
+   rather than the book's. */
+.dnd-cs-note-doc .dnd-page {
+  font-size: 13px;
+}
+
+/* Tables are `break-inside: avoid` above, which is right for the short lookup
+   tables an article usually carries: split at a column seam, one reads as two
+   half-tables and the second has no header.
+
+   A pasted gazetteer entry breaks that assumption — a twelve-row roster is
+   taller than a column, and a block taller than a column can be neither split
+   nor placed. It is laid out and allowed to overflow DOWNWARD, where the page's
+   `overflow: hidden` clips it: the same failure `.dnd-cs-spellcard-tall` exists
+   to solve, and the one this whole flow is here to prevent. So inside a note
+   document a table may break, and only the rows stay atomic — a row split
+   through the middle of its cells is unreadable in a way a split table is not.
+
+   Compound selector on purpose. This is (0,3,0) against the (0,2,0) of
+   `.dnd-page table`, so it wins on specificity rather than on source order —
+   see the note by .dnd-cs-spellcard-tall about the bug that relying on order
+   caused there. */
+.dnd-cs-note-doc .dnd-page table {
+  break-inside: auto;
+}
+.dnd-cs-note-doc .dnd-page tr {
+  break-inside: avoid;
+}
+/* A header stranded at the foot of a column, its rows overleaf, is the table
+   equivalent of the orphaned level heading paginateSpellRows guards against. */
+.dnd-cs-note-doc .dnd-page thead {
+  break-after: avoid;
+}
+
 /* Spell cards: the rules text of every spell on the sheet, so a printed sheet
    is playable with no book and no laptop. Built on the features page's
    vocabulary on purpose — .dnd-cs-feature-name for the title and

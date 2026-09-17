@@ -249,10 +249,19 @@ export function noteCost(note: CharacterNote): number {
 }
 
 /**
- * Pack notes into pages of at most `budget` line-units. A single note longer
- * than a whole page still gets its own page — it will clip, but splitting a
- * recap mid-sentence across sheets would be worse, and it clips visibly at a
- * page edge rather than inside a box that looks complete.
+ * Pack notes into pages of at most `budget` line-units.
+ *
+ * This only ever breaks BETWEEN notes: `page.length > 0` means a note costing
+ * more than the whole budget is still placed alone on a page rather than split.
+ * That used to be the end of the story, and the note simply clipped — which was
+ * defensible for a recap overshooting by a line or two and indefensible for a
+ * pasted article, where several pages of content vanished without a word.
+ *
+ * So the caller no longer hands those to this function at all: SheetPreview
+ * partitions on `noteCost(note) > NOTE_LINES` first and routes the oversize
+ * ones through BookView, which measures the rendered columns rather than
+ * estimating them. Everything reaching here fits a page, or is within a line or
+ * two of doing so — which is the regime this estimate was calibrated for.
  */
 export function paginateNotes(
   notes: Array<CharacterNote>,
