@@ -3,9 +3,9 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { encodeWorldId } from './sanitize'
-import { createArticle, initWorld } from './worldStore'
+import { createArticle, createFolder, initWorld } from './worldStore'
 import { buildIndex, dropIndex, getIndex } from './indexer'
-import { listTags, scoreTitle, searchRanked } from './search'
+import { listTags, scoreTitle, searchRanked, searchWorld } from './search'
 
 describe('scoreTitle', () => {
   it('ranks exact > prefix > substring > subsequence', () => {
@@ -214,5 +214,114 @@ describe('listTags', () => {
     const cold = listTags(worldId)
     await buildIndex(worldId)
     expect(listTags(worldId)).toEqual(cold)
+  })
+})
+
+describe('searchWorld', () => {
+  let root: string
+  let worldId: string
+
+  beforeEach(() => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'dm-sidebar-'))
+    initWorld(root, 'Test World', '')
+    worldId = encodeWorldId(root)
+  })
+
+  afterEach(() => {
+    dropIndex()
+    fs.rmSync(root, { recursive: true, force: true })
+  })
+
+  it('applies the limit AFTER sorting, not during the scan', () => {
+    // The sidebar's cap was once a `break` in the scan loop, so 60 body-only
+    // matches ahead of the exact hit in tree order buried it completely. This
+    // is the searchRanked test's twin, and it fails against that old shape.
+    for (let i = 0; i < 60; i++) {
+      createArticle({
+        worldId,
+        title: `Filler ${String(i).padStart(2, '0')}`,
+        content: 'Mentions Strahd in passing.',
+      })
+    }
+    createArticle({ worldId, title: 'Strahd', content: 'The exact article.' })
+
+    const top = searchWorld(worldId, 'strahd', 5)
+    expect(top).toHaveLength(5)
+    expect(top[0].title).toBe('Strahd')
+  })
+
+  it('orders exact title above prefix above body-only matches', () => {
+    createArticle({ worldId, title: 'Notes', content: 'Strahd rules here.' })
+    createArticle({ worldId, title: 'Strahd von Zarovich', content: 'Prefix.' })
+    createArticle({ worldId, title: 'Strahd', content: 'Exact.' })
+
+    expect(searchWorld(worldId, 'strahd').map((r) => r.title)).toEqual([
+      'Strahd',
+      'Strahd von Zarovich',
+      'Notes',
+    ])
+  })
+
+  it('defaults to at most 50 results', () => {
+    for (let i = 0; i < 60; i++) {
+      createArticle({ worldId, title: `Ghoul ${i}`, content: 'undead' })
+    }
+    expect(searchWorld(worldId, 'ghoul')).toHaveLength(50)
+  })
+
+  it('still finds an article whose only hit is in the body', () => {
+    createArticle({
+      worldId,
+      title: 'Castle Ravenloft',
+      content: 'Home of Strahd.',
+    })
+    const hits = searchWorld(worldId, 'strahd')
+    expect(hits).toHaveLength(1)
+    expect(hits[0].snippet).toContain('Strahd')
+  })
+
+  it('returns nothing for a blank query', () => {
+    createArticle({ worldId, title: 'Strahd', content: 'x' })
+    expect(searchWorld(worldId, '   ')).toEqual([])
+  })
+
+  it('excludes whole subtrees BEFORE the cap, not after', () => {
+    // The sidebar hides library folders. Filtering the response instead spent
+    // the cap on rows it then dropped: 60 matching spells would fill all 50
+    // slots and leave the three real hits invisible.
+    createFolder({ worldId, name: 'Spells', parentFolderId: null })
+    for (let i = 0; i < 60; i++) {
+      createArticle({
+        worldId,
+        folderId: 'Spells',
+        title: `Fire Bolt ${i}`,
+        content: 'fire',
+      })
+    }
+    for (let i = 0; i < 3; i++) {
+      createArticle({ worldId, title: `Fire Cult ${i}`, content: 'fire' })
+    }
+
+    const hits = searchWorld(worldId, 'fire', 50, ['Spells'])
+    expect(hits).toHaveLength(3)
+    expect(hits.every((h) => !(h.folderId ?? '').startsWith('Spells'))).toBe(
+      true,
+    )
+  })
+
+  it('excludes articles nested deeper inside an excluded folder', () => {
+    createFolder({ worldId, name: 'Spells', parentFolderId: null })
+    createFolder({ worldId, name: 'Evocation', parentFolderId: 'Spells' })
+    createArticle({
+      worldId,
+      folderId: 'Spells/Evocation',
+      title: 'Fireball',
+      content: 'fire',
+    })
+    createArticle({ worldId, title: 'Fire Cult', content: 'fire' })
+
+    expect(
+      searchWorld(worldId, 'fire', 50, ['Spells']).map((h) => h.title),
+    ).toEqual(['Fire Cult'])
   })
 })

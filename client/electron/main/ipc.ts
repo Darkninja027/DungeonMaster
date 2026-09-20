@@ -266,8 +266,14 @@ export function registerIpcHandlers() {
 
   ipcMain.handle(
     'worlds:search',
-    (_e, { worldId, query }: { worldId: string; query: string }) =>
-      searchWorld(worldId, query),
+    (
+      _e,
+      {
+        worldId,
+        query,
+        excludeFolders,
+      }: { worldId: string; query: string; excludeFolders?: Array<string> },
+    ) => searchWorld(worldId, query, undefined, excludeFolders),
   )
 
   ipcMain.handle(

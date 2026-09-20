@@ -25,7 +25,7 @@ import { api } from '#/lib/api'
 import { onPaletteAction } from '#/lib/paletteActions'
 import { useShortcut } from '#/lib/useShortcut'
 import type { ArticleSummary, FolderNode, WorldTree } from '#/lib/api'
-import { isLibraryFolder } from '#/lib/libraryFolders'
+import { LIBRARY_FOLDERS, isLibraryFolder } from '#/lib/libraryFolders'
 import { useWorldMode } from '#/lib/useWorldSettings'
 import { REVEAL_LABEL, revealer } from '#/lib/reveal'
 import { useTable } from '#/lib/tableStore'
@@ -103,11 +103,14 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
   const searchInputRef = useRef<HTMLInputElement>(null)
 
   // Ctrl+K belongs to the command palette; this box is still click-to-search.
+  // ignoreInInputs because Ctrl+N mid-sentence in a text box used to yank the
+  // caret into a new-article dialog — the Guide shipped that as a "surprise".
   useShortcut(
     'n',
     () => openDialog({ mode: 'new-article', parentFolderId: null }),
     {
       enabled: dialog === null,
+      ignoreInInputs: true,
     },
   )
 
@@ -138,11 +141,13 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
 
   const search = useQuery({
     queryKey: ['worlds', worldId, 'search', searchTerm],
-    queryFn: () => api.worlds.search(worldId, searchTerm),
-    enabled: searchTerm.length > 0,
     // Search backs the Content tree, so it hides library hits the same way —
-    // spells and monsters are searched from their own panels.
-    select: (results) => results.filter((r) => !isLibraryFolder(r.folderId)),
+    // spells and monsters are searched from their own panels. The exclusion is
+    // pushed down rather than applied to the response: filtering here spent the
+    // result cap on library rows and then dropped them, so a spell-heavy world
+    // could return a full page of hits and show three.
+    queryFn: () => api.worlds.search(worldId, searchTerm, LIBRARY_FOLDERS),
+    enabled: searchTerm.length > 0,
   })
 
   // Prefix invalidation: tree, characters list, search, world meta.

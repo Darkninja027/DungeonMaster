@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { parse as parseYaml } from 'yaml'
 import {
   Dialog,
   DialogContent,
@@ -70,23 +69,13 @@ export function PromoteToTemplateDialog({
   const { frontmatter } = splitFrontmatter(body)
   const hasFrontmatter = frontmatter !== null
   const id = templateId(name, takenIds(stored))
-  const slugged = id !== name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-')
+  const slugged =
+    id !==
+    name
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
   const loading = source.content == null && article.isLoading
-
-  /**
-   * The article's own `type`, when it has one. Only used for an article with no
-   * frontmatter — one that has its own carries the type in the body, and
-   * `newArticleContent` will not add a second header.
-   */
-  const inheritedType = (() => {
-    if (!hasFrontmatter) return ''
-    try {
-      const fm = parseYaml(frontmatter) as Record<string, unknown>
-      return typeof fm.type === 'string' ? fm.type : ''
-    } catch {
-      return ''
-    }
-  })()
 
   const commit = () => {
     save.mutate(
@@ -95,9 +84,11 @@ export function PromoteToTemplateDialog({
         name: name.trim(),
         description: description.trim(),
         body,
-        // An article with its own frontmatter needs no synthesised header, so
-        // a `type` here would be a field that silently does nothing.
-        ...(!hasFrontmatter && inheritedType !== '' && { type: inheritedType }),
+        // No `type` is set here. An article with its own frontmatter already
+        // carries one, and `newArticleContent` will not add a second header; an
+        // article without frontmatter has no type to inherit in the first place.
+        // Either way there is nothing to copy — the dialog says so, and points
+        // at Settings for setting one afterwards.
       }),
       { onSuccess: onClose },
     )

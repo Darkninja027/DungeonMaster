@@ -14,8 +14,15 @@ import { Input } from '#/components/ui/input'
 /**
  * Prefix-driven modes. A bare query searches articles; `>` runs commands and
  * `#` browses tags — the only way in the app to discover which tags exist.
+ *
+ * `tagged` has no prefix of its own because it is not something you can type:
+ * it is where picking a tag lands. Choosing a tag used to drop its text into
+ * article search, which matched the *word* in bodies rather than the frontmatter
+ * tag — `#npc` found every article mentioning "npc" and missed the tagged ones
+ * that never say it. This mode runs the real query instead, the same
+ * `api.worlds.query` a smart view uses.
  */
-type Mode = 'articles' | 'commands' | 'tags' | 'help'
+type Mode = 'articles' | 'commands' | 'tags' | 'tagged' | 'help'
 
 function modeOf(input: string): { mode: Mode; term: string } {
   if (input.startsWith('>')) return { mode: 'commands', term: input.slice(1) }
@@ -65,7 +72,14 @@ export function CommandPalette({ worldId }: { worldId: string }) {
   /** Focus to restore on close, so Escape returns you to the editor. */
   const returnFocus = useRef<HTMLElement | null>(null)
 
-  const { mode, term: rawTerm } = modeOf(input)
+  /**
+   * The tag being browsed, or null. Set by picking a tag and cleared by any
+   * edit to the input, so typing always returns you to the prefix-driven modes.
+   */
+  const [taggedWith, setTaggedWith] = useState<string | null>(null)
+
+  const { mode: typedMode, term: rawTerm } = modeOf(input)
+  const mode: Mode = taggedWith ? 'tagged' : typedMode
 
   useShortcut('k', () => {
     returnFocus.current =
@@ -75,6 +89,7 @@ export function CommandPalette({ worldId }: { worldId: string }) {
     setInput('')
     setTerm('')
     setSelected(0)
+    setTaggedWith(null)
     setOpen(true)
   })
 
@@ -100,6 +115,14 @@ export function CommandPalette({ worldId }: { worldId: string }) {
     enabled: open && mode === 'tags',
   })
 
+  // The real frontmatter query, keyed the same way a smart view keys its own so
+  // the two share a cache entry when they ask the same question.
+  const tagged = useQuery({
+    queryKey: ['worlds', worldId, 'query', { tags: [taggedWith] }],
+    queryFn: () => api.worlds.query(worldId, { tags: [taggedWith!] }),
+    enabled: open && taggedWith !== null,
+  })
+
   // `mode` here is the palette's own (commands / tags / search); the world's
   // mode is separate and decides which commands exist at all.
   const worldMode = useWorldMode(worldId).id
@@ -116,6 +139,7 @@ export function CommandPalette({ worldId }: { worldId: string }) {
   }, [mode, tags.data, term])
 
   const articleHits = results.data ?? []
+  const taggedHits = tagged.data ?? []
 
   const count =
     mode === 'articles'
@@ -124,10 +148,12 @@ export function CommandPalette({ worldId }: { worldId: string }) {
         ? commandHits.length
         : mode === 'tags'
           ? tagHits.length
-          : 0
+          : mode === 'tagged'
+            ? taggedHits.length
+            : 0
 
   // Any change of mode or query invalidates the old selection.
-  useEffect(() => setSelected(0), [mode, term])
+  useEffect(() => setSelected(0), [mode, term, taggedWith])
 
   // Keep the highlighted row in view as the selection moves by keyboard.
   useEffect(() => {
@@ -162,11 +188,18 @@ export function CommandPalette({ worldId }: { worldId: string }) {
   }
 
   const pickTag = (tag: string) => {
-    // Hand the tag to the sidebar's existing search box vocabulary by
-    // switching to article mode with the tag as the query.
-    setInput(tag)
-    setTerm(tag)
+    // Switch to the tag's own results rather than pasting its text into article
+    // search: the tag is frontmatter, and the word need never appear in a body.
+    setTaggedWith(tag)
     setSelected(0)
+  }
+
+  const openTagged = (article: { id: string }) => {
+    close()
+    navigate({
+      to: '/worlds/$worldId/articles/$articleId',
+      params: { worldId, articleId: article.id },
+    })
   }
 
   const choose = () => {
@@ -176,6 +209,8 @@ export function CommandPalette({ worldId }: { worldId: string }) {
       runCommand(commandHits[selected])
     else if (mode === 'tags' && tagHits[selected])
       pickTag(tagHits[selected].tag)
+    else if (mode === 'tagged' && taggedHits[selected])
+      openTagged(taggedHits[selected])
   }
 
   const onKeyDown = (e: React.KeyboardEvent) => {
@@ -217,16 +252,30 @@ export function CommandPalette({ worldId }: { worldId: string }) {
         <div className="flex items-center gap-2 border-b px-3">
           {mode === 'commands' ? (
             <Terminal className="text-muted-foreground size-4 shrink-0" />
-          ) : mode === 'tags' ? (
+          ) : mode === 'tags' || mode === 'tagged' ? (
             <Hash className="text-muted-foreground size-4 shrink-0" />
           ) : (
             <Search className="text-muted-foreground size-4 shrink-0" />
           )}
+          {taggedWith && (
+            <span className="bg-muted shrink-0 rounded px-1.5 py-0.5 text-xs font-medium">
+              #{taggedWith}
+            </span>
+          )}
           <Input
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={(e) => {
+              // Typing leaves the tag's results — otherwise the box would show
+              // a query that isn't the one being run.
+              setTaggedWith(null)
+              setInput(e.target.value)
+            }}
             onKeyDown={onKeyDown}
-            placeholder="Search articles, > for commands, # for tags, ? for help"
+            placeholder={
+              taggedWith
+                ? 'Type to search articles instead'
+                : 'Search articles, > for commands, # for tags, ? for help'
+            }
             className="h-11 border-0 shadow-none focus-visible:ring-0"
           />
         </div>
@@ -334,6 +383,33 @@ export function CommandPalette({ worldId }: { worldId: string }) {
                   <span className="text-muted-foreground shrink-0 text-xs">
                     {entry.count}
                   </span>
+                </button>
+              ))
+            ))}
+
+          {mode === 'tagged' &&
+            (taggedHits.length === 0 ? (
+              <p className="text-muted-foreground px-2 py-6 text-center text-sm">
+                {tagged.isPending
+                  ? 'Loading…'
+                  : `Nothing tagged ${taggedWith}.`}
+              </p>
+            ) : (
+              taggedHits.map((article, i) => (
+                <button
+                  key={article.id}
+                  data-selected={i === selected}
+                  className={rowClass(i)}
+                  onMouseEnter={() => setSelected(i)}
+                  onClick={() => openTagged(article)}
+                >
+                  <FileText className="mt-0.5 size-4 shrink-0 opacity-70" />
+                  <span className="flex-1 truncate">{article.title}</span>
+                  {article.folderId && (
+                    <span className="text-muted-foreground shrink-0 text-xs">
+                      {article.folderId}
+                    </span>
+                  )}
                 </button>
               ))
             ))}

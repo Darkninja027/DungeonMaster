@@ -384,8 +384,21 @@ export const api = {
     open: () => invoke<WorldSummary | null>('worlds:pickAndOpen'),
     get: (worldId: string) => invoke<WorldSummary>('worlds:get', { worldId }),
     tree: (worldId: string) => invoke<WorldTree>('worlds:tree', { worldId }),
-    search: (worldId: string, query: string) =>
-      invoke<Array<SearchResult>>('worlds:search', { worldId, query }),
+    /**
+     * Sidebar search. `excludeFolders` drops whole subtrees in the main process,
+     * before the result cap — filtering the response instead would spend the cap
+     * on rows the caller is about to discard.
+     */
+    search: (
+      worldId: string,
+      query: string,
+      excludeFolders?: ReadonlyArray<string>,
+    ) =>
+      invoke<Array<SearchResult>>('worlds:search', {
+        worldId,
+        query,
+        excludeFolders,
+      }),
     /** Scored search for the command palette — sorted, then capped at `limit`. */
     searchRanked: (worldId: string, query: string, limit?: number) =>
       invoke<Array<RankedResult>>('worlds:searchRanked', {
