@@ -567,6 +567,16 @@ export const api = {
     set: (worldId: string, state: Array<SavedView>) =>
       invoke<void>('views:set', { worldId, state }),
   },
+  encounters: {
+    /**
+     * Raw .dm/encounters.json — deliberately `unknown` for the same reason
+     * worldSettings is: the file is hand-editable, so the renderer's tolerant
+     * `parseEncounters` decides what is usable rather than trusting the shape.
+     */
+    get: (worldId: string) => invoke<unknown>('encounters:get', { worldId }),
+    set: (worldId: string, state: unknown) =>
+      invoke<void>('encounters:set', { worldId, state }),
+  },
   worldSettings: {
     /**
      * Raw worldSettings.json — deliberately `unknown`, because the file is

@@ -1,6 +1,19 @@
 import { useMemo, useState } from 'react'
-import { useQueries, useQuery } from '@tanstack/react-query'
-import { Minus, PictureInPicture2, Play, Plus, Search, X } from 'lucide-react'
+import {
+  useMutation,
+  useQueries,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query'
+import {
+  Minus,
+  PictureInPicture2,
+  Play,
+  Plus,
+  Save,
+  Search,
+  X,
+} from 'lucide-react'
 import { api } from '#/lib/api'
 import type { ArticleRef } from '#/lib/api'
 import {
@@ -21,6 +34,17 @@ import { Input } from '#/components/ui/input'
 import { VirtualList } from '#/components/VirtualList'
 import { initiativeBonus, parseCharacter, signed } from '#/lib/character'
 import { rateEncounter } from '#/lib/encounter'
+import {
+  dropEncounter,
+  emptyEncounters,
+  monsterCount,
+  parseEncounters,
+  sortedEncounters,
+  upsertEncounter,
+} from '#/lib/encounterStore'
+import type { EncounterFile, SavedEncounter } from '#/lib/encounterStore'
+import { useToast } from '#/components/ToastProvider'
+import { useConfirm } from '#/components/ConfirmProvider'
 import type { Difficulty } from '#/lib/encounter'
 import { rollDice } from '#/lib/formatMarkdown'
 import { logRoll } from '#/lib/rollLog'
@@ -85,6 +109,33 @@ export function EncounterBuilder({
   const [scope, setScope] = useState<LibraryScope>(() =>
     loadLibraryScope('monsters'),
   )
+  const [saveName, setSaveName] = useState('')
+  const queryClient = useQueryClient()
+  const toast = useToast()
+  const confirmDelete = useConfirm()
+
+  // Prepared encounters for this world. The raw file comes up untyped and the
+  // tolerant parse happens here, the same split homebrew and templates use.
+  const savedQuery = useQuery({
+    queryKey: ['worlds', worldId, 'encounters'],
+    queryFn: () => api.encounters.get(worldId),
+    select: parseEncounters,
+  })
+  const saved = savedQuery.data ?? emptyEncounters()
+
+  const writeSaved = useMutation({
+    mutationFn: (next: EncounterFile) => api.encounters.set(worldId, next),
+    onSuccess: () =>
+      queryClient.invalidateQueries({
+        queryKey: ['worlds', worldId, 'encounters'],
+      }),
+    onError: (error: Error) =>
+      toast.show({
+        kind: 'error',
+        message: 'Could not save the encounter.',
+        detail: error.message,
+      }),
+  })
 
   const tree = useQuery({
     queryKey: ['worlds', worldId, 'tree'],
@@ -242,10 +293,80 @@ export function EncounterBuilder({
     onRun()
   }
 
+  const saveCurrent = () => {
+    const name = saveName.trim()
+    if (!name || !canRun) return
+    writeSaved.mutate(
+      upsertEncounter(saved, {
+        name,
+        counts,
+        party: [...party],
+        savedAt: new Date().toISOString(),
+      }),
+    )
+    setSaveName('')
+  }
+
+  const loadSaved = (entry: SavedEncounter) => {
+    // Replaces the working roster rather than merging into it: "load" that
+    // silently added to what was already there would be very hard to undo.
+    setCounts(entry.counts)
+    setParty(new Set(entry.party))
+  }
+
+  const removeSaved = async (entry: SavedEncounter) => {
+    const ok = await confirmDelete({
+      title: `Delete the saved encounter "${entry.name}"?`,
+      // Nothing on disk but the saved roster: the monsters and characters it
+      // names are ordinary articles and are untouched.
+      description: 'The monsters and characters in it are not affected.',
+    })
+    if (ok) writeSaved.mutate(dropEncounter(saved, entry.id))
+  }
+
   return (
     <div className="flex h-full flex-col">
       <ScrollArea className="min-h-0 flex-1">
         <div className="space-y-4 p-2">
+          {/* Saved encounters — only once there is something to show, so the
+              panel stays about building one until you have prepared some. */}
+          {saved.encounters.length > 0 && (
+            <section>
+              <h3 className="text-muted-foreground mb-1 text-xs font-semibold tracking-wide uppercase">
+                Saved
+              </h3>
+              <div className="space-y-0.5">
+                {sortedEncounters(saved).map((entry) => (
+                  <div
+                    key={entry.id}
+                    className="group flex items-center gap-1 rounded px-1.5 py-1 text-sm hover:bg-accent/50"
+                  >
+                    <button
+                      type="button"
+                      className="min-w-0 flex-1 truncate text-left"
+                      title={`Load "${entry.name}"`}
+                      onClick={() => loadSaved(entry)}
+                    >
+                      {entry.name}
+                      <span className="text-muted-foreground ml-1.5 text-xs">
+                        {monsterCount(entry)}m
+                        {entry.party.length > 0 && ` · ${entry.party.length}p`}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      className="text-muted-foreground hover:text-destructive shrink-0 opacity-0 group-hover:opacity-100"
+                      title="Delete this saved encounter"
+                      onClick={() => void removeSaved(entry)}
+                    >
+                      <X className="size-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
           {/* Monsters */}
           <section>
             <h4 className="tome-label mb-1 px-1">Monsters</h4>
@@ -438,6 +559,28 @@ export function EncounterBuilder({
             Pick monsters and party members to rate the encounter.
           </p>
         )}
+        <div className="flex gap-1">
+          <Input
+            value={saveName}
+            onChange={(e) => setSaveName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') saveCurrent()
+            }}
+            placeholder="Save this encounter as…"
+            className="h-8 text-sm"
+            disabled={!canRun}
+          />
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 shrink-0"
+            disabled={!canRun || saveName.trim() === ''}
+            onClick={saveCurrent}
+            title="Save this roster to reuse later"
+          >
+            <Save className="size-4" />
+          </Button>
+        </div>
         <Button className="w-full" disabled={!canRun} onClick={run}>
           <Play className="size-4" /> Run encounter
           {totalMonsters + party.size > 0 && (

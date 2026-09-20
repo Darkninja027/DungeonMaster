@@ -42,6 +42,8 @@ const CHANNELS = new Set([
   'session:set',
   'views:get',
   'views:set',
+  'encounters:get',
+  'encounters:set',
   'worldSettings:get',
   'worldSettings:set',
   'homebrew:get',

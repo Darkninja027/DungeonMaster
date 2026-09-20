@@ -41,6 +41,7 @@ export function writeWorldJson(
 
 const SESSION_REL = '.dm/session.json'
 const VIEWS_REL = '.dm/views.json'
+const ENCOUNTERS_REL = '.dm/encounters.json'
 
 /** Combat/session state (initiative tracker). */
 export function readSession(worldId: string): unknown {
@@ -48,6 +49,18 @@ export function readSession(worldId: string): unknown {
 }
 export function writeSession(worldId: string, state: unknown): void {
   writeWorldJson(worldId, SESSION_REL, state)
+}
+
+/**
+ * Prepared encounters for this world. Separate from session.json on purpose:
+ * that file is the fight in progress, this is the roster you built in advance.
+ * Losing one must not cost the other.
+ */
+export function readEncounters(worldId: string): unknown {
+  return readWorldJson(worldId, ENCOUNTERS_REL)
+}
+export function writeEncounters(worldId: string, state: unknown): void {
+  writeWorldJson(worldId, ENCOUNTERS_REL, state)
 }
 
 /** Saved Smart Views for this world. */

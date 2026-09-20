@@ -47,7 +47,14 @@ import {
   revealImage,
   uploadImage,
 } from './images'
-import { readSession, readViews, writeSession, writeViews } from './session'
+import {
+  readEncounters,
+  readSession,
+  readViews,
+  writeEncounters,
+  writeSession,
+  writeViews,
+} from './session'
 import {
   WORLD_SETTINGS_FILE,
   migrateWorldFolder,
@@ -657,6 +664,18 @@ export function registerIpcHandlers() {
     'views:set',
     (_e, { worldId, state }: { worldId: string; state: unknown }) =>
       writeViews(worldId, state),
+  )
+
+  // Prepared encounters. Raw JSON up: the renderer owns the tolerant parse, the
+  // same split homebrew and templates use.
+  ipcMain.handle('encounters:get', (_e, { worldId }: { worldId: string }) =>
+    readEncounters(worldId),
+  )
+
+  ipcMain.handle(
+    'encounters:set',
+    (_e, { worldId, state }: { worldId: string; state: unknown }) =>
+      writeEncounters(worldId, state),
   )
 
   // Per-world settings (the class/subclass list) ------------------------------
