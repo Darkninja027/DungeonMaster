@@ -36,7 +36,9 @@ import type { ImageInfo } from '#/lib/api'
 import type { RollSource } from '#/lib/rollLog'
 import { exportPdf } from '#/lib/exportPdf'
 import { formatMarkdown, snippets } from '#/lib/formatMarkdown'
-import { articleTemplates } from '#/lib/templates'
+import { useVisibleTemplates } from '#/lib/useTemplates'
+import { PromoteToTemplateDialog } from '#/components/PromoteToTemplateDialog'
+import type { PromoteSource } from '#/components/PromoteToTemplateDialog'
 import { Button } from '#/components/ui/button'
 import {
   DropdownMenu,
@@ -191,6 +193,8 @@ function ArticlePage() {
   const [imageIndex, setImageIndex] = useState(0)
   // Create-from-broken-link dialog
   const [missingTitle, setMissingTitle] = useState<string | null>(null)
+  const templates = useVisibleTemplates()
+  const [promoting, setPromoting] = useState<PromoteSource | null>(null)
 
   const images = useQuery({
     queryKey: ['worlds', worldId, 'images'],
@@ -720,8 +724,11 @@ function ArticlePage() {
                 <DropdownMenuSub>
                   <DropdownMenuSubTrigger>Template</DropdownMenuSubTrigger>
                   <DropdownMenuSubContent>
-                    {articleTemplates
-                      .filter((t) => t.id !== 'blank')
+                    {templates
+                      // Blank has nothing to insert, and neither does an
+                      // unfinished template someone has not written a body for
+                      // yet — both would be menu items that silently do nothing.
+                      .filter((t) => t.body.trim() !== '')
                       .map((template) => (
                         <DropdownMenuItem
                           key={template.id}
@@ -737,6 +744,20 @@ function ArticlePage() {
                       ))}
                   </DropdownMenuSubContent>
                 </DropdownMenuSub>
+                <DropdownMenuItem
+                  onClick={() =>
+                    setPromoting({
+                      worldId,
+                      articleId,
+                      title,
+                      // The live editor content, not the saved article: you
+                      // promote what you are looking at.
+                      content,
+                    })
+                  }
+                >
+                  New template from this article
+                </DropdownMenuItem>
               </DropdownMenuGroup>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -1214,6 +1235,11 @@ function ArticlePage() {
         worldId={worldId}
         title={missingTitle}
         onClose={() => setMissingTitle(null)}
+      />
+
+      <PromoteToTemplateDialog
+        source={promoting}
+        onClose={() => setPromoting(null)}
       />
     </div>
   )

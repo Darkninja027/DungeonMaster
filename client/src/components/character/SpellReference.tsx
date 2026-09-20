@@ -20,7 +20,8 @@ import {
   consumeSpellPanelRequest,
   useSpellPanelRequest,
 } from '#/lib/spellPanel'
-import { articleTemplates } from '#/lib/templates'
+import { newArticleContent } from '#/lib/templates'
+import { findTemplate } from '#/lib/templateStore'
 import {
   collectSpells,
   entryKey,
@@ -186,12 +187,15 @@ export function SpellReference({ worldId }: { worldId: string }) {
       } catch {
         // folder already exists
       }
-      const template = articleTemplates.find((t) => t.id === 'spell')
+      const template = findTemplate('spell')
       return api.articles.create({
         worldId,
         folderId: SPELLS_FOLDER,
         title,
-        content: template?.body ?? '',
+        // newArticleContent rather than the raw body: a no-op while the
+        // template carries its own frontmatter, and the guard that keeps this
+        // spell visible to the library if someone edits that frontmatter away.
+        content: template ? newArticleContent(template) : '',
       })
     },
     onSuccess: (created) => {

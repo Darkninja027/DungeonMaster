@@ -25,7 +25,8 @@ import { api } from '#/lib/api'
 import { splitFrontmatter } from '#/lib/formatMarkdown'
 import { REVEAL_LABEL, revealer } from '#/lib/reveal'
 import { parseStatBlock } from '#/lib/statblock'
-import { articleTemplates, newArticleContent } from '#/lib/templates'
+import { newArticleContent } from '#/lib/templates'
+import { findTemplate } from '#/lib/templateStore'
 import {
   collectMonsters,
   entryKey,
@@ -138,14 +139,16 @@ export function MonsterReference({ worldId }: { worldId: string }) {
       } catch {
         // folder already exists
       }
-      const template = articleTemplates.find((t) => t.id === 'monster')
+      const template = findTemplate('monster')
       return api.articles.create({
         worldId,
         folderId: MONSTERS_FOLDER,
         title,
         // newArticleContent, not template.body — the monster template carries
         // no frontmatter of its own, and without the `type: monster` header
-        // this article would be invisible to the encounter builder.
+        // this article would be invisible to the encounter builder. Still true
+        // now the template is editable: if someone strips its frontmatter,
+        // this is what puts the header back.
         content: template ? newArticleContent(template) : '',
       })
     },

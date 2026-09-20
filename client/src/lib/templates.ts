@@ -1,4 +1,17 @@
+/**
+ * Where a template in a merged list came from: shipped and untouched, a
+ * built-in the user has edited, or one they wrote themselves. Decides whether a
+ * row offers "Reset to built-in", a delete, or neither.
+ */
+export type TemplateOrigin = 'built-in' | 'override' | 'user'
+
 export interface ArticleTemplate {
+  /**
+   * Stable identity. For a built-in this is a hand-authored constant that code
+   * depends on (`'spell'`); for a user template it is slugged from the name
+   * once, at creation. See BUILT_IN_TEMPLATES on why these must never be
+   * renamed.
+   */
   id: string
   name: string
   description: string
@@ -9,6 +22,40 @@ export interface ArticleTemplate {
    * carries its own frontmatter (spell, character).
    */
   type?: string
+  /**
+   * Stamped by `mergeTemplates` and never stored. Drives the settings list's
+   * badges and which of reset/delete a row offers; nothing else should branch
+   * on it.
+   */
+  origin?: TemplateOrigin
+  /**
+   * Hidden from every **picker**, and from nothing else. `findTemplate(id)`
+   * still returns it, because the bestiary, the spell panel and the character
+   * wizard create articles from specific templates by id — hiding one is a
+   * choice about menus, not a deletion.
+   */
+  hidden?: boolean
+}
+
+/**
+ * Placeholders a template body may use, substituted when a caller has values
+ * for them. An unsubstituted placeholder is left **verbatim**, so a template
+ * carrying one still reads sensibly in a hand-created article — it looks like
+ * the blank it is.
+ *
+ * This exists because the character sheet's add-spell used to string-patch the
+ * literal text `level: 1` out of the spell template's body. That worked only
+ * while the template was a compiled-in constant nobody could touch. Now that it
+ * is editable, a rewritten spell template would have silently stopped stamping
+ * levels — no error, just every spell filed at level 1 forever.
+ */
+export function fillPlaceholders(
+  body: string,
+  values: Record<string, string>,
+): string {
+  return body.replace(/\{\{(\w+)\}\}/g, (whole, key: string) =>
+    key in values ? values[key] : whole,
+  )
 }
 
 /**
@@ -23,7 +70,21 @@ export function newArticleContent(template: ArticleTemplate): string {
   return `---\ntype: ${template.type}\ntags: []\n---\n\n${template.body}`
 }
 
-export const articleTemplates: Array<ArticleTemplate> = [
+/**
+ * The templates the app ships with, and the guaranteed floor under whatever the
+ * user does to them.
+ *
+ * Renamed from `articleTemplates` deliberately: this is the *built-in tier*,
+ * not the list any picker should render. A picker renders the merged list from
+ * lib/templateStore.ts — reaching for this array directly is the bug the name
+ * exists to make visible.
+ *
+ * **The ids here are a public contract.** Four call sites look up `spell`,
+ * `character` and `monster` by id, and every stored override names the built-in
+ * it overrides by id. Add freely; never rename, never remove — a rename orphans
+ * every override of that template and breaks a call site silently.
+ */
+export const BUILT_IN_TEMPLATES: Array<ArticleTemplate> = [
   {
     id: 'blank',
     name: 'Blank',
@@ -36,14 +97,14 @@ export const articleTemplates: Array<ArticleTemplate> = [
     description: 'A spell for the world spell library (Spells folder)',
     body: `---
 type: spell
-level: 1
+level: "{{level}}"
 damage: ""
 damagePerLevel: ""
 ---
 
 # Spell Name
 
-*Level 1 evocation*
+*{{levelLabel}} evocation*
 
 | | |
 | --- | --- |

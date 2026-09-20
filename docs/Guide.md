@@ -782,7 +782,8 @@ opening of a frontmatter block.
 ## The templates
 
 Every template except Blank starts your article with a `type:` and an empty
-`tags: []`, so new articles are queryable from birth.
+`tags: []`, so new articles are queryable from birth. These are the ones the
+app ships with; you can change them, and add your own.
 
 | Template | For | Type |
 | -------- | --- | ---- |
@@ -801,6 +802,25 @@ Every template except Blank starts your article with a `type:` and an empty
 Templates appear in three places: the New article dialog, the editor's
 **Insert > Template** submenu, and the dialog you get when you click a broken
 wiki link.
+
+## Making your own
+
+**Settings → Templates** edits this list. You can rewrite any built-in (there
+is a **Reset to built-in** if you regret it), hide the ones you never use, and
+write your own from scratch. **New template from this** in an article's menu
+turns something you have already written into a template.
+
+Built-in templates can be hidden but not deleted, because the bestiary, the
+spell panel and the character wizard create articles from them by name. Hiding
+one only takes it out of the menus — those features keep working.
+
+Two placeholders are filled in when the character sheet files a new spell:
+`{{level}}` and `{{levelLabel}}`. Remove them from the Spell template and
+spells are still created, just without the level filled in for you.
+
+Templates live with the app rather than in the world folder, so they are
+offered in every world — and they do not travel when you send a world to
+someone else.
 
 ## World Settings
 

@@ -34,9 +34,10 @@ function WorldSettingsPage() {
       <div>
         <h1 className="tome-heading text-xl">Settings</h1>
         <p className="tome-quiet text-xs">
-          Stored as <code>worldSettings.json</code> in the world folder; safe to
-          hand-edit. If your edits don’t show up, check it for a JSON syntax
-          error. Library is the exception — it applies to every world.
+          Per-world settings are stored as <code>worldSettings.json</code> in
+          the world folder; safe to hand-edit. If your edits don’t show up,
+          check it for a JSON syntax error. Homebrew, Templates and Library are
+          the exceptions — they live with the app and apply to every world.
         </p>
       </div>
 

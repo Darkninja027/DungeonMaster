@@ -2,7 +2,9 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '#/lib/api'
-import { articleTemplates, newArticleContent } from '#/lib/templates'
+import { newArticleContent } from '#/lib/templates'
+import { defaultTemplateId } from '#/lib/templateStore'
+import { useVisibleTemplates } from '#/lib/useTemplates'
 import { useVaultCheck } from '#/lib/useWorldSettings'
 import { cn } from '#/lib/utils'
 import { Button } from '#/components/ui/button'
@@ -48,18 +50,21 @@ export function CreateMissingArticleDialog({
   const [templateId, setTemplateId] = useState('blank')
   const [text, setText] = useState('')
   const { isVault, isLoading } = useVaultCheck(worldId)
+  const templates = useVisibleTemplates()
 
   // Fresh template choice and body each time the dialog opens for a new title.
+  // `templates` is memoised, so it only re-runs this when the list genuinely
+  // changes — which is also the moment a hidden Blank needs a new default.
   useEffect(() => {
     if (title !== null) {
-      setTemplateId('blank')
+      setTemplateId(defaultTemplateId(templates))
       setText('')
     }
-  }, [title])
+  }, [title, templates])
 
   const create = useMutation({
     mutationFn: () => {
-      const template = articleTemplates.find((t) => t.id === templateId)
+      const template = templates.find((t) => t.id === templateId)
       return api.articles.create({
         worldId,
         title: title ?? '',
@@ -115,7 +120,7 @@ export function CreateMissingArticleDialog({
         ) : (
           <>
             <div className="grid grid-cols-2 gap-2">
-              {articleTemplates.map((template) => (
+              {templates.map((template) => (
                 <button
                   key={template.id}
                   type="button"

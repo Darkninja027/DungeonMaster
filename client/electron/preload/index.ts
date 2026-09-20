@@ -46,6 +46,8 @@ const CHANNELS = new Set([
   'worldSettings:set',
   'homebrew:get',
   'homebrew:set',
+  'templates:get',
+  'templates:set',
   'vault:get',
   'vault:ensure',
   'library:get',

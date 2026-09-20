@@ -56,6 +56,7 @@ import {
   writeWorldSettings,
 } from './worldSettings'
 import { readHomebrew, writeHomebrew } from './homebrew'
+import { readTemplates, writeTemplates } from './templates'
 import { noteSelfWrite, startWatching, stopWatching } from './watcher'
 import {
   closeAllPlayerWindows,
@@ -673,6 +674,16 @@ export function registerIpcHandlers() {
 
   ipcMain.handle('homebrew:set', (_e, { state }: { state: unknown }) =>
     writeHomebrew(state),
+  )
+
+  // Global article templates --------------------------------------------------
+  // App-level for the same reason as homebrew: a template you write once is
+  // offered in every world. No withWorldLock — that lock is keyed by worldId and
+  // has nothing to say about a file in userData.
+  ipcMain.handle('templates:get', () => readTemplates())
+
+  ipcMain.handle('templates:set', (_e, { state }: { state: unknown }) =>
+    writeTemplates(state),
   )
 
   // Global library ------------------------------------------------------------

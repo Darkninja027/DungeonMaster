@@ -11,7 +11,8 @@ import {
   X,
 } from 'lucide-react'
 import { api } from '#/lib/api'
-import { articleTemplates } from '#/lib/templates'
+import { fillPlaceholders, newArticleContent } from '#/lib/templates'
+import { findTemplate } from '#/lib/templateStore'
 import { useLibraryEntries } from '#/lib/useGlobalLibrary'
 import {
   ABILITIES,
@@ -596,13 +597,23 @@ export function SheetTab({
       }
       // Stamp the chosen level into the new article (frontmatter + subtitle)
       // so the library and the sheet agree from day one.
-      const template = articleTemplates.find((t) => t.id === 'spell')
-      const body = (template?.body ?? '')
-        .replace('level: 1', `level: ${input.level}`)
-        .replace(
-          'Level 1',
-          input.level === 0 ? 'Cantrip' : `Level ${input.level}`,
-        )
+      //
+      // Placeholder substitution, not a string replace. This used to
+      // `.replace('level: 1', ...)` against the template body, which worked
+      // only while the spell template was a compiled-in constant. Now that it
+      // is editable, a template that no longer contained that literal would
+      // have silently stopped stamping levels — no error, just every spell
+      // filed at level 1 forever. An unknown placeholder is left verbatim, so
+      // a template carrying none simply gets no stamp: a visible blank to fill
+      // in rather than a confidently wrong number.
+      const template = findTemplate('spell')
+      const body = fillPlaceholders(
+        template ? newArticleContent(template) : '',
+        {
+          level: String(input.level),
+          levelLabel: input.level === 0 ? 'Cantrip' : `Level ${input.level}`,
+        },
+      )
       const created = await api.articles.create({
         worldId: source.worldId,
         folderId: SPELLS_FOLDER,

@@ -29,7 +29,11 @@ import { isLibraryFolder } from '#/lib/libraryFolders'
 import { useWorldMode } from '#/lib/useWorldSettings'
 import { REVEAL_LABEL, revealer } from '#/lib/reveal'
 import { useTable } from '#/lib/tableStore'
-import { articleTemplates, newArticleContent } from '#/lib/templates'
+import { newArticleContent } from '#/lib/templates'
+import { defaultTemplateId } from '#/lib/templateStore'
+import { useVisibleTemplates } from '#/lib/useTemplates'
+import { PromoteToTemplateDialog } from './PromoteToTemplateDialog'
+import type { PromoteSource } from './PromoteToTemplateDialog'
 import { cn } from '#/lib/utils'
 import { SmartViews } from '#/components/SmartViews'
 import { CreateCharacterDialog } from '#/components/character/create/CreateCharacterDialog'
@@ -83,6 +87,8 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
   const [dialog, setDialog] = useState<NameDialogState | null>(null)
   const [name, setName] = useState('')
   const [templateId, setTemplateId] = useState('blank')
+  const templates = useVisibleTemplates()
+  const [promoting, setPromoting] = useState<PromoteSource | null>(null)
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const [dragItem, setDragItem] = useState<{
     type: 'article' | 'folder'
@@ -252,7 +258,7 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
     } else if (dialog.mode === 'rename-article' && dialog.articleId != null) {
       renameArticle.mutate({ id: dialog.articleId, title: name })
     } else if (dialog.mode === 'new-article') {
-      const template = articleTemplates.find((t) => t.id === templateId)
+      const template = templates.find((t) => t.id === templateId)
       createArticle.mutate({
         worldId,
         folderId: dialog.parentFolderId,
@@ -264,7 +270,7 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
 
   const openDialog = (state: NameDialogState) => {
     setName(state.initial ?? '')
-    setTemplateId('blank')
+    setTemplateId(defaultTemplateId(templates))
     // Defer the overlay mount so a DropdownMenu that triggered this finishes
     // closing first — otherwise Radix can leave pointer-events:none stuck on
     // <body> and the whole app stops accepting clicks/typing until the next
@@ -366,6 +372,17 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
           </DropdownMenuItem>
           <DropdownMenuItem onClick={() => duplicateArticle.mutate(article.id)}>
             <Copy /> Duplicate
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={() =>
+              setPromoting({
+                worldId,
+                articleId: article.id,
+                title: article.title,
+              })
+            }
+          >
+            <FilePlus2 /> New template from this
           </DropdownMenuItem>
           <DropdownMenuItem
             onClick={() => void api.player.show(worldId, article.id, 'popout')}
@@ -766,7 +783,7 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
             <div>
               <p className="tome-label mb-2">Template</p>
               <div className="grid grid-cols-2 gap-2">
-                {articleTemplates.map((template) => (
+                {templates.map((template) => (
                   <button
                     key={template.id}
                     type="button"
@@ -809,6 +826,11 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
         worldId={worldId}
         open={wizardOpen}
         onClose={() => setWizardOpen(false)}
+      />
+
+      <PromoteToTemplateDialog
+        source={promoting}
+        onClose={() => setPromoting(null)}
       />
     </div>
   )

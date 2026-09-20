@@ -573,6 +573,16 @@ export const api = {
     get: () => invoke<unknown>('homebrew:get'),
     set: (state: unknown) => invoke<void>('homebrew:set', { state }),
   },
+  templates: {
+    /**
+     * Raw templates.json — `unknown` for the same reason as homebrew: the file
+     * is hand-editable and lib/templateStore.ts owns the tolerant parse. null
+     * means missing or unparseable, which reads as "no templates yet" and
+     * leaves the built-ins standing on their own.
+     */
+    get: () => invoke<unknown>('templates:get'),
+    set: (state: unknown) => invoke<void>('templates:set', { state }),
+  },
   vault: {
     /**
      * The vault, or null if there has never been one. Never creates — the home
