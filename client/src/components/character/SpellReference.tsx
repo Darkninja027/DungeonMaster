@@ -49,6 +49,9 @@ import {
 } from '#/components/ui/dropdown-menu'
 import { Input } from '#/components/ui/input'
 import { InlineMarkdown, PANEL_PROSE } from '#/components/Markdown'
+import { useToast } from '#/components/ToastProvider'
+import { useConfirm } from '#/components/ConfirmProvider'
+import { RECYCLE_BIN_NOTE } from '#/lib/confirmText'
 
 const SPELLS_FOLDER = 'Spells'
 
@@ -99,6 +102,8 @@ function SpellArticle({
 export function SpellReference({ worldId }: { worldId: string }) {
   const queryClient = useQueryClient()
   const navigate = useNavigate()
+  const toast = useToast()
+  const confirmDelete = useConfirm()
   // No panel-level revealer: each row builds one from its own entry's world, so
   // a library entry reveals in the library folder rather than this one.
   const tree = useQuery({
@@ -206,7 +211,12 @@ export function SpellReference({ worldId }: { worldId: string }) {
         params: { worldId, articleId: created.id },
       })
     },
-    onError: (error) => alert(error.message),
+    onError: (error: Error) =>
+      toast.show({
+        kind: 'error',
+        message: 'Could not create the spell.',
+        detail: error.message,
+      }),
   })
 
   const submitNewSpell = () => {
@@ -225,7 +235,12 @@ export function SpellReference({ worldId }: { worldId: string }) {
       queryClient.invalidateQueries({ queryKey: ['worlds', worldId] })
       setOpenId(null)
     },
-    onError: (error: Error) => alert(error.message),
+    onError: (error: Error) =>
+      toast.show({
+        kind: 'error',
+        message: 'Could not delete the spell.',
+        detail: error.message,
+      }),
   })
 
   // The editable escape hatch for a read-only library entry: copy it in, then
@@ -256,7 +271,12 @@ export function SpellReference({ worldId }: { worldId: string }) {
         params: { worldId, articleId: created.id },
       })
     },
-    onError: (error: Error) => alert(error.message),
+    onError: (error: Error) =>
+      toast.show({
+        kind: 'error',
+        message: 'Could not copy the spell into this world.',
+        detail: error.message,
+      }),
   })
 
   if (tree.isPending) {
@@ -359,9 +379,12 @@ export function SpellReference({ worldId }: { worldId: string }) {
                     className="text-muted-foreground hover:text-foreground shrink-0 opacity-0 group-hover:opacity-100"
                     title="Library entries are read-only here"
                     onClick={() =>
-                      alert(
-                        `"${spell.title}" lives in your global library, so it is read-only from inside a world.\n\nUse "Copy to this world" to make an editable copy, or open the library folder to edit it everywhere.`,
-                      )
+                      toast.show({
+                        kind: 'info',
+                        message: `"${spell.title}" lives in your global library, so it is read-only from inside a world.`,
+                        detail:
+                          'Use "Copy to this world" to make an editable copy, or open the library folder to edit it everywhere.',
+                      })
                     }
                   >
                     <SquarePen className="size-3.5" />
@@ -407,11 +430,12 @@ export function SpellReference({ worldId }: { worldId: string }) {
                     {!spell.global && (
                       <DropdownMenuItem
                         variant="destructive"
-                        onClick={() => {
+                        onClick={async () => {
                           if (
-                            confirm(
-                              `Delete "${spell.title}"? It goes to the Recycle Bin.`,
-                            )
+                            await confirmDelete({
+                              title: `Delete "${spell.title}"?`,
+                              description: RECYCLE_BIN_NOTE,
+                            })
                           ) {
                             deleteSpell.mutate(spell)
                           }

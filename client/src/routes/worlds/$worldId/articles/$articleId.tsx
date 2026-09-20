@@ -87,6 +87,9 @@ import { LivePreviewPane } from '#/components/LivePreviewPane'
 import { padBlock } from '#/lib/markdownEditing'
 import { useWorldSettings } from '#/lib/useWorldSettings'
 import type { LiveEditorHandle } from '#/components/LiveMarkdownEditor'
+import { useToast } from '#/components/ToastProvider'
+import { useConfirm } from '#/components/ConfirmProvider'
+import { RECYCLE_BIN_NOTE } from '#/lib/confirmText'
 
 export const Route = createFileRoute('/worlds/$worldId/articles/$articleId')({
   component: ArticlePage,
@@ -145,7 +148,11 @@ function ArticlePage() {
   const { worldId, articleId } = Route.useParams()
   const queryClient = useQueryClient()
   const navigate = useNavigate()
-  const reveal = revealer(worldId)
+  const toast = useToast()
+  const confirmDelete = useConfirm()
+  const reveal = revealer(worldId, (message) =>
+    toast.show({ kind: 'error', message }),
+  )
 
   const article = useQuery({
     queryKey: ['articles', articleId],
@@ -569,8 +576,12 @@ function ArticlePage() {
         insertAtCursor(`![${alt}](${image.encodedRelPath})`)
       }
       queryClient.invalidateQueries({ queryKey: ['worlds', worldId, 'images'] })
-    } catch (error) {
-      alert((error as Error).message)
+    } catch (failure) {
+      toast.show({
+        kind: 'error',
+        message: 'Could not insert the image.',
+        detail: (failure as Error).message,
+      })
     }
   }
 
@@ -856,8 +867,14 @@ function ArticlePage() {
             variant="ghost"
             size="icon"
             title="Delete article"
-            onClick={() => {
-              if (confirm(`Delete "${title}"?`)) remove.mutate()
+            onClick={async () => {
+              if (
+                await confirmDelete({
+                  title: `Delete "${title}"?`,
+                  description: RECYCLE_BIN_NOTE,
+                })
+              )
+                remove.mutate()
             }}
           >
             <Trash2 className="text-destructive" />

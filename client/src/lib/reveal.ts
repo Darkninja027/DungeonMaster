@@ -7,14 +7,18 @@ import { api } from '#/lib/api'
  * characters, spells and monsters that are just articles — a folder id for a
  * folder, and nothing at all for the world folder itself.
  *
- * Failures surface through alert(), matching every other mutation in the app;
- * the message comes from the main process, which is the only side that knows
- * whether the file is still there.
+ * `onError` reports a failure — the message comes from the main process, which
+ * is the only side that knows whether the file is still there. It is a
+ * parameter rather than a toast raised in here because this is a plain module:
+ * a hook would make every caller a component, and two of them already are not.
+ * A caller that omits it gets a console warning, which is the honest floor for
+ * "the folder did not open" — never silence.
  */
-export function revealer(worldId: string) {
+export function revealer(worldId: string, onError?: (message: string) => void) {
   return (relPath?: string) => {
     api.shell.reveal(worldId, relPath).catch((error: Error) => {
-      alert(error.message)
+      if (onError) onError(error.message)
+      else console.warn('Reveal failed:', error.message)
     })
   }
 }

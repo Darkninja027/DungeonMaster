@@ -112,7 +112,10 @@ function str(value: unknown): string {
  * to key on and something to show. An entry with a name but no id gets one
  * slugged, which is what a hand-written entry looks like.
  */
-function parseTemplate(raw: unknown, taken: Set<string>): StoredTemplate | null {
+function parseTemplate(
+  raw: unknown,
+  taken: Set<string>,
+): StoredTemplate | null {
   if (typeof raw !== 'object' || raw === null) return null
   const r = raw as Record<string, unknown>
   const name = str(r.name).trim()
@@ -216,7 +219,10 @@ export function mergeTemplates(
 ): Array<ArticleTemplate> {
   const order: Array<string> = BUILT_IN_TEMPLATES.map((t) => t.id)
   const byId = new Map<string, ArticleTemplate>(
-    BUILT_IN_TEMPLATES.map((t) => [t.id, { ...t, origin: 'built-in' as const }]),
+    BUILT_IN_TEMPLATES.map((t) => [
+      t.id,
+      { ...t, origin: 'built-in' as const },
+    ]),
   )
   for (const entry of store.templates) {
     if (entry.id === '') continue

@@ -20,8 +20,10 @@ import { cn } from '#/lib/utils'
 import { Button } from '#/components/ui/button'
 import { Input } from '#/components/ui/input'
 import { ScrollArea } from '#/components/ui/scroll-area'
+import { useConfirm } from '#/components/ConfirmProvider'
 
 export function InitiativeTracker({ worldId }: { worldId: string }) {
+  const confirmDelete = useConfirm()
   const combat = useCombat()
 
   useEffect(() => {
@@ -290,8 +292,14 @@ export function InitiativeTracker({ worldId }: { worldId: string }) {
           className="size-7"
           title="Reset combat"
           disabled={order.length === 0 && combat.round === 1}
-          onClick={() => {
-            if (confirm('Clear all combatants and reset the round counter?')) {
+          onClick={async () => {
+            if (
+              await confirmDelete({
+                title: 'Clear all combatants and reset the round counter?',
+                description: 'The encounter in progress is discarded.',
+                confirmLabel: 'Clear',
+              })
+            ) {
               combatActions.reset()
             }
           }}

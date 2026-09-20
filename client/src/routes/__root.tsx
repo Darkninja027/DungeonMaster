@@ -6,6 +6,8 @@ import {
   useMatchRoute,
 } from '@tanstack/react-router'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { ToastProvider } from '#/components/ToastProvider'
+import { ConfirmProvider } from '#/components/ConfirmProvider'
 import { Castle, Moon, Palette, Settings2, Sun } from 'lucide-react'
 import { UpdateIndicator } from '#/components/UpdateIndicator'
 import { LoadingGate } from '#/components/LoadingGate'
@@ -185,45 +187,52 @@ function RootLayout() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      {/* The shell paints the ground so no route can render transparent over
+      {/* Inside the query provider so a mutation's onError can reach a toast,
+          and outside the shell so both survive a route change. Secondary
+          windows get them too: a popout still renames and still fails. */}
+      <ToastProvider>
+        <ConfirmProvider>
+          {/* The shell paints the ground so no route can render transparent over
           the browser default — every route below is free to paint its own. */}
-      <div className="bg-background flex h-screen flex-col">
-        {!bare && (
-          /* `bg-background` explicitly: the header declares no background of
+          <div className="bg-background flex h-screen flex-col">
+            {!bare && (
+              /* `bg-background` explicitly: the header declares no background of
              its own, so it let the body's leftover teal gradient show through
              and clashed with whatever the page below it painted. */
-          <header className="bg-background flex items-center gap-2 border-b px-4 py-2">
-            <HeaderSidebarToggle />
-            {/* `font-display` so the wordmark tracks the active skin and never
+              <header className="bg-background flex items-center gap-2 border-b px-4 py-2">
+                <HeaderSidebarToggle />
+                {/* `font-display` so the wordmark tracks the active skin and never
                 reads as a different app sitting on the home screen's masthead. */}
-            <Link
-              to="/"
-              className="font-display flex items-center gap-2 text-[0.95rem] font-semibold tracking-wide"
-            >
-              <Castle className="size-5" />
-              Dungeon Master
-            </Link>
-            <div className="ml-auto flex items-center gap-1">
-              <HeaderWorldSettings />
-              <UpdateIndicator />
-              <SkinPicker />
-              <ThemeToggle />
-            </div>
-          </header>
-        )}
-        <main className="min-h-0 flex-1">
-          {/* Secondary windows skip the warm-up: they load this same bundle to
+                <Link
+                  to="/"
+                  className="font-display flex items-center gap-2 text-[0.95rem] font-semibold tracking-wide"
+                >
+                  <Castle className="size-5" />
+                  Dungeon Master
+                </Link>
+                <div className="ml-auto flex items-center gap-1">
+                  <HeaderWorldSettings />
+                  <UpdateIndicator />
+                  <SkinPicker />
+                  <ThemeToggle />
+                </div>
+              </header>
+            )}
+            <main className="min-h-0 flex-1">
+              {/* Secondary windows skip the warm-up: they load this same bundle to
               show a single article to the table, and must not sit behind a
               spinner waiting on a bestiary they will never open. */}
-          {bare ? (
-            <Outlet />
-          ) : (
-            <LoadingGate>
-              <Outlet />
-            </LoadingGate>
-          )}
-        </main>
-      </div>
+              {bare ? (
+                <Outlet />
+              ) : (
+                <LoadingGate>
+                  <Outlet />
+                </LoadingGate>
+              )}
+            </main>
+          </div>
+        </ConfirmProvider>
+      </ToastProvider>
     </QueryClientProvider>
   )
 }

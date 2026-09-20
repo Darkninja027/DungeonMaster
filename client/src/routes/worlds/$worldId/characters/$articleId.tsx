@@ -62,6 +62,9 @@ import {
 } from '#/components/character/SheetPreview'
 import { loadSpellCards, saveSpellCards } from '#/lib/sheetPrintPrefs'
 import { CreateMissingArticleDialog } from '#/components/CreateMissingArticleDialog'
+import { useToast } from '#/components/ToastProvider'
+import { useConfirm } from '#/components/ConfirmProvider'
+import { RECYCLE_BIN_NOTE } from '#/lib/confirmText'
 
 /**
  * Poll a settled flag until it trips, or give up. Used by the PDF export to wait
@@ -115,7 +118,11 @@ function CharacterPage() {
   const { worldId, articleId } = Route.useParams()
   const queryClient = useQueryClient()
   const navigate = useNavigate()
-  const reveal = revealer(worldId)
+  const toast = useToast()
+  const confirmDelete = useConfirm()
+  const reveal = revealer(worldId, (message) =>
+    toast.show({ kind: 'error', message }),
+  )
 
   const article = useQuery({
     queryKey: ['articles', articleId],
@@ -405,8 +412,12 @@ function CharacterPage() {
         insertAtCursor(`![${alt}](${image.encodedRelPath})`)
       }
       queryClient.invalidateQueries({ queryKey: ['worlds', worldId, 'images'] })
-    } catch (error) {
-      alert((error as Error).message)
+    } catch (failure) {
+      toast.show({
+        kind: 'error',
+        message: 'Could not insert the image.',
+        detail: (failure as Error).message,
+      })
     }
   }
 
@@ -500,8 +511,13 @@ function CharacterPage() {
         isPending={isPending}
         onSave={saveNow}
         onReveal={() => reveal(`${article.data?.id ?? articleId}.md`)}
-        onDelete={() => {
-          if (confirm(`Delete "${title}"? It goes to the Recycle Bin.`)) {
+        onDelete={async () => {
+          if (
+            await confirmDelete({
+              title: `Delete "${title}"?`,
+              description: RECYCLE_BIN_NOTE,
+            })
+          ) {
             remove.mutate()
           }
         }}

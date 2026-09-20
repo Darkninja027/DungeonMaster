@@ -45,6 +45,7 @@ import {
 import { Input } from '#/components/ui/input'
 import { Label } from '#/components/ui/label'
 import { Textarea } from '#/components/ui/textarea'
+import { useToast } from '#/components/ToastProvider'
 
 export const Route = createFileRoute('/')({
   component: WorldsPage,
@@ -188,6 +189,7 @@ function WorldRow({
  */
 function VaultSection() {
   const queryClient = useQueryClient()
+  const toast = useToast()
   const [wizardOpen, setWizardOpen] = useState(false)
 
   const vault = useQuery({ queryKey: ['vault'], queryFn: api.vault.get })
@@ -207,7 +209,12 @@ function VaultSection() {
       queryClient.setQueryData(['vault'], info)
       setWizardOpen(true)
     },
-    onError: (error: Error) => alert(error.message),
+    onError: (error: Error) =>
+      toast.show({
+        kind: 'error',
+        message: 'Could not open the character vault.',
+        detail: error.message,
+      }),
   })
 
   const list = characters.data ?? []

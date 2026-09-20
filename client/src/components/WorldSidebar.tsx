@@ -26,6 +26,9 @@ import { onPaletteAction } from '#/lib/paletteActions'
 import { useShortcut } from '#/lib/useShortcut'
 import type { ArticleSummary, FolderNode, WorldTree } from '#/lib/api'
 import { LIBRARY_FOLDERS, isLibraryFolder } from '#/lib/libraryFolders'
+import { useToast } from '#/components/ToastProvider'
+import { useConfirm } from '#/components/ConfirmProvider'
+import { RECYCLE_BIN_NOTE, RECYCLE_BIN_NOTE_MANY } from '#/lib/confirmText'
 import { useWorldMode } from '#/lib/useWorldSettings'
 import { REVEAL_LABEL, revealer } from '#/lib/reveal'
 import { useTable } from '#/lib/tableStore'
@@ -63,6 +66,8 @@ interface NameDialogState {
 }
 
 export function WorldSidebar({ worldId }: { worldId: string }) {
+  const toast = useToast()
+  const confirmDelete = useConfirm()
   // Which sections this world's mode shows. Hiding only — the routes behind
   // each one stay reachable, so a [[wiki link]] into a hidden tree still opens.
   const shows = useWorldMode(worldId).shows
@@ -160,7 +165,12 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
       invalidateTree()
       setDialog(null)
     },
-    onError: (error) => alert(error.message),
+    onError: (error) =>
+      toast.show({
+        kind: 'error',
+        message: 'Could not create the folder.',
+        detail: error.message,
+      }),
   })
   const renameFolder = useMutation({
     mutationFn: ({ id, name: newName }: { id: string; name: string }) =>
@@ -169,7 +179,12 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
       invalidateTree()
       setDialog(null)
     },
-    onError: (error) => alert(error.message),
+    onError: (error) =>
+      toast.show({
+        kind: 'error',
+        message: 'Could not rename the folder.',
+        detail: error.message,
+      }),
   })
   const deleteFolder = useMutation({
     mutationFn: (id: string) => api.folders.delete(worldId, id),
@@ -179,7 +194,12 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
     mutationFn: ({ id, folderId }: { id: string; folderId: string | null }) =>
       api.articles.move(worldId, id, folderId),
     onSuccess: invalidateTree,
-    onError: (error) => alert(error.message),
+    onError: (error) =>
+      toast.show({
+        kind: 'error',
+        message: 'Could not move the article.',
+        detail: error.message,
+      }),
   })
   const moveFolder = useMutation({
     mutationFn: ({
@@ -190,7 +210,12 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
       parentFolderId: string | null
     }) => api.folders.move(worldId, id, parentFolderId),
     onSuccess: invalidateTree,
-    onError: (error) => alert(error.message),
+    onError: (error) =>
+      toast.show({
+        kind: 'error',
+        message: 'Could not move the folder.',
+        detail: error.message,
+      }),
   })
 
   const renameArticle = useMutation({
@@ -207,7 +232,12 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
         })
       }
     },
-    onError: (error) => alert(error.message),
+    onError: (error) =>
+      toast.show({
+        kind: 'error',
+        message: 'Could not rename the article.',
+        detail: error.message,
+      }),
   })
   const duplicateArticle = useMutation({
     mutationFn: (id: string) => api.articles.duplicate(worldId, id),
@@ -218,7 +248,12 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
         params: { worldId, articleId: article.id },
       })
     },
-    onError: (error) => alert(error.message),
+    onError: (error) =>
+      toast.show({
+        kind: 'error',
+        message: 'Could not duplicate the article.',
+        detail: error.message,
+      }),
   })
   const deleteArticle = useMutation({
     mutationFn: (id: string) => api.articles.delete(worldId, id),
@@ -227,7 +262,12 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
       if (activeArticleId === id)
         navigate({ to: '/worlds/$worldId', params: { worldId } })
     },
-    onError: (error) => alert(error.message),
+    onError: (error) =>
+      toast.show({
+        kind: 'error',
+        message: 'Could not delete the article.',
+        detail: error.message,
+      }),
   })
 
   const createArticle = useMutation({
@@ -413,11 +453,12 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
           </DropdownMenuItem>
           <DropdownMenuItem
             variant="destructive"
-            onClick={() => {
+            onClick={async () => {
               if (
-                confirm(
-                  `Delete "${article.title}"? It goes to the Recycle Bin.`,
-                )
+                await confirmDelete({
+                  title: `Delete "${article.title}"?`,
+                  description: RECYCLE_BIN_NOTE,
+                })
               ) {
                 deleteArticle.mutate(article.id)
               }
@@ -514,11 +555,12 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
               </DropdownMenuItem>
               <DropdownMenuItem
                 variant="destructive"
-                onClick={() => {
+                onClick={async () => {
                   if (
-                    confirm(
-                      `Delete folder "${folder.name}" and everything inside it? It goes to the Recycle Bin.`,
-                    )
+                    await confirmDelete({
+                      title: `Delete folder "${folder.name}"?`,
+                      description: RECYCLE_BIN_NOTE_MANY,
+                    })
                   ) {
                     deleteFolder.mutate(folder.id)
                   }
@@ -610,11 +652,12 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
                     </DropdownMenuItem>
                     <DropdownMenuItem
                       variant="destructive"
-                      onClick={() => {
+                      onClick={async () => {
                         if (
-                          confirm(
-                            `Delete "${ch.title}"? It goes to the Recycle Bin.`,
-                          )
+                          await confirmDelete({
+                            title: `Delete "${ch.title}"?`,
+                            description: RECYCLE_BIN_NOTE,
+                          })
                         ) {
                           // A character is an article on disk, so this is the
                           // same mutation the content tree uses — including the

@@ -113,8 +113,8 @@ describe('the character template', () => {
 
   it('round-trips through the sheet parser unchanged', () => {
     const { character, body } = parseCharacter(byId('character').body)
-    expect(parseCharacter(serializeCharacter(character, body)).character).toEqual(
-      character,
-    )
+    expect(
+      parseCharacter(serializeCharacter(character, body)).character,
+    ).toEqual(character)
   })
 })

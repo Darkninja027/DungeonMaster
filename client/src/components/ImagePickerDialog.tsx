@@ -33,6 +33,9 @@ import {
 } from '#/components/ui/dropdown-menu'
 import { Input } from '#/components/ui/input'
 import { ScrollArea } from '#/components/ui/scroll-area'
+import { useToast } from '#/components/ToastProvider'
+import { useConfirm } from '#/components/ConfirmProvider'
+import { RECYCLE_BIN_NOTE, RECYCLE_BIN_NOTE_MANY } from '#/lib/confirmText'
 
 interface NameDialogState {
   mode: 'new-folder' | 'rename-folder' | 'rename-image'
@@ -62,6 +65,8 @@ export function ImagePickerDialog({
   onRefsRewritten,
 }: Props) {
   const queryClient = useQueryClient()
+  const toast = useToast()
+  const confirmDelete = useConfirm()
   const fileInput = useRef<HTMLInputElement>(null)
 
   const [currentFolderId, setCurrentFolderId] = useState<string | null>(null)
@@ -115,18 +120,33 @@ export function ImagePickerDialog({
     mutationFn: (input: { id: string; name: string }) =>
       api.images.rename(worldId, input.id, input.name),
     onSuccess: invalidateAfterRewrite,
-    onError: (error) => alert(error.message),
+    onError: (error) =>
+      toast.show({
+        kind: 'error',
+        message: 'Could not rename the image.',
+        detail: error.message,
+      }),
   })
   const moveImage = useMutation({
     mutationFn: (input: { id: string; folderId: string | null }) =>
       api.images.move(worldId, input.id, input.folderId),
     onSuccess: invalidateAfterRewrite,
-    onError: (error) => alert(error.message),
+    onError: (error) =>
+      toast.show({
+        kind: 'error',
+        message: 'Could not move the image.',
+        detail: error.message,
+      }),
   })
   const removeImage = useMutation({
     mutationFn: (imageId: string) => api.images.delete(worldId, imageId),
     onSuccess: invalidate,
-    onError: (error) => alert(error.message),
+    onError: (error) =>
+      toast.show({
+        kind: 'error',
+        message: 'Could not delete the image.',
+        detail: error.message,
+      }),
   })
 
   const createFolder = useMutation({
@@ -136,7 +156,12 @@ export function ImagePickerDialog({
       invalidate()
       setCurrentFolderId(folder.id)
     },
-    onError: (error) => alert(error.message),
+    onError: (error) =>
+      toast.show({
+        kind: 'error',
+        message: 'Could not create the folder.',
+        detail: error.message,
+      }),
   })
   const renameFolder = useMutation({
     mutationFn: (input: { id: string; name: string }) =>
@@ -152,13 +177,23 @@ export function ImagePickerDialog({
             : current,
       )
     },
-    onError: (error) => alert(error.message),
+    onError: (error) =>
+      toast.show({
+        kind: 'error',
+        message: 'Could not rename the folder.',
+        detail: error.message,
+      }),
   })
   const moveFolder = useMutation({
     mutationFn: (input: { id: string; parentFolderId: string | null }) =>
       api.images.moveFolder(worldId, input.id, input.parentFolderId),
     onSuccess: invalidateAfterRewrite,
-    onError: (error) => alert(error.message),
+    onError: (error) =>
+      toast.show({
+        kind: 'error',
+        message: 'Could not move the folder.',
+        detail: error.message,
+      }),
   })
   const removeFolder = useMutation({
     mutationFn: (folderId: string) =>
@@ -171,7 +206,12 @@ export function ImagePickerDialog({
           : current,
       )
     },
-    onError: (error) => alert(error.message),
+    onError: (error) =>
+      toast.show({
+        kind: 'error',
+        message: 'Could not delete the folder.',
+        detail: error.message,
+      }),
   })
 
   const insert = (image: ImageInfo) => {
@@ -208,11 +248,17 @@ export function ImagePickerDialog({
 
   const confirmDeleteFolder = async (folder: ImageFolder) => {
     const count = await api.images.countIn(worldId, folder.id)
-    const message =
-      count > 0
-        ? `Delete "${folder.name}" and the ${count} image${count === 1 ? '' : 's'} inside it? Markdown that references them will show a broken image. It goes to the Recycle Bin.`
-        : `Delete the empty folder "${folder.name}"? It goes to the Recycle Bin.`
-    if (confirm(message)) removeFolder.mutate(folder.id)
+    const ok = await confirmDelete({
+      title:
+        count > 0
+          ? `Delete "${folder.name}" and the ${count} image${count === 1 ? '' : 's'} inside it?`
+          : `Delete the empty folder "${folder.name}"?`,
+      description:
+        count > 0
+          ? `Markdown that references them will show a broken image. ${RECYCLE_BIN_NOTE_MANY}`
+          : RECYCLE_BIN_NOTE,
+    })
+    if (ok) removeFolder.mutate(folder.id)
   }
 
   /** Show an image or folder in the OS file manager; '' = the _images folder. */
@@ -220,7 +266,11 @@ export function ImagePickerDialog({
     try {
       await api.images.reveal(worldId, imageId)
     } catch (error) {
-      alert((error as Error).message)
+      toast.show({
+        kind: 'error',
+        message: 'Could not open the file location.',
+        detail: (error as Error).message,
+      })
     }
   }
 
@@ -426,11 +476,12 @@ export function ImagePickerDialog({
           </DropdownMenuItem>
           <DropdownMenuItem
             variant="destructive"
-            onClick={() => {
+            onClick={async () => {
               if (
-                confirm(
-                  `Delete ${image.fileName}? Markdown that references it will show a broken image. It goes to the Recycle Bin.`,
-                )
+                await confirmDelete({
+                  title: `Delete ${image.fileName}?`,
+                  description: `Markdown that references it will show a broken image. ${RECYCLE_BIN_NOTE}`,
+                })
               )
                 removeImage.mutate(image.id)
             }}

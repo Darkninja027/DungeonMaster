@@ -77,6 +77,7 @@ import { DefenseChips } from './DefenseChips'
 import { hasSpellcasting } from './SheetPreview'
 import { NumField } from './NumField'
 import { Panel as Section, Pips } from './Panel'
+import { useToast } from '#/components/ToastProvider'
 
 const SPELLS_FOLDER = 'Spells'
 
@@ -424,6 +425,7 @@ export function SheetTab({
   const [spellName, setSpellName] = useState('')
   const [spellLevel, setSpellLevel] = useState(0)
   const queryClient = useQueryClient()
+  const toast = useToast()
   const librarySpells = useLibraryEntries('Spells')
 
   // When the typed/picked name matches a library spell, prefill the level
@@ -635,7 +637,12 @@ export function SheetTab({
       setSpellName('')
       queryClient.invalidateQueries({ queryKey: ['worlds', source.worldId] })
     },
-    onError: (error) => alert(error.message),
+    onError: (error: Error) =>
+      toast.show({
+        kind: 'error',
+        message: 'Could not create the spell article.',
+        detail: error.message,
+      }),
   })
 
   const submitSpell = () => {

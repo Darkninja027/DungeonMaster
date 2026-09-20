@@ -126,7 +126,13 @@ export function FeatureRows({
                 onClick={() =>
                   patchAt(i, {
                     picks: [
-                      { id: '', kind: 'feature', label: '', count: 1, options: [] },
+                      {
+                        id: '',
+                        kind: 'feature',
+                        label: '',
+                        count: 1,
+                        options: [],
+                      },
                     ],
                   })
                 }

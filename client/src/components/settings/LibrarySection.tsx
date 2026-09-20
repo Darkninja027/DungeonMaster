@@ -7,6 +7,7 @@ import type { ImportSummary, LibraryFolder } from '#/lib/api'
 import { useLibrary } from '#/lib/useGlobalLibrary'
 import { Button } from '#/components/ui/button'
 import { ImportSummaryDialog } from '#/components/ImportSummaryDialog'
+import { useToast } from '#/components/ToastProvider'
 
 const RESTORABLE: Array<{
   target: LibraryFolder
@@ -44,6 +45,7 @@ function RestoreButton({
   disabled: boolean
 }) {
   const queryClient = useQueryClient()
+  const toast = useToast()
   const [summary, setSummary] = useState<ImportSummary | null>(null)
 
   const run = useMutation({
@@ -56,7 +58,12 @@ function RestoreButton({
       // and a dialog claiming "0 restored" would misread as a failure.
       if (result) setSummary(result)
     },
-    onError: (error: Error) => alert(error.message),
+    onError: (error: Error) =>
+      toast.show({
+        kind: 'error',
+        message: 'Could not restore the bundled content.',
+        detail: error.message,
+      }),
   })
 
   return (

@@ -65,7 +65,9 @@ export function TablePanel({ worldId }: { worldId: string }) {
       setFirewall(await api.table.firewallState())
     } catch (cause) {
       setFirewallNote(
-        cause instanceof Error ? cause.message : 'Could not change the firewall',
+        cause instanceof Error
+          ? cause.message
+          : 'Could not change the firewall',
       )
     } finally {
       setFixing(false)

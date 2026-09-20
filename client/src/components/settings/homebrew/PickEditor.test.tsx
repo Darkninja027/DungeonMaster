@@ -58,7 +58,9 @@ describe('authoring a choice', () => {
   it('offers feature, spell and cantrip, which the old dropdown did not', () => {
     render(<PickHarness initial={[blank()]} />)
     const options = [
-      ...screen.getByLabelText('What kind of choice').querySelectorAll('option'),
+      ...screen
+        .getByLabelText('What kind of choice')
+        .querySelectorAll('option'),
     ].map((o) => o.getAttribute('value'))
     expect(options).toContain('feature')
     expect(options).toContain('spell')
@@ -114,7 +116,9 @@ describe('authoring a choice', () => {
 
   it('offers no per-option text for a kind that has none', () => {
     render(
-      <PickHarness initial={[{ ...blank(), kind: 'tool', options: ['Lute'] }]} />,
+      <PickHarness
+        initial={[{ ...blank(), kind: 'tool', options: ['Lute'] }]}
+      />,
     )
     expect(screen.queryByPlaceholderText('What Lute does.')).toBeNull()
   })
@@ -180,7 +184,9 @@ describe('a choice on a feature', () => {
         ]}
       />,
     )
-    expect(screen.getByText(/Inspiration counter, kept as you edit/)).toBeDefined()
+    expect(
+      screen.getByText(/Inspiration counter, kept as you edit/),
+    ).toBeDefined()
   })
 
   it('survives an edit to the feature name', () => {

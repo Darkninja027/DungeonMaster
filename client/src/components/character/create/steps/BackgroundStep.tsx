@@ -88,8 +88,6 @@ export function BackgroundStep({
         onCreated={(created) => adoptCreated(created as BackgroundInfo)}
       />
 
-      
-
       {background && (
         <div className="text-muted-foreground space-y-1 text-sm">
           <p>

@@ -184,7 +184,9 @@ describe('the draft', () => {
   it('offers the full form as an escape once both answers are given', () => {
     render(<Harness />)
     startWith('Bard', 'College of Swords')
-    fireEvent.click(screen.getByRole('button', { name: /Skip to the full form/ }))
+    fireEvent.click(
+      screen.getByRole('button', { name: /Skip to the full form/ }),
+    )
     expect(created()?.name).toBe('College of Swords')
   })
 
@@ -230,9 +232,9 @@ describe('the review step', () => {
     next()
     // Named twice on this step — once in the rail's summary line, once in the
     // review body — so match the sentence rather than the bare name.
-    expect(
-      screen.getByText(/Adds/).textContent.replace(/\s+/g, ' '),
-    ).toContain('Adds College of Swords to the Bard')
+    expect(screen.getByText(/Adds/).textContent.replace(/\s+/g, ' ')).toContain(
+      'Adds College of Swords to the Bard',
+    )
     expect(screen.getByText(/No features yet/)).toBeDefined()
   })
 })

@@ -144,9 +144,7 @@ export function HomebrewDialog({
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="flex h-[min(40rem,88vh)] w-[min(44rem,94vw)] max-w-none flex-col gap-0 p-0 sm:max-w-none">
         <DialogHeader className="border-b px-5 py-3">
-          <DialogTitle>
-            New {kind === 'kit' ? 'class' : kind}
-          </DialogTitle>
+          <DialogTitle>New {kind === 'kit' ? 'class' : kind}</DialogTitle>
           <DialogDescription>
             Saved to your homebrew and offered in every world.
           </DialogDescription>

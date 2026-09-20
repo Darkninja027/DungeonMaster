@@ -22,6 +22,7 @@ import {
   DialogTitle,
 } from '#/components/ui/dialog'
 import { Input } from '#/components/ui/input'
+import { useConfirm } from '#/components/ConfirmProvider'
 
 /** A human-readable one-line summary of a query, for the editor preview. */
 function describeQuery(query: ArticleQuery): string {
@@ -258,6 +259,7 @@ function SmartViewRow({
   onEdit: () => void
   onDelete: () => void
 }) {
+  const confirmDelete = useConfirm()
   const results = useQuery({
     queryKey: ['worlds', worldId, 'query', view.query],
     queryFn: () => api.worlds.query(worldId, view.query),
@@ -295,8 +297,15 @@ function SmartViewRow({
           type="button"
           className="text-muted-foreground hover:text-destructive shrink-0 opacity-0 group-hover:opacity-100"
           title="Delete view"
-          onClick={() => {
-            if (confirm(`Delete the "${view.name}" smart view?`)) onDelete()
+          onClick={async () => {
+            if (
+              await confirmDelete({
+                title: `Delete the "${view.name}" smart view?`,
+                // The saved search goes, never the articles it finds.
+                description: 'The articles it lists are not affected.',
+              })
+            )
+              onDelete()
           }}
         >
           <X className="size-3.5" />

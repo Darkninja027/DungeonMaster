@@ -104,9 +104,9 @@ describe('parseTemplateStore', () => {
 
   it('falls back to the current version for a missing or absurd one', () => {
     expect(parseTemplateStore({ templates: [] }).version).toBe(1)
-    expect(parseTemplateStore({ version: Infinity, templates: [] }).version).toBe(
-      1,
-    )
+    expect(
+      parseTemplateStore({ version: Infinity, templates: [] }).version,
+    ).toBe(1)
   })
 })
 
@@ -127,9 +127,10 @@ describe('serializeTemplateStore', () => {
     // `origin` is a product of the merge. Storing one would contradict the
     // merge on the next load — a row claiming 'built-in' that is by definition
     // an override.
-    const written = serializeTemplateStore(
-      store(row()),
-    ) as Record<string, unknown>
+    const written = serializeTemplateStore(store(row())) as Record<
+      string,
+      unknown
+    >
 
     expect(JSON.stringify(written)).not.toContain('origin')
     expect(written._comment).toEqual(expect.stringContaining('overrides it'))
@@ -198,7 +199,10 @@ describe('mergeTemplates', () => {
     )
 
     for (const id of BUILT_IN_IDS) {
-      expect(merged.some((t) => t.id === id), `${id} survives`).toBe(true)
+      expect(
+        merged.some((t) => t.id === id),
+        `${id} survives`,
+      ).toBe(true)
     }
   })
 })
@@ -270,7 +274,10 @@ describe('store edits', () => {
   })
 
   it('drops an entry, which is both "reset" and "delete"', () => {
-    const after = dropTemplate(store(row({ id: 'spell', name: 'Mine' })), 'spell')
+    const after = dropTemplate(
+      store(row({ id: 'spell', name: 'Mine' })),
+      'spell',
+    )
 
     expect(after.templates).toEqual([])
     expect(mergeTemplates(after).find((t) => t.id === 'spell')!.origin).toBe(

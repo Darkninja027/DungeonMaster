@@ -33,6 +33,7 @@ import { Button } from '#/components/ui/button'
 import { Input } from '#/components/ui/input'
 import { Textarea } from '#/components/ui/textarea'
 import { InlineMarkdown, READING_PROSE } from '#/components/Markdown'
+import { useConfirm } from '#/components/ConfirmProvider'
 
 /**
  * Session notes, organised. Each note carries an optional title, a date, any
@@ -281,6 +282,7 @@ export function NotesTab({
   selectIndex?: number | null
   onSelectIndexHandled?: () => void
 }) {
+  const confirmDelete = useConfirm()
   const [query, setQuery] = useState('')
   const [activeTags, setActiveTags] = useState<Array<string>>([])
   const [selected, setSelected] = useState<number | null>(null)
@@ -359,10 +361,17 @@ export function NotesTab({
     setSelected(0)
   }
 
-  const removeSelected = () => {
+  const removeSelected = async () => {
     if (selected === null || !note) return
     const heading = note.title?.trim() || notePreview(note.text)
-    if (!confirm(`Delete "${heading || 'this note'}"? This cannot be undone.`))
+    if (
+      !(await confirmDelete({
+        title: `Delete "${heading || 'this note'}"?`,
+        // Not the Recycle Bin: a note lives inside the character's frontmatter,
+        // so deleting one rewrites that file rather than trashing anything.
+        description: 'This cannot be undone.',
+      }))
+    )
       return
     onChange({
       ...character,

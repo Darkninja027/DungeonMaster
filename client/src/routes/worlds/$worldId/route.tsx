@@ -20,6 +20,7 @@ import {
 } from '#/components/ui/dialog'
 import { Input } from '#/components/ui/input'
 import { cn } from '#/lib/utils'
+import { useToast } from '#/components/ToastProvider'
 
 export const Route = createFileRoute('/worlds/$worldId')({
   component: WorldLayout,
@@ -41,6 +42,7 @@ function WorldLayout() {
   useRegisterSidebar(!isVault)
   const sidebarOpen = useSidebarOpen()
   const queryClient = useQueryClient()
+  const toast = useToast()
   const world = useQuery({
     queryKey: ['worlds', worldId],
     queryFn: () => api.worlds.get(worldId),
@@ -77,7 +79,12 @@ function WorldLayout() {
       queryClient.invalidateQueries({ queryKey: ['worlds'] })
       setEditOpen(false)
     },
-    onError: (error) => alert(error.message),
+    onError: (error: Error) =>
+      toast.show({
+        kind: 'error',
+        message: 'Could not rename the world.',
+        detail: error.message,
+      }),
   })
 
   const openEdit = () => {
