@@ -27,6 +27,7 @@ import { useShortcut } from '#/lib/useShortcut'
 import type { ArticleSummary, FolderNode, WorldTree } from '#/lib/api'
 import { LIBRARY_FOLDERS, isLibraryFolder } from '#/lib/libraryFolders'
 import { useToast } from '#/components/ToastProvider'
+import { useUndoable } from '#/lib/useUndoable'
 import { useConfirm } from '#/components/ConfirmProvider'
 import { RECYCLE_BIN_NOTE, RECYCLE_BIN_NOTE_MANY } from '#/lib/confirmText'
 import { useWorldMode } from '#/lib/useWorldSettings'
@@ -68,6 +69,7 @@ interface NameDialogState {
 export function WorldSidebar({ worldId }: { worldId: string }) {
   const toast = useToast()
   const confirmDelete = useConfirm()
+  const offerUndo = useUndoable()
   // Which sections this world's mode shows. Hiding only — the routes behind
   // each one stay reachable, so a [[wiki link]] into a hidden tree still opens.
   const shows = useWorldMode(worldId).shows
@@ -175,9 +177,20 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
   const renameFolder = useMutation({
     mutationFn: ({ id, name: newName }: { id: string; name: string }) =>
       api.folders.rename(worldId, id, newName),
-    onSuccess: () => {
+    onSuccess: (_void, { id: oldId, name: newName }) => {
       invalidateTree()
       setDialog(null)
+      const oldName = oldId.slice(oldId.lastIndexOf('/') + 1)
+      if (oldName === newName) return
+      const parent = oldId.includes('/')
+        ? oldId.slice(0, oldId.lastIndexOf('/'))
+        : null
+      const newId = parent ? `${parent}/${newName}` : newName
+      offerUndo({
+        message: `Renamed "${oldName}" to "${newName}".`,
+        undoFailed: `Could not rename "${newName}" back.`,
+        undo: () => renameFolder.mutateAsync({ id: newId, name: oldName }),
+      })
     },
     onError: (error) =>
       toast.show({
@@ -193,7 +206,22 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
   const moveArticle = useMutation({
     mutationFn: ({ id, folderId }: { id: string; folderId: string | null }) =>
       api.articles.move(worldId, id, folderId),
-    onSuccess: invalidateTree,
+    onSuccess: (_void, { id: oldId, folderId: to }) => {
+      invalidateTree()
+      // A move keeps the filename and changes only the folder, so the new id
+      // is derivable — the channel itself returns nothing.
+      const title = oldId.slice(oldId.lastIndexOf('/') + 1)
+      const from = oldId.includes('/')
+        ? oldId.slice(0, oldId.lastIndexOf('/'))
+        : null
+      if (from === to) return
+      const newId = to ? `${to}/${title}` : title
+      offerUndo({
+        message: `Moved "${title}" to ${to ?? 'the world root'}.`,
+        undoFailed: `Could not move "${title}" back.`,
+        undo: () => moveArticle.mutateAsync({ id: newId, folderId: from }),
+      })
+    },
     onError: (error) =>
       toast.show({
         kind: 'error',
@@ -209,7 +237,20 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
       id: string
       parentFolderId: string | null
     }) => api.folders.move(worldId, id, parentFolderId),
-    onSuccess: invalidateTree,
+    onSuccess: (_void, { id: oldId, parentFolderId: to }) => {
+      invalidateTree()
+      const folderName = oldId.slice(oldId.lastIndexOf('/') + 1)
+      const from = oldId.includes('/')
+        ? oldId.slice(0, oldId.lastIndexOf('/'))
+        : null
+      if (from === to) return
+      const newId = to ? `${to}/${folderName}` : folderName
+      offerUndo({
+        message: `Moved "${folderName}" to ${to ?? 'the world root'}.`,
+        undoFailed: `Could not move "${folderName}" back.`,
+        undo: () => moveFolder.mutateAsync({ id: newId, parentFolderId: from }),
+      })
+    },
     onError: (error) =>
       toast.show({
         kind: 'error',
@@ -231,6 +272,18 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
           replace: true,
         })
       }
+      if (article.id === oldId) return
+      // The inverse is the same call back the other way, which re-runs
+      // rewriteWikiLinks and repairs every [[link]] the rename just changed.
+      // Restoring the file from the Recycle Bin would not do that, which is
+      // why a rename is the operation that most needs this.
+      const oldTitle = oldId.slice(oldId.lastIndexOf('/') + 1)
+      offerUndo({
+        message: `Renamed "${oldTitle}" to "${article.title}".`,
+        undoFailed: `Could not rename "${article.title}" back.`,
+        undo: () =>
+          renameArticle.mutateAsync({ id: article.id, title: oldTitle }),
+      })
     },
     onError: (error) =>
       toast.show({
