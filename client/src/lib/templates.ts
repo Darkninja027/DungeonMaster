@@ -445,9 +445,17 @@ What changes in the world if they succeed. What happens if they fail or walk awa
     name: 'Session Notes',
     description: 'Recap and running threads',
     type: 'session',
-    body: `# Session N — Title
+    // Carries its own frontmatter so `date` is a real field rather than a line
+    // of prose: the session timeline orders on it, and a date buried in the
+    // body is not something anything can sort. Free text on purpose — an
+    // in-world calendar is as valid an answer as a real one.
+    body: `---
+type: session
+date: ""
+tags: []
+---
 
-*Date played:*
+# Session N — Title
 
 ## Recap
 

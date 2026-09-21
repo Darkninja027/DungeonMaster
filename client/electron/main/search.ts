@@ -138,14 +138,12 @@ export function searchWorld(
       a.title.length - b.title.length ||
       a.title.localeCompare(b.title, undefined, { sensitivity: 'base' }),
   )
-  return scored
-    .slice(0, limit)
-    .map(({ id, folderId, title, snippet }) => ({
-      id,
-      folderId,
-      title,
-      snippet,
-    }))
+  return scored.slice(0, limit).map(({ id, folderId, title, snippet }) => ({
+    id,
+    folderId,
+    title,
+    snippet,
+  }))
 }
 
 export interface RankedResult {
@@ -345,6 +343,16 @@ export interface ArticleRef {
    */
   class: string | null
   race: string | null
+  /**
+   * Frontmatter `date`, carried for the same reason as every field above: the
+   * session timeline orders play sessions without reading every article's body.
+   *
+   * Free text, never a parsed Date. A world is somebody's notebook, so
+   * "1492 DR, Eleint 3" is as valid an answer as "2026-09-20" and must not be
+   * dropped for failing to be ISO 8601 — the timeline sorts what it can and
+   * shows the rest rather than discarding it.
+   */
+  date: string | null
 }
 
 /** Case-insensitive equality between a frontmatter scalar and a query string. */
@@ -407,6 +415,7 @@ export function queryArticles(
       edition: scalarString(frontmatter?.edition),
       class: scalarString(frontmatter?.class),
       race: scalarString(frontmatter?.race),
+      date: scalarString(frontmatter?.date),
     })
   }
   return results.sort((a, b) =>

@@ -41,6 +41,7 @@ const ref = (
   school: null,
   classes: null,
   edition: null,
+  date: null,
   ...extra,
 })
 

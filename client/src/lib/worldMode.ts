@@ -29,7 +29,13 @@ export const WORLD_MODES_IDS: Array<WorldMode> = [
  * worldMode.test.ts asserts the two lists agree.
  */
 export type ModePanelTab =
-  'initiative' | 'encounter' | 'rolls' | 'spells' | 'monsters' | 'table'
+  | 'initiative'
+  | 'encounter'
+  | 'sessions'
+  | 'rolls'
+  | 'spells'
+  | 'monsters'
+  | 'table'
 
 export interface WorldModeInfo {
   id: WorldMode
@@ -83,6 +89,7 @@ export const WORLD_MODES: Array<WorldModeInfo> = [
       sessionTabs: [
         'initiative',
         'encounter',
+        'sessions',
         'rolls',
         'spells',
         'monsters',

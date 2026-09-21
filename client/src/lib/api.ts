@@ -138,6 +138,15 @@ export interface ArticleRef {
    * pre-tag library entry looks like — those are always shown.
    */
   edition: string | null
+  /**
+   * Frontmatter `date`, carried for the same reason as the fields above: the
+   * session timeline orders by it without reading every article's body.
+   *
+   * A free-text string rather than a parsed date, because it is hand-written
+   * and a world is somebody's notebook — "1492 DR, Eleint 3" is a perfectly
+   * good answer and must not be dropped for failing to be ISO 8601.
+   */
+  date: string | null
 }
 
 /** A saved Smart View: a named frontmatter query, persisted to .dm/views.json. */
