@@ -15,12 +15,12 @@ describe('guideArticle', () => {
   it('keeps its page and column markers intact through escaping', () => {
     // The generator escapes backslashes for the template literal; a bug there
     // would silently turn every \page into a literal "page" and collapse the
-    // whole guide onto one sheet. 18 markers => 19 book pages.
+    // whole guide onto one sheet. 19 markers => 20 book pages.
     const markers = GUIDE_CONTENT.match(/^\\page$/gm) ?? []
-    expect(markers).toHaveLength(18)
+    expect(markers).toHaveLength(19)
     // Every page is single-column, plus two mentions in the chapter prose.
     const columns = GUIDE_CONTENT.match(/^\\columns 1$/gm) ?? []
-    expect(columns).toHaveLength(19)
+    expect(columns).toHaveLength(20)
     // A lost backslash leaves the marker as ordinary text on the page.
     expect(GUIDE_CONTENT).not.toMatch(/^columns 1$/m)
     expect(GUIDE_CONTENT).not.toMatch(/^page$/m)

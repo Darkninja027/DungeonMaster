@@ -146,6 +146,15 @@ Every article and folder row has a `...` menu:
 **Renaming an article renames the file** and rewrites every wiki link pointing at
 it across the entire world, so your links never rot.
 
+Because that rewrite touches the whole world, the toast that reports a rename or
+a move offers **Undo**, which renames it back and repairs the links again. The
+Recycle Bin cannot do that — it would restore the file and leave every link
+pointing at a title that no longer exists.
+
+The offer lasts as long as its toast and no longer: it is a single step back
+from what you just did, not an undo history. It covers renaming and moving both
+articles and folders.
+
 ## Moving things
 
 Drag an article or folder onto another folder to move it. Drop it on the empty
@@ -667,7 +676,7 @@ Adding a spell whose article does not exist creates one in `Spells/` for you.
 
 # DM Tools: The Session Panel
 
-The narrow rail on the right edge of the window opens five tools. Each shows a
+The narrow rail on the right edge of the window opens seven tools. Each shows a
 dot when it has something in it, and the panel remembers what you had open.
 
 ## Initiative
@@ -708,6 +717,55 @@ or carrying `type: monster`, showing full stat blocks you can roll from mid-comb
 Both have a box at the bottom to create a new one by name. The bestiary flags any
 monster missing its `type: monster` frontmatter with an amber warning, because the
 encounter builder cannot see those.
+
+## Session Log
+
+The **sessions** tab is a campaign log assembled from articles you already
+write. Every article with `type: session` in its frontmatter appears here, most
+recent first, with a link through to the article itself.
+
+Ordering comes from the `date:` field, in three tiers. Real dates it can read
+(`2026-09-20`) sort newest first. A date it cannot read — an in-world calendar
+like `1492 DR, Eleint 3` — sorts alphabetically below those, which puts a
+consistently written calendar in sensible order without the app having to
+understand it. A session with no date at all sorts by title at the bottom.
+Nothing is ever hidden for having an odd date.
+
+The log is read-only. A session is an ordinary markdown article, so you write
+and edit one in the editor like anything else — the **Session Notes** template
+gives you the frontmatter to start from.
+
+\page
+
+\columns 1
+
+# DM Tools: The Table
+
+The **table** tab hosts your world for the people sitting around it. Everyone
+needs to be on the same network.
+
+**Start hosting** and you get a **room code** like `ABC-234`. A guest opens
+DungeonMaster, chooses **Join a table**, types the code and their name, and
+they are in — the app finds you on the network by itself. If their network
+blocks that discovery, the panel also shows an address like `192.168.1.42:7777`
+they can type instead.
+
+The first time you host, Windows will probably ask whether to let the app
+accept connections, and until it does nobody can join. If the panel warns you
+about the firewall, **Allow players to connect** sorts it out with one prompt.
+
+Each person who joins takes a **seat**, listed in the panel as they arrive. A
+seat gets their own character sheet, which they can edit — changes are written
+back to your world folder like any other edit. Their dice rolls appear in your
+roll history alongside your own, and yours in theirs.
+
+**Show to players** — on an article, a monster in the bestiary, or from the
+sidebar — puts that page in front of everyone at the table. The panel shows
+what is currently **on the table**, and **Stop** takes it down again. What the
+players see is the reader's view: `:::dm` blocks are stripped out, so your
+secrets stay yours.
+
+Hosting stops when you click **Stop hosting**, or when you close the app.
 
 \page
 
