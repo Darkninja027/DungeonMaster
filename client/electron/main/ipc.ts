@@ -49,9 +49,11 @@ import {
 } from './images'
 import {
   readEncounters,
+  readMaps,
   readSession,
   readViews,
   writeEncounters,
+  writeMaps,
   writeSession,
   writeViews,
 } from './session'
@@ -676,6 +678,19 @@ export function registerIpcHandlers() {
     'encounters:set',
     (_e, { worldId, state }: { worldId: string; state: unknown }) =>
       writeEncounters(worldId, state),
+  )
+
+  // Battlemaps. Raw JSON up, like encounters — the renderer owns the tolerant
+  // parse (lib/mapStore.ts), which is what lets a hand-edited or part-broken
+  // file still open every map that is fine.
+  ipcMain.handle('maps:get', (_e, { worldId }: { worldId: string }) =>
+    readMaps(worldId),
+  )
+
+  ipcMain.handle(
+    'maps:set',
+    (_e, { worldId, state }: { worldId: string; state: unknown }) =>
+      writeMaps(worldId, state),
   )
 
   // Per-world settings (the class/subclass list) ------------------------------

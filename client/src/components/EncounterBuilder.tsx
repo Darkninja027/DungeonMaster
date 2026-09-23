@@ -65,7 +65,15 @@ const DIFFICULTY_STYLE: Record<Difficulty, string> = {
 /** Roll a d20 with the given modifier, logging it to the shared roll history. */
 // Takes only what it reads, so callers can pass any id/title pair — a character
 // row here isn't always a full ArticleRef.
-function rollInitiative(
+/**
+ * Roll initiative for a creature and log it.
+ *
+ * Exported so the battlemap rolls a creature into the fight the same way this
+ * builder does — same notation, same log entry, same fallback. A second copy
+ * would drift, and a roll that does not reach the log is a roll the table
+ * cannot check.
+ */
+export function rollInitiative(
   worldId: string,
   ref: Pick<ArticleRef, 'id' | 'title'>,
   mod: number,

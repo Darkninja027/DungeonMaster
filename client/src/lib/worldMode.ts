@@ -35,6 +35,7 @@ export type ModePanelTab =
   | 'rolls'
   | 'spells'
   | 'monsters'
+  | 'maps'
   | 'table'
 
 export interface WorldModeInfo {
@@ -93,6 +94,7 @@ export const WORLD_MODES: Array<WorldModeInfo> = [
         'rolls',
         'spells',
         'monsters',
+        'maps',
         'table',
       ],
     },

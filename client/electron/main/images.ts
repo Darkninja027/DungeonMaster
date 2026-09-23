@@ -45,7 +45,14 @@ const CONTENT_TYPES: Record<string, string> = {
   '.svg': 'image/svg+xml',
 }
 
-const MAX_BYTES = 20 * 1024 * 1024
+/**
+ * Ceiling on a single upload. The bytes cross the IPC bridge as an ArrayBuffer
+ * and are copied again in main, so this bounds transient memory per upload
+ * rather than anything on disk. Stated in MB so the error message below and
+ * the test cannot drift from the number.
+ */
+export const MAX_MB = 50
+const MAX_BYTES = MAX_MB * 1024 * 1024
 
 /**
  * Percent-encode a '/'-separated path one segment at a time.
@@ -163,7 +170,7 @@ export function uploadImage(
   if (!(ext in CONTENT_TYPES))
     throw new Error('Only png, jpeg, gif, webp and svg images are allowed.')
   if (bytes.byteLength > MAX_BYTES)
-    throw new Error('Images are limited to 20 MB.')
+    throw new Error(`Images are limited to ${MAX_MB} MB.`)
   const dir = resolveInImages(root, folderId ?? '')
   // Note every level mkdir will create, or the watcher reports a change we made.
   for (const level of missingAncestors(dir)) noteSelfWrite(level)

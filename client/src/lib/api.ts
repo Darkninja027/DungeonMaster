@@ -586,6 +586,16 @@ export const api = {
     set: (worldId: string, state: unknown) =>
       invoke<void>('encounters:set', { worldId, state }),
   },
+  maps: {
+    /**
+     * Raw .dm/maps.json — deliberately `unknown`, like encounters: the file
+     * travels with the world folder and is hand-editable, so the renderer's
+     * tolerant `parseMaps` decides what is usable rather than trusting it.
+     */
+    get: (worldId: string) => invoke<unknown>('maps:get', { worldId }),
+    set: (worldId: string, state: unknown) =>
+      invoke<void>('maps:set', { worldId, state }),
+  },
   worldSettings: {
     /**
      * Raw worldSettings.json — deliberately `unknown`, because the file is

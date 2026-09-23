@@ -44,6 +44,8 @@ const CHANNELS = new Set([
   'views:set',
   'encounters:get',
   'encounters:set',
+  'maps:get',
+  'maps:set',
   'worldSettings:get',
   'worldSettings:set',
   'homebrew:get',

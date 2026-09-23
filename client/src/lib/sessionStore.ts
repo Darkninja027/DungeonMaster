@@ -200,9 +200,27 @@ export function useCombat(): CombatState {
   )
 }
 
+function addReturningId(input: Omit<Combatant, 'id'>): string {
+  const id = crypto.randomUUID()
+  setState(withCombatantAdded(state, input, id))
+  return id
+}
+
 export const combatActions = {
   add(input: Omit<Combatant, 'id'>) {
-    setState(withCombatantAdded(state, input, crypto.randomUUID()))
+    addReturningId(input)
+  },
+  /**
+   * Add, and hand back the id that was minted.
+   *
+   * The battlemap needs it: a token links to its combatant by
+   * `Token.combatantId`, so "add this token to initiative" has to know what it
+   * just created. `add` cannot say, because the id is minted in here and the
+   * name may be rewritten on the way past (duplicates get suffixed), so a
+   * caller cannot find the new row by searching for what it passed either.
+   */
+  addReturningId(input: Omit<Combatant, 'id'>): string {
+    return addReturningId(input)
   },
   update(id: string, patch: Partial<Omit<Combatant, 'id'>>) {
     setState(withCombatantUpdated(state, id, patch))

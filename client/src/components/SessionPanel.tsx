@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import {
   CalendarClock,
   Dices,
+  Map,
   PawPrint,
   Skull,
   Sparkles,
@@ -20,6 +21,7 @@ import { InitiativeTracker } from '#/components/InitiativeTracker'
 import { MonsterReference } from '#/components/MonsterReference'
 import { RollHistory } from '#/components/RollHistory'
 import { TablePanel } from '#/components/TablePanel'
+import { MapPanel } from '#/components/map/MapPanel'
 import { SessionTimeline } from '#/components/SessionTimeline'
 import { SpellReference } from '#/components/character/SpellReference'
 
@@ -30,6 +32,7 @@ type PanelTab =
   | 'rolls'
   | 'spells'
   | 'monsters'
+  | 'maps'
   | 'table'
 
 const STORAGE_KEY = 'dm.sessionPanel'
@@ -47,6 +50,7 @@ export const PANEL_TABS: Array<PanelTab> = [
   'rolls',
   'spells',
   'monsters',
+  'maps',
   'table',
 ]
 
@@ -57,6 +61,7 @@ const TAB_TITLE: Record<PanelTab, string> = {
   rolls: 'Roll history',
   spells: 'Spells',
   monsters: 'Bestiary',
+  maps: 'Battlemaps',
   table: 'Table',
 }
 
@@ -67,6 +72,7 @@ const TAB_ICON: Record<PanelTab, LucideIcon> = {
   rolls: Dices,
   spells: Sparkles,
   monsters: PawPrint,
+  maps: Map,
   table: Wifi,
 }
 
@@ -78,6 +84,7 @@ const TAB_HINT: Record<PanelTab, string> = {
   rolls: 'Roll history',
   spells: 'Spell reference',
   monsters: 'Bestiary',
+  maps: 'Battlemaps and fog of war',
   table: 'Host a LAN session',
 }
 
@@ -184,6 +191,8 @@ export function SessionPanel({ worldId }: { worldId: string }) {
         <RollHistory />
       ) : shown === 'spells' ? (
         <SpellReference worldId={worldId} />
+      ) : shown === 'maps' ? (
+        <MapPanel worldId={worldId} />
       ) : shown === 'table' ? (
         <TablePanel worldId={worldId} />
       ) : (

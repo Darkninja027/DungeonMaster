@@ -345,7 +345,7 @@ Three ways, all equivalent:
 - **Drag** an image file from Explorer into the editor.
 
 Pasting and dragging upload the file and insert the markdown at your cursor in
-one motion. Accepted types are png, jpeg, gif, webp and svg, up to 20 MB each.
+one motion. Accepted types are png, jpeg, gif, webp and svg, up to 50 MB each.
 
 ## The image library
 
