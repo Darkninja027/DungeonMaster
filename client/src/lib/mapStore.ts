@@ -110,17 +110,21 @@ export interface GridSpec {
 /**
  * How the background is fitted into the grid's box.
  *
- * `cover` fills the box and crops whatever does not fit, which is right for art
- * drawn to a grid and wrong for everything else: a 1920x1080 map on a 20x20
- * grid loses 44% of its width, and the loss is invisible until you zoom out far
- * enough to see the whole grid at once.
+ * `contain` shows the whole image, letterboxed inside the grid. `cover` fills
+ * the grid and crops whatever does not fit.
  *
- * `contain` shows the whole image and letterboxes it instead. The grid still
- * decides the shape of the map — the image is still a backdrop with no vote —
- * this only says what happens to the parts that do not line up.
+ * **Absent means `contain`**, and that default is the important part. A grid is
+ * square far more often than art is — 35x35 is an ordinary thing to type, and
+ * almost no battlemap export is square — so `cover` quietly threw away 25% of a
+ * 4:3 image and 44% of a 16:9 one. Worse, the loss was invisible at working
+ * zoom and only showed up on reopening, when the camera re-fits and you see the
+ * whole grid at once. Bars around a map are a visible, obvious compromise;
+ * silently losing a quarter of it is not.
  *
- * Absent means `cover`, which is what every map written before this existed
- * looked like.
+ * `cover` remains right for art actually drawn to a grid, which is why it is
+ * still offered rather than removed. The grid still decides the shape of the
+ * map either way — the image is a backdrop with no vote — this only says what
+ * happens to the parts that do not line up.
  */
 export type ImageFit = 'cover' | 'contain'
 
@@ -129,7 +133,7 @@ export interface BattleMap {
   name: string
   /** `_images`-relative id of the background, or '' for a bare grid. */
   image: string
-  /** How the background fills the grid's box. Absent = 'cover'. */
+  /** How the background fills the grid's box. Absent = 'contain'. */
   imageFit?: ImageFit
   /** Natural pixel size of the background, needed to lay the grid out. */
   imageWidth: number
@@ -252,9 +256,9 @@ export function parseMaps(raw: unknown): MapFile {
       id,
       name,
       image: typeof r.image === 'string' ? r.image : '',
-      // Only stored when it is not the default, so an old file and a map left
-      // on 'cover' both read back as undefined rather than growing a key.
-      ...(r.imageFit === 'contain' ? { imageFit: 'contain' as const } : {}),
+      // Only the non-default is stored, so a map left alone grows no key in a
+      // file people hand-edit. Anything unrecognised reads as absent.
+      ...(r.imageFit === 'cover' ? { imageFit: 'cover' as const } : {}),
       imageWidth: positive(r.imageWidth, 1000),
       imageHeight: positive(r.imageHeight, 1000),
       grid,
@@ -460,9 +464,14 @@ export function setGridSize(
   })
 }
 
-/** How this map's background is fitted. The default is what old files had. */
+/**
+ * How this map's background is fitted, defaulting to showing all of it.
+ *
+ * Only an explicit `cover` crops; absent, unset or unrecognised all mean
+ * `contain`. See ImageFit for why that way round.
+ */
 export function imageFit(map: BattleMap): ImageFit {
-  return map.imageFit === 'contain' ? 'contain' : 'cover'
+  return map.imageFit === 'cover' ? 'cover' : 'contain'
 }
 
 /**

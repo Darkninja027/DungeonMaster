@@ -476,13 +476,11 @@ export function MapEditor({
               edit((m) => setGridSize(m, fit))
             }}
             onImageFit={(fit) =>
-              // Stored only when it is not the default, so a map left on Fill
-              // does not grow a key in a file people hand-edit.
+              // Only the non-default is stored, so a map left showing all of
+              // its art grows no key in a file people hand-edit.
               edit((m) => ({
                 ...m,
-                ...(fit === 'contain'
-                  ? { imageFit: 'contain' as const }
-                  : { imageFit: undefined }),
+                imageFit: fit === 'cover' ? ('cover' as const) : undefined,
               }))
             }
           />

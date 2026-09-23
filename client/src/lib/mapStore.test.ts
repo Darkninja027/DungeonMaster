@@ -380,25 +380,28 @@ describe('mapStore', () => {
   })
 
   describe('imageFit', () => {
-    it('defaults to cover, which is what every older map looked like', () => {
-      expect(imageFit(newMap())).toBe('cover')
+    it('shows the whole image by default, rather than cropping it', () => {
+      // The default that matters: a grid is square far more often than art is
+      // — 35x35 is an ordinary thing to type — so cropping by default threw
+      // away 25% of a 4:3 map with nothing to say it had happened.
+      expect(imageFit(newMap())).toBe('contain')
       expect(
         imageFit(
           parseMaps({ version: 1, maps: [{ id: 'a', name: 'A' }] }).maps[0],
         ),
-      ).toBe('cover')
+      ).toBe('contain')
     })
 
-    it('round-trips contain through a save and a load', () => {
+    it('round-trips an explicit cover through a save and a load', () => {
       const saved = {
         ...newMap({ id: 'a', name: 'A' }),
-        imageFit: 'contain' as const,
+        imageFit: 'cover' as const,
       }
       const read = parseMaps({
         version: 1,
         maps: [JSON.parse(JSON.stringify(saved))],
       }).maps[0]
-      expect(imageFit(read)).toBe('contain')
+      expect(imageFit(read)).toBe('cover')
     })
 
     it('ignores a value it does not recognise rather than trusting it', () => {
@@ -407,15 +410,16 @@ describe('mapStore', () => {
         version: 1,
         maps: [{ id: 'a', name: 'A', imageFit: 'stretch' }],
       }).maps[0]
-      expect(imageFit(read)).toBe('cover')
+      expect(imageFit(read)).toBe('contain')
       expect(read.imageFit).toBeUndefined()
     })
 
     it('writes no key at all for the default', () => {
-      // A map left on Fill must not grow a key in a file people hand-edit.
+      // A map showing all of its art must not grow a key in a file people
+      // hand-edit.
       const read = parseMaps({
         version: 1,
-        maps: [{ id: 'a', name: 'A', imageFit: 'cover' }],
+        maps: [{ id: 'a', name: 'A', imageFit: 'contain' }],
       }).maps[0]
       expect('imageFit' in read).toBe(false)
     })

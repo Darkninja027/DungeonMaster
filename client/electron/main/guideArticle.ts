@@ -784,13 +784,13 @@ grid offset.
 Most images are not a whole number of squares across, so something has to give.
 The **Grid** popover offers both answers.
 
-**Fill** is the default: the image covers the grid and anything that does not
-fit is cropped. Right for art drawn to a grid, and badly wrong for anything
-else — a wide photo on a square grid can lose nearly half its width, and
-nothing tells you it happened.
+**Fit whole** is the default: all of the image is shown inside the grid, with
+bars around it where the shapes do not line up. Nothing is ever cut off.
 
-**Fit whole** shows all of the image inside the grid instead, with bars around
-it. Nothing is ever cut off.
+**Fill** covers the grid instead and crops whatever does not fit. Right for art
+actually drawn to a grid — but be careful with anything else. A grid is square
+far more often than a map is, and a 4:3 image on a square grid loses a quarter
+of its width with nothing to tell you.
 
 **Match grid to image** goes the other way: it sets the counts from the
 picture, assuming the 70 pixels a cell that most map exports use. A starting

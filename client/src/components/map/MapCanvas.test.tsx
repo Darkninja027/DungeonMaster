@@ -127,23 +127,24 @@ describe('MapCanvas', () => {
   })
 
   describe('the background fit', () => {
-    it('crops by default, and shows the whole image when told to', () => {
+    it('shows the whole image by default, and crops only when told to', () => {
       const withArt = () => ({ ...map(), image: 'Maps/cave.png' })
 
-      const fill = render(<MapCanvas worldId="abc" map={withArt()} />)
-      expect(fill.container.querySelector('img')?.className).toContain(
-        'object-cover',
-      )
-      fill.unmount()
-
-      // The fix for a wide image on a square grid, which loses 44% of its
-      // width under cover and is cut off with no indication that it happened.
-      const whole = render(
-        <MapCanvas worldId="abc" map={{ ...withArt(), imageFit: 'contain' }} />,
-      )
+      // The default. A 35x35 grid is square and almost no battlemap export is,
+      // so cropping by default lost a quarter of the art with no sign of it.
+      const whole = render(<MapCanvas worldId="abc" map={withArt()} />)
       const img = whole.container.querySelector('img')
       expect(img?.className).toContain('object-contain')
       expect(img?.className).not.toContain('object-cover')
+      whole.unmount()
+
+      // Still available, because it is right for art drawn to a grid.
+      const fill = render(
+        <MapCanvas worldId="abc" map={{ ...withArt(), imageFit: 'cover' }} />,
+      )
+      expect(fill.container.querySelector('img')?.className).toContain(
+        'object-cover',
+      )
     })
   })
 
