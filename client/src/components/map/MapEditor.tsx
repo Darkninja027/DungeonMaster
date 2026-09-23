@@ -792,8 +792,11 @@ export function MapEditor({
         ) : (
           <div className="flex flex-wrap items-end gap-3">
             <div>
-              <Label className="text-xs">Columns</Label>
+              <Label className="text-xs" htmlFor="map-grid-cols">
+                Columns
+              </Label>
               <Input
+                id="map-grid-cols"
                 type="number"
                 min={1}
                 max={400}
@@ -808,8 +811,11 @@ export function MapEditor({
               />
             </div>
             <div>
-              <Label className="text-xs">Rows</Label>
+              <Label className="text-xs" htmlFor="map-grid-rows">
+                Rows
+              </Label>
               <Input
+                id="map-grid-rows"
                 type="number"
                 min={1}
                 max={400}

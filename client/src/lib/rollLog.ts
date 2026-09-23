@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react'
-import { api } from './api'
+import { api, bridged } from './api'
 
 /**
  * Session-scoped log of every dice roll (dice chips and rollable tables).
@@ -84,9 +84,6 @@ function insert(entry: RollEntry): boolean {
     .slice(0, MAX_ENTRIES)
   return true
 }
-
-/** Whether the IPC bridge exists — false in unit tests and during SSR. */
-const bridged = () => typeof window !== 'undefined' && Boolean(window.dmApi)
 
 /**
  * Record a roll made in THIS window, and tell every other window about it.

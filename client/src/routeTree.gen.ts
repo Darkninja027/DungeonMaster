@@ -12,6 +12,8 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as JoinIndexRouteImport } from './routes/join/index'
 import { Route as WorldsWorldIdRouteRouteImport } from './routes/worlds/$worldId/route'
+import { Route as MapWorldIdMapIdRouteImport } from './routes/map/$worldId/$mapId'
+import { Route as MapviewWorldIdMapIdRouteImport } from './routes/mapview/$worldId/$mapId'
 import { Route as PlayerWorldIdArticleIdRouteImport } from './routes/player/$worldId/$articleId'
 import { Route as PopoutWorldIdArticleIdRouteImport } from './routes/popout/$worldId/$articleId'
 import { Route as WorldsWorldIdIndexRouteImport } from './routes/worlds/$worldId/index'
@@ -32,6 +34,16 @@ const JoinIndexRoute = JoinIndexRouteImport.update({
 const WorldsWorldIdRouteRoute = WorldsWorldIdRouteRouteImport.update({
   id: '/worlds/$worldId',
   path: '/worlds/$worldId',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const MapWorldIdMapIdRoute = MapWorldIdMapIdRouteImport.update({
+  id: '/map/$worldId/$mapId',
+  path: '/map/$worldId/$mapId',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const MapviewWorldIdMapIdRoute = MapviewWorldIdMapIdRouteImport.update({
+  id: '/mapview/$worldId/$mapId',
+  path: '/mapview/$worldId/$mapId',
   getParentRoute: () => rootRouteImport,
 } as any)
 const PlayerWorldIdArticleIdRoute = PlayerWorldIdArticleIdRouteImport.update({
@@ -71,6 +83,8 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/worlds/$worldId': typeof WorldsWorldIdRouteRouteWithChildren
   '/join/': typeof JoinIndexRoute
+  '/map/$worldId/$mapId': typeof MapWorldIdMapIdRoute
+  '/mapview/$worldId/$mapId': typeof MapviewWorldIdMapIdRoute
   '/player/$worldId/$articleId': typeof PlayerWorldIdArticleIdRoute
   '/popout/$worldId/$articleId': typeof PopoutWorldIdArticleIdRoute
   '/worlds/$worldId/settings': typeof WorldsWorldIdSettingsRoute
@@ -81,6 +95,8 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/join': typeof JoinIndexRoute
+  '/map/$worldId/$mapId': typeof MapWorldIdMapIdRoute
+  '/mapview/$worldId/$mapId': typeof MapviewWorldIdMapIdRoute
   '/player/$worldId/$articleId': typeof PlayerWorldIdArticleIdRoute
   '/popout/$worldId/$articleId': typeof PopoutWorldIdArticleIdRoute
   '/worlds/$worldId/settings': typeof WorldsWorldIdSettingsRoute
@@ -93,6 +109,8 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/worlds/$worldId': typeof WorldsWorldIdRouteRouteWithChildren
   '/join/': typeof JoinIndexRoute
+  '/map/$worldId/$mapId': typeof MapWorldIdMapIdRoute
+  '/mapview/$worldId/$mapId': typeof MapviewWorldIdMapIdRoute
   '/player/$worldId/$articleId': typeof PlayerWorldIdArticleIdRoute
   '/popout/$worldId/$articleId': typeof PopoutWorldIdArticleIdRoute
   '/worlds/$worldId/settings': typeof WorldsWorldIdSettingsRoute
@@ -106,6 +124,8 @@ export interface FileRouteTypes {
     | '/'
     | '/worlds/$worldId'
     | '/join/'
+    | '/map/$worldId/$mapId'
+    | '/mapview/$worldId/$mapId'
     | '/player/$worldId/$articleId'
     | '/popout/$worldId/$articleId'
     | '/worlds/$worldId/settings'
@@ -116,6 +136,8 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/join'
+    | '/map/$worldId/$mapId'
+    | '/mapview/$worldId/$mapId'
     | '/player/$worldId/$articleId'
     | '/popout/$worldId/$articleId'
     | '/worlds/$worldId/settings'
@@ -127,6 +149,8 @@ export interface FileRouteTypes {
     | '/'
     | '/worlds/$worldId'
     | '/join/'
+    | '/map/$worldId/$mapId'
+    | '/mapview/$worldId/$mapId'
     | '/player/$worldId/$articleId'
     | '/popout/$worldId/$articleId'
     | '/worlds/$worldId/settings'
@@ -139,6 +163,8 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   WorldsWorldIdRouteRoute: typeof WorldsWorldIdRouteRouteWithChildren
   JoinIndexRoute: typeof JoinIndexRoute
+  MapWorldIdMapIdRoute: typeof MapWorldIdMapIdRoute
+  MapviewWorldIdMapIdRoute: typeof MapviewWorldIdMapIdRoute
   PlayerWorldIdArticleIdRoute: typeof PlayerWorldIdArticleIdRoute
   PopoutWorldIdArticleIdRoute: typeof PopoutWorldIdArticleIdRoute
 }
@@ -164,6 +190,20 @@ declare module '@tanstack/react-router' {
       path: '/worlds/$worldId'
       fullPath: '/worlds/$worldId'
       preLoaderRoute: typeof WorldsWorldIdRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/map/$worldId/$mapId': {
+      id: '/map/$worldId/$mapId'
+      path: '/map/$worldId/$mapId'
+      fullPath: '/map/$worldId/$mapId'
+      preLoaderRoute: typeof MapWorldIdMapIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/mapview/$worldId/$mapId': {
+      id: '/mapview/$worldId/$mapId'
+      path: '/mapview/$worldId/$mapId'
+      fullPath: '/mapview/$worldId/$mapId'
+      preLoaderRoute: typeof MapviewWorldIdMapIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/player/$worldId/$articleId': {
@@ -232,6 +272,8 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   WorldsWorldIdRouteRoute: WorldsWorldIdRouteRouteWithChildren,
   JoinIndexRoute: JoinIndexRoute,
+  MapWorldIdMapIdRoute: MapWorldIdMapIdRoute,
+  MapviewWorldIdMapIdRoute: MapviewWorldIdMapIdRoute,
   PlayerWorldIdArticleIdRoute: PlayerWorldIdArticleIdRoute,
   PopoutWorldIdArticleIdRoute: PopoutWorldIdArticleIdRoute,
 }

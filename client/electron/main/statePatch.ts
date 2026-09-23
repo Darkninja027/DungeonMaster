@@ -62,7 +62,10 @@ export function applyStatePatch(
   const list = Array.isArray(listRaw) ? listRaw : []
 
   if (patch.removeId !== undefined) {
-    return { ...base, [key]: list.filter((row) => idOf(row) !== patch.removeId) }
+    return {
+      ...base,
+      [key]: list.filter((row) => idOf(row) !== patch.removeId),
+    }
   }
 
   const id = idOf(patch.entry)

@@ -21,6 +21,16 @@ declare global {
   }
 }
 
+/**
+ * Whether the IPC bridge exists.
+ *
+ * False in unit tests and in the guest build, both of which import these
+ * stores without a preload. A module-level subscription has to check it or it
+ * throws at import time, which fails a whole suite rather than one test.
+ */
+export const bridged = () =>
+  typeof window !== 'undefined' && Boolean(window.dmApi)
+
 export interface UpdateStatus {
   state: 'checking' | 'available' | 'downloaded' | 'idle' | 'error'
   version?: string
@@ -621,7 +631,7 @@ export const api = {
      * renderers whole-file-saving would lose the fight in progress.
      */
     get: (worldId: string) =>
-      invoke<StateSnapshot<SessionFile>>('session:get', { worldId }),
+      invoke<StateSnapshot<SessionFile> | null>('session:get', { worldId }),
     /**
      * Replace the whole state — starting a fight rewrites every combatant at
      * once, and N patches would be both slower and a lie about what happened.
@@ -662,7 +672,8 @@ export const api = {
      *
      * The `rev` is what makes multi-window editing safe; see `StateChange`.
      */
-    get: (worldId: string) => invoke<StateSnapshot>('maps:get', { worldId }),
+    get: (worldId: string) =>
+      invoke<StateSnapshot | null>('maps:get', { worldId }),
     /**
      * Change ONE map. There is deliberately no whole-file setter: a map can be
      * open in its own window while the DM window edits the list, and a

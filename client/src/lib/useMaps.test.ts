@@ -33,10 +33,9 @@ const mapView = {
   onLive: vi.fn().mockReturnValue(() => {}),
 }
 
-vi.mock('#/lib/api', () => ({ api: { maps, mapView } }))
-
-// The module subscribes at load only when the preload bridge is present.
-vi.stubGlobal('window', Object.assign(globalThis.window ?? {}, { dmApi: {} }))
+vi.mock('#/lib/api', () => ({
+  // The stores check this before subscribing at module load.
+  bridged: () => true, api: { maps, mapView } }))
 
 const { hydrateMaps, mapActions, mapsSnapshot, setLiveMap, flushMaps } =
   await import('./useMaps')

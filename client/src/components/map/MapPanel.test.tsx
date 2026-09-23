@@ -1,41 +1,57 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
-import { MapPanel } from './MapPanel'
-import { ConfirmProvider } from '#/components/ConfirmProvider'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { shortcutsSuspended } from '#/lib/useShortcut'
 
 /**
- * The panel holds the *list*; opening a map hands over to a full-window
- * overlay, because a battlemap in the 340px session rail has no room to show a
- * room. These tests pin that split, and the two things about the overlay that
- * would be quietly wrong otherwise: that it really is `fixed inset-0` rather
- * than something laid out inside the rail, and that it suspends the app's
- * shortcuts while it is up.
+ * The panel is the *list* and nothing else. Opening a map opens a WINDOW.
+ *
+ * It used to hand over to a full-window overlay rendered as its own sibling,
+ * so these tests reached into the editor and asserted on `.fixed.inset-0` and
+ * on shortcut suspension. Both were artefacts of where the editor was mounted
+ * rather than anything about the panel, and the editor's own behaviour now
+ * lives in MapEditor.test.tsx where it can be tested directly.
+ *
+ * What is left here is the seam: the panel must ask main for a window, and it
+ * must stay live while that window edits — which is the thing the move to a
+ * separate process could most easily have broken.
  */
 
-const VIEW = { width: 1000, height: 700 }
+const show = vi.fn((_worldId: string, _mapId: string) => Promise.resolve())
+const onChangedCbs: Array<(c: unknown) => void> = []
+
+/**
+ * One revision counter shared by the fake main process.
+ *
+ * Both a local patch and a relayed change advance it, exactly as the real main
+ * does — a test that saves a map and then relays one must see the second as
+ * NEWER, and a per-test counter would make it look like an echo and be dropped.
+ * The store is a module global and keeps its rev between tests, so this has to
+ * keep counting too.
+ */
+let rev = 0
+const apply = vi.fn((_worldId: string, _patch: unknown) =>
+  Promise.resolve({ rev: ++rev }),
+)
 
 vi.mock('#/lib/api', () => ({
+  // The stores check this before subscribing at module load.
+  bridged: () => true,
   api: {
     maps: {
       get: vi.fn().mockResolvedValue({ file: null, rev: 0 }),
-      apply: vi.fn().mockResolvedValue({ rev: 1 }),
+      apply: (worldId: string, patch: unknown) => apply(worldId, patch),
       flush: vi.fn().mockResolvedValue(undefined),
-      onChanged: vi.fn().mockReturnValue(() => {}),
+      onChanged: (cb: (c: unknown) => void) => {
+        onChangedCbs.push(cb)
+        return () => {}
+      },
     },
     mapView: {
-      show: vi.fn().mockResolvedValue(undefined),
+      show: (worldId: string, mapId: string) => show(worldId, mapId),
       close: vi.fn().mockResolvedValue(undefined),
       push: vi.fn().mockResolvedValue(undefined),
       onLive: vi.fn().mockReturnValue(() => {}),
     },
-    images: { tree: vi.fn().mockResolvedValue({ folders: [], images: [] }) },
-    worlds: {
-      tree: vi.fn().mockResolvedValue({ folders: [], articles: [] }),
-      query: vi.fn().mockResolvedValue([]),
-    },
-    characters: { list: vi.fn().mockResolvedValue([]) },
     session: {
       get: vi.fn().mockResolvedValue({ file: null, rev: 0 }),
       set: vi.fn().mockResolvedValue({ rev: 1 }),
@@ -44,195 +60,104 @@ vi.mock('#/lib/api', () => ({
       onChanged: vi.fn().mockReturnValue(() => {}),
     },
     table: { combat: vi.fn().mockResolvedValue(undefined) },
-    articles: { get: vi.fn().mockResolvedValue({ content: '' }) },
-    player: { show: vi.fn().mockResolvedValue(undefined) },
   },
 }))
 
-// The drawer reads the world's ruleset and the shared library through hooks
-// that would otherwise reach for IPC.
-vi.mock('#/lib/useWorldSettings', () => ({
-  useWorldRuleset: () => 'all',
-}))
-vi.mock('#/lib/useGlobalLibrary', () => ({
-  useLibraryEntries: () => ({
-    entries: [],
-    articles: [],
-    info: null,
-    isPending: false,
-  }),
-}))
-
-beforeAll(() => {
-  Object.defineProperty(HTMLElement.prototype, 'clientWidth', {
-    configurable: true,
-    get: () => VIEW.width,
-  })
-  Object.defineProperty(HTMLElement.prototype, 'clientHeight', {
-    configurable: true,
-    get: () => VIEW.height,
-  })
-  globalThis.ResizeObserver = class {
-    observe() {}
-    unobserve() {}
-    disconnect() {}
-  }
+beforeEach(async () => {
+  // The store is a module global, so maps made by an earlier test are still in
+  // it. Re-hydrating from an empty file is the only way back to a clean list.
+  const { hydrateMaps } = await import('#/lib/useMaps')
+  await hydrateMaps('w1', { force: true })
+  // Hydration resets the store's revision to whatever main reported, so the
+  // fake main's counter has to agree or the next relay looks like an echo.
+  rev = 0
 })
+
+const { MapPanel } = await import('./MapPanel')
 
 afterEach(() => {
-  // The overlay suspends shortcuts on mount; a test that leaves one mounted
-  // would leak a suspend into the next one.
-  vi.restoreAllMocks()
+  show.mockClear()
+  apply.mockClear()
 })
 
-/** MapEditor calls useConfirm for its delete, which throws outside a provider. */
+/**
+ * Relay a change as main would, from a window that is not this one.
+ *
+ * The rev counts up across the whole file rather than per test, because the
+ * store is a module global and keeps its revision between them — the same
+ * reason it keeps its world.
+ */
+function relay(change: Record<string, unknown>) {
+  const next = ++rev
+  for (const cb of onChangedCbs) cb({ rev: next, ...change })
+}
+
 function renderPanel() {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
   return render(
     <QueryClientProvider client={client}>
-      <ConfirmProvider>
-        <MapPanel worldId="w1" />
-      </ConfirmProvider>
+      <MapPanel worldId="w1" />
     </QueryClientProvider>,
   )
 }
 
 describe('MapPanel', () => {
-  it('starts as an empty list, with no overlay', () => {
+  it('starts as an empty list', async () => {
     renderPanel()
-    expect(screen.getByText(/No maps yet/)).toBeTruthy()
-    expect(document.querySelector('.fixed.inset-0')).toBeNull()
+    expect(await screen.findByText(/No maps yet/)).toBeTruthy()
   })
 
-  it('opens a new map in a full-window overlay', () => {
-    renderPanel()
-
-    fireEvent.click(screen.getByRole('button', { name: /New map/i }))
-
-    const overlay = document.querySelector('.fixed.inset-0')
-    expect(overlay).not.toBeNull()
-    // The whole point of the change: the map surface is not laid out inside the
-    // fixed-width rail.
-    expect(overlay?.className).toContain('fixed')
-    expect(overlay?.className).toContain('inset-0')
-    expect(screen.getByLabelText('Map name')).toBeTruthy()
-  })
-
-  it('suspends app shortcuts while the overlay is open, and restores them', () => {
-    expect(shortcutsSuspended()).toBe(false)
-
-    const { unmount } = renderPanel()
-    fireEvent.click(screen.getByRole('button', { name: /New map/i }))
-    // Otherwise Ctrl+K would open the command palette behind a map being drawn.
-    expect(shortcutsSuspended()).toBe(true)
-
-    unmount()
-    expect(shortcutsSuspended()).toBe(false)
-  })
-
-  it('offers a place tool and a link dropdown, not a spawn-at-origin button', async () => {
-    // The two complaints this fixes: tokens always appearing at 0,0, and there
-    // being no way to point an existing token at a creature.
+  it('creates a map and opens it in a window', async () => {
     renderPanel()
     fireEvent.click(screen.getByRole('button', { name: /New map/i }))
 
-    // The place tool exists...
-    const place = screen.getByTitle(/Click the map to place a token/i)
-    expect(place).toBeTruthy()
+    // The map is saved...
+    await waitFor(() => expect(apply).toHaveBeenCalled())
+    // ...and a window is asked for, rather than an overlay mounted in here.
+    expect(show).toHaveBeenCalledTimes(1)
+    const [worldId, mapId] = show.mock.calls[0]
+    expect(worldId).toBe('w1')
+    expect(typeof mapId).toBe('string')
 
-    // ...and choosing it offers what to place, rather than assuming blank.
-    fireEvent.click(place)
-    await waitFor(() => expect(screen.getByLabelText('Place as')).toBeTruthy())
+    // No editor in this process: the rail keeps only the list.
+    expect(screen.queryByLabelText('Map name')).toBeNull()
   })
 
-  it('opens a creature drawer with bestiary, party and placed tokens', async () => {
-    // The complaint this fixes: linking only offered creatures already in the
-    // fight, through a select box that cannot search hundreds of monsters.
+  it('opens an existing map by clicking its row', async () => {
     renderPanel()
     fireEvent.click(screen.getByRole('button', { name: /New map/i }))
+    const row = await screen.findByText('Map 1')
+    show.mockClear()
 
-    fireEvent.click(screen.getByTitle(/Bestiary, party and the tokens/i))
+    fireEvent.click(row)
 
-    await waitFor(() => expect(screen.getByText('Bestiary')).toBeTruthy())
-    expect(screen.getByText('Party')).toBeTruthy()
-    expect(screen.getByText('Scene')).toBeTruthy()
-    // Searchable, which a select box is not.
-    expect(screen.getByPlaceholderText('Search…')).toBeTruthy()
+    expect(show).toHaveBeenCalledWith('w1', expect.any(String))
   })
 
-  it('names who is waiting to be placed, rather than just counting them', async () => {
-    // The old "Place 3" button said how many but never who, and placed them
-    // all whether you wanted that or not.
-    const { combatActions } = await import('#/lib/sessionStore')
-    combatActions.reset()
-    combatActions.add({
-      name: 'Hobgoblin Captain',
-      initiative: 14,
-      hp: 39,
-      maxHp: 39,
-      ac: 17,
-      note: '',
+  it('lists a map created in another window', async () => {
+    renderPanel()
+    await screen.findByText(/No maps yet/)
+
+    relay({
+      worldId: 'w1',
+      entry: { id: 'elsewhere', name: 'Made next door', savedAt: '2026-01-01' },
     })
 
-    renderPanel()
-    fireEvent.click(screen.getByRole('button', { name: /New map/i }))
-    fireEvent.click(screen.getByTitle(/Bestiary, party and the tokens/i))
-    fireEvent.click(await screen.findByText('Scene'))
-
-    // By name, and clickable to place just that one.
-    expect(await screen.findByText('Hobgoblin Captain')).toBeTruthy()
-    expect(screen.getByText('place')).toBeTruthy()
-
-    fireEvent.click(screen.getByText('Hobgoblin Captain'))
-    await waitFor(() => expect(screen.getByText('on map')).toBeTruthy())
-    combatActions.reset()
+    expect(await screen.findByText('Made next door')).toBeTruthy()
   })
 
-  it('takes a combatant out of the fight, leaving its token behind', async () => {
-    // Removing a row from initiative must not sweep the miniature off the
-    // table — the body may well still be lying there.
-    const { combatActions } = await import('#/lib/sessionStore')
-    combatActions.reset()
-
+  it('drops a map deleted in another window', async () => {
     renderPanel()
-    fireEvent.click(screen.getByRole('button', { name: /New map/i }))
-    fireEvent.click(screen.getByTitle(/Bestiary, party and the tokens/i))
-    fireEvent.click(await screen.findByText('Scene'))
-
-    combatActions.add({
-      name: 'Ogre',
-      initiative: 9,
-      hp: 59,
-      maxHp: 59,
-      ac: 11,
-      note: '',
+    relay({
+      worldId: 'w1',
+      entry: { id: 'doomed', name: 'Briefly here', savedAt: '2026-01-01' },
     })
+    expect(await screen.findByText('Briefly here')).toBeTruthy()
 
-    // Place it, then take it out of the fight.
-    fireEvent.click(await screen.findByText('Ogre'))
-    await waitFor(() => expect(screen.getByText('on map')).toBeTruthy())
-    fireEvent.click(screen.getByTitle(/Take Ogre out of the fight/i))
+    relay({ worldId: 'w1', removeId: 'doomed' })
 
-    // Out of the fight, but the token stays: the row is still listed and now
-    // reads as belonging to the map alone.
-    await waitFor(() => expect(screen.getByText('token only')).toBeTruthy())
-    combatActions.reset()
-  })
-
-  it('closes the overlay on Escape and comes back to the list', async () => {
-    renderPanel()
-    fireEvent.click(screen.getByRole('button', { name: /New map/i }))
-    expect(document.querySelector('.fixed.inset-0')).not.toBeNull()
-
-    fireEvent.keyDown(window, { key: 'Escape' })
-
-    await waitFor(() =>
-      expect(document.querySelector('.fixed.inset-0')).toBeNull(),
-    )
-    expect(shortcutsSuspended()).toBe(false)
-    // The map still exists — Escape closes the editor, it does not discard work.
-    expect(screen.getByText('Map 1')).toBeTruthy()
+    await waitFor(() => expect(screen.queryByText('Briefly here')).toBeNull())
   })
 })

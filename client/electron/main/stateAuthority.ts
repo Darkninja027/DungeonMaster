@@ -65,13 +65,16 @@ const keyOf = (channel: StateChannel, worldId: string) =>
 /**
  * The entry for a world, read from disk on first use.
  *
- * Lazy rather than eager because nothing knows which worlds will be touched.
- * The distinction between "absent" and "unreadable" is load-bearing: a missing
- * file is legitimately an empty list, but a file that exists and could not be
- * read must NOT be treated as empty, or the first patch after a transient read
- * error would write a one-entry file and destroy everything else in it.
- * `readWorldJson` already collapses both to null, so callers that care pass
- * `strict` and get a throw instead.
+ * Lazy rather than eager, because nothing knows in advance which worlds will be
+ * touched.
+ *
+ * KNOWN LIMITATION worth naming: `readWorldJson` returns null both for a file
+ * that is absent and for one that exists but could not be parsed, and this
+ * treats both as an empty list. For an absent file that is right. For an
+ * unreadable one it means the first patch writes a one-entry file over whatever
+ * was there. The same collapse is what every other `.dm/` reader does today —
+ * `parseMaps` cannot tell the two apart either — so fixing it belongs in
+ * `readWorldJson`, where both callers would benefit, rather than here.
  */
 function entryFor(channel: StateChannel, worldId: string): Entry {
   const k = keyOf(channel, worldId)
@@ -193,7 +196,11 @@ function writeNow(channel: StateChannel, worldId: string, entry: Entry): void {
     const message = err instanceof Error ? err.message : String(err)
     for (const win of BrowserWindow.getAllWindows()) {
       if (!win.isDestroyed()) {
-        win.webContents.send(channel.event, { worldId, rev: entry.rev, error: message })
+        win.webContents.send(channel.event, {
+          worldId,
+          rev: entry.rev,
+          error: message,
+        })
       }
     }
   }

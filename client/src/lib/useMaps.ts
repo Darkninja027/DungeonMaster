@@ -29,7 +29,7 @@
  */
 
 import { useSyncExternalStore } from 'react'
-import { api } from './api'
+import { api, bridged } from './api'
 import type { StateChange } from './api'
 import {
   dropMap,
@@ -109,8 +109,10 @@ function applyRemote(change: StateChange) {
   } else if (change.entry) {
     // Through the tolerant parser, so a hand-edited or part-broken row coming
     // from another window is treated exactly as one read off disk would be.
-    const parsed = parseMaps({ version: 1, maps: [change.entry] })
-    const one = parsed.maps[0]
+    // parseMaps DROPS a row it cannot use, so this really can come back empty
+    // — a nameless or id-less map is exactly what it discards. `.at()` says so
+    // in the type, where indexing would claim a value that may not be there.
+    const one = parseMaps({ version: 1, maps: [change.entry] }).maps.at(0)
     if (!one) return
     state = upsertMap(state, one)
   } else {
@@ -139,10 +141,11 @@ function pushLive() {
   const now = Date.now()
   const wait = PUSH_THROTTLE_MS - (now - lastPush)
   if (wait > 0) {
-    if (!pushTimer) pushTimer = setTimeout(() => {
-      pushTimer = null
-      pushLive()
-    }, wait)
+    if (!pushTimer)
+      pushTimer = setTimeout(() => {
+        pushTimer = null
+        pushLive()
+      }, wait)
     return
   }
   if (pushTimer) {
@@ -152,9 +155,11 @@ function pushLive() {
   lastPush = now
   const map = findMap(state, liveMapId)
   if (!map) return
-  void api.mapView.push(currentWorldId, liveMapId, forPlayers(map)).catch(() => {
-    // No window watching, or it closed mid-push. Nothing to do.
-  })
+  void api.mapView
+    .push(currentWorldId, liveMapId, forPlayers(map))
+    .catch(() => {
+      // No window watching, or it closed mid-push. Nothing to do.
+    })
 }
 
 /**
@@ -265,5 +270,5 @@ if (typeof window !== 'undefined') {
   // the renderer — there is no unsubscribe because there is no point at which
   // this window stops caring. Guarded on the bridge: this module is imported
   // by tests and by the guest build, neither of which has a preload.
-  if (window.dmApi) api.maps.onChanged(applyRemote)
+  if (bridged()) api.maps.onChanged(applyRemote)
 }

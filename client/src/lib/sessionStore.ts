@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react'
-import { api } from './api'
+import { api, bridged } from './api'
 import type { Combatant, SessionFile, StateChange } from './api'
 
 /**
@@ -169,7 +169,7 @@ function setState(next: CombatState) {
   // Mirror initiative to any LAN guests so the table sees turn order and whose
   // turn it is. No-ops when not hosting, and never persisted by the guest —
   // the file on the DM's disk stays the only copy.
-  if (typeof window !== 'undefined' && window.dmApi) {
+  if (bridged()) {
     void api.table.combat(next).catch(() => {})
   }
 }
@@ -281,5 +281,5 @@ if (typeof window !== 'undefined') {
   // Changes from other windows (the battlemap damaging a combatant). Guarded
   // on the bridge like the LAN mirror above: this module is imported by tests
   // and by the guest build, neither of which has a preload.
-  if (window.dmApi) api.session.onChanged(applyRemote)
+  if (bridged()) api.session.onChanged(applyRemote)
 }
