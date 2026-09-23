@@ -12,6 +12,7 @@ import {
   parseMaps,
   removeToken,
   gridFromImage,
+  imageFit,
   gridPixelSize,
   setGridSize,
   sortedMaps,
@@ -375,6 +376,48 @@ describe('mapStore', () => {
       expect(gridExtent(setGridSize(map(), { cols: -5 })).cols).toBe(1)
       // Nothing typed leaves the map alone rather than guessing.
       expect(setGridSize(map(), {})).toEqual(map())
+    })
+  })
+
+  describe('imageFit', () => {
+    it('defaults to cover, which is what every older map looked like', () => {
+      expect(imageFit(newMap())).toBe('cover')
+      expect(
+        imageFit(
+          parseMaps({ version: 1, maps: [{ id: 'a', name: 'A' }] }).maps[0],
+        ),
+      ).toBe('cover')
+    })
+
+    it('round-trips contain through a save and a load', () => {
+      const saved = {
+        ...newMap({ id: 'a', name: 'A' }),
+        imageFit: 'contain' as const,
+      }
+      const read = parseMaps({
+        version: 1,
+        maps: [JSON.parse(JSON.stringify(saved))],
+      }).maps[0]
+      expect(imageFit(read)).toBe('contain')
+    })
+
+    it('ignores a value it does not recognise rather than trusting it', () => {
+      // .dm/maps.json is hand-editable, so a typo must not reach the class name.
+      const read = parseMaps({
+        version: 1,
+        maps: [{ id: 'a', name: 'A', imageFit: 'stretch' }],
+      }).maps[0]
+      expect(imageFit(read)).toBe('cover')
+      expect(read.imageFit).toBeUndefined()
+    })
+
+    it('writes no key at all for the default', () => {
+      // A map left on Fill must not grow a key in a file people hand-edit.
+      const read = parseMaps({
+        version: 1,
+        maps: [{ id: 'a', name: 'A', imageFit: 'cover' }],
+      }).maps[0]
+      expect('imageFit' in read).toBe(false)
     })
   })
 

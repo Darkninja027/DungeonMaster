@@ -768,9 +768,22 @@ is cropped until the counts match it.
 Cells are always square. There is one cell size, no rectangular cells and no
 grid offset.
 
-**Fit to image**, in the same place, guesses the counts from the picture,
-assuming the 70 pixels a cell that most map exports use. It is a starting
-point, not an answer — if your art uses a different scale, just type the real
+## When the art and the grid disagree
+
+Most images are not a whole number of squares across, so something has to give.
+The **Grid** popover offers both answers.
+
+**Fill** is the default: the image covers the grid and anything that does not
+fit is cropped. Right for art drawn to a grid, and badly wrong for anything
+else — a wide photo on a square grid can lose nearly half its width, and
+nothing tells you it happened.
+
+**Fit whole** shows all of the image inside the grid instead, with bars around
+it. Nothing is ever cut off.
+
+**Match grid to image** goes the other way: it sets the counts from the
+picture, assuming the 70 pixels a cell that most map exports use. A starting
+point, not an answer — if your art uses a different scale, type the real
 numbers.
 
 ## Tools

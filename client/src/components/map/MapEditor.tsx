@@ -475,6 +475,16 @@ export function MapEditor({
               const fit = gridFromImage(map.imageWidth, map.imageHeight, 70)
               edit((m) => setGridSize(m, fit))
             }}
+            onImageFit={(fit) =>
+              // Stored only when it is not the default, so a map left on Fill
+              // does not grow a key in a file people hand-edit.
+              edit((m) => ({
+                ...m,
+                ...(fit === 'contain'
+                  ? { imageFit: 'contain' as const }
+                  : { imageFit: undefined }),
+              }))
+            }
           />
         }
         tool={tool}

@@ -19,6 +19,7 @@ import {
   TOKEN_CELLS,
   cellSize,
   gridExtent,
+  imageFit,
   gridPixelSize,
   mapImageUrl,
 } from '#/lib/mapStore'
@@ -375,17 +376,21 @@ export function MapCanvas({
     >
       {/*
         The background fills the GRID's box, not its own pixel dimensions: the
-        grid is the map, and the art is painted behind it. `object-cover` is
-        what makes a mismatched image crop rather than stretch — a 60x24 export
-        dropped onto a 20x20 grid shows its middle until the counts are set to
-        match, which is what the readout underneath is for.
+        grid is the map, and the art is painted behind it.
+
+        `cover` crops whatever does not line up — right for art drawn to a grid,
+        and badly wrong for anything else, since a 1920x1080 map on a 20x20 grid
+        loses 44% of its width. `contain` shows all of it and letterboxes
+        instead. Per map, because both answers are correct for different art.
       */}
       {map.image ? (
         <img
           src={mapImageUrl(worldId, map.image)}
           alt=""
           draggable={false}
-          className="pointer-events-none absolute select-none object-cover"
+          className={`pointer-events-none absolute select-none ${
+            imageFit(map) === 'contain' ? 'object-contain' : 'object-cover'
+          }`}
           style={{
             left: '50%',
             top: '50%',

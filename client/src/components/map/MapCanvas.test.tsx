@@ -126,6 +126,27 @@ describe('MapCanvas', () => {
     expect(container.querySelectorAll('rect')).toHaveLength(99)
   })
 
+  describe('the background fit', () => {
+    it('crops by default, and shows the whole image when told to', () => {
+      const withArt = () => ({ ...map(), image: 'Maps/cave.png' })
+
+      const fill = render(<MapCanvas worldId="abc" map={withArt()} />)
+      expect(fill.container.querySelector('img')?.className).toContain(
+        'object-cover',
+      )
+      fill.unmount()
+
+      // The fix for a wide image on a square grid, which loses 44% of its
+      // width under cover and is cut off with no indication that it happened.
+      const whole = render(
+        <MapCanvas worldId="abc" map={{ ...withArt(), imageFit: 'contain' }} />,
+      )
+      const img = whole.container.querySelector('img')
+      expect(img?.className).toContain('object-contain')
+      expect(img?.className).not.toContain('object-cover')
+    })
+  })
+
   describe('live combat state', () => {
     const goblin: Combatant = {
       id: 'c1',

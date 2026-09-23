@@ -1,4 +1,4 @@
-import { Grid3x3, Maximize2 } from 'lucide-react'
+import { Crop, Grid3x3, Maximize2, Scaling } from 'lucide-react'
 import { Button } from '#/components/ui/button'
 import { Input } from '#/components/ui/input'
 import { Label } from '#/components/ui/label'
@@ -7,8 +7,8 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '#/components/ui/popover'
-import { gridExtent } from '#/lib/mapStore'
-import type { BattleMap } from '#/lib/mapStore'
+import { gridExtent, imageFit } from '#/lib/mapStore'
+import type { BattleMap, ImageFit } from '#/lib/mapStore'
 
 /**
  * How big the grid is — a popover on the toolbar.
@@ -35,6 +35,7 @@ export function MapGridControls({
   onRowsDraft,
   onCommit,
   onFitToImage,
+  onImageFit,
 }: {
   map: BattleMap
   colsDraft: string
@@ -43,6 +44,7 @@ export function MapGridControls({
   onRowsDraft: (value: string) => void
   onCommit: (axis: 'cols' | 'rows') => void
   onFitToImage: () => void
+  onImageFit: (fit: ImageFit) => void
 }) {
   const extent = gridExtent(map)
 
@@ -110,15 +112,50 @@ export function MapGridControls({
         </p>
 
         {map.image ? (
-          <Button
-            size="sm"
-            variant="outline"
-            className="w-full"
-            title="Set the counts so the grid matches the background art"
-            onClick={onFitToImage}
-          >
-            <Maximize2 className="size-4" /> Fit to image
-          </Button>
+          <div className="space-y-2 border-t pt-3">
+            <p className="text-sm font-medium">Background</p>
+
+            {/*
+              Two ways to reconcile a mismatch, and they pull opposite ways:
+              change the grid to suit the art, or change how the art is drawn
+              to suit the grid. Which is right depends on where the image came
+              from, so both are offered rather than one being guessed at.
+            */}
+            <div className="grid grid-cols-2 gap-1.5">
+              <Button
+                size="sm"
+                variant={imageFit(map) === 'cover' ? 'secondary' : 'outline'}
+                title="Fill the grid, cropping anything that does not fit"
+                aria-pressed={imageFit(map) === 'cover'}
+                onClick={() => onImageFit('cover')}
+              >
+                <Crop className="size-4" /> Fill
+              </Button>
+              <Button
+                size="sm"
+                variant={imageFit(map) === 'contain' ? 'secondary' : 'outline'}
+                title="Show the whole image inside the grid, with bars around it"
+                aria-pressed={imageFit(map) === 'contain'}
+                onClick={() => onImageFit('contain')}
+              >
+                <Scaling className="size-4" /> Fit whole
+              </Button>
+            </div>
+
+            <Button
+              size="sm"
+              variant="outline"
+              className="w-full"
+              title="Set the counts so the grid matches the background art"
+              onClick={onFitToImage}
+            >
+              <Maximize2 className="size-4" /> Match grid to image
+            </Button>
+            <p className="text-muted-foreground text-xs">
+              Fill crops art that does not match the grid&rsquo;s shape. Fit
+              whole never cuts anything off.
+            </p>
+          </div>
         ) : null}
       </PopoverContent>
     </Popover>
