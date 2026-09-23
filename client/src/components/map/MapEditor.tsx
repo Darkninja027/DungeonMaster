@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useConfirm } from '#/components/ConfirmProvider'
 import { useSuspendShortcuts } from '#/lib/useShortcut'
 import { api } from '#/lib/api'
@@ -37,12 +37,14 @@ import {
 } from '#/lib/mapStore'
 import type { BattleMap, TokenSize } from '#/lib/mapStore'
 import type { Point } from '#/lib/mapCamera'
+import { placeCard } from '#/lib/mapCardPlacement'
 import { MapBackgroundDialog } from './MapBackgroundDialog'
 import { MapGridControls } from './MapGridControls'
+import { MapStatusBar } from './MapStatusBar'
+import { MapTokenCard } from './MapTokenCard'
 import { MapToolbar } from './MapToolbar'
-import { MapTokenInspector } from './MapTokenInspector'
 import { MapCanvas } from './MapCanvas'
-import type { MapTool } from './MapCanvas'
+import type { MapCameraHandle, MapTool } from './MapCanvas'
 import type { TemplateKind } from '#/lib/mapMeasure'
 
 /**
@@ -61,6 +63,15 @@ import type { TemplateKind } from '#/lib/mapMeasure'
  * "Show" puts the map on a second screen through a `table` window, stripped of
  * hidden tokens by `forPlayers` before the payload ever leaves this process.
  */
+/**
+ * The token card's size, for placing it before it renders.
+ *
+ * A constant rather than a measurement: measuring would put the card in the
+ * wrong place for one frame, which on a map reads as a flicker beside the
+ * token. Kept in step with MapTokenCard's own `w-64`.
+ */
+const CARD_SIZE = { width: 256, height: 220 }
+
 export function MapEditor({
   worldId,
   map,
@@ -80,6 +91,9 @@ export function MapEditor({
   const [drawer, setDrawer] = useState(false)
   /** Whether a table window is up for this map. */
   const [showing, setShowing] = useState(false)
+  /** The canvas's zoom, for the status readout. */
+  const [scale, setScale] = useState(1)
+  const camera = useRef<MapCameraHandle>(null)
   /**
    * The squares-across box, held as text while you type it.
    *
@@ -206,6 +220,10 @@ export function MapEditor({
     // `map` and `combat`, and rebinding it each render is cheaper and far less
     // error-prone than tracking those in refs.
   })
+
+  // Stable: MapCanvas reports the scale from an effect keyed on this, so a
+  // fresh function each render would re-run it forever.
+  const onScale = useCallback((next: number) => setScale(next), [])
 
   function edit(change: (m: BattleMap) => BattleMap) {
     mapActions.update(map.id, change)
@@ -443,6 +461,22 @@ export function MapEditor({
     <div className="bg-background fixed inset-0 z-50 flex flex-col">
       <MapToolbar
         map={map}
+        grid={
+          <MapGridControls
+            map={map}
+            colsDraft={colsDraft}
+            rowsDraft={rowsDraft}
+            onColsDraft={setColsDraft}
+            onRowsDraft={setRowsDraft}
+            onCommit={commitAxis}
+            onFitToImage={() => {
+              // The art's own cell size is unknown, so assume the usual 70px
+              // a VTT export uses and round to whole cells.
+              const fit = gridFromImage(map.imageWidth, map.imageHeight, 70)
+              edit((m) => setGridSize(m, fit))
+            }}
+          />
+        }
         tool={tool}
         onTool={setTool}
         template={template}
@@ -474,6 +508,47 @@ export function MapEditor({
           onPlaceAt={placeAt}
           template={template}
           templateFeet={templateFeet}
+          cameraRef={camera}
+          onScale={onScale}
+          overlay={(anchor) => (
+            <>
+              {token && anchor ? (
+                <MapTokenCard
+                  token={token}
+                  linked={linked}
+                  orphaned={orphaned}
+                  combatants={combat.combatants}
+                  canOpenStatBlock={
+                    !!tokenArticle(token, combat.combatants, worldId)
+                  }
+                  style={{
+                    position: 'absolute',
+                    ...placeCard(anchor, CARD_SIZE),
+                  }}
+                  onPatch={(patch) =>
+                    edit((m) => updateToken(m, token.id, patch))
+                  }
+                  onRemove={() => {
+                    edit((m) => removeToken(m, token.id))
+                    setSelected(null)
+                  }}
+                  onUnlink={() => edit((m) => unlinkToken(m, token.id))}
+                  onLink={() => setDrawer(true)}
+                  onHp={(hp) => {
+                    if (linked) combatActions.update(linked.id, { hp })
+                  }}
+                  onStatBlock={openStatBlock}
+                  onClose={() => setSelected(null)}
+                />
+              ) : null}
+              <MapStatusBar
+                map={map}
+                scale={scale}
+                onZoom={(factor) => camera.current?.zoomBy(factor)}
+                onFit={() => camera.current?.fit()}
+              />
+            </>
+          )}
           className="min-h-0 flex-1"
         />
         {drawer ? (
@@ -494,44 +569,6 @@ export function MapEditor({
             onClose={() => setDrawer(false)}
           />
         ) : null}
-      </div>
-
-      <div className="border-t p-2">
-        {token ? (
-          <MapTokenInspector
-            token={token}
-            linked={linked}
-            orphaned={orphaned}
-            combatants={combat.combatants}
-            canOpenStatBlock={!!tokenArticle(token, combat.combatants, worldId)}
-            onPatch={(patch) => edit((m) => updateToken(m, token.id, patch))}
-            onRemove={() => {
-              edit((m) => removeToken(m, token.id))
-              setSelected(null)
-            }}
-            onUnlink={() => edit((m) => unlinkToken(m, token.id))}
-            onLink={() => setDrawer(true)}
-            onHp={(hp) => {
-              if (linked) combatActions.update(linked.id, { hp })
-            }}
-            onStatBlock={openStatBlock}
-          />
-        ) : (
-          <MapGridControls
-            map={map}
-            colsDraft={colsDraft}
-            rowsDraft={rowsDraft}
-            onColsDraft={setColsDraft}
-            onRowsDraft={setRowsDraft}
-            onCommit={commitAxis}
-            onFitToImage={() => {
-              // The art's own cell size is unknown, so assume the usual 70px
-              // a VTT export uses and round to whole cells.
-              const fit = gridFromImage(map.imageWidth, map.imageHeight, 70)
-              edit((m) => setGridSize(m, fit))
-            }}
-          />
-        )}
       </div>
 
       {picking ? (

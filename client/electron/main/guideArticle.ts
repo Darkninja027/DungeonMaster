@@ -770,7 +770,8 @@ to pick any image from this world's \`_images\` folder.
 ## The grid is the map
 
 This is the part worth understanding, because it is the opposite of what most
-map tools do. **The column and row counts are the map.** Type 15 columns and 30
+map tools do. The **Grid** button on the toolbar holds the counts, and shows
+them on its face. **The column and row counts are the map.** Type 15 columns and 30
 rows and you get a tall grid of 15 by 30 square cells — the background image is
 painted behind it and does not get a vote. If the art is a different shape it
 is cropped until the counts match it.
@@ -778,9 +779,10 @@ is cropped until the counts match it.
 Cells are always square. There is one cell size, no rectangular cells and no
 grid offset.
 
-**Fit to image** guesses the counts from the picture, assuming the 70 pixels a
-cell that most map exports use. It is a starting point, not an answer — if your
-art uses a different scale, just type the real numbers.
+**Fit to image**, in the same place, guesses the counts from the picture,
+assuming the 70 pixels a cell that most map exports use. It is a starting
+point, not an answer — if your art uses a different scale, just type the real
+numbers.
 
 ## Tools
 
@@ -789,7 +791,7 @@ because the map window owns the keyboard.
 
 | Key | Tool | What it does |
 |---|---|---|
-| \`V\` | Select | Drag tokens around. Drag the map itself to pan; wheel to zoom. |
+| \`V\` | Select | Drag tokens around. Drag the map itself to pan; wheel to zoom, or use the buttons bottom-right. |
 | \`P\` | Place | Click a square to drop a blank token there. Link it to a creature from the drawer. |
 | \`R\` | Reveal | Paint fog away. |
 | \`H\` | Hide | Paint fog back. |
@@ -801,11 +803,11 @@ diagonal steps reads 15 ft rather than 21.
 
 ## Tokens
 
-Place a token and select it to give it a label, a size, a colour, or to link it
-to a row in the initiative tracker. A linked token shows an HP bar, knows whose
-turn it is, and can be damaged or healed from the map itself — the \`[\` and \`]\`
-keys, or the plus and minus buttons in the bar at the bottom. \`S\` opens its
-stat block in its own window.
+Place a token and select it, and a small card appears beside it: label, size,
+colour, and a link to a row in the initiative tracker. A linked token shows an
+HP bar, knows whose turn it is, and can be damaged or healed from the map
+itself — the \`[\` and \`]\` keys, or the plus and minus buttons on the card. \`S\`
+opens its stat block in its own window.
 
 **Hidden** is the one to know about. A hidden token is not dimmed on the
 players' screen — it is **removed from what they are sent entirely**. The

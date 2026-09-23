@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+} from 'react'
 import {
   IDENTITY,
   ZOOM_STEP,
@@ -52,6 +58,36 @@ import type { Combatant } from '#/lib/api'
  * secret.
  */
 
+/**
+ * Where the selected token sits on screen, for anything floating beside it.
+ *
+ * Screen pixels relative to the canvas host, already through the camera, so
+ * the caller positions absolutely and never does the maths itself.
+ */
+export interface TokenAnchor {
+  /** The token's box on screen. */
+  left: number
+  top: number
+  width: number
+  height: number
+  /** The host's own size, so a caller can keep a card inside it. */
+  view: Viewport
+}
+
+/**
+ * What a parent may do to the camera. See `cameraRef`.
+ *
+ * Two verbs, not the camera itself: zooming and framing are the only things
+ * anything outside this component has ever wanted, and handing out `setCam`
+ * would invite a parent to drive the pan at pointer rate.
+ */
+export interface MapCameraHandle {
+  /** Multiply the zoom about the centre of the view. */
+  zoomBy: (factor: number) => void
+  /** Frame the whole grid. */
+  fit: () => void
+}
+
 export type MapAudience = 'dm' | 'player'
 
 /** What the pointer does on the map. Fog tools only ever appear for the DM. */
@@ -83,6 +119,9 @@ export function MapCanvas({
   onPlaceAt,
   template = null,
   templateFeet = 20,
+  cameraRef,
+  onScale,
+  overlay,
   className,
 }: {
   worldId: string
@@ -108,6 +147,26 @@ export function MapCanvas({
   template?: TemplateKind | null
   /** Radius/length of the template, in feet. Ignored when measuring distance. */
   templateFeet?: number
+  /**
+   * Drive the camera from outside — zoom buttons, a Fit control.
+   *
+   * An imperative handle rather than lifting `cam` into the parent: the camera
+   * is this component's business (every gesture in here writes it, at pointer
+   * rate), and hoisting it would put a 60fps value in a parent that re-renders
+   * a toolbar. The parent gets the two verbs it actually wants.
+   */
+  cameraRef?: React.Ref<MapCameraHandle>
+  /**
+   * Anything to draw over the map, given where the selected token is.
+   *
+   * A render prop because the caller owns the content (the token card) while
+   * only this component knows the camera — and the camera moves at pointer
+   * rate, so handing it out would re-render a card on every pan. `anchor` is
+   * null when nothing is selected or the token has gone.
+   */
+  overlay?: (anchor: TokenAnchor | null) => React.ReactNode
+  /** Called when the zoom changes, for a readout. */
+  onScale?: (scale: number) => void
   className?: string
 }) {
   const hostRef = useRef<HTMLDivElement | null>(null)
@@ -141,6 +200,24 @@ export function MapCanvas({
   const fit = useCallback(() => {
     setCam(fitCamera(gridPixelSize(map), view))
   }, [map, view])
+
+  // Zoom about the middle of the view, which is what a button means — the
+  // wheel zooms about the cursor instead, and `zoomAt` serves both.
+  const zoomBy = useCallback(
+    (factor: number) => {
+      const focus = { x: view.width / 2, y: view.height / 2 }
+      setCam((c) => zoomAt(c, focus, factor, view))
+    },
+    [view],
+  )
+
+  useImperativeHandle(cameraRef, () => ({ zoomBy, fit }), [zoomBy, fit])
+
+  // Report the zoom for a readout. Effect rather than calling from every
+  // writer, so a gesture, a button and the initial fit all announce it once.
+  useEffect(() => {
+    onScale?.(cam.scale)
+  }, [cam.scale, onScale])
 
   // Fit once per map, as soon as there is a box to fit into. Keyed by map id so
   // switching maps re-fits, but a resize mid-session does not yank the DM's
@@ -184,6 +261,31 @@ export function MapCanvas({
     }
     return screenToCell(point, map, cam, view)
   }
+
+  // Where the selected token is on screen, for the overlay. Recomputed on
+  // every camera change by design: a card beside a token has to follow it.
+  const selected =
+    selectedTokenId === null
+      ? null
+      : (map.tokens.find((t) => t.id === selectedTokenId) ?? null)
+  const anchor: TokenAnchor | null = (() => {
+    if (!selected || !view.width || !view.height) return null
+    const span = TOKEN_CELLS[selected.size]
+    const topLeft = cellToScreen(
+      { x: selected.x, y: selected.y },
+      map,
+      cam,
+      view,
+    )
+    const side = cellSize(map) * span * cam.scale
+    return {
+      left: topLeft.x,
+      top: topLeft.y,
+      width: side,
+      height: side,
+      view,
+    }
+  })()
 
   return (
     <div
@@ -334,6 +436,8 @@ export function MapCanvas({
           />
         ) : null}
       </svg>
+
+      {overlay ? overlay(anchor) : null}
 
       {!map.image ? (
         <p className="pointer-events-none absolute inset-x-0 bottom-3 text-center text-xs text-white/50">

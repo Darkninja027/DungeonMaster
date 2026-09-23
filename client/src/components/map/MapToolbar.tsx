@@ -32,6 +32,7 @@ import type { TemplateKind } from '#/lib/mapMeasure'
  */
 export function MapToolbar({
   map,
+  grid,
   tool,
   onTool,
   template,
@@ -49,6 +50,8 @@ export function MapToolbar({
   onClose,
 }: {
   map: BattleMap
+  /** The grid popover, passed in so the toolbar holds no grid logic. */
+  grid: React.ReactNode
   tool: MapTool
   onTool: (tool: MapTool) => void
   template: TemplateKind | null
@@ -144,6 +147,8 @@ export function MapToolbar({
       ) : null}
 
       <span className="bg-border mx-1 h-5 w-px" />
+
+      {grid}
 
       <Button size="sm" variant="ghost" onClick={onPickBackground}>
         <ImageIcon className="size-4" /> Background

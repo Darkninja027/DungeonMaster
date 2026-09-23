@@ -199,8 +199,22 @@ describe('the toolbar', () => {
 })
 
 describe('the grid controls', () => {
-  it('commits a typed column count on blur, not per keystroke', () => {
+  /**
+   * Open the grid popover.
+   *
+   * The Columns and Rows boxes used to sit permanently in a bottom bar. Grid
+   * size is set once when a map is made and then hardly touched, so it moved
+   * behind a toolbar button — the behaviour under test (commit on blur, two
+   * independent axes) is unchanged.
+   */
+  async function openGrid() {
+    fireEvent.click(screen.getByTitle(/How many squares/i))
+    await screen.findByLabelText('Columns')
+  }
+
+  it('commits a typed column count on blur, not per keystroke', async () => {
     renderEditor()
+    await openGrid()
     const cols = screen.getByLabelText('Columns')
 
     // Typing "30" over "20" passes through "3", and re-gridding on that would
@@ -213,8 +227,9 @@ describe('the grid controls', () => {
     expect(currentMap()?.grid.cols).toBe(30)
   })
 
-  it('commits each axis independently, so a tall grid is expressible', () => {
+  it('commits each axis independently, so a tall grid is expressible', async () => {
     renderEditor()
+    await openGrid()
     const cols = screen.getByLabelText('Columns')
     const rows = screen.getByLabelText('Rows')
 
@@ -227,8 +242,9 @@ describe('the grid controls', () => {
     expect(currentMap()?.grid).toMatchObject({ cols: 15, rows: 30 })
   })
 
-  it('snaps a nonsense value back rather than accepting it', () => {
+  it('snaps a nonsense value back rather than accepting it', async () => {
     renderEditor()
+    await openGrid()
     const cols = screen.getByLabelText<HTMLInputElement>('Columns')
     fireEvent.change(cols, { target: { value: '0' } })
     fireEvent.blur(cols)
@@ -322,10 +338,65 @@ describe('the token inspector', () => {
     renderEditor()
     await selectViaDrawer('Goblin')
 
-    fireEvent.click(await screen.findByLabelText(/Hidden/i))
+    fireEvent.click(await screen.findByTitle(/Hide from the players/i))
     expect(currentMap()?.tokens[0].hidden).toBe(true)
     // Still on the map for the DM: hiding is not deleting.
     expect(currentMap()?.tokens).toHaveLength(1)
+  })
+})
+
+describe('the floating token card', () => {
+  it('appears over the map rather than in a bar, and closes on deselect', async () => {
+    mapActions.update(MAP_ID, (m) => ({
+      ...m,
+      tokens: [
+        {
+          id: 't1',
+          label: 'Goblin',
+          x: 1,
+          y: 1,
+          size: 'medium' as const,
+          colour: '#8b1a1a',
+        },
+      ],
+    }))
+    renderEditor()
+
+    // Nothing selected: no card, and no bottom bar either — the map owns the
+    // whole area below the toolbar now.
+    expect(screen.queryByRole('group', { name: 'Selected token' })).toBeNull()
+
+    fireEvent.click(screen.getByTitle(/Bestiary, party and the tokens/i))
+    fireEvent.click(await screen.findByText('Scene'))
+    const rows = await screen.findAllByRole('button', { name: /Goblin/ })
+    fireEvent.click(rows[0])
+
+    const card = await screen.findByRole('group', { name: 'Selected token' })
+    // Positioned, not laid out in flow: that is what stops the map resizing.
+    expect(card.style.position).toBe('absolute')
+
+    fireEvent.click(screen.getByTitle('Deselect'))
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('group', { name: 'Selected token' }),
+      ).toBeNull(),
+    )
+  })
+})
+
+describe('the zoom controls', () => {
+  it('reads out the zoom and changes it', async () => {
+    renderEditor()
+    // Fit runs on mount, so the readout is whatever framed the map.
+    const shown = screen.getByRole('button', { name: 'Zoom' }).textContent
+
+    fireEvent.click(screen.getByTitle('Zoom in'))
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Zoom' }).textContent).not.toBe(
+        shown,
+      )
+    })
   })
 })
 
