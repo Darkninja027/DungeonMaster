@@ -2,10 +2,11 @@ import path from 'node:path'
 import { app, BrowserWindow, ipcMain, shell } from 'electron'
 import { autoUpdater } from 'electron-updater'
 import log from 'electron-log'
-import { registerIpcHandlers } from './ipc'
+import { flushAllWorldState, registerIpcHandlers } from './ipc'
 import { registerWorldProtocol, handleWorldProtocol } from './images'
 import { seedBundledContent } from './library'
 import { closeAllPlayerWindows } from './playerWindow'
+import { closeAllMapWindows } from './mapWindow'
 
 const devServerUrl = process.env.VITE_DEV_SERVER_URL
 
@@ -70,7 +71,10 @@ function createWindow() {
   // projector after the DM quits is the worst possible failure, so they go
   // with it. ('close', not 'closed': window-all-closed will not fire while a
   // player window is still open, so the app would otherwise never quit.)
-  win.on('close', () => closeAllPlayerWindows())
+  win.on('close', () => {
+    closeAllPlayerWindows()
+    closeAllMapWindows()
+  })
   // Keep our versioned title — the page's <title> would overwrite it on load.
   win.on('page-title-updated', (e) => e.preventDefault())
 
@@ -214,6 +218,11 @@ if (!allowSecond && !app.requestSingleInstanceLock()) {
       if (!mainWindow || mainWindow.isDestroyed()) createWindow()
     })
   })
+
+  // Whatever is still sitting on the 800ms debounce goes to disk before we go.
+  // The renderers' own beforeunload flush is best-effort and may already have
+  // lost the race with window teardown; this is the one that is not.
+  app.on('before-quit', () => flushAllWorldState())
 
   app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') app.quit()

@@ -58,6 +58,22 @@ import {
   writeViews,
 } from './session'
 import {
+  applyState,
+  flushAllState,
+  flushState,
+  readState,
+  replaceState,
+} from './stateAuthority'
+import type { StateChannel } from './stateAuthority'
+import type { StatePatch } from './statePatch'
+import {
+  closeMapWindow,
+  isMapId,
+  pushToMapWindow,
+  showMapWindow,
+} from './mapWindow'
+import type { MapWindowMode } from './mapWindow'
+import {
   WORLD_SETTINGS_FILE,
   migrateWorldFolder,
   readWorldSettings,
@@ -134,6 +150,36 @@ function scaffoldSettings(root: string, ruleset?: string): void {
   } catch {
     // read-only folder or a race with another window — the getter copes.
   }
+}
+
+/**
+ * The two `.dm/` files the main process holds authority over.
+ *
+ * Both are edited from more than one window — a battlemap in its own window
+ * writes its own file, and its damage keys write the tracker's — and both are
+ * whole-file writes, so a renderer-owned copy would clobber. See
+ * stateAuthority.ts. Every other `.dm/` file (views, encounters) is still
+ * renderer-owned, because nothing but the DM window can edit it.
+ *
+ * `key` names the array inside the file that patches address by id.
+ */
+const MAPS_CHANNEL: StateChannel = {
+  event: 'maps:changed',
+  key: 'maps',
+  read: readMaps,
+  write: writeMaps,
+}
+
+const SESSION_CHANNEL: StateChannel = {
+  event: 'session:changed',
+  key: 'combatants',
+  read: readSession,
+  write: writeSession,
+}
+
+/** Write every world's pending state now. For app quit. */
+export function flushAllWorldState(): void {
+  flushAllState([MAPS_CHANNEL, SESSION_CHANNEL])
 }
 
 /**
@@ -647,14 +693,30 @@ export function registerIpcHandlers() {
   )
 
   // Session (initiative tracker) ---------------------------------------------
+  // Authoritative here for the same reason maps are, and it matters more: the
+  // battlemap's [ and ] keys damage a combatant, so a map window writes THIS
+  // file too. Losing the fight in progress mid-combat is worse than losing a
+  // token position. `session:set` survives for the whole-state writes the
+  // tracker still makes (starting a fight replaces every combatant at once);
+  // it goes through the authority so it cannot race a patch.
   ipcMain.handle('session:get', (_e, { worldId }: { worldId: string }) =>
-    readSession(worldId),
+    readState(SESSION_CHANNEL, worldId),
   )
 
   ipcMain.handle(
     'session:set',
-    (_e, { worldId, state }: { worldId: string; state: unknown }) =>
-      writeSession(worldId, state),
+    (e, { worldId, state }: { worldId: string; state: unknown }) =>
+      replaceState(SESSION_CHANNEL, worldId, state, e.sender),
+  )
+
+  ipcMain.handle(
+    'session:apply',
+    (e, { worldId, patch }: { worldId: string; patch: StatePatch }) =>
+      applyState(SESSION_CHANNEL, worldId, patch, e.sender),
+  )
+
+  ipcMain.handle('session:flush', (_e, { worldId }: { worldId: string }) =>
+    flushState(SESSION_CHANNEL, worldId),
   )
 
   // Saved Smart Views -------------------------------------------------------
@@ -683,14 +745,66 @@ export function registerIpcHandlers() {
   // Battlemaps. Raw JSON up, like encounters — the renderer owns the tolerant
   // parse (lib/mapStore.ts), which is what lets a hand-edited or part-broken
   // file still open every map that is fine.
+  //
+  // Unlike encounters, the AUTHORITY is here rather than in the renderer: a map
+  // can be open in its own window while the DM window edits the same file, and
+  // two renderers whole-file-saving on a debounce lose maps. See
+  // stateAuthority.ts. `maps:set` is deliberately gone — a whole-file set from a
+  // renderer IS the clobber, so there is no way to ask for one.
   ipcMain.handle('maps:get', (_e, { worldId }: { worldId: string }) =>
-    readMaps(worldId),
+    readState(MAPS_CHANNEL, worldId),
   )
 
   ipcMain.handle(
-    'maps:set',
-    (_e, { worldId, state }: { worldId: string; state: unknown }) =>
-      writeMaps(worldId, state),
+    'maps:apply',
+    (e, { worldId, patch }: { worldId: string; patch: StatePatch }) =>
+      applyState(MAPS_CHANNEL, worldId, patch, e.sender),
+  )
+
+  ipcMain.handle('maps:flush', (_e, { worldId }: { worldId: string }) =>
+    flushState(MAPS_CHANNEL, worldId),
+  )
+
+  // Battlemap windows --------------------------------------------------------
+  // Unlike player:show, these validate the id for SHAPE rather than resolving
+  // it: a map id is a random string looked up in a JSON file, never joined onto
+  // a path. worldRoot() is still the real boundary, and it throws for a bad
+  // world id before any window opens.
+  ipcMain.handle(
+    'mapView:show',
+    (
+      _e,
+      {
+        worldId,
+        mapId,
+        mode,
+      }: { worldId: string; mapId: string; mode?: MapWindowMode },
+    ) => {
+      worldRoot(worldId)
+      if (!isMapId(mapId)) throw new Error('Not a map id.')
+      showMapWindow(worldId, mapId, mode === 'table' ? 'table' : 'edit')
+    },
+  )
+
+  ipcMain.handle(
+    'mapView:close',
+    (
+      _e,
+      {
+        worldId,
+        mapId,
+        mode,
+      }: { worldId: string; mapId: string; mode?: MapWindowMode },
+    ) => closeMapWindow(worldId, mapId, mode === 'table' ? 'table' : 'edit'),
+  )
+
+  // Relay only — touches no disk. The payload arrives already stripped by
+  // forPlayers() in the sending renderer, which is where the secrecy rule
+  // belongs: a hidden token never enters this process at all.
+  ipcMain.handle(
+    'mapView:push',
+    (_e, payload: { worldId: string; mapId: string; map: unknown }) =>
+      pushToMapWindow(payload),
   )
 
   // Per-world settings (the class/subclass list) ------------------------------

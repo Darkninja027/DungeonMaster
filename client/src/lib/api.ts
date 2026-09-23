@@ -275,6 +275,56 @@ export interface ImportSummary {
  */
 export type ViewerMode = 'player' | 'popout'
 
+/**
+ * Change ONE entry in a `.dm/` list, matched by id.
+ *
+ * Mirrors StatePatch in electron/main/statePatch.ts. Main and the renderer
+ * share no types, so a field added there needs adding here too — and unlike
+ * `PlayerContent`, which `ipc.ts` re-states as an anonymous literal, both ends
+ * of this one are named so a mismatch is at least findable.
+ */
+export interface StatePatch {
+  entry?: unknown
+  removeId?: string
+}
+
+/** A `.dm/` file as main holds it, with the revision that identifies it. */
+export interface StateSnapshot<T = unknown> {
+  file: T
+  rev: number
+}
+
+/**
+ * A change made in another window, relayed by main.
+ *
+ * `rev` is monotonic per world and is what tells an echo from a real update: a
+ * renderer drops anything at or below the rev it already has, and a gap means
+ * it missed a message and should re-read. `error` carries a failed disk write
+ * (a payload over MAX_STATE_BYTES), which has no renderer awaiting it.
+ */
+export interface StateChange {
+  worldId: string
+  rev: number
+  entry?: unknown
+  removeId?: string
+  /** A whole-state replacement, from `session:set`. */
+  replace?: unknown
+  error?: string
+}
+
+/**
+ * Which kind of battlemap window. `edit` is the DM's; `table` is the one the
+ * players look at, and is only ever sent maps that `forPlayers` has stripped.
+ */
+export type MapWindowMode = 'edit' | 'table'
+
+/** A map relayed live to the table window. */
+export interface MapLive {
+  worldId: string
+  mapId: string
+  map: unknown
+}
+
 /** What the DM window relays to a viewer window on every edit. */
 export interface PlayerContent {
   worldId: string
@@ -563,11 +613,28 @@ export const api = {
       }),
   },
   session: {
-    /** Combat/session state stored in the world folder; null if none saved. */
+    /**
+     * Combat state plus main's revision number.
+     *
+     * Authoritative in the main process for the same reason maps are: the
+     * battlemap's damage keys write this file from a different window, and two
+     * renderers whole-file-saving would lose the fight in progress.
+     */
     get: (worldId: string) =>
-      invoke<SessionFile | null>('session:get', { worldId }),
+      invoke<StateSnapshot<SessionFile>>('session:get', { worldId }),
+    /**
+     * Replace the whole state — starting a fight rewrites every combatant at
+     * once, and N patches would be both slower and a lie about what happened.
+     * Still goes through main, so it cannot race a patch.
+     */
     set: (worldId: string, state: SessionFile) =>
-      invoke<void>('session:set', { worldId, state }),
+      invoke<{ rev: number }>('session:set', { worldId, state }),
+    /** Change one combatant. The path every HP edit takes. */
+    apply: (worldId: string, patch: StatePatch) =>
+      invoke<{ rev: number }>('session:apply', { worldId, patch }),
+    flush: (worldId: string) => invoke<void>('session:flush', { worldId }),
+    onChanged: (cb: (change: StateChange) => void) =>
+      window.dmApi.on('session:changed', (p) => cb(p as StateChange)),
   },
   views: {
     /** Saved Smart Views for this world; null if none saved yet. */
@@ -588,13 +655,51 @@ export const api = {
   },
   maps: {
     /**
-     * Raw .dm/maps.json — deliberately `unknown`, like encounters: the file
-     * travels with the world folder and is hand-editable, so the renderer's
-     * tolerant `parseMaps` decides what is usable rather than trusting it.
+     * Raw .dm/maps.json plus main's revision number — the payload is still
+     * deliberately `unknown`, like encounters, because the file travels with the
+     * world folder and is hand-editable, so the renderer's tolerant `parseMaps`
+     * decides what is usable rather than trusting it.
+     *
+     * The `rev` is what makes multi-window editing safe; see `StateChange`.
      */
-    get: (worldId: string) => invoke<unknown>('maps:get', { worldId }),
-    set: (worldId: string, state: unknown) =>
-      invoke<void>('maps:set', { worldId, state }),
+    get: (worldId: string) => invoke<StateSnapshot>('maps:get', { worldId }),
+    /**
+     * Change ONE map. There is deliberately no whole-file setter: a map can be
+     * open in its own window while the DM window edits the list, and a
+     * whole-file write from either would overwrite the other's maps. Main merges
+     * per-map, so disjoint edits cannot collide at all.
+     */
+    apply: (worldId: string, patch: StatePatch) =>
+      invoke<{ rev: number }>('maps:apply', { worldId, patch }),
+    /** Write any pending change now (window close). Best effort. */
+    flush: (worldId: string) => invoke<void>('maps:flush', { worldId }),
+    /** Changes made in other windows; returns an unsubscribe fn. */
+    onChanged: (cb: (change: StateChange) => void) =>
+      window.dmApi.on('maps:changed', (p) => cb(p as StateChange)),
+  },
+  /**
+   * Battlemap windows: the editor on one monitor, the table view on another.
+   *
+   * Separate from `player` because a map id is an 8-char random string, not a
+   * path — `player:show` resolves its id against the world root as a `.md`
+   * file, which a map id has no business passing through.
+   */
+  mapView: {
+    /** Open (or focus) a window showing this map. */
+    show: (worldId: string, mapId: string, mode: MapWindowMode = 'edit') =>
+      invoke<void>('mapView:show', { worldId, mapId, mode }),
+    close: (worldId: string, mapId: string, mode: MapWindowMode = 'edit') =>
+      invoke<void>('mapView:close', { worldId, mapId, mode }),
+    /**
+     * Relay a map to the table window showing it. A pure relay, touching no
+     * disk — and the payload must already be `forPlayers()`-ed by the caller,
+     * so a hidden token never enters this path at all.
+     */
+    push: (worldId: string, mapId: string, map: unknown) =>
+      invoke<void>('mapView:push', { worldId, mapId, map }),
+    /** Table window: subscribe to pushed maps; returns an unsubscribe fn. */
+    onLive: (cb: (payload: MapLive) => void) =>
+      window.dmApi.on('map:live', (p) => cb(p as MapLive)),
   },
   worldSettings: {
     /**

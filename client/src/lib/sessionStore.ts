@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from 'react'
 import { api } from './api'
-import type { Combatant, SessionFile } from './api'
+import type { Combatant, SessionFile, StateChange } from './api'
 
 /**
  * Combat/session state for the initiative tracker. Module-level store (same
@@ -126,11 +126,27 @@ export function parseCombatState(raw: unknown): CombatState {
 
 // --- Store + persistence glue (renderer-only from here down) ---------------
 
-const SAVE_DEBOUNCE_MS = 800
+/**
+ * The disk is not ours any more.
+ *
+ * This store used to own an 800ms debounce and write `.dm/session.json` itself.
+ * That was safe while the DM window was the only thing editing combat — but the
+ * battlemap's damage keys write combatants from a window of their own, and a
+ * module store is one copy per renderer PROCESS. Two processes each flushing a
+ * whole file lose the fight in progress, which is a worse thing to lose than a
+ * token position. So the authority is in the main process now (see
+ * electron/main/stateAuthority.ts), and this relays.
+ *
+ * Whole-state rather than per-combatant patches, unlike maps: `activeId` and
+ * `round` live beside the array, so "next turn" is not expressible as a change
+ * to one row. Main still serialises it, still bumps a rev, and still fans it
+ * out, so the cross-window guarantee is the same one.
+ */
 
 let state: CombatState = emptyCombat()
 let currentWorldId: string | null = null
-let saveTimer: ReturnType<typeof setTimeout> | null = null
+/** Main's revision, as last seen here. */
+let rev = 0
 const listeners = new Set<() => void>()
 
 function notify() {
@@ -140,7 +156,16 @@ function notify() {
 function setState(next: CombatState) {
   state = next
   notify()
-  scheduleSave()
+  if (currentWorldId) {
+    void api.session
+      .set(currentWorldId, next)
+      .then((r) => {
+        rev = Math.max(rev, r.rev)
+      })
+      .catch(() => {
+        // Best effort, as the old save was: combat keeps working in memory.
+      })
+  }
   // Mirror initiative to any LAN guests so the table sees turn order and whose
   // turn it is. No-ops when not hosting, and never persisted by the guest —
   // the file on the DM's disk stays the only copy.
@@ -149,41 +174,56 @@ function setState(next: CombatState) {
   }
 }
 
-function scheduleSave() {
-  if (!currentWorldId) return
-  if (saveTimer) clearTimeout(saveTimer)
-  saveTimer = setTimeout(() => {
-    saveTimer = null
-    void flushSave()
-  }, SAVE_DEBOUNCE_MS)
+/**
+ * A change from another window — the map window damaging a combatant, usually.
+ *
+ * Never re-sent and never saved; there is no save here to call. The rev check
+ * is what tells an echo from a real update, and a gap means a message was
+ * missed and the state has to be re-read rather than trusted.
+ */
+function applyRemote(change: StateChange) {
+  if (change.worldId !== currentWorldId) return
+  if (change.error) return
+  if (change.rev <= rev) return
+  if (change.rev > rev + 1) {
+    void hydrateSession(currentWorldId, { force: true })
+    return
+  }
+  rev = change.rev
+  if (change.replace === undefined) return
+  state = parseCombatState(change.replace)
+  notify()
 }
 
 /** Write any pending changes now (world switch, window close). Best effort. */
 export async function flushSave(): Promise<void> {
-  if (saveTimer) {
-    clearTimeout(saveTimer)
-    saveTimer = null
-  }
   if (!currentWorldId) return
   try {
-    await api.session.set(currentWorldId, state)
+    await api.session.flush(currentWorldId)
   } catch {
-    // Persistence is best-effort; combat keeps working in memory.
+    // Persistence is best-effort; main still holds the state and its own timer.
   }
 }
 
 /** Load the world's saved session. Safe to call repeatedly (same world = no-op). */
-export async function hydrateSession(worldId: string): Promise<void> {
-  if (currentWorldId === worldId) return
-  await flushSave() // for the previous world
-  currentWorldId = worldId
-  state = emptyCombat()
-  notify()
+export async function hydrateSession(
+  worldId: string,
+  options: { force?: boolean } = {},
+): Promise<void> {
+  if (currentWorldId === worldId && !options.force) return
+  if (currentWorldId !== worldId) {
+    await flushSave() // for the previous world
+    currentWorldId = worldId
+    state = emptyCombat()
+    rev = 0
+    notify()
+  }
   try {
-    const raw = await api.session.get(worldId)
+    const snapshot = await api.session.get(worldId)
     // A world switch may have raced ahead of this load.
-    if (currentWorldId !== worldId || raw === null) return
-    state = parseCombatState(raw)
+    if (currentWorldId !== worldId || !snapshot) return
+    state = parseCombatState(snapshot.file)
+    rev = snapshot.rev
     notify()
   } catch {
     // Missing/corrupt file: keep the empty state.
@@ -238,4 +278,8 @@ export const combatActions = {
 
 if (typeof window !== 'undefined') {
   window.addEventListener('beforeunload', () => void flushSave())
+  // Changes from other windows (the battlemap damaging a combatant). Guarded
+  // on the bridge like the LAN mirror above: this module is imported by tests
+  // and by the guest build, neither of which has a preload.
+  if (window.dmApi) api.session.onChanged(applyRemote)
 }

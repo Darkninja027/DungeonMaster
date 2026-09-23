@@ -19,8 +19,16 @@ const VIEW = { width: 1000, height: 700 }
 vi.mock('#/lib/api', () => ({
   api: {
     maps: {
-      get: vi.fn().mockResolvedValue(null),
-      set: vi.fn().mockResolvedValue(undefined),
+      get: vi.fn().mockResolvedValue({ file: null, rev: 0 }),
+      apply: vi.fn().mockResolvedValue({ rev: 1 }),
+      flush: vi.fn().mockResolvedValue(undefined),
+      onChanged: vi.fn().mockReturnValue(() => {}),
+    },
+    mapView: {
+      show: vi.fn().mockResolvedValue(undefined),
+      close: vi.fn().mockResolvedValue(undefined),
+      push: vi.fn().mockResolvedValue(undefined),
+      onLive: vi.fn().mockReturnValue(() => {}),
     },
     images: { tree: vi.fn().mockResolvedValue({ folders: [], images: [] }) },
     worlds: {
@@ -29,8 +37,11 @@ vi.mock('#/lib/api', () => ({
     },
     characters: { list: vi.fn().mockResolvedValue([]) },
     session: {
-      get: vi.fn().mockResolvedValue(null),
-      set: vi.fn().mockResolvedValue(undefined),
+      get: vi.fn().mockResolvedValue({ file: null, rev: 0 }),
+      set: vi.fn().mockResolvedValue({ rev: 1 }),
+      apply: vi.fn().mockResolvedValue({ rev: 1 }),
+      flush: vi.fn().mockResolvedValue(undefined),
+      onChanged: vi.fn().mockReturnValue(() => {}),
     },
     table: { combat: vi.fn().mockResolvedValue(undefined) },
     articles: { get: vi.fn().mockResolvedValue({ content: '' }) },
