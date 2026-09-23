@@ -492,6 +492,16 @@ export const api = {
       invoke<void>('worlds:update', { worldId, ...input }),
     /** Removes the world from the recents list only — the folder stays on disk. */
     remove: (worldId: string) => invoke<void>('worlds:remove', { worldId }),
+    /**
+     * Rewrite this world's Guide.md with the version shipped in this build,
+     * and resolve with its article id.
+     *
+     * Only ever user-invoked: the guide is written once at world creation and
+     * never touched again, so a world made before a feature existed has no
+     * way to learn about it. Overwrites — the caller asks first.
+     */
+    refreshGuide: (worldId: string) =>
+      invoke<string>('worlds:refreshGuide', { worldId }),
     /** Start watching the world folder for external changes. */
     watch: (worldId: string) => invoke<void>('worlds:watch', { worldId }),
     unwatch: (worldId: string) => invoke<void>('worlds:unwatch', { worldId }),

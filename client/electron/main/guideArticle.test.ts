@@ -15,12 +15,12 @@ describe('guideArticle', () => {
   it('keeps its page and column markers intact through escaping', () => {
     // The generator escapes backslashes for the template literal; a bug there
     // would silently turn every \page into a literal "page" and collapse the
-    // whole guide onto one sheet. 19 markers => 20 book pages.
+    // whole guide onto one sheet. 20 markers => 21 book pages.
     const markers = GUIDE_CONTENT.match(/^\\page$/gm) ?? []
-    expect(markers).toHaveLength(19)
+    expect(markers).toHaveLength(20)
     // Every page is single-column, plus two mentions in the chapter prose.
     const columns = GUIDE_CONTENT.match(/^\\columns 1$/gm) ?? []
-    expect(columns).toHaveLength(20)
+    expect(columns).toHaveLength(21)
     // A lost backslash leaves the marker as ordinary text on the page.
     expect(GUIDE_CONTENT).not.toMatch(/^columns 1$/m)
     expect(GUIDE_CONTENT).not.toMatch(/^page$/m)
@@ -28,6 +28,22 @@ describe('guideArticle', () => {
 
   it('starts with frontmatter so the title and tags are read', () => {
     expect(GUIDE_CONTENT.startsWith('---\ntype: session')).toBe(true)
+  })
+
+  it('documents the battlemap, including the secrecy rule', () => {
+    // The guide is the only place the app explains itself, and a feature it
+    // does not mention may as well not ship. The hidden-token rule in
+    // particular is a promise about what the players can see, so it has to be
+    // stated somewhere a person will actually read.
+    expect(GUIDE_CONTENT).toContain('# DM Tools: Battlemaps')
+    expect(GUIDE_CONTENT).toMatch(/hidden token/i)
+    expect(GUIDE_CONTENT).toMatch(/removed from what they are sent/i)
+  })
+
+  it('counts the session rail tabs correctly', () => {
+    // This sentence went stale when the maps tab landed and said seven for a
+    // release. A wrong number is worse than no number.
+    expect(GUIDE_CONTENT).toContain('opens eight tools')
   })
 
   it('names a markdown file', () => {

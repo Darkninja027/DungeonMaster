@@ -67,6 +67,7 @@ import {
 import type { StateChannel } from './stateAuthority'
 import type { StatePatch } from './statePatch'
 import {
+  closeAllMapWindows,
   closeMapWindow,
   isMapId,
   pushToMapWindow,
@@ -289,6 +290,30 @@ export function registerIpcHandlers() {
     migrateWorld(root)
     return worldSummary(root)
   })
+
+  /**
+   * Rewrite this world's Guide.md with the version shipped in this build.
+   *
+   * User-invoked, and that is the whole design. `scaffoldGuide` writes the
+   * guide once at world creation and never again, deliberately: adopting
+   * somebody's Obsidian vault must not scatter files into it, and deleting the
+   * guide has to stick. Both rules make an automatic update impossible — a
+   * deleted guide and a guide that was never written look identical on disk,
+   * so "top up the ones that are stale" cannot tell them apart.
+   *
+   * So the DM asks. Same shape as `restoreBundledFolder`, which is the
+   * library's equivalent repair action and is likewise not version-gated.
+   * Overwrites whatever is there, which is why the caller confirms first.
+   */
+  ipcMain.handle(
+    'worlds:refreshGuide',
+    (_e, { worldId }: { worldId: string }) => {
+      const abs = resolveInWorld(worldRoot(worldId), GUIDE_FILENAME)
+      noteSelfWrite(abs)
+      atomicWrite(abs, GUIDE_CONTENT)
+      return GUIDE_FILENAME.replace(/\.md$/, '')
+    },
+  )
 
   ipcMain.handle(
     'worlds:update',
@@ -936,7 +961,13 @@ export function registerIpcHandlers() {
       ),
   )
 
-  ipcMain.handle('player:closeAll', () => closeAllPlayerWindows())
+  // Every secondary window, map windows included — this is the only global
+  // handle on them, and one that has drifted onto a disconnected monitor
+  // cannot be closed any other way.
+  ipcMain.handle(
+    'player:closeAll',
+    () => closeAllPlayerWindows() + closeAllMapWindows(),
+  )
 
   // Content relay only — touches no disk. The file watcher cannot do this:
   // app writes go through noteSelfWrite and are dropped by watcher.ts, so a

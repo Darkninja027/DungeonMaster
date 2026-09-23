@@ -7,6 +7,7 @@ const CHANNELS = new Set([
   'worlds:get',
   'worlds:update',
   'worlds:remove',
+  'worlds:refreshGuide',
   'worlds:tree',
   'worlds:search',
   'worlds:searchRanked',

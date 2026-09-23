@@ -687,7 +687,7 @@ Adding a spell whose article does not exist creates one in \`Spells/\` for you.
 
 # DM Tools: The Session Panel
 
-The narrow rail on the right edge of the window opens seven tools. Each shows a
+The narrow rail on the right edge of the window opens eight tools. Each shows a
 dot when it has something in it, and the panel remembers what you had open.
 
 ## Initiative
@@ -729,6 +729,11 @@ Both have a box at the bottom to create a new one by name. The bestiary flags an
 monster missing its \`type: monster\` frontmatter with an amber warning, because the
 encounter builder cannot see those.
 
+## Battlemaps
+
+The **maps** tab lists this world's battlemaps and opens one in a window of its
+own. It has a chapter to itself, next.
+
 ## Session Log
 
 The **sessions** tab is a campaign log assembled from articles you already
@@ -745,6 +750,89 @@ Nothing is ever hidden for having an odd date.
 The log is read-only. A session is an ordinary markdown article, so you write
 and edit one in the editor like anything else — the **Session Notes** template
 gives you the frontmatter to start from.
+
+\\page
+
+\\columns 1
+
+# DM Tools: Battlemaps
+
+The **maps** tab is a list of this world's battlemaps. A map is a background
+image from your world's images, a grid laid over it, and tokens you move
+around. Click one and it opens **in its own window**, so the map can live on
+one screen while your notes stay on another.
+
+## Making one
+
+**New map** creates an empty 20 x 20 grid. Give it a name, then **Background**
+to pick any image from this world's \`_images\` folder.
+
+## The grid is the map
+
+This is the part worth understanding, because it is the opposite of what most
+map tools do. **The column and row counts are the map.** Type 15 columns and 30
+rows and you get a tall grid of 15 by 30 square cells — the background image is
+painted behind it and does not get a vote. If the art is a different shape it
+is cropped until the counts match it.
+
+Cells are always square. There is one cell size, no rectangular cells and no
+grid offset.
+
+**Fit to image** guesses the counts from the picture, assuming the 70 pixels a
+cell that most map exports use. It is a starting point, not an answer — if your
+art uses a different scale, just type the real numbers.
+
+## Tools
+
+One tool is active at a time. Each has a single-key shortcut, with no modifier,
+because the map window owns the keyboard.
+
+| Key | Tool | What it does |
+|---|---|---|
+| \`V\` | Select | Drag tokens around. Drag the map itself to pan; wheel to zoom. |
+| \`P\` | Place | Click a square to drop a token there — blank, or linked to someone in the fight. |
+| \`R\` | Reveal | Paint fog away. |
+| \`H\` | Hide | Paint fog back. |
+| \`M\` | Measure | Drag to measure, or lay down a spell template. |
+| \`B\` | Creatures | Open the drawer: bestiary, party, and what is already on this map. |
+
+Distance is counted the way 5e counts it: a diagonal is five feet, so three
+diagonal steps reads 15 ft rather than 21.
+
+## Tokens
+
+Place a token and select it to give it a label, a size, a colour, or to link it
+to a row in the initiative tracker. A linked token shows an HP bar, knows whose
+turn it is, and can be damaged or healed from the map itself — the \`[\` and \`]\`
+keys, or the plus and minus buttons in the bar at the bottom. \`S\` opens its
+stat block in its own window.
+
+**Hidden** is the one to know about. A hidden token is not dimmed on the
+players' screen — it is **removed from what they are sent entirely**. The
+ambush waiting around the corner is not in their window at all.
+
+Taking someone out of the initiative tracker leaves their token where it is,
+unlinked. The body may well still be lying there.
+
+## Fog of war
+
+Tick **Fog** and the whole map is covered. Paint with \`R\` to reveal as the
+party explores, and \`H\` to put it back. You always see through your own fog;
+the players do not.
+
+## Showing the map to your players
+
+**Show** opens a second, chrome-free window with no toolbar and nothing to
+click — put that one on the TV or the second monitor. It follows your edits
+live: move a token and it moves there too.
+
+What it does *not* get is anything you have hidden. Hidden tokens are stripped
+out before the map is sent, so there is nothing on that screen for a curious
+player to find.
+
+Press **Show** again to take it down. The window closes rather than freezing,
+because a map that has stopped updating still shows token positions that have
+since moved, which is worse than no map at all.
 
 \\page
 
@@ -939,6 +1027,23 @@ to hand-edit.
 
 Undo and redo work normally throughout — the formatting shortcuts do not break
 your undo history.
+
+## In a battlemap window
+
+The map window owns its keyboard, so these need no modifier. They do nothing
+while you are typing in a box.
+
+| Key | Does |
+|---|---|
+| \`V\` | Select and move tokens |
+| \`P\` | Place a token |
+| \`R\` / \`H\` | Reveal / hide fog |
+| \`M\` | Measure, or aim a spell template |
+| \`B\` | Creature drawer |
+| \`S\` | Stat block for the selected token |
+| \`[\` / \`]\` | Damage / heal the selected token by 1 |
+| \`Del\` | Remove the selected token |
+| \`Esc\` | Close the map |
 
 ## Typing gestures
 
