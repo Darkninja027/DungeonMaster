@@ -405,6 +405,16 @@ export function MapCanvas({
         className="pointer-events-none absolute inset-0 h-full w-full"
         // A map with no box yet would render a degenerate viewBox.
         viewBox={view.width ? `0 0 ${view.width} ${view.height}` : undefined}
+        // WITHOUT this the default is "xMidYMid meet", which rescales and
+        // recentres everything in the SVG to fit the element whenever the
+        // viewBox and the element disagree. They disagree on every resize,
+        // because `view` comes from a ResizeObserver and therefore lags by a
+        // frame: the grid, tokens and fog would jump to a scale the camera
+        // knows nothing about while the background <img>, positioned by CSS,
+        // stayed put. `none` makes the viewBox a plain coordinate declaration
+        // — which is all it was ever meant to be, since every point inside is
+        // already in screen pixels from `mapToScreen`.
+        preserveAspectRatio="none"
       >
         <GridLines map={map} cam={cam} view={view} cols={cols} rows={rows} />
         <FogLayer

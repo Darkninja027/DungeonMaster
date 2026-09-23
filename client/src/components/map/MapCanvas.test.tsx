@@ -126,6 +126,41 @@ describe('MapCanvas', () => {
     expect(container.querySelectorAll('rect')).toHaveLength(99)
   })
 
+  describe('the overlay and the background stay in register', () => {
+    it('never lets the SVG rescale its own contents', () => {
+      // An SVG with a viewBox and no preserveAspectRatio defaults to
+      // "xMidYMid meet": it scales and recentres everything inside to fit the
+      // element. `view` comes from a ResizeObserver, so it lags a resize by a
+      // frame — which meant the grid, tokens and fog briefly drew at a
+      // different scale from the background <img>, which CSS positions and
+      // which does not lag. That reads as the map distorting when you resize
+      // the window.
+      const { container } = render(<MapCanvas worldId="abc" map={map()} />)
+      const svg = container.querySelector('svg')
+      expect(svg?.getAttribute('viewBox')).toBeTruthy()
+      expect(svg?.getAttribute('preserveAspectRatio')).toBe('none')
+    })
+
+    it('keeps the grid square when the element is not', () => {
+      // Every point in the overlay is already screen pixels from mapToScreen,
+      // so a square grid must stay square in a wide window. Under "meet" a
+      // stale viewBox would squash it.
+      const { container } = render(<MapCanvas worldId="abc" map={map()} />)
+      const vs = [...container.querySelectorAll('line')].filter(
+        (l) => l.getAttribute('x1') === l.getAttribute('x2'),
+      )
+      const hs = [...container.querySelectorAll('line')].filter(
+        (l) => l.getAttribute('y1') === l.getAttribute('y2'),
+      )
+      const w =
+        Number(vs.at(-1)!.getAttribute('x1')) - Number(vs[0].getAttribute('x1'))
+      const h =
+        Number(hs.at(-1)!.getAttribute('y1')) - Number(hs[0].getAttribute('y1'))
+      // A 20x20 grid of square cells: the drawn box is square too.
+      expect(Math.abs(w - h)).toBeLessThan(1)
+    })
+  })
+
   describe('the background fit', () => {
     it('shows the whole image by default, and crops only when told to', () => {
       const withArt = () => ({ ...map(), image: 'Maps/cave.png' })
