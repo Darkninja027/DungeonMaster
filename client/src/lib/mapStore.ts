@@ -278,11 +278,6 @@ function parseGrid(raw: unknown): GridSpec {
   }
 }
 
-/** The grid as written to disk. One number, because cells are square. */
-export function serializeGrid(grid: GridSpec): Record<string, number> {
-  return { cols: grid.cols, rows: grid.rows, size: grid.size }
-}
-
 function finite(value: unknown, fallback: number): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : fallback
 }

@@ -299,6 +299,32 @@ describe('the token inspector', () => {
   })
 })
 
+describe('showing the map to the players', () => {
+  it('opens a table window and arms the live push', async () => {
+    const { api } = await import('#/lib/api')
+    renderEditor()
+
+    fireEvent.click(screen.getByRole('button', { name: /^Show$/ }))
+
+    expect(api.mapView.show).toHaveBeenCalledWith('w1', MAP_ID, 'table')
+    // Armed only after the window exists, so its first frame is current.
+    await waitFor(() => expect(api.mapView.push).toHaveBeenCalled())
+  })
+
+  it('closes the table window when switched off, rather than freezing it', async () => {
+    const { api } = await import('#/lib/api')
+    renderEditor()
+
+    fireEvent.click(screen.getByRole('button', { name: /^Show$/ }))
+    const off = await screen.findByRole('button', { name: /Showing/ })
+    fireEvent.click(off)
+
+    // A view left open but no longer updating still shows token positions that
+    // have since moved, which is worse than no view at all.
+    expect(api.mapView.close).toHaveBeenCalledWith('w1', MAP_ID, 'table')
+  })
+})
+
 describe('closing and the keyboard', () => {
   it('calls onClose on Escape', () => {
     const { onClose } = renderEditor()
