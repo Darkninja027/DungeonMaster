@@ -150,10 +150,40 @@ describe('the toolbar', () => {
     expect(screen.queryByLabelText('Template')).toBeNull()
   })
 
-  it('asks what to place before placing, rather than spawning at 0,0', async () => {
+  it('places a blank token at the clicked cell, not at 0,0', () => {
     renderEditor()
     fireEvent.click(screen.getByTitle(/Click the map to place a token/i))
-    await waitFor(() => expect(screen.getByLabelText('Place as')).toBeTruthy())
+
+    // The canvas host, and its pointer-capture stubs — the same approach
+    // MapCanvas.test uses, because jsdom implements neither.
+    const host = document.querySelector<HTMLElement>(
+      '.relative.overflow-hidden',
+    )
+    expect(host).not.toBeNull()
+    host!.setPointerCapture = () => {}
+    host!.releasePointerCapture = () => {}
+
+    const before = currentMap()?.tokens.length ?? 0
+    fireEvent.pointerDown(host!, { clientX: 400, clientY: 300, button: 0 })
+
+    const tokens = currentMap()?.tokens ?? []
+    expect(tokens).toHaveLength(before + 1)
+    const placed = tokens.at(-1)!
+    // The whole complaint about the old Add button was that everything landed
+    // in the corner and had to be dragged out.
+    expect(placed.x === 0 && placed.y === 0).toBe(false)
+    expect(placed.label).toBe('')
+    expect(placed.combatantId).toBeUndefined()
+  })
+
+  it('offers no second creature picker beside the place tool', () => {
+    // There was a "place as" dropdown here. The creature drawer (B) does the
+    // same job and does it better — searchable, shows who is already on the
+    // map, and rolls a new creature into initiative as it places it — so a
+    // worse copy in the toolbar was only somewhere for the answer to be wrong.
+    renderEditor()
+    fireEvent.click(screen.getByTitle(/Click the map to place a token/i))
+    expect(screen.queryByLabelText('Place as')).toBeNull()
   })
 
   it('offers a size in feet only once a template is chosen', () => {

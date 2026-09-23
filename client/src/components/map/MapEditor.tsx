@@ -23,7 +23,6 @@ import {
   placeCombatant,
   tokenArticle,
   sizeFromSubtitle,
-  tokenForCombatant,
   unlinkToken,
 } from '#/lib/mapTokens'
 import {
@@ -78,8 +77,6 @@ export function MapEditor({
   /** null measures a plain distance; a kind lays that spell template down. */
   const [template, setTemplate] = useState<TemplateKind | null>(null)
   const [templateFeet, setTemplateFeet] = useState(20)
-  /** A combatant queued for the next placement, or null for a blank token. */
-  const [placeLinked, setPlaceLinked] = useState<string | null>(null)
   const [drawer, setDrawer] = useState(false)
   /** Whether a table window is up for this map. */
   const [showing, setShowing] = useState(false)
@@ -279,26 +276,22 @@ export function MapEditor({
   }
 
   /**
-   * Drop a token where the DM clicked.
+   * Drop a blank token where the DM clicked.
    *
-   * If a combatant is queued up in the picker it is placed already linked and
-   * named; otherwise it is a blank token. Either way it lands **where you
-   * clicked** rather than at 0,0, which was the whole complaint about the old
-   * Add button.
+   * It lands **where you clicked** rather than at 0,0, which was the whole
+   * complaint about the old Add button.
+   *
+   * Deliberately blank, always. There was once a "place as" dropdown here for
+   * choosing a combatant to link on the way down, and it earned its keep for
+   * about as long as it took the creature drawer (`B`) to exist: the drawer
+   * searches hundreds of monsters, shows who is already on the map, and rolls
+   * a new creature into initiative as it places it. A second, worse picker
+   * sitting in the toolbar was just somewhere for the answer to be wrong.
    */
   function placeAt(cell: Point) {
     const { cols, rows } = gridExtent(map)
-    const combatant = combat.combatants.find((c) => c.id === placeLinked)
     edit((m) => {
       const at = freeCell(m, cell, cols, rows)
-      if (combatant) {
-        return addToken(
-          m,
-          tokenForCombatant(combatant, at, {
-            ally: !!combatant.articleId?.startsWith('Characters/'),
-          }),
-        )
-      }
       return addToken(m, {
         id: newTokenId(),
         label: '',
@@ -308,9 +301,6 @@ export function MapEditor({
         colour: FOE_COLOUR,
       })
     })
-    // One click, one token: a queued combatant is consumed so the next click
-    // does not silently place a duplicate of the same creature.
-    if (combatant) setPlaceLinked(null)
   }
 
   /**
@@ -459,9 +449,6 @@ export function MapEditor({
         onTemplate={setTemplate}
         templateFeet={templateFeet}
         onTemplateFeet={setTemplateFeet}
-        placeLinked={placeLinked}
-        onPlaceLinked={setPlaceLinked}
-        combatants={combat.combatants}
         drawer={drawer}
         onDrawer={() => setDrawer((v) => !v)}
         showing={showing}

@@ -15,7 +15,6 @@ import { Button } from '#/components/ui/button'
 import { Input } from '#/components/ui/input'
 import { ToggleGroup, ToggleGroupItem } from '#/components/ui/toggle-group'
 import type { BattleMap } from '#/lib/mapStore'
-import type { Combatant } from '#/lib/api'
 import type { MapTool } from './MapCanvas'
 import type { TemplateKind } from '#/lib/mapMeasure'
 
@@ -39,9 +38,6 @@ export function MapToolbar({
   onTemplate,
   templateFeet,
   onTemplateFeet,
-  placeLinked,
-  onPlaceLinked,
-  combatants,
   drawer,
   onDrawer,
   showing,
@@ -59,9 +55,6 @@ export function MapToolbar({
   onTemplate: (kind: TemplateKind | null) => void
   templateFeet: number
   onTemplateFeet: (feet: number) => void
-  placeLinked: string | null
-  onPlaceLinked: (id: string | null) => void
-  combatants: Array<Combatant>
   drawer: boolean
   onDrawer: () => void
   showing: boolean
@@ -148,23 +141,6 @@ export function MapToolbar({
             />
           ) : null}
         </>
-      ) : null}
-
-      {tool === 'place' ? (
-        <select
-          value={placeLinked ?? ''}
-          onChange={(e) => onPlaceLinked(e.target.value || null)}
-          className="bg-background h-8 rounded border px-2 text-sm"
-          aria-label="Place as"
-          title="Place a blank token, or one linked to a combatant"
-        >
-          <option value="">Blank token</option>
-          {combatants.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name}
-            </option>
-          ))}
-        </select>
       ) : null}
 
       <span className="bg-border mx-1 h-5 w-px" />

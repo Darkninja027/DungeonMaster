@@ -779,7 +779,7 @@ because the map window owns the keyboard.
 | Key | Tool | What it does |
 |---|---|---|
 | `V` | Select | Drag tokens around. Drag the map itself to pan; wheel to zoom. |
-| `P` | Place | Click a square to drop a token there — blank, or linked to someone in the fight. |
+| `P` | Place | Click a square to drop a blank token there. Link it to a creature from the drawer. |
 | `R` | Reveal | Paint fog away. |
 | `H` | Hide | Paint fog back. |
 | `M` | Measure | Drag to measure, or lay down a spell template. |
