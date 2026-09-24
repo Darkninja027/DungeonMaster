@@ -127,6 +127,23 @@ describe('MapCanvas', () => {
   })
 
   describe('the overlay and the background stay in register', () => {
+    it('lifts the global image caps off the background', () => {
+      // Tailwind Preflight sets `img { max-width: 100% }` for every image in
+      // the app, which BEATS an inline width and clamped this one to the
+      // window while its height stayed at the grid's — so the map was
+      // squashed horizontally by a different amount at every window size.
+      //
+      // Asserted on the style rather than on measurements because jsdom
+      // applies no stylesheets: every geometry test here passed throughout,
+      // reporting a square box while Chromium drew 281x625.
+      const { container } = render(
+        <MapCanvas worldId="abc" map={{ ...map(), image: 'Maps/cave.png' }} />,
+      )
+      const img = container.querySelector('img')
+      expect(img?.style.maxWidth).toBe('none')
+      expect(img?.style.maxHeight).toBe('none')
+    })
+
     it('never lets the SVG rescale its own contents', () => {
       // An SVG with a viewBox and no preserveAspectRatio defaults to
       // "xMidYMid meet": it scales and recentres everything inside to fit the

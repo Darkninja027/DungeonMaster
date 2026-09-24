@@ -396,6 +396,14 @@ export function MapCanvas({
             top: '50%',
             width: gridBox.width,
             height: gridBox.height,
+            // Tailwind Preflight sets `img { max-width: 100% }` globally, which
+            // beats the inline width above and clamps this to the WINDOW while
+            // the height stays at the grid's. The map was squashed
+            // horizontally by a different amount at every window size — which
+            // is what "it distorts when I resize" was. The grid's box is the
+            // whole point of this element, so both caps come off.
+            maxWidth: 'none',
+            maxHeight: 'none',
             transform: `translate(-50%, -50%) translate(${cam.panX}px, ${cam.panY}px) scale(${cam.scale})`,
           }}
         />
