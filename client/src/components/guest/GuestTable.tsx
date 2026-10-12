@@ -4,9 +4,11 @@ import { useQuery } from '@tanstack/react-query'
 import {
   Dices,
   LogOut,
+  Map as MapIcon,
   Maximize2,
   MonitorPlay,
   Sparkles,
+  Swords,
   UserRound,
   Users,
   WifiOff,
@@ -28,6 +30,8 @@ import { BookView } from '#/components/Markdown'
 import { PanelRail } from '#/components/PanelRail'
 import type { PanelRailTab } from '#/components/PanelRail'
 import { GuestSheet } from '#/components/guest/GuestSheet'
+import { GuestBattlemap } from '#/components/guest/GuestBattlemap'
+import { TableInitiative } from '#/components/map/MapTableRail'
 import { RollHistory } from '#/components/RollHistory'
 import { SpellReference } from '#/components/character/SpellReference'
 import { Button } from '#/components/ui/button'
@@ -53,27 +57,30 @@ import { ScrollArea } from '#/components/ui/scroll-area'
  * that through is still outstanding.
  */
 
-type GuestTab = 'dm' | 'rolls' | 'spells'
+type GuestTab = 'dm' | 'initiative' | 'rolls' | 'spells'
 
 const TAB_ICON: Record<GuestTab, LucideIcon> = {
   dm: MonitorPlay,
+  initiative: Swords,
   rolls: Dices,
   spells: Sparkles,
 }
 
 const TAB_TITLE: Record<GuestTab, string> = {
   dm: 'From the DM',
+  initiative: 'Initiative',
   rolls: 'Roll history',
   spells: 'Spells',
 }
 
 const TAB_HINT: Record<GuestTab, string> = {
   dm: 'What the DM is showing',
+  initiative: 'Turn order',
   rolls: 'Roll history',
   spells: 'Spell reference',
 }
 
-const TABS: Array<GuestTab> = ['dm', 'rolls', 'spells']
+const TABS: Array<GuestTab> = ['dm', 'initiative', 'rolls', 'spells']
 
 export function GuestTable() {
   const guest = useGuest()
@@ -81,6 +88,15 @@ export function GuestTable() {
   const [tab, setTab] = useState<GuestTab>('dm')
   const [open, setOpen] = useState(true)
   const [expanded, setExpanded] = useState(false)
+  /** The main pane: your sheet, or the board when the DM shares one. */
+  const [pane, setPane] = useState<'sheet' | 'map'>('sheet')
+
+  // The DM putting a map up is the table moving to the board, so follow it —
+  // once per map, so a player who flips back to their sheet stays there.
+  const sharedMapId = guest.map?.mapId ?? null
+  useEffect(() => {
+    setPane(sharedMapId ? 'map' : 'sheet')
+  }, [sharedMapId])
 
   // Clicking a spell on the sheet opens it in the reference, exactly as it
   // does outside a table. The request is a module store (lib/spellPanel.ts),
@@ -105,7 +121,14 @@ export function GuestTable() {
     icon: TAB_ICON[entry],
     title: TAB_TITLE[entry],
     hint: TAB_HINT[entry],
-    count: entry === 'rolls' ? rolls.length : guest.shown ? 1 : 0,
+    count:
+      entry === 'rolls'
+        ? rolls.length
+        : entry === 'initiative'
+          ? (guest.map?.session.combatants.length ?? 0)
+          : entry === 'dm' && guest.shown
+            ? 1
+            : 0,
   }))
 
   const toggle = (next: GuestTab) => {
@@ -118,8 +141,30 @@ export function GuestTable() {
 
   return (
     <div className="flex h-full">
-      <div className="min-w-0 flex-1 overflow-hidden">
-        <GuestSheet />
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        {guest.map ? (
+          <div className="flex shrink-0 items-center gap-1 border-b px-2 py-1">
+            <Button
+              variant={pane === 'sheet' ? 'secondary' : 'ghost'}
+              size="sm"
+              className="h-7 text-xs"
+              onClick={() => setPane('sheet')}
+            >
+              <UserRound className="size-3.5" /> Sheet
+            </Button>
+            <Button
+              variant={pane === 'map' ? 'secondary' : 'ghost'}
+              size="sm"
+              className="h-7 text-xs"
+              onClick={() => setPane('map')}
+            >
+              <MapIcon className="size-3.5" /> {guest.map.map.name}
+            </Button>
+          </div>
+        ) : null}
+        <div className="min-h-0 flex-1 overflow-hidden">
+          {guest.map && pane === 'map' ? <GuestBattlemap /> : <GuestSheet />}
+        </div>
       </div>
 
       <PanelRail
@@ -157,6 +202,14 @@ export function GuestTable() {
           <div className="min-h-0 flex-1">
             {tab === 'dm' ? (
               <DmPane onExpand={() => setExpanded(true)} />
+            ) : tab === 'initiative' ? (
+              guest.map ? (
+                <TableInitiative session={guest.map.session} />
+              ) : (
+                <p className="text-muted-foreground p-4 text-sm">
+                  Turn order shows here when the DM shares a battlemap.
+                </p>
+              )
             ) : tab === 'rolls' ? (
               <RollHistory />
             ) : (

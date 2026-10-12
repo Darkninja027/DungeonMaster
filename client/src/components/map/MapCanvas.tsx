@@ -124,6 +124,9 @@ export function MapCanvas({
   onScale,
   overlay,
   className,
+  imageUrl,
+  canDragToken,
+  onDropToken,
 }: {
   worldId: string
   map: BattleMap
@@ -169,6 +172,20 @@ export function MapCanvas({
   /** Called when the zoom changes, for a readout. */
   onScale?: (scale: number) => void
   className?: string
+  /**
+   * Resolve an `_images`-relative id to a URL. Defaults to `world://`, which is
+   * this machine's own world folder — a LAN guest has none, and fetches the
+   * same file over the host's /img/ route instead.
+   */
+  imageUrl?: (imageId: string) => string
+  /**
+   * For the player audience only: tokens this viewer may drag anyway. A LAN
+   * player moving their own token; every other gesture stays the DM's. A
+   * token it refuses is not picked up at all, so the drag becomes a pan.
+   */
+  canDragToken?: (token: Token) => boolean
+  /** A drag ended, with the cell it ended on. Where a guest sends the move. */
+  onDropToken?: (id: string, x: number, y: number) => void
 }) {
   const hostRef = useRef<HTMLDivElement | null>(null)
   const [view, setView] = useState<Viewport>({ width: 0, height: 0 })
@@ -180,7 +197,7 @@ export function MapCanvas({
   const pan = useRef<{ x: number; y: number; px: number; py: number } | null>(
     null,
   )
-  const dragToken = useRef<{ id: string } | null>(null)
+  const dragToken = useRef<{ id: string; last: Point | null } | null>(null)
   const paint = useRef<{ last: Point; revealed: boolean } | null>(null)
   // State, not a ref: a measurement exists to be drawn as you drag it.
   const [measuring, setMeasuring] = useState<Measurement | null>(null)
@@ -233,6 +250,8 @@ export function MapCanvas({
   const { cols, rows } = gridExtent(map)
   const gridBox = gridPixelSize(map)
   const interactive = audience === 'dm'
+  const urlFor = (id: string) =>
+    imageUrl ? (id ? imageUrl(id) : '') : mapImageUrl(worldId, id)
 
   // The cells a template covers, and who is standing in them. Computed here so
   // both the overlay and the token ring read the same answer.
@@ -327,10 +346,11 @@ export function MapCanvas({
 
         // Middle button and space-free right-drag are always a pan, so the DM
         // can move the view without switching tools mid-fight.
+        const hit = e.button === 0 ? tokenAt(map, cellAt(e)) : null
         const token =
-          interactive && e.button === 0 ? tokenAt(map, cellAt(e)) : null
+          hit && (interactive || canDragToken?.(hit) === true) ? hit : null
         if (token) {
-          dragToken.current = { id: token.id }
+          dragToken.current = { id: token.id, last: null }
           onSelectToken?.(token.id)
           return
         }
@@ -351,6 +371,7 @@ export function MapCanvas({
         }
         if (dragToken.current) {
           const cell = cellAt(e)
+          dragToken.current.last = cell
           onMoveToken?.(dragToken.current.id, cell.x, cell.y)
           return
         }
@@ -364,6 +385,11 @@ export function MapCanvas({
       }}
       onPointerUp={(e) => {
         pan.current = null
+        // Only a drag that went somewhere is a move: a click on your own token
+        // must not send one.
+        const dropped = dragToken.current
+        if (dropped?.last)
+          onDropToken?.(dropped.id, dropped.last.x, dropped.last.y)
         dragToken.current = null
         paint.current = null
         // The measurement is cleared on release rather than left on the map:
@@ -385,7 +411,7 @@ export function MapCanvas({
       */}
       {map.image ? (
         <img
-          src={mapImageUrl(worldId, map.image)}
+          src={urlFor(map.image)}
           alt=""
           draggable={false}
           className={`pointer-events-none absolute select-none ${
@@ -436,7 +462,7 @@ export function MapCanvas({
         {map.tokens.map((t) => (
           <TokenShape
             key={t.id}
-            worldId={worldId}
+            imageUrl={urlFor}
             token={t}
             map={map}
             cam={cam}
@@ -661,7 +687,7 @@ function MeasureLayer({
 }
 
 function TokenShape({
-  worldId,
+  imageUrl,
   token,
   map,
   cam,
@@ -671,7 +697,7 @@ function TokenShape({
   vitals,
   caught,
 }: {
-  worldId: string
+  imageUrl: (imageId: string) => string
   token: Token
   map: BattleMap
   cam: Camera
@@ -727,7 +753,7 @@ function TokenShape({
             <circle cx={cx} cy={cy} r={r * 0.92} />
           </clipPath>
           <image
-            href={mapImageUrl(worldId, token.image)}
+            href={imageUrl(token.image)}
             x={p.x}
             y={p.y}
             width={size}

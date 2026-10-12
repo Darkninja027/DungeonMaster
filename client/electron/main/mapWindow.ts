@@ -156,6 +156,21 @@ export function closeMapWindowsExcept(worldId: string): Array<string> {
   return closed
 }
 
+/**
+ * Whether this webContents is a players' map window.
+ *
+ * The gate the roll relay uses to keep raw rolls out of it: that window is a
+ * display in front of the players, and gets the session only as the redacted
+ * push `forPlayersSession` builds in the editor.
+ */
+export function isTableView(contents: { id: number }): boolean {
+  for (const [key, win] of windows) {
+    if (!key.startsWith('table::') || win.isDestroyed()) continue
+    if (win.webContents.id === contents.id) return true
+  }
+  return false
+}
+
 /** Whether any window is showing this map to the table. */
 export function isShowingToTable(worldId: string, mapId: string): boolean {
   const win = windows.get(keyOf('table', worldId, mapId))
@@ -172,6 +187,7 @@ export function pushToMapWindow(payload: {
   worldId: string
   mapId: string
   map: unknown
+  session?: unknown
 }): void {
   const win = windows.get(keyOf('table', payload.worldId, payload.mapId))
   if (win && !win.isDestroyed()) win.webContents.send('map:live', payload)

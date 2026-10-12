@@ -81,6 +81,17 @@ export interface Token {
    * blocks follow. See `forPlayers`.
    */
   hidden?: boolean
+  /**
+   * A LAN player the DM has handed this token to, by seat NAME — their
+   * familiar, a summon, a mount, or a PC brought from the player's own vault,
+   * which the host never holds a sheet for and so cannot match automatically.
+   *
+   * A name rather than a seat id because seat ids are minted per join, and a
+   * player who drops and rejoins should keep their wolf. The automatic case (a
+   * token linked to a claimed party character) needs no field at all; see
+   * `tokenControl` in lib/mapSession.ts.
+   */
+  controlledBy?: string
 }
 
 export interface GridSpec {
@@ -331,6 +342,11 @@ function parseTokens(raw: unknown): Array<Token> {
         ? { combatantId: r.combatantId }
         : {}),
       ...(r.hidden === true ? { hidden: true } : {}),
+      // Parsed explicitly like every field here: an unparsed one would survive
+      // a save and vanish on the next load.
+      ...(typeof r.controlledBy === 'string' && r.controlledBy.trim()
+        ? { controlledBy: r.controlledBy.trim().slice(0, 40) }
+        : {}),
     })
   }
   return tokens

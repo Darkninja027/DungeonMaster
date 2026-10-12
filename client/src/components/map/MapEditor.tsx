@@ -13,7 +13,14 @@ import { initiativeBonus, parseCharacter } from '#/lib/character'
 import { rollInitiative } from '#/components/EncounterBuilder'
 import { MapCreaturePanel } from './MapCreaturePanel'
 import type { CreaturePick } from './MapCreaturePanel'
-import { mapActions, setLiveMap } from '#/lib/useMaps'
+import {
+  lanMap,
+  mapActions,
+  setLanMap,
+  setLiveMap,
+  setShareDmRolls,
+} from '#/lib/useMaps'
+import { refreshTable, useTable } from '#/lib/tableStore'
 import {
   ALLY_COLOUR,
   FOE_COLOUR,
@@ -44,6 +51,8 @@ import { MapStatusBar } from './MapStatusBar'
 import { MapTokenCard } from './MapTokenCard'
 import { MapToolbar } from './MapToolbar'
 import { MapCanvas } from './MapCanvas'
+import { MapSessionRail, MAP_SESSION_TABS } from './MapSessionRail'
+import type { MapSessionTab } from './MapSessionRail'
 import type { MapCameraHandle, MapTool } from './MapCanvas'
 import type { TemplateKind } from '#/lib/mapMeasure'
 
@@ -70,7 +79,31 @@ import type { TemplateKind } from '#/lib/mapMeasure'
  * wrong place for one frame, which on a map reads as a flicker beside the
  * token. Kept in step with MapTokenCard's own `w-64`.
  */
-const CARD_SIZE = { width: 256, height: 220 }
+const CARD_SIZE = { width: 256, height: 280 }
+
+const RAIL_KEY = 'dm.mapSessionRail'
+
+/**
+ * The session sidebar's remembered state. Closed by default: the editor opens
+ * on the map, and the rail's icons say what is behind them. Share-rolls starts
+ * off, because a DM rolls behind the screen unless they say otherwise.
+ */
+function loadRail(): { open: boolean; tab: MapSessionTab; share: boolean } {
+  try {
+    const raw = JSON.parse(localStorage.getItem(RAIL_KEY) ?? '') as {
+      open?: unknown
+      tab?: unknown
+      share?: unknown
+    }
+    return {
+      open: raw.open === true,
+      tab: MAP_SESSION_TABS.find((t) => t === raw.tab) ?? 'initiative',
+      share: raw.share === true,
+    }
+  } catch {
+    return { open: false, tab: 'initiative', share: false }
+  }
+}
 
 export function MapEditor({
   worldId,
@@ -89,8 +122,13 @@ export function MapEditor({
   const [template, setTemplate] = useState<TemplateKind | null>(null)
   const [templateFeet, setTemplateFeet] = useState(20)
   const [drawer, setDrawer] = useState(false)
+  const [rail, setRail] = useState(loadRail)
   /** Whether a table window is up for this map. */
   const [showing, setShowing] = useState(false)
+  /** Whether this map is on the LAN guests' screens. */
+  const [sharing, setSharing] = useState(false)
+  const table = useTable()
+  const hosting = table.hosting
   /** The canvas's zoom, for the status readout. */
   const [scale, setScale] = useState(1)
   const camera = useRef<MapCameraHandle>(null)
@@ -114,10 +152,57 @@ export function MapEditor({
   }, [map.id, derived.cols, derived.rows])
 
   useEffect(() => {
+    try {
+      localStorage.setItem(RAIL_KEY, JSON.stringify(rail))
+    } catch {
+      // A remembered sidebar is a convenience; losing it is fine.
+    }
+    setShareDmRolls(rail.share)
+  }, [rail])
+
+  /** Open a sidebar tab, or close the sidebar if that tab is already showing. */
+  const toggleRail = (tab: MapSessionTab) =>
+    setRail((prev) =>
+      prev.open && prev.tab === tab
+        ? { ...prev, open: false }
+        : { ...prev, open: true, tab },
+    )
+
+  useEffect(() => {
     // A no-op for the world already loaded, so this is safe beside the
     // initiative tracker's own hydrate.
     void hydrateSession(worldId)
   }, [worldId])
+
+  // This window never loaded the session panel's table tab, so it has to ask
+  // whether a LAN table is running before it can offer to share with one.
+  useEffect(() => {
+    void refreshTable()
+  }, [])
+
+  // The table stopped: nothing to share with. Disarmed rather than left
+  // pushing into a session that no longer exists.
+  useEffect(() => {
+    if (!hosting && sharing) {
+      setSharing(false)
+      setLanMap(null)
+    }
+  }, [hosting, sharing])
+
+  // Closing the editor takes the map off the guests' screens. Otherwise they
+  // would keep a frozen board whose moves nothing is left to apply. On unload
+  // as well as unmount, because closing a window does not unmount React.
+  useEffect(() => {
+    if (!sharing) return
+    const stop = () => {
+      if (lanMap() === map.id) setLanMap(null)
+    }
+    window.addEventListener('beforeunload', stop)
+    return () => {
+      window.removeEventListener('beforeunload', stop)
+      stop()
+    }
+  }, [sharing, map.id])
 
   // A modal surface that is not a Radix dialog, so nothing else suspends the
   // app's shortcuts for it — otherwise Ctrl+K opens the command palette behind
@@ -172,6 +257,12 @@ export function MapEditor({
           break
         case 'b':
           setDrawer((v) => !v)
+          break
+        case 'i':
+          toggleRail('initiative')
+          break
+        case 'd':
+          toggleRail('rolls')
           break
         case 'p':
           setTool('place')
@@ -267,6 +358,17 @@ export function MapEditor({
       // rather than whatever the cold read happens to find.
       setLiveMap(map.id)
     })
+  }
+
+  /** Put this map on the LAN guests' screens, or take it off. */
+  function toggleSharing() {
+    if (sharing) {
+      setSharing(false)
+      setLanMap(null)
+      return
+    }
+    setSharing(true)
+    setLanMap(map.id)
   }
 
   /**
@@ -495,6 +597,9 @@ export function MapEditor({
         onDrawer={() => setDrawer((v) => !v)}
         showing={showing}
         onToggleShowing={toggleShowing}
+        hosting={hosting}
+        sharing={sharing}
+        onToggleSharing={toggleSharing}
         onPickBackground={() => setPicking(true)}
         onFog={(on) => edit((m) => ({ ...m, fogEnabled: on }))}
         onRename={(name) => edit((m) => ({ ...m, name }))}
@@ -547,6 +652,16 @@ export function MapEditor({
                   }}
                   onStatBlock={openStatBlock}
                   onClose={() => setSelected(null)}
+                  players={
+                    hosting
+                      ? (table.info?.seats ?? []).map((seat) => seat.name)
+                      : []
+                  }
+                  claimedBy={
+                    linked?.articleId?.startsWith('Characters/')
+                      ? linked.name
+                      : null
+                  }
                 />
               ) : null}
               <MapStatusBar
@@ -577,6 +692,15 @@ export function MapEditor({
             onClose={() => setDrawer(false)}
           />
         ) : null}
+        <MapSessionRail
+          worldId={worldId}
+          open={rail.open}
+          tab={rail.tab}
+          onToggle={toggleRail}
+          showing={showing}
+          shareRolls={rail.share}
+          onShareRolls={(share) => setRail((prev) => ({ ...prev, share }))}
+        />
       </div>
 
       {picking ? (

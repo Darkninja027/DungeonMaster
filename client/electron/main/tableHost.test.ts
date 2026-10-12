@@ -17,12 +17,19 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
  * check and resolveInWorld. A pure test cannot see a missing wire.
  */
 
+// No windows by default. The move tests put one fake DM window here to see
+// what the host forwards to it.
+const windows: Array<{
+  isDestroyed: () => boolean
+  webContents: { id: number; send: ReturnType<typeof vi.fn> }
+}> = []
+
 vi.mock('electron', () => ({
-  BrowserWindow: { getAllWindows: () => [] },
+  BrowserWindow: { getAllWindows: () => windows },
 }))
 
 const { encodeWorldId } = await import('./sanitize')
-const { hostTable, stopTable, tableInfo, showAtTable } =
+const { hostTable, stopTable, tableInfo, showAtTable, shareMapAtTable } =
   await import('./tableHost')
 
 let root: string
@@ -78,6 +85,7 @@ describe('table host over real HTTP', () => {
   })
 
   afterEach(() => {
+    windows.length = 0
     stopTable()
     fs.rmSync(root, { recursive: true, force: true })
   })
@@ -246,6 +254,128 @@ describe('table host over real HTTP', () => {
     expect(text).toContain('hello')
     expect(text).toContain('Strahd')
     await reader.cancel()
+  })
+
+  it('replays the shared map to a late guest, and never raw initiative', async () => {
+    shareMapAtTable({
+      mapId: 'm1',
+      map: { name: 'Crypt' },
+      session: {},
+      control: {},
+    })
+    const seat = await join()
+    const res = await fetch(`${base}/events?token=${seat.token}`)
+    const reader = res.body!.getReader()
+    const { value } = await reader.read()
+    const hello = JSON.parse(
+      // The first frame; a seats frame can arrive in the same chunk.
+      new TextDecoder()
+        .decode(value)
+        .split('\n\n')[0]
+        .replace(/^data: /, ''),
+    ) as { payload: Record<string, unknown> }
+    expect(hello.payload.map).toMatchObject({ mapId: 'm1' })
+    // The DM's whole fight used to ride here, HP and hidden monsters included.
+    expect('combat' in hello.payload).toBe(false)
+    await reader.cancel()
+  })
+
+  describe('token moves', () => {
+    function dmWindow() {
+      const send = vi.fn()
+      windows.push({ isDestroyed: () => false, webContents: { id: 1, send } })
+      return send
+    }
+
+    const share = () =>
+      shareMapAtTable({
+        mapId: 'm1',
+        map: {},
+        session: {},
+        control: {
+          thalia: { characterId: 'Characters/Thalia' },
+          wolf: { player: 'Brok' },
+        },
+      })
+
+    const move = (token: string, tokenId: string, mapId = 'm1') =>
+      post('/move', { mapId, tokenId, x: 3, y: 4 }, token)
+
+    it('lets a seat move its claimed character token, forwarded with the host view of the seat', async () => {
+      const send = dmWindow()
+      share()
+      const sarah = await join('Sarah')
+      await post('/claim', { characterId: 'Characters/Thalia' }, sarah.token)
+
+      const res = await post(
+        '/move',
+        // A forged seat in the body must not be believed.
+        { mapId: 'm1', tokenId: 'thalia', x: 3, y: 4, seat: { name: 'Brok' } },
+        sarah.token,
+      )
+      expect(res.status).toBe(200)
+      const forwarded = send.mock.calls.find((c) => c[0] === 'table:move')
+      expect(forwarded?.[1]).toEqual({
+        mapId: 'm1',
+        tokenId: 'thalia',
+        x: 3,
+        y: 4,
+        seat: { name: 'Sarah', characterId: 'Characters/Thalia' },
+      })
+    })
+
+    it('lets a player move a token the DM handed them by name', async () => {
+      share()
+      const brok = await join('Brok')
+      expect((await move(brok.token, 'wolf')).status).toBe(200)
+    })
+
+    it('refuses another seat token, an unlisted token, and an unclaimed seat', async () => {
+      const send = dmWindow()
+      share()
+      const sarah = await join('Sarah')
+      const brok = await join('Brok')
+      // Sarah has not claimed Thalia, so Thalia is not hers either.
+      expect((await move(sarah.token, 'thalia')).status).toBe(403)
+      expect((await move(sarah.token, 'wolf')).status).toBe(403)
+      // A DM-only token is simply absent from the control table.
+      expect((await move(brok.token, 'dragon')).status).toBe(403)
+      expect(send.mock.calls.some((c) => c[0] === 'table:move')).toBe(false)
+    })
+
+    it('does not accept a self-declared character name as a claim', async () => {
+      share()
+      const sarah = await join('Sarah')
+      await post('/playing', { characterName: 'Thalia' }, sarah.token)
+      expect((await move(sarah.token, 'thalia')).status).toBe(403)
+    })
+
+    it('refuses a move on a map that is not on the table', async () => {
+      const brok = await join('Brok')
+      expect((await move(brok.token, 'wolf')).status).toBe(409)
+      share()
+      expect((await move(brok.token, 'wolf', 'other')).status).toBe(409)
+      shareMapAtTable(null)
+      expect((await move(brok.token, 'wolf')).status).toBe(409)
+    })
+
+    it('refuses a move without a seat, and a malformed one', async () => {
+      share()
+      const anon = await post('/move', {
+        mapId: 'm1',
+        tokenId: 'wolf',
+        x: 1,
+        y: 1,
+      })
+      expect(anon.status).toBe(401)
+      const brok = await join('Brok')
+      const bad = await post(
+        '/move',
+        { mapId: 'm1', tokenId: 'wolf' },
+        brok.token,
+      )
+      expect(bad.status).toBe(400)
+    })
   })
 
   // A guest renderer is a browser on another machine, so every call is

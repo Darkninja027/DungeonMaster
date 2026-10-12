@@ -251,6 +251,20 @@ describe('mapStore', () => {
       expect(back.tokens[0]).toMatchObject({ id: 't1', x: 3, y: 4 })
       expect(isRevealed(back.fog, 2, 2)).toBe(true)
     })
+
+    it('keeps who controls a token, and grows no key when nobody does', () => {
+      let m = addToken(map(), token({ id: 'wolf', controlledBy: 'Brok' }))
+      m = addToken(m, token({ id: 'orc', x: 5 }))
+      const back = parseMaps(
+        JSON.parse(JSON.stringify(upsertMap(emptyMaps(), m))),
+      ).maps[0]
+      expect(back.tokens.find((t) => t.id === 'wolf')?.controlledBy).toBe(
+        'Brok',
+      )
+      expect('controlledBy' in back.tokens.find((t) => t.id === 'orc')!).toBe(
+        false,
+      )
+    })
   })
 
   describe('map list', () => {

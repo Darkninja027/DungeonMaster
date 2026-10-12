@@ -132,9 +132,29 @@ export function rollLogSnapshot(): Array<RollEntry> {
   return entries
 }
 
+/**
+ * Clear the log everywhere: this window, every other one, and main's copy.
+ *
+ * Everywhere rather than here, since main keeps the log for windows that open
+ * later — a clear that only emptied this window would come back the next time
+ * the battlemap opened.
+ */
 export function clearRollLog(): void {
   entries = []
   notify()
+  if (bridged()) void api.rolls.clear().catch(() => {})
+}
+
+/** Loose shape check for rolls arriving from main, which stores what it was sent. */
+function isRollEntry(v: unknown): v is RollEntry {
+  if (typeof v !== 'object' || v === null) return false
+  const r = v as Record<string, unknown>
+  return (
+    typeof r.id === 'string' &&
+    typeof r.notation === 'string' &&
+    typeof r.total === 'number' &&
+    typeof r.at === 'number'
+  )
 }
 
 /**
@@ -146,7 +166,36 @@ export function clearRollLog(): void {
  * including the player and popout routes, which mount none of the DM chrome.
  * Guarded for the test environment, where window.dmApi does not exist.
  */
-if (bridged()) api.rolls.onEntry(mergeRoll)
+if (bridged()) {
+  api.rolls.onEntry(mergeRoll)
+  // A LAN guest's roll, stamped with its seat by the host. It goes in the same
+  // log the DM's own rolls do; mergeRoll rather than logRoll, or the host would
+  // re-broadcast a roll back to the table it just came from. Subscribed here
+  // rather than in tableStore so windows that never load the table panel — the
+  // battlemap — see guest rolls too.
+  api.table.onRoll(mergeRoll)
+  api.rolls.onCleared(() => {
+    entries = []
+    notify()
+  })
+  // Catch up on what happened before this window opened. Merged, so a roll
+  // that arrived over the relay while this was in flight is not doubled.
+  void api.rolls
+    .history()
+    .then((list) => {
+      let changed = false
+      for (const entry of list)
+        if (isRollEntry(entry) && insert(entry)) changed = true
+      if (changed) notify()
+    })
+    .catch(() => {})
+}
+
+/** A raw subscription, for callers outside React (the battlemap's live push). */
+export function subscribeRollLog(listener: () => void): () => void {
+  listeners.add(listener)
+  return () => listeners.delete(listener)
+}
 
 export function useRollLog(): Array<RollEntry> {
   return useSyncExternalStore(

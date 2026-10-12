@@ -166,12 +166,10 @@ function setState(next: CombatState) {
         // Best effort, as the old save was: combat keeps working in memory.
       })
   }
-  // Mirror initiative to any LAN guests so the table sees turn order and whose
-  // turn it is. No-ops when not hosting, and never persisted by the guest —
-  // the file on the DM's disk stays the only copy.
-  if (bridged()) {
-    void api.table.combat(next).catch(() => {})
-  }
+  // LAN guests are NOT sent this. It is the DM's whole fight — hidden
+  // monsters, HP, notes — and it used to be mirrored raw. Guests now get turn
+  // order only beside a shared battlemap, redacted by `forPlayersSession`
+  // (see `pushLive` in lib/useMaps.ts).
 }
 
 /**
@@ -228,6 +226,20 @@ export async function hydrateSession(
   } catch {
     // Missing/corrupt file: keep the empty state.
   }
+}
+
+/**
+ * The current state and a raw subscription, for callers outside React — the
+ * battlemap's live push, which re-sends the players' initiative whenever combat
+ * changes. Inside a component use `useCombat`.
+ */
+export function combatSnapshot(): CombatState {
+  return state
+}
+
+export function subscribeCombat(listener: () => void): () => void {
+  listeners.add(listener)
+  return () => listeners.delete(listener)
 }
 
 export function useCombat(): CombatState {

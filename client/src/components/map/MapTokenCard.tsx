@@ -41,6 +41,8 @@ export function MapTokenCard({
   onHp,
   onStatBlock,
   onClose,
+  players = [],
+  claimedBy = null,
 }: {
   token: Token
   /** The token's combatant, when it still has a live one. */
@@ -57,6 +59,14 @@ export function MapTokenCard({
   onHp: (hp: number) => void
   onStatBlock: () => void
   onClose: () => void
+  /** Names of the LAN seats at the table right now, for "Controlled by". */
+  players?: Array<string>
+  /**
+   * When the token is linked to a party character: that character's name. The
+   * seat that claims it may move the token without any assignment, and the
+   * card says so rather than leaving the DM to wonder why a player can.
+   */
+  claimedBy?: string | null
 }) {
   const linkName = orphaned
     ? 'Gone from the fight'
@@ -246,6 +256,46 @@ export function MapTokenCard({
           </Button>
         ) : null}
       </div>
+
+      {players.length > 0 || token.controlledBy || claimedBy ? (
+        <div className="space-y-1 border-t px-2.5 py-2">
+          <label className="flex items-center gap-1.5 text-xs">
+            <span className="text-muted-foreground shrink-0">
+              Controlled by
+            </span>
+            <select
+              value={token.controlledBy ?? ''}
+              onChange={(e) =>
+                onPatch({ controlledBy: e.target.value || undefined })
+              }
+              className="bg-background h-7 min-w-0 flex-1 rounded border px-1.5 text-xs"
+              aria-label="Controlled by"
+            >
+              <option value="">{claimedBy ? 'Automatic' : 'Only you'}</option>
+              {players.map((name) => (
+                <option key={name} value={name}>
+                  {name}
+                </option>
+              ))}
+              {/* Kept when they have stepped away, or the pick would silently
+                  read as "Only you" and the next change would clear it. */}
+              {token.controlledBy &&
+              !players.some(
+                (p) => p.toLowerCase() === token.controlledBy!.toLowerCase(),
+              ) ? (
+                <option value={token.controlledBy}>
+                  {token.controlledBy} (not at the table)
+                </option>
+              ) : null}
+            </select>
+          </label>
+          {claimedBy ? (
+            <p className="text-muted-foreground text-xs">
+              Whoever plays {claimedBy} can move it too.
+            </p>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   )
 }

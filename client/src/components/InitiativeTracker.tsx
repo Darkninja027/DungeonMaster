@@ -21,8 +21,20 @@ import { Button } from '#/components/ui/button'
 import { Input } from '#/components/ui/input'
 import { ScrollArea } from '#/components/ui/scroll-area'
 import { useConfirm } from '#/components/ConfirmProvider'
+import type { OpenArticle } from '#/components/RollHistory'
 
-export function InitiativeTracker({ worldId }: { worldId: string }) {
+export function InitiativeTracker({
+  worldId,
+  openArticle,
+}: {
+  worldId: string
+  /**
+   * Open a combatant's article somewhere other than this window. The battlemap
+   * passes a popout opener: a router Link there would navigate the map window
+   * into the notebook. See `OpenArticle` in RollHistory.
+   */
+  openArticle?: OpenArticle
+}) {
   const confirmDelete = useConfirm()
   const combat = useCombat()
 
@@ -168,7 +180,20 @@ export function InitiativeTracker({ worldId }: { worldId: string }) {
                     <span className="bg-muted w-7 shrink-0 rounded text-center font-mono text-xs">
                       {c.initiative}
                     </span>
-                    {c.articleId ? (
+                    {c.articleId && openArticle ? (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          openArticle(c.worldId ?? worldId, c.articleId!)
+                        }
+                        className={cn(
+                          'min-w-0 flex-1 truncate text-left font-medium underline-offset-2 hover:underline',
+                          down && 'text-destructive line-through',
+                        )}
+                      >
+                        {c.name}
+                      </button>
+                    ) : c.articleId ? (
                       <Link
                         to="/worlds/$worldId/articles/$articleId"
                         // The combatant's own world, not the open one: a

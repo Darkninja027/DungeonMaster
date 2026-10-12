@@ -9,6 +9,8 @@ import {
   Plus,
   Ruler,
   Trash2,
+  Wifi,
+  WifiOff,
   X,
 } from 'lucide-react'
 import { Button } from '#/components/ui/button'
@@ -43,6 +45,9 @@ export function MapToolbar({
   onDrawer,
   showing,
   onToggleShowing,
+  hosting = false,
+  sharing = false,
+  onToggleSharing,
   onPickBackground,
   onFog,
   onRename,
@@ -62,6 +67,11 @@ export function MapToolbar({
   onDrawer: () => void
   showing: boolean
   onToggleShowing: () => void
+  /** Whether a LAN table is running — the share button only exists then. */
+  hosting?: boolean
+  /** Whether this map is on the LAN guests' screens. */
+  sharing?: boolean
+  onToggleSharing?: () => void
   onPickBackground: () => void
   onFog: (on: boolean) => void
   onRename: (name: string) => void
@@ -193,6 +203,26 @@ export function MapToolbar({
         )}
         {showing ? 'Showing' : 'Show'}
       </Button>
+
+      {hosting ? (
+        <Button
+          size="sm"
+          variant={sharing ? 'secondary' : 'ghost'}
+          title={
+            sharing
+              ? "Take this map off the LAN players' screens"
+              : 'Share this map with the LAN table. Players see it without your hidden tokens, and can move their own.'
+          }
+          onClick={onToggleSharing}
+        >
+          {sharing ? (
+            <WifiOff className="size-4" />
+          ) : (
+            <Wifi className="size-4" />
+          )}
+          {sharing ? 'Shared' : 'Share'}
+        </Button>
+      ) : null}
 
       <Button
         size="sm"

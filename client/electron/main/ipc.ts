@@ -91,15 +91,15 @@ import {
   showPlayerWindow,
 } from './playerWindow'
 import type { ViewerMode } from './playerWindow'
-import { relayRoll } from './rollRelay'
+import { clearRolls, relayRoll, rollHistory } from './rollRelay'
 import { findTable } from './beacon'
 import { ensureFirewall, firewallState } from './firewall'
 import {
   clearTable,
   hostTable,
   isHosting,
-  pushCombatToTable,
   pushRollToTable,
+  shareMapAtTable,
   showAtTable,
   stopTable,
   tableInfo,
@@ -828,8 +828,15 @@ export function registerIpcHandlers() {
   // belongs: a hidden token never enters this process at all.
   ipcMain.handle(
     'mapView:push',
-    (_e, payload: { worldId: string; mapId: string; map: unknown }) =>
-      pushToMapWindow(payload),
+    (
+      _e,
+      payload: {
+        worldId: string
+        mapId: string
+        map: unknown
+        session?: unknown
+      },
+    ) => pushToMapWindow(payload),
   )
 
   // Per-world settings (the class/subclass list) ------------------------------
@@ -995,6 +1002,12 @@ export function registerIpcHandlers() {
     pushRollToTable(entry)
   })
 
+  // A window opened mid-session catches up from main's copy. See rollRelay.ts
+  // for why the players' map window is answered with nothing.
+  ipcMain.handle('rolls:history', (e) => rollHistory(e.sender))
+
+  ipcMain.handle('rolls:clear', (e) => clearRolls(e.sender))
+
   // Table (LAN session) --------------------------------------------------------
   // The host serves guests over plain HTTP; see tableHost.ts for the transport
   // and table.ts for every decision it makes. Note that hosting takes a worldId
@@ -1013,8 +1026,10 @@ export function registerIpcHandlers() {
       showAtTable(payload),
   )
 
-  ipcMain.handle('table:combat', (_e, { state }: { state: unknown }) =>
-    pushCombatToTable(state),
+  // A battlemap for the guests. Redacted in the sending renderer, where the
+  // map schema lives; main only stores it for replay and fans it out.
+  ipcMain.handle('table:map', (_e, share: unknown) =>
+    shareMapAtTable(share ?? null),
   )
 
   // Take whatever is on the table down. No-ops when not hosting.

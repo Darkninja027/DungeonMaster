@@ -30,16 +30,20 @@
 
 import { useSyncExternalStore } from 'react'
 import { api, bridged } from './api'
-import type { StateChange } from './api'
+import type { StateChange, TableMove } from './api'
 import {
   dropMap,
   emptyMaps,
   findMap,
   forPlayers,
+  moveToken,
   parseMaps,
   upsertMap,
 } from './mapStore'
 import type { BattleMap, MapFile } from './mapStore'
+import { forPlayersSession, mayControl, tokenControl } from './mapSession'
+import { combatSnapshot, subscribeCombat } from './sessionStore'
+import { rollLogSnapshot, subscribeRollLog } from './rollLog'
 
 /** ~30fps: fast enough that a dragged token does not stutter on the table. */
 const PUSH_THROTTLE_MS = 33
@@ -52,6 +56,12 @@ let lastPush = 0
 let pushTimer: ReturnType<typeof setTimeout> | null = null
 /** The map this window is showing to players, if any. */
 let liveMapId: string | null = null
+/** The map this window is sharing with LAN guests, if any. */
+let lanMapId: string | null = null
+/** Whether the DM's own rolls go on the players' screen too. Off: behind the screen. */
+let shareDmRolls = false
+/** Unsubscribes from combat and the roll log while a map is live. */
+let unwatchSession: (() => void) | null = null
 const listeners = new Set<() => void>()
 
 function notify() {
@@ -137,7 +147,7 @@ function applyRemote(change: StateChange) {
  * the DM actually put it until some unrelated edit shakes it loose.
  */
 function pushLive() {
-  if (!liveMapId || !currentWorldId) return
+  if ((!liveMapId && !lanMapId) || !currentWorldId) return
   const now = Date.now()
   const wait = PUSH_THROTTLE_MS - (now - lastPush)
   if (wait > 0) {
@@ -153,13 +163,68 @@ function pushLive() {
     pushTimer = null
   }
   lastPush = now
-  const map = findMap(state, liveMapId)
-  if (!map) return
-  void api.mapView
-    .push(currentWorldId, liveMapId, forPlayers(map))
-    .catch(() => {
-      // No window watching, or it closed mid-push. Nothing to do.
+  const combat = combatSnapshot()
+
+  const tv = liveMapId ? findMap(state, liveMapId) : null
+  if (tv && liveMapId) {
+    const players = forPlayers(tv)
+    // Initiative and rolls ride the same push, redacted against the SAME
+    // stripped map — a creature is in the players' order only if its token is
+    // on the players' board. See lib/mapSession.ts.
+    const session = forPlayersSession(players, combat, rollLogSnapshot(), {
+      showDmRolls: shareDmRolls,
     })
+    void api.mapView
+      .push(currentWorldId, liveMapId, players, session)
+      .catch(() => {
+        // No window watching, or it closed mid-push. Nothing to do.
+      })
+  }
+
+  const lan = lanMapId ? findMap(state, lanMapId) : null
+  if (lan && lanMapId) {
+    const players = forPlayers(lan)
+    void api.table
+      .map({
+        mapId: lanMapId,
+        map: players,
+        // Rolls are left out: guests already have the table's roll log, fed
+        // roll by roll over the same stream. Sending it again per frame of a
+        // drag would be the same list, twice, thirty times a second.
+        session: {
+          ...forPlayersSession(players, combat, [], { showDmRolls: false }),
+          rolls: [],
+        },
+        control: tokenControl(players, combat),
+      })
+      .catch(() => {
+        // Not hosting any more. The editor disarms when it notices.
+      })
+  }
+}
+
+/**
+ * Keep combat and the roll log re-pushing while — and only while — something
+ * is live. A turn passing or a die landing changes what the players see
+ * without touching the map. Same trailing throttle as a drag.
+ */
+function rewatch() {
+  unwatchSession?.()
+  unwatchSession = null
+  // A trailing push still pending is for a target being taken down (or
+  // replaced); whatever is still armed pushes afresh below.
+  if (pushTimer) {
+    clearTimeout(pushTimer)
+    pushTimer = null
+  }
+  if (!liveMapId && !lanMapId) return
+  const offCombat = subscribeCombat(pushLive)
+  const offRolls = subscribeRollLog(pushLive)
+  unwatchSession = () => {
+    offCombat()
+    offRolls()
+  }
+  pushLive()
 }
 
 /**
@@ -170,7 +235,50 @@ function pushLive() {
  */
 export function setLiveMap(mapId: string | null): void {
   liveMapId = mapId
-  if (mapId) pushLive()
+  rewatch()
+}
+
+/**
+ * Share a map with LAN guests, or take it down.
+ *
+ * Separate from the TV arm: a DM may host without a second screen, or put a
+ * map on the TV without a LAN table. Taking it down tells the guests at once,
+ * rather than leaving the last frame frozen on their screens.
+ */
+export function setLanMap(mapId: string | null): void {
+  const was = lanMapId
+  lanMapId = mapId
+  if (was && !mapId) void api.table.map(null).catch(() => {})
+  rewatch()
+}
+
+export function lanMap(): string | null {
+  return lanMapId
+}
+
+/** Put the DM's own rolls on the players' screen, or take them off it. */
+export function setShareDmRolls(on: boolean): void {
+  shareDmRolls = on
+  pushLive()
+}
+
+/**
+ * A LAN guest moved a token. The host has already checked the seat controls
+ * it, against the frame it last sent; this checks again against the map as it
+ * is NOW, because that frame can be a moment stale — the DM may just have
+ * hidden the token or handed it to someone else. Only the window sharing that
+ * map applies it, so two editors cannot both move it.
+ *
+ * Exported for tests; wired to `table:move` at module load below.
+ */
+export function applyGuestMove(move: TableMove): void {
+  if (!lanMapId || move.mapId !== lanMapId) return
+  const map = findMap(state, lanMapId)
+  if (!map) return
+  const control = tokenControl(forPlayers(map), combatSnapshot())
+  if (!mayControl(control[move.tokenId], move.seat)) return
+  // moveToken clamps to this map's grid, which the host could not know.
+  mapActions.update(lanMapId, (m) => moveToken(m, move.tokenId, move.x, move.y))
 }
 
 export function liveMap(): string | null {
@@ -270,5 +378,8 @@ if (typeof window !== 'undefined') {
   // the renderer — there is no unsubscribe because there is no point at which
   // this window stops caring. Guarded on the bridge: this module is imported
   // by tests and by the guest build, neither of which has a preload.
-  if (bridged()) api.maps.onChanged(applyRemote)
+  if (bridged()) {
+    api.maps.onChanged(applyRemote)
+    api.table.onMove(applyGuestMove)
+  }
 }

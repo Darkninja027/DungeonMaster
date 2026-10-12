@@ -59,7 +59,23 @@ vi.mock('#/lib/api', () => ({
       flush: vi.fn().mockResolvedValue(undefined),
       onChanged: vi.fn().mockReturnValue(() => {}),
     },
-    table: { combat: vi.fn().mockResolvedValue(undefined) },
+    table: {
+      combat: vi.fn().mockResolvedValue(undefined),
+      onRoll: vi.fn().mockReturnValue(() => {}),
+      onMove: vi.fn().mockReturnValue(() => {}),
+      onSeats: vi.fn().mockReturnValue(() => {}),
+      onStatus: vi.fn().mockReturnValue(() => {}),
+      info: vi.fn().mockResolvedValue(null),
+      map: vi.fn().mockResolvedValue(undefined),
+    },
+    // useMaps imports the roll log, which subscribes at module load.
+    rolls: {
+      onEntry: vi.fn().mockReturnValue(() => {}),
+      broadcast: vi.fn().mockResolvedValue(undefined),
+      history: vi.fn().mockResolvedValue([]),
+      clear: vi.fn().mockResolvedValue(undefined),
+      onCleared: vi.fn().mockReturnValue(() => {}),
+    },
   },
 }))
 

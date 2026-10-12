@@ -298,3 +298,63 @@ export function safeError(err: unknown): string {
   }
   return 'Request failed'
 }
+
+// --- Battlemap token moves --------------------------------------------------
+
+export interface MoveMessage {
+  mapId: string
+  tokenId: string
+  x: number
+  y: number
+}
+
+/**
+ * A guest dragged a token. Only ids and a cell: the guest says where, never
+ * what the token is. Cells are whole numbers inside the largest grid the editor
+ * allows (400); the editor clamps to this map's real size when it applies it.
+ */
+export function parseMove(raw: unknown): MoveMessage | null {
+  if (!isRecord(raw)) return null
+  const mapId = str(raw.mapId)
+  const tokenId = str(raw.tokenId)
+  const x = num(raw.x)
+  const y = num(raw.y)
+  if (!mapId || !tokenId || x === null || y === null) return null
+  if (mapId.length > 32 || tokenId.length > 64) return null
+  const cell = (v: number) => Math.max(0, Math.min(400, Math.floor(v)))
+  return { mapId, tokenId, x: cell(x), y: cell(y) }
+}
+
+/**
+ * Whether this seat may move a token, given who the DM says controls it.
+ *
+ * `control` comes from the DM's own renderer (`tokenControl` in
+ * src/lib/mapSession.ts), so it is trusted but still `unknown`-typed: it has
+ * crossed IPC. The SEAT is what the guest cannot forge — it is looked up from
+ * the bearer token, host-side.
+ *
+ * Two ways to control a token, either enough:
+ *   - `characterId`: the seat has CLAIMED that character, which the host makes
+ *     exclusive (withCharacterClaimed). Strong.
+ *   - `player`: the DM assigned it to a player by name. Seat names are unique
+ *     at any moment (withSeatAdded suffixes duplicates), and a name is used
+ *     rather than a seat id so a rejoin keeps the assignment. The accepted
+ *     cost: someone else joining under that name while the player is away gets
+ *     their tokens too, which at a table of friends is a joke, not a breach.
+ *
+ * A guest's self-declared `characterName` is deliberately NOT a way in — it
+ * is a label anyone can set, and the same rule seatOwns follows.
+ */
+export function seatMayMove(
+  state: TableState,
+  seatId: string,
+  control: unknown,
+): boolean {
+  if (!isRecord(control)) return false
+  const seat = state.seats.find((s) => s.id === seatId)
+  if (!seat) return false
+  const characterId = str(control.characterId)
+  if (characterId && seat.characterId === characterId) return true
+  const player = str(control.player)
+  return !!player && seat.name.toLowerCase() === player.toLowerCase()
+}

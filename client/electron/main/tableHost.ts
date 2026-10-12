@@ -4,14 +4,11 @@ import fs from 'node:fs'
 import http from 'node:http'
 import { BrowserWindow } from 'electron'
 import { resolveInImages } from './images'
+import { isTableView } from './mapWindow'
+import { relayRoll } from './rollRelay'
 import { IMAGES_DIR, getArticle, worldRoot } from './worldStore'
 import { listCharacters } from './search'
-import {
-  beaconStatus,
-  onBeaconChange,
-  startBeacon,
-  stopBeacon,
-} from './beacon'
+import { beaconStatus, onBeaconChange, startBeacon, stopBeacon } from './beacon'
 import type { BeaconStatus } from './beacon'
 import { lanAddresses, lanCandidates } from './lan'
 import type { LanCandidate } from './lan'
@@ -20,9 +17,11 @@ import {
   emptyTable,
   parseArticleId,
   parseJoin,
+  parseMove,
   parseRoll,
   parseSheetPatch,
   safeError,
+  seatMayMove,
   seatOwns,
   withCharacterClaimed,
   withCharacterNamed,
@@ -86,8 +85,15 @@ interface Session {
   shown: unknown
   /** The shared roll log, replayed on connect. Newest last. */
   rolls: Array<unknown>
-  /** Initiative, replayed on connect. */
-  combat: unknown
+  /**
+   * The battlemap the DM is sharing, replayed on connect. Already redacted by
+   * the DM's renderer: hidden tokens gone, initiative cut to what players may
+   * know. Also carries `control`, which /move checks. Null when none is shared.
+   *
+   * There is no raw initiative here any more. It used to be mirrored whole —
+   * hidden monsters, HP, DM notes — to every guest's devtools.
+   */
+  map: { mapId?: unknown; control?: unknown } | null
   /**
    * Whether the socket is actually accepting connections.
    *
@@ -278,7 +284,7 @@ async function handle(
         seats: session.state.seats,
         shown: session.shown,
         rolls: session.rolls,
-        combat: session.combat,
+        map: session.map,
       },
     }
     res.write(`data: ${JSON.stringify(hello)}\n\n`)
@@ -412,8 +418,41 @@ async function handle(
     const safe = forGuests(entry)
     session.rolls = [...session.rolls, safe].slice(-200)
     broadcast('roll', safe)
+    // To every window but the players' map view, and into main's roll history
+    // so a window opened later still has it.
+    relayRoll(null, entry, 'table:roll')
+    return json(res, 200, { ok: true })
+  }
+
+  // --- a guest moved a token -------------------------------------------------
+  // No DM approval, by design: a player moving their own token should feel
+  // like moving a miniature. The check that it IS theirs happens here, against
+  // the seat the bearer token names, and again in the editor against its
+  // current map — this one stops a forged request, that one a stale frame.
+  if (req.method === 'POST' && url.pathname === '/move') {
+    const move = parseMove(await readJson(req))
+    if (!move) return json(res, 400, { error: 'Malformed request' })
+    const shared = session.map
+    if (!shared || shared.mapId !== move.mapId) {
+      return json(res, 409, { error: 'That map is not on the table' })
+    }
+    const control =
+      typeof shared.control === 'object' && shared.control !== null
+        ? (shared.control as Record<string, unknown>)[move.tokenId]
+        : undefined
+    if (!seatMayMove(session.state, guest.seatId, control)) {
+      return json(res, 403, { error: 'Not your token' })
+    }
+    const seat = session.state.seats.find((s) => s.id === guest.seatId)
+    const payload = {
+      ...move,
+      seat: { name: seat?.name ?? '', characterId: seat?.characterId },
+    }
+    // Applied in the renderer, which owns the map schema — the same split the
+    // sheet patch below makes. Never to a players' map window: it is a display.
     for (const win of BrowserWindow.getAllWindows()) {
-      if (!win.isDestroyed()) win.webContents.send('table:roll', entry)
+      if (win.isDestroyed() || isTableView(win.webContents)) continue
+      win.webContents.send('table:move', payload)
     }
     return json(res, 200, { ok: true })
   }
@@ -526,7 +565,7 @@ export function hostTable(worldId: string, port = DEFAULT_PORT): TableInfo {
     guests: new Map(),
     shown: null,
     rolls: [],
-    combat: null,
+    map: null,
     listening: false,
   }
   // listen() is fire-and-forget, so without these a failure to bind — an
@@ -692,9 +731,19 @@ export function pushRollToTable(entry: unknown): void {
   broadcast('roll', safe)
 }
 
-/** Initiative changed on the host. */
-export function pushCombatToTable(state: unknown): void {
+/**
+ * The DM shared a battlemap, or took it down (null).
+ *
+ * Every frame of a drag arrives here, throttled by the renderer, and goes out
+ * as it came: redaction already happened where the schema lives. Stored so a
+ * guest joining mid-fight sees the board at once rather than on the next move.
+ */
+export function shareMapAtTable(share: unknown): void {
   if (!session) return
-  session.combat = state
-  broadcast('combat', state)
+  const next =
+    typeof share === 'object' && share !== null
+      ? (share as { mapId?: unknown; control?: unknown })
+      : null
+  session.map = next
+  broadcast('map', next)
 }

@@ -1,11 +1,37 @@
 import { useEffect, useState } from 'react'
 import { api } from '#/lib/api'
 import { hydrateMaps, useMap } from '#/lib/useMaps'
-import { hydrateSession, useCombat } from '#/lib/sessionStore'
-import { parseMaps } from '#/lib/mapStore'
+import { hydrateSession } from '#/lib/sessionStore'
+import { forPlayers, parseMaps } from '#/lib/mapStore'
 import type { BattleMap } from '#/lib/mapStore'
+import { emptyTableSession, parseTableSession } from '#/lib/mapSession'
+import type { TableSession } from '#/lib/mapSession'
 import { MapCanvas } from './MapCanvas'
 import { MapEditor } from './MapEditor'
+import { MapTableRail } from './MapTableRail'
+import type { MapSessionTab } from './MapSessionRail'
+
+const TABLE_RAIL_KEY = 'dm.mapTableRail'
+
+/**
+ * The players' sidebar state. OPEN by default, unlike the editor's: this is the
+ * screen the table reads whose turn it is from, and nobody is sitting at it
+ * with a mouse to find the button.
+ */
+function loadTableRail(): { open: boolean; tab: MapSessionTab } {
+  try {
+    const raw = JSON.parse(localStorage.getItem(TABLE_RAIL_KEY) ?? '') as {
+      open?: unknown
+      tab?: unknown
+    }
+    return {
+      open: raw.open !== false,
+      tab: raw.tab === 'rolls' ? 'rolls' : 'initiative',
+    }
+  } catch {
+    return { open: true, tab: 'initiative' }
+  }
+}
 
 /**
  * A battlemap in a window of its own, in one of two modes.
@@ -85,7 +111,19 @@ function EditorView({ worldId, mapId }: { worldId: string; mapId: string }) {
 
 function TableView({ worldId, mapId }: { worldId: string; mapId: string }) {
   const [map, setMap] = useState<BattleMap | null>(null)
-  const combat = useCombat()
+  // Initiative and rolls come ONLY from the push, already redacted. This window
+  // never hydrates the session store: that would put every hidden monster's
+  // name and HP in a heap on the players' screen.
+  const [session, setSession] = useState<TableSession>(emptyTableSession)
+  const [rail, setRail] = useState(loadTableRail)
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(TABLE_RAIL_KEY, JSON.stringify(rail))
+    } catch {
+      // Convenience only.
+    }
+  }, [rail])
 
   // The live feed from whichever window is driving this map. Wins over the
   // saved copy the moment it arrives.
@@ -97,6 +135,7 @@ function TableView({ worldId, mapId }: { worldId: string; mapId: string }) {
         // push must leave the last good map on screen rather than blanking it.
         const one = parseMaps({ version: 1, maps: [p.map] }).maps.at(0)
         if (one) setMap(one)
+        if (p.session !== undefined) setSession(parseTableSession(p.session))
       }),
     [worldId, mapId],
   )
@@ -113,7 +152,9 @@ function TableView({ worldId, mapId }: { worldId: string; mapId: string }) {
         const found = parseMaps(snapshot.file).maps.find((m) => m.id === mapId)
         // Only if nothing has been pushed yet: a live frame is newer than disk
         // by definition, and this read can land after one.
-        if (found) setMap((current) => current ?? found)
+        // forPlayers here too: the saved copy is the DM's, hidden tokens and
+        // all, and it paints until the first push replaces it.
+        if (found) setMap((current) => current ?? forPlayers(found))
       })
       .catch(() => {})
     return () => {
@@ -128,14 +169,26 @@ function TableView({ worldId, mapId }: { worldId: string; mapId: string }) {
   if (!map) return <Splash>Waiting for the map…</Splash>
 
   return (
-    <div className="fixed inset-0 bg-stone-950">
+    <div className="fixed inset-0 flex bg-stone-950">
       <MapCanvas
         worldId={worldId}
         map={map}
         audience="player"
-        combatants={combat.combatants}
-        activeCombatantId={combat.activeId}
-        className="size-full"
+        combatants={session.combatants}
+        activeCombatantId={session.activeId}
+        className="min-w-0 flex-1"
+      />
+      <MapTableRail
+        session={session}
+        open={rail.open}
+        tab={rail.tab}
+        onToggle={(tab) =>
+          setRail((prev) =>
+            prev.open && prev.tab === tab
+              ? { ...prev, open: false }
+              : { open: true, tab },
+          )
+        }
       />
     </div>
   )

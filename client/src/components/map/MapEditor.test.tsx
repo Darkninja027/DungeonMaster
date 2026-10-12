@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/react'
 import {
   afterEach,
   beforeAll,
@@ -55,11 +61,22 @@ vi.mock('#/lib/api', () => ({
       query: vi.fn().mockResolvedValue([]),
     },
     characters: { list: vi.fn().mockResolvedValue([]) },
-    table: { combat: vi.fn().mockResolvedValue(undefined) },
+    table: {
+      combat: vi.fn().mockResolvedValue(undefined),
+      onRoll: vi.fn().mockReturnValue(() => {}),
+      onMove: vi.fn().mockReturnValue(() => {}),
+      onSeats: vi.fn().mockReturnValue(() => {}),
+      onStatus: vi.fn().mockReturnValue(() => {}),
+      info: vi.fn().mockResolvedValue(null),
+      map: vi.fn().mockResolvedValue(undefined),
+    },
     // Stubbing the bridge above makes the roll log subscribe for real.
     rolls: {
       onEntry: vi.fn().mockReturnValue(() => {}),
       broadcast: vi.fn().mockResolvedValue(undefined),
+      history: vi.fn().mockResolvedValue([]),
+      clear: vi.fn().mockResolvedValue(undefined),
+      onCleared: vi.fn().mockReturnValue(() => {}),
     },
     articles: { get: vi.fn().mockResolvedValue({ content: '' }) },
     player: { show: vi.fn().mockResolvedValue(undefined) },
@@ -445,5 +462,82 @@ describe('closing and the keyboard', () => {
     // 'm' would switch to the measure tool if the text-entry guard were gone.
     fireEvent.keyDown(name, { key: 'm' })
     expect(screen.queryByLabelText('Template')).toBeNull()
+  })
+})
+
+describe('the session sidebar', () => {
+  beforeEach(() => localStorage.removeItem('dm.mapSessionRail'))
+
+  it('opens initiative on I, and opens an article as a popout, not a route', async () => {
+    const { api } = await import('#/lib/api')
+    combatActions.add({
+      name: 'Ogre',
+      initiative: 8,
+      hp: 59,
+      maxHp: 59,
+      ac: 11,
+      note: '',
+      articleId: 'Monsters/Ogre',
+    })
+    renderEditor()
+    expect(screen.queryByRole('heading', { name: 'Initiative' })).toBeNull()
+
+    fireEvent.keyDown(window, { key: 'i' })
+    expect(screen.getByRole('heading', { name: 'Initiative' })).toBeTruthy()
+
+    // A router Link here would navigate the map window into the notebook —
+    // and, with no router mounted in this test, would throw on render.
+    fireEvent.click(screen.getByRole('button', { name: 'Ogre' }))
+    expect(api.player.show).toHaveBeenCalledWith(
+      'w1',
+      'Monsters/Ogre',
+      'popout',
+    )
+  })
+
+  it('switches to the roll log on D, and I again closes it', () => {
+    renderEditor()
+    fireEvent.keyDown(window, { key: 'd' })
+    expect(screen.getByRole('heading', { name: 'Roll history' })).toBeTruthy()
+    fireEvent.keyDown(window, { key: 'i' })
+    fireEvent.keyDown(window, { key: 'i' })
+    expect(
+      screen.queryByRole('heading', { name: /Initiative|Roll history/ }),
+    ).toBeNull()
+  })
+})
+
+describe('sharing with the LAN table', () => {
+  it('offers Share only while hosting, and pushes the map when pressed', async () => {
+    const { api } = await import('#/lib/api')
+    renderEditor()
+    expect(screen.queryByRole('button', { name: /^Share$/ })).toBeNull()
+    cleanup()
+
+    // tableStore checks the real bridge rather than the mocked `bridged`.
+    Object.assign(window, { dmApi: {} })
+    vi.mocked(api.table.info).mockResolvedValueOnce({
+      tableId: 't',
+      code: 'ABC-234',
+      port: 7777,
+      addresses: [],
+      candidates: [],
+      seats: [{ id: 's1', name: 'Brok', joinedAt: 1 }],
+      shown: null,
+      beacon: { state: 'running' } as never,
+      listening: true,
+    })
+    renderEditor()
+    const share = await screen.findByRole('button', { name: /^Share$/ })
+    fireEvent.click(share)
+    await waitFor(() => expect(api.table.map).toHaveBeenCalled())
+    const sent = vi.mocked(api.table.map).mock.calls.at(-1)?.[0]
+    expect(sent).toMatchObject({ mapId: MAP_ID })
+    expect(screen.getByRole('button', { name: /^Shared$/ })).toBeTruthy()
+
+    // Pressed again, the guests' board comes down rather than freezing.
+    fireEvent.click(screen.getByRole('button', { name: /^Shared$/ }))
+    expect(api.table.map).toHaveBeenLastCalledWith(null)
+    delete (window as { dmApi?: unknown }).dmApi
   })
 })

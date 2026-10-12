@@ -33,12 +33,44 @@ const mapView = {
   onLive: vi.fn().mockReturnValue(() => {}),
 }
 
+// The live push reads combat and the roll log, so both stores load too.
+const session = {
+  get: vi.fn().mockResolvedValue(null),
+  set: vi.fn().mockResolvedValue({ rev: 1 }),
+  flush: vi.fn().mockResolvedValue(undefined),
+  onChanged: vi.fn().mockReturnValue(() => {}),
+}
+const rolls = {
+  broadcast: vi.fn().mockResolvedValue(undefined),
+  onEntry: vi.fn().mockReturnValue(() => {}),
+  history: vi.fn().mockResolvedValue([]),
+  clear: vi.fn().mockResolvedValue(undefined),
+  onCleared: vi.fn().mockReturnValue(() => {}),
+}
+const table = {
+  onRoll: vi.fn().mockReturnValue(() => {}),
+  onMove: vi.fn().mockReturnValue(() => {}),
+  map: vi.fn().mockResolvedValue(undefined),
+}
+
 vi.mock('#/lib/api', () => ({
   // The stores check this before subscribing at module load.
-  bridged: () => true, api: { maps, mapView } }))
+  bridged: () => true,
+  api: { maps, mapView, session, rolls, table },
+}))
 
-const { hydrateMaps, mapActions, mapsSnapshot, setLiveMap, flushMaps } =
-  await import('./useMaps')
+const {
+  applyGuestMove,
+  hydrateMaps,
+  mapActions,
+  mapsSnapshot,
+  setLanMap,
+  setLiveMap,
+  setShareDmRolls,
+  flushMaps,
+} = await import('./useMaps')
+const { combatActions, hydrateSession } = await import('./sessionStore')
+const { clearRollLog, logRoll } = await import('./rollLog')
 const { newMap, addToken } = await import('./mapStore')
 
 /** Deliver a relayed change to the store, as main would. */
@@ -206,6 +238,319 @@ describe('the live push to the table', () => {
 
     mapActions.update('m1', (m) => ({ ...m, name: 'after' }))
     expect(mapView.push).not.toHaveBeenCalled()
+  })
+})
+
+describe('the session pushed beside the map', () => {
+  /** A map with one visible and one hidden token, each in the fight. */
+  async function liveFight() {
+    session.get.mockResolvedValue({
+      file: {
+        version: 1,
+        round: 2,
+        activeId: 'lurker',
+        combatants: [
+          {
+            id: 'guard',
+            name: 'Guard',
+            initiative: 10,
+            hp: 11,
+            maxHp: 11,
+            ac: 16,
+            note: '',
+          },
+          {
+            id: 'lurker',
+            name: 'Assassin',
+            initiative: 18,
+            hp: 78,
+            maxHp: 78,
+            ac: 15,
+            note: '',
+          },
+        ],
+      },
+      rev: 1,
+    })
+    await hydrateSession(WORLD, { force: true })
+    const base = newMap({ id: 'm1', name: 'Cave' })
+    const m = addToken(
+      addToken(base, {
+        id: 't1',
+        label: 'Guard',
+        x: 1,
+        y: 1,
+        size: 'medium',
+        colour: '#fff',
+        combatantId: 'guard',
+      }),
+      {
+        id: 't2',
+        label: 'Assassin',
+        x: 2,
+        y: 2,
+        size: 'medium',
+        colour: '#000',
+        hidden: true,
+        combatantId: 'lurker',
+      },
+    )
+    mapActions.save(m)
+  }
+
+  const lastSession = () =>
+    mapView.push.mock.calls.at(-1)?.[3] as {
+      activeId: string | null
+      combatants: Array<{ name: string }>
+      rolls: Array<{ label?: string }>
+    }
+
+  // The throttle reads Date.now, and an earlier test's fake clock can leave
+  // the last push in the future. Each test starts an hour past the previous.
+  let clock = Date.now()
+  beforeEach(() => {
+    vi.useFakeTimers()
+    clock += 3_600_000
+    vi.setSystemTime(clock)
+  })
+
+  afterEach(() => {
+    setShareDmRolls(false)
+    setLanMap(null)
+    clearRollLog()
+  })
+
+  it('carries initiative redacted against the stripped map', async () => {
+    await liveFight()
+    setLiveMap('m1')
+    await vi.advanceTimersByTimeAsync(50)
+    const pushed = lastSession()
+    expect(pushed.combatants.map((c) => c.name)).toEqual(['Guard'])
+    // The hidden assassin's turn reads as nobody's, not as theirs.
+    expect(pushed.activeId).toBeNull()
+    expect(JSON.stringify(mapView.push.mock.calls.at(-1))).not.toContain(
+      'Assassin',
+    )
+  })
+
+  it('re-pushes when a turn passes, and stops when the map is taken down', async () => {
+    await liveFight()
+    setLiveMap('m1')
+    await vi.advanceTimersByTimeAsync(50)
+    mapView.push.mockClear()
+
+    combatActions.nextTurn()
+    await vi.advanceTimersByTimeAsync(50)
+    expect(mapView.push).toHaveBeenCalled()
+
+    setLiveMap(null)
+    mapView.push.mockClear()
+    combatActions.nextTurn()
+    await vi.advanceTimersByTimeAsync(50)
+    expect(mapView.push).not.toHaveBeenCalled()
+  })
+
+  it("keeps the DM's rolls off the players' screen until shared", async () => {
+    await liveFight()
+    setLiveMap('m1')
+    logRoll({ notation: '1d20', total: 19, detail: '[19]', label: 'Stealth' })
+    await vi.advanceTimersByTimeAsync(50)
+    expect(lastSession().rolls).toEqual([])
+
+    setShareDmRolls(true)
+    await vi.advanceTimersByTimeAsync(50)
+    expect(lastSession().rolls.map((r) => r.label)).toEqual(['Stealth'])
+  })
+})
+
+describe('sharing with the LAN table', () => {
+  let clock = Date.now() + 1_000_000_000
+  beforeEach(() => {
+    vi.useFakeTimers()
+    clock += 3_600_000
+    vi.setSystemTime(clock)
+  })
+
+  afterEach(() => {
+    setLanMap(null)
+    setLiveMap(null)
+  })
+
+  /** Thalia is a party member; the wolf is handed to Brok; the orc is hidden. */
+  async function board() {
+    session.get.mockResolvedValue({
+      file: {
+        version: 1,
+        round: 1,
+        activeId: null,
+        combatants: [
+          {
+            id: 'pc',
+            name: 'Thalia',
+            initiative: 15,
+            hp: 20,
+            maxHp: 27,
+            ac: 14,
+            note: '',
+            articleId: 'Characters/Thalia',
+          },
+          {
+            id: 'orc',
+            name: 'Orc',
+            initiative: 12,
+            hp: 15,
+            maxHp: 15,
+            ac: 13,
+            note: 'ambush',
+          },
+        ],
+      },
+      rev: 1,
+    })
+    await hydrateSession(WORLD, { force: true })
+    let m = newMap({ id: 'm1', name: 'Crypt' })
+    m = addToken(m, {
+      id: 't-pc',
+      label: 'Thalia',
+      x: 1,
+      y: 1,
+      size: 'medium',
+      colour: '#0f0',
+      combatantId: 'pc',
+    })
+    m = addToken(m, {
+      id: 't-wolf',
+      label: 'Wolf',
+      x: 2,
+      y: 2,
+      size: 'medium',
+      colour: '#999',
+      controlledBy: 'Brok',
+    })
+    m = addToken(m, {
+      id: 't-orc',
+      label: 'Orc',
+      x: 5,
+      y: 5,
+      size: 'medium',
+      colour: '#f00',
+      combatantId: 'orc',
+      hidden: true,
+      controlledBy: 'Brok',
+    })
+    mapActions.save(m)
+  }
+
+  const token = (id: string) =>
+    mapsSnapshot()
+      .maps.find((m) => m.id === 'm1')!
+      .tokens.find((t) => t.id === id)!
+
+  it('sends a redacted board, turn order and who controls what — and nothing hidden', async () => {
+    await board()
+    setLanMap('m1')
+    await vi.advanceTimersByTimeAsync(50)
+    const share = table.map.mock.calls.at(-1)?.[0] as {
+      mapId: string
+      map: { tokens: Array<{ id: string }> }
+      session: {
+        combatants: Array<{ name: string; hp: number; maxHp: unknown }>
+        rolls: Array<unknown>
+      }
+      control: Record<string, unknown>
+    }
+    expect(share.mapId).toBe('m1')
+    expect(share.map.tokens.map((t) => t.id)).toEqual(['t-pc', 't-wolf'])
+    expect(share.session.combatants.map((c) => c.name)).toEqual(['Thalia'])
+    expect(share.session.combatants[0].maxHp).toBeNull()
+    expect(share.session.rolls).toEqual([])
+    expect(share.control).toEqual({
+      't-pc': { characterId: 'Characters/Thalia' },
+      't-wolf': { player: 'Brok' },
+    })
+    const wire = JSON.stringify(share)
+    expect(wire).not.toContain('t-orc')
+    expect(wire).not.toContain('ambush')
+    expect(wire).not.toContain('27')
+  })
+
+  it('takes the board down on the guests when sharing stops', async () => {
+    await board()
+    setLanMap('m1')
+    table.map.mockClear()
+    setLanMap(null)
+    expect(table.map).toHaveBeenCalledWith(null)
+  })
+
+  it('applies a move from the seat that controls the token, clamped to the grid', async () => {
+    await board()
+    setLanMap('m1')
+    applyGuestMove({
+      mapId: 'm1',
+      tokenId: 't-wolf',
+      x: 999,
+      y: 3,
+      seat: { name: 'brok' },
+    })
+    expect(token('t-wolf')).toMatchObject({ x: 19, y: 3 })
+    applyGuestMove({
+      mapId: 'm1',
+      tokenId: 't-pc',
+      x: 4,
+      y: 4,
+      seat: { name: 'Sarah', characterId: 'Characters/Thalia' },
+    })
+    expect(token('t-pc')).toMatchObject({ x: 4, y: 4 })
+  })
+
+  it('refuses a move the host let through on a stale frame', async () => {
+    await board()
+    setLanMap('m1')
+    // Not Brok's any more — the DM changed it after the host's last frame.
+    mapActions.update('m1', (m) => ({
+      ...m,
+      tokens: m.tokens.map((t) =>
+        t.id === 't-wolf' ? { ...t, controlledBy: 'Sarah' } : t,
+      ),
+    }))
+    applyGuestMove({
+      mapId: 'm1',
+      tokenId: 't-wolf',
+      x: 9,
+      y: 9,
+      seat: { name: 'Brok' },
+    })
+    expect(token('t-wolf')).toMatchObject({ x: 2, y: 2 })
+    // Hidden, even though Brok is named on it.
+    applyGuestMove({
+      mapId: 'm1',
+      tokenId: 't-orc',
+      x: 0,
+      y: 0,
+      seat: { name: 'Brok' },
+    })
+    expect(token('t-orc')).toMatchObject({ x: 5, y: 5 })
+  })
+
+  it('ignores a move for a map this window is not sharing', async () => {
+    await board()
+    applyGuestMove({
+      mapId: 'm1',
+      tokenId: 't-wolf',
+      x: 9,
+      y: 9,
+      seat: { name: 'Brok' },
+    })
+    expect(token('t-wolf')).toMatchObject({ x: 2, y: 2 })
+    setLanMap('m1')
+    applyGuestMove({
+      mapId: 'other',
+      tokenId: 't-wolf',
+      x: 9,
+      y: 9,
+      seat: { name: 'Brok' },
+    })
+    expect(token('t-wolf')).toMatchObject({ x: 2, y: 2 })
   })
 })
 

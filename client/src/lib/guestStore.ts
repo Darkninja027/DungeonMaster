@@ -2,7 +2,11 @@ import { useSyncExternalStore } from 'react'
 import { api } from './api'
 import { mergeRoll, onLocalRoll } from './rollLog'
 import type { RollEntry } from './rollLog'
-import type { Seat } from './api'
+import type { Seat, TokenControl } from './api'
+import { parseMaps } from './mapStore'
+import type { BattleMap } from './mapStore'
+import { parseTableSession, parseTokenControl } from './mapSession'
+import type { TableSession } from './mapSession'
 
 /**
  * The guest side of a LAN session: what this machine has joined, what the DM is
@@ -37,12 +41,24 @@ export interface OfferedCharacter {
   claimedBy: string | null
 }
 
+/** The battlemap the DM is sharing, as this guest received it. */
+export interface GuestMap {
+  mapId: string
+  /** Already stripped of hidden tokens by the DM's machine. */
+  map: BattleMap
+  /** Turn order and round, redacted. Rolls are the table log, not here. */
+  session: TableSession
+  /** Token id -> who may move it. */
+  control: Record<string, TokenControl>
+}
+
 export interface GuestState {
   session: GuestSession | null
   connected: boolean
   shown: Shown | null
   seats: Array<Seat>
-  combat: unknown
+  /** The shared battlemap, or null when the DM is not sharing one. */
+  map: GuestMap | null
   characterId: string | null
   /**
    * Where the claimed character lives.
@@ -65,7 +81,7 @@ const empty: GuestState = {
   connected: false,
   shown: null,
   seats: [],
-  combat: null,
+  map: null,
   characterId: null,
   origin: null,
   sheet: null,
@@ -243,7 +259,7 @@ export function apply(frame: { kind?: unknown; payload?: unknown }): void {
       setState({
         seats: Array.isArray(hello.seats) ? (hello.seats as Array<Seat>) : [],
         shown: isShown(hello.shown) ? hello.shown : null,
-        combat: hello.combat ?? null,
+        map: parseGuestMap(hello.map),
       })
       // Replayed history, so the guest's log is not empty on arrival.
       if (Array.isArray(hello.rolls)) {
@@ -263,14 +279,68 @@ export function apply(frame: { kind?: unknown; payload?: unknown }): void {
     case 'seats':
       if (Array.isArray(p)) setState({ seats: p as Array<Seat> })
       return
-    case 'combat':
-      setState({ combat: p ?? null })
+    case 'map':
+      // null is the DM taking it down. A malformed frame is NOT: it leaves the
+      // last good board up, rather than blanking it mid-fight.
+      if (p === null) setState({ map: null })
+      else {
+        const next = parseGuestMap(p)
+        if (next) setState({ map: next })
+      }
       return
     case 'roll':
       if (isRoll(p)) mergeRoll(p)
       return
     default:
       return
+  }
+}
+
+/**
+ * A shared map from the host. Through the same tolerant parsers the DM's own
+ * windows use, so a hand-edited or part-broken map reads identically here.
+ */
+function parseGuestMap(raw: unknown): GuestMap | null {
+  if (typeof raw !== 'object' || raw === null) return null
+  const r = raw as Record<string, unknown>
+  if (typeof r.mapId !== 'string') return null
+  const map = parseMaps({ version: 1, maps: [r.map] }).maps.at(0)
+  if (!map) return null
+  return {
+    mapId: r.mapId,
+    map,
+    session: parseTableSession(r.session),
+    control: parseTokenControl(r.control),
+  }
+}
+
+/**
+ * The host's URL for a map image. The world:// protocol is this machine's
+ * world folder, which a guest does not have; the host serves the same files on
+ * /img/, gated by this seat's token. Encoded per segment, as mapImageUrl does.
+ */
+export function guestImageUrl(imageId: string): string {
+  if (!imageId || !state.session) return ''
+  const encoded = imageId.split('/').map(encodeURIComponent).join('/')
+  return `${base()}/img/_images/${encoded}?token=${encodeURIComponent(state.session.token)}`
+}
+
+/**
+ * Move a token this seat controls. No approval, but the host decides whether it
+ * IS this seat's token — it answers 403 otherwise, and nothing moves.
+ */
+export async function sendMove(
+  mapId: string,
+  tokenId: string,
+  x: number,
+  y: number,
+): Promise<boolean> {
+  if (!state.session) return false
+  try {
+    const res = await send('/move', { mapId, tokenId, x, y })
+    return res.ok
+  } catch {
+    return false
   }
 }
 

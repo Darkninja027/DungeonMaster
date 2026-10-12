@@ -329,10 +329,45 @@ export interface StateChange {
 export type MapWindowMode = 'edit' | 'table'
 
 /** A map relayed live to the table window. */
+/**
+ * Who may move a token from a LAN seat.
+ *
+ * `characterId` is the automatic case: a token linked to a party member's
+ * combatant belongs to whichever seat has CLAIMED that character, a claim the
+ * host makes exclusive. `player` is the DM's manual "Controlled by" pick, a
+ * seat NAME rather than a seat id because a seat id is minted fresh on every
+ * join, and a player who drops and rejoins should keep their familiar.
+ */
+export interface TokenControl {
+  characterId?: string
+  player?: string
+}
+
+/** A battlemap as the DM shares it with LAN guests. Already redacted. */
+export interface TableMapShare {
+  mapId: string
+  map: unknown
+  session: unknown
+  /** Token id -> who may move it. Visible tokens only. */
+  control: Record<string, TokenControl>
+}
+
+/** A guest's move, as main forwards it to the DM's editor. */
+export interface TableMove {
+  mapId: string
+  tokenId: string
+  x: number
+  y: number
+  /** The seat that asked, as the host knows it — never as the guest said. */
+  seat: { name: string; characterId?: string }
+}
+
 export interface MapLive {
   worldId: string
   mapId: string
   map: unknown
+  /** Initiative and rolls, already redacted by `forPlayersSession`. */
+  session?: unknown
 }
 
 /** What the DM window relays to a viewer window on every edit. */
@@ -716,8 +751,8 @@ export const api = {
      * disk — and the payload must already be `forPlayers()`-ed by the caller,
      * so a hidden token never enters this path at all.
      */
-    push: (worldId: string, mapId: string, map: unknown) =>
-      invoke<void>('mapView:push', { worldId, mapId, map }),
+    push: (worldId: string, mapId: string, map: unknown, session?: unknown) =>
+      invoke<void>('mapView:push', { worldId, mapId, map, session }),
     /** Table window: subscribe to pushed maps; returns an unsubscribe fn. */
     onLive: (cb: (payload: MapLive) => void) =>
       window.dmApi.on('map:live', (p) => cb(p as MapLive)),
@@ -853,6 +888,16 @@ export const api = {
     /** Subscribe to rolls made in other windows; returns an unsubscribe fn. */
     onEntry: (cb: (entry: RollEntry) => void) =>
       window.dmApi.on('rolls:entry', (payload) => cb(payload as RollEntry)),
+    /**
+     * Every roll main has seen this run, so a window opened mid-session (the
+     * battlemap) starts with the log rather than an empty one. Main answers a
+     * players' map window with nothing.
+     */
+    history: () => invoke<Array<unknown>>('rolls:history'),
+    /** Clear the log in every window, and main's copy. */
+    clear: () => invoke<void>('rolls:clear'),
+    /** Another window cleared the log. */
+    onCleared: (cb: () => void) => window.dmApi.on('rolls:cleared', () => cb()),
   },
   /**
    * Hosting a LAN session. One DM serves N guests over plain HTTP — see
@@ -871,8 +916,20 @@ export const api = {
       invoke<void>('table:show', payload),
     /** Take whatever is on the table down. No-ops when not hosting. */
     clear: () => invoke<void>('table:clear'),
-    /** Mirror initiative to the guests. No-ops when not hosting. */
-    combat: (state: unknown) => invoke<void>('table:combat', { state }),
+    /**
+     * Share a battlemap with the guests, or take it down with null. No-ops
+     * when not hosting. The payload must already be redacted — `forPlayers`
+     * on the map, `forPlayersSession` on initiative — because main forwards it
+     * to other machines as it is.
+     */
+    map: (share: TableMapShare | null) => invoke<void>('table:map', share),
+    /**
+     * Host: a guest moved a token. Main has checked the seat controls it; the
+     * editor sharing that map checks again against its current state and
+     * applies it.
+     */
+    onMove: (cb: (move: TableMove) => void) =>
+      window.dmApi.on('table:move', (payload) => cb(payload as TableMove)),
     /**
      * Guest side: find a host on the LAN by room code alone.
      *

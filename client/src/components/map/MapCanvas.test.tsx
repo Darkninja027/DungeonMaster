@@ -453,3 +453,90 @@ describe('MapCanvas', () => {
     expect(players.container.innerHTML).not.toContain('Assassin')
   })
 })
+
+describe('a player dragging their own token', () => {
+  /** One cell, so wherever the pointer lands on the grid, it lands on the token. */
+  const oneCell = () =>
+    addToken(
+      map({ grid: { cols: 1, rows: 1, size: 70 } }),
+      token({ id: 'mine', x: 0, y: 0 }),
+    )
+
+  function dragAcross(container: HTMLElement) {
+    const host = container.firstElementChild as HTMLElement
+    host.setPointerCapture = () => {}
+    host.releasePointerCapture = () => {}
+    fireEvent.pointerDown(host, { clientX: 400, clientY: 300, button: 0 })
+    fireEvent.pointerMove(host, { clientX: 402, clientY: 301 })
+    fireEvent.pointerUp(host)
+  }
+
+  it('moves a token it is allowed to, and reports the drop', () => {
+    const onMoveToken = vi.fn()
+    const onDropToken = vi.fn()
+    const { container } = render(
+      <MapCanvas
+        worldId="abc"
+        map={oneCell()}
+        audience="player"
+        canDragToken={(t) => t.id === 'mine'}
+        onMoveToken={onMoveToken}
+        onDropToken={onDropToken}
+      />,
+    )
+    dragAcross(container)
+    expect(onMoveToken).toHaveBeenCalledWith('mine', 0, 0)
+    expect(onDropToken).toHaveBeenCalledWith('mine', 0, 0)
+  })
+
+  it('leaves every other token alone — the drag is a pan', () => {
+    const onMoveToken = vi.fn()
+    const onDropToken = vi.fn()
+    const { container } = render(
+      <MapCanvas
+        worldId="abc"
+        map={oneCell()}
+        audience="player"
+        canDragToken={() => false}
+        onMoveToken={onMoveToken}
+        onDropToken={onDropToken}
+      />,
+    )
+    dragAcross(container)
+    expect(onMoveToken).not.toHaveBeenCalled()
+    expect(onDropToken).not.toHaveBeenCalled()
+  })
+
+  it('sends no move for a click that went nowhere', () => {
+    const onDropToken = vi.fn()
+    const { container } = render(
+      <MapCanvas
+        worldId="abc"
+        map={oneCell()}
+        audience="player"
+        canDragToken={() => true}
+        onDropToken={onDropToken}
+      />,
+    )
+    const host = container.firstElementChild as HTMLElement
+    host.setPointerCapture = () => {}
+    host.releasePointerCapture = () => {}
+    fireEvent.pointerDown(host, { clientX: 400, clientY: 300, button: 0 })
+    fireEvent.pointerUp(host)
+    expect(onDropToken).not.toHaveBeenCalled()
+  })
+
+  it('loads images from the URL it is given, not world://', () => {
+    const { container } = render(
+      <MapCanvas
+        worldId=""
+        map={oneCell()}
+        audience="player"
+        imageUrl={(id) => `http://host:7777/img/_images/${id}?token=t`}
+      />,
+    )
+    expect(container.querySelector('img')?.getAttribute('src')).toBe(
+      'http://host:7777/img/_images/Maps/cave.png?token=t',
+    )
+  })
+})
