@@ -1,11 +1,10 @@
-import { useMemo, useState } from 'react'
-import { CornerDownLeft, Dices, X } from 'lucide-react'
+import { useState } from 'react'
+import { Link } from '@tanstack/react-router'
+import { CornerDownLeft, Dices, Settings2, X } from 'lucide-react'
 import { Button } from '#/components/ui/button'
 import { cn } from '#/lib/utils'
 import {
   CRAFT_TIPS,
-  DESCRIBE_SUBJECTS,
-  SUBJECT_GROUPS,
   detailsBlock,
   findSubject,
   rollEntry,
@@ -13,13 +12,14 @@ import {
 } from '#/lib/describe/subjects'
 import type { DescribeSubject } from '#/lib/describe/subjects'
 import {
-  NAME_GROUPS,
   canRollFullName,
   groupLabel,
   nameCategories,
   rollFullName,
 } from '#/lib/describe/names'
 import type { NameGroup } from '#/lib/describe/names'
+import { groupsOf } from '#/lib/describe/details'
+import { useDescribeLists } from '#/lib/describe/useDescribeLists'
 
 const PREFS_KEY = 'dm.describePrefs'
 
@@ -30,10 +30,12 @@ interface Prefs {
   group: string
 }
 
+// Empty picks fall through to the first entry of whatever lists are loaded,
+// built-in or the DM's own, so a default can never name something missing.
 const DEFAULT_PREFS: Prefs = {
   mode: 'describe',
-  subject: DESCRIBE_SUBJECTS[0].id,
-  category: nameCategories()[0] ?? '',
+  subject: '',
+  category: '',
   group: '',
 }
 
@@ -70,17 +72,21 @@ const selectClass =
  * route keys the panel by article id); only the pickers are remembered.
  */
 export function DescribePanel({
+  worldId,
   articleType,
   onInsertText,
   onInsertBlock,
   onClose,
 }: {
+  /** For the "Edit lists" link; the lists themselves are app-wide. */
+  worldId: string
   /** Frontmatter `type:` — picks a sensible starting subject. */
   articleType?: string
   onInsertText: (text: string) => void
   onInsertBlock: (block: string) => void
   onClose: () => void
 }) {
+  const lists = useDescribeLists()
   const [prefs, setPrefsState] = useState<Prefs>(loadPrefs)
   // The article's content (and so its type) arrives after the panel mounts,
   // so follow the type as it changes rather than reading it once. Adjusting
@@ -89,7 +95,7 @@ export function DescribePanel({
   const [seenType, setSeenType] = useState<string | undefined>(undefined)
   if (articleType !== seenType) {
     setSeenType(articleType)
-    const fromType = subjectForType(articleType)
+    const fromType = subjectForType(articleType, lists.subjects)
     if (fromType) setPrefsState((prev) => ({ ...prev, subject: fromType.id }))
   }
   const setPrefs = (patch: Partial<Prefs>) =>
@@ -122,6 +128,21 @@ export function DescribePanel({
           variant="ghost"
           size="icon"
           className="ml-auto size-6"
+          title="Edit these lists"
+          asChild
+        >
+          <Link
+            to="/worlds/$worldId/settings"
+            params={{ worldId }}
+            search={{ section: 'describe' }}
+          >
+            <Settings2 className="size-3.5" />
+          </Link>
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="size-6"
           title="Hide the describe helper"
           onClick={onClose}
         >
@@ -131,13 +152,17 @@ export function DescribePanel({
       <div className="min-h-0 flex-1 overflow-y-auto">
         {prefs.mode === 'describe' ? (
           <DetailsMode
-            subject={findSubject(prefs.subject) ?? DESCRIBE_SUBJECTS[0]}
+            subjects={lists.subjects}
+            subject={
+              findSubject(prefs.subject, lists.subjects) ?? lists.subjects[0]
+            }
             onSubject={(subject) => setPrefs({ subject })}
             onInsertText={onInsertText}
             onInsertBlock={onInsertBlock}
           />
         ) : (
           <NamesMode
+            nameGroups={lists.nameGroups}
             category={prefs.category}
             group={prefs.group}
             onPick={(category, group) => setPrefs({ category, group })}
@@ -150,11 +175,13 @@ export function DescribePanel({
 }
 
 function DetailsMode({
+  subjects,
   subject,
   onSubject,
   onInsertText,
   onInsertBlock,
 }: {
+  subjects: ReadonlyArray<DescribeSubject>
   subject: DescribeSubject
   onSubject: (id: string) => void
   onInsertText: (text: string) => void
@@ -194,13 +221,15 @@ function DetailsMode({
         value={subject.id}
         onChange={(e) => onSubject(e.target.value)}
       >
-        {SUBJECT_GROUPS.map((group) => (
+        {groupsOf(subjects).map((group) => (
           <optgroup key={group} label={group}>
-            {DESCRIBE_SUBJECTS.filter((s) => s.group === group).map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.label}
-              </option>
-            ))}
+            {subjects
+              .filter((s) => s.group === group)
+              .map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.label}
+                </option>
+              ))}
           </optgroup>
         ))}
       </select>
@@ -274,18 +303,24 @@ function DetailsMode({
 }
 
 function NamesMode({
-  category,
+  nameGroups,
+  category: savedCategory,
   group,
   onPick,
   onInsertText,
 }: {
+  nameGroups: ReadonlyArray<NameGroup>
   category: string
   group: string
   onPick: (category: string, group: string) => void
   onInsertText: (text: string) => void
 }) {
-  const categories = useMemo(() => nameCategories(), [])
-  const groups = NAME_GROUPS.filter((g) => g.category === category)
+  const categories = nameCategories(nameGroups)
+  // A remembered category can vanish when the DM edits their lists.
+  const category = categories.includes(savedCategory)
+    ? savedCategory
+    : (categories.at(0) ?? '')
+  const groups = nameGroups.filter((g) => g.category === category)
   // Typed as possibly undefined: an empty category leaves nothing to show.
   const current: NameGroup | undefined =
     groups.find((g) => groupLabel(g) === group) ?? groups.at(0)

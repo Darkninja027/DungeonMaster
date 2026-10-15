@@ -15,6 +15,8 @@ import {
   parseNameLists,
   rollFullName,
 } from './names'
+import { groupsOf, parseDetails, serializeDetails } from './details'
+import { resolveLists } from './useDescribeLists'
 
 describe('describe subjects', () => {
   it('has unique subject ids and unique table ids per subject', () => {
@@ -146,5 +148,67 @@ describe('name lists', () => {
     expect(groups).toHaveLength(1)
     expect(groups[0].category).toBe('People')
     expect(rollFullName(groups[0], () => 0)).toBe('Ann Cole')
+  })
+})
+
+describe('editable details lists', () => {
+  it('round-trips every built-in subject through markdown', () => {
+    const parsed = parseDetails(serializeDetails(DESCRIBE_SUBJECTS))
+    // Exact equality: ids, groups, types, prompts and entries all survive, so
+    // a DM who saves the defaults unchanged sees exactly the same pane.
+    expect(parsed).toEqual(DESCRIBE_SUBJECTS.map((s) => ({ ...s })))
+  })
+
+  it('parses new groups, subjects and types, and keeps built-in ids by label', () => {
+    const subjects = parseDetails(
+      [
+        '# Homes',
+        '## Treehouse',
+        'Types: Location',
+        '- How high up is it?',
+        '### Ladder',
+        '- rope',
+        '- rope',
+        '- vine',
+        '### Empty table',
+        '## No tables here',
+        '- a prompt',
+        '# Mine',
+        '## tavern or inn',
+        '### Brawl',
+        '- chairs fly',
+      ].join('\r\n'),
+    )
+    expect(subjects.map((s) => s.id)).toEqual(['treehouse', 'tavern'])
+    expect(subjects[0]).toMatchObject({
+      group: 'Homes',
+      types: ['location'],
+      prompts: ['How high up is it?'],
+      tables: [{ id: 'ladder', entries: ['rope', 'vine'] }],
+    })
+    // Inherits the built-in's id so the pane's remembered subject survives.
+    expect(subjects[1].group).toBe('Mine')
+    expect(groupsOf(subjects)).toEqual(['Homes', 'Mine'])
+    expect(subjectForType('location', subjects)?.id).toBe('treehouse')
+  })
+
+  it('makes clashing ids unique rather than dropping a subject', () => {
+    const subjects = parseDetails(
+      '## Hut\n### A\n- x\n## Hut\n### A\n- y\n### a\n- z\n',
+    )
+    expect(subjects.map((s) => s.id)).toEqual(['hut', 'hut-2'])
+    expect(subjects[1].tables.map((t) => t.id)).toEqual(['a', 'a-2'])
+  })
+
+  it('falls back to the built-ins when a saved file parses to nothing', () => {
+    const empty = resolveLists({ names: 'just prose.', details: '' })
+    expect(empty.subjects).toBe(DESCRIBE_SUBJECTS)
+    expect(empty.nameGroups).toBe(NAME_GROUPS)
+    const custom = resolveLists({
+      names: '# Title\n# People\n## Folk\n- **Given:** Ann',
+      details: null,
+    })
+    expect(custom.nameGroups).toHaveLength(1)
+    expect(custom.subjects).toBe(DESCRIBE_SUBJECTS)
   })
 })

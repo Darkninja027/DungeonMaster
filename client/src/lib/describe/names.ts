@@ -123,6 +123,9 @@ export function parseNameLists(markdown: string): Array<NameGroup> {
   return groups
 }
 
+/** The bundled `names.md`, verbatim — the starting text for a DM's own copy. */
+export const BUILT_IN_NAMES_MARKDOWN: string = NAMES_MARKDOWN
+
 export const NAME_GROUPS: ReadonlyArray<NameGroup> =
   parseNameLists(NAMES_MARKDOWN)
 

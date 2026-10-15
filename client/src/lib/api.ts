@@ -786,6 +786,17 @@ export const api = {
     get: () => invoke<unknown>('templates:get'),
     set: (state: unknown) => invoke<void>('templates:set', { state }),
   },
+  describe: {
+    /**
+     * The DM's own Describe-panel lists as raw markdown. null for a kind
+     * means no file, i.e. the built-ins are in use. lib/describe/ parses.
+     */
+    get: () =>
+      invoke<{ names: string | null; details: string | null }>('describe:get'),
+    /** Save one list; `null` resets it to the built-ins. */
+    set: (kind: 'names' | 'details', text: string | null) =>
+      invoke<void>('describe:set', { kind, text }),
+  },
   vault: {
     /**
      * The vault, or null if there has never been one. Never creates — the home

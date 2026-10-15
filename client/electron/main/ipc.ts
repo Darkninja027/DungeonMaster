@@ -83,6 +83,7 @@ import {
 } from './worldSettings'
 import { readHomebrew, writeHomebrew } from './homebrew'
 import { readTemplates, writeTemplates } from './templates'
+import { readDescribeLists, writeDescribeList } from './describeLists'
 import { noteSelfWrite, startWatching, stopWatching } from './watcher'
 import {
   closeAllPlayerWindows,
@@ -870,6 +871,15 @@ export function registerIpcHandlers() {
 
   ipcMain.handle('templates:set', (_e, { state }: { state: unknown }) =>
     writeTemplates(state),
+  )
+
+  // The Describe panel's own name and detail lists, app-wide like templates.
+  ipcMain.handle('describe:get', () => readDescribeLists())
+
+  ipcMain.handle(
+    'describe:set',
+    (_e, { kind, text }: { kind: unknown; text: unknown }) =>
+      writeDescribeList(kind, text),
   )
 
   // Global library ------------------------------------------------------------

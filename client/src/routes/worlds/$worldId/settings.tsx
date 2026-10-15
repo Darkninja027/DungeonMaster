@@ -9,6 +9,10 @@ import { cn } from '#/lib/utils'
 
 export const Route = createFileRoute('/worlds/$worldId/settings')({
   component: WorldSettingsPage,
+  // Optional ?section= so another screen can link straight to a section (the
+  // Describe pane's "Edit lists"). Unknown ids fall back via findSection.
+  validateSearch: (search: Record<string, unknown>): { section?: string } =>
+    typeof search.section === 'string' ? { section: search.section } : {},
 })
 
 /**
@@ -25,7 +29,8 @@ export const Route = createFileRoute('/worlds/$worldId/settings')({
  */
 function WorldSettingsPage() {
   const { worldId } = Route.useParams()
-  const [sectionId, setSectionId] = useState(DEFAULT_SECTION)
+  const { section: linkedSection } = Route.useSearch()
+  const [sectionId, setSectionId] = useState(linkedSection ?? DEFAULT_SECTION)
   const section = findSection(sectionId)
   const { Component } = section
 
@@ -36,8 +41,9 @@ function WorldSettingsPage() {
         <p className="tome-quiet text-xs">
           Per-world settings are stored as <code>worldSettings.json</code> in
           the world folder; safe to hand-edit. If your edits don’t show up,
-          check it for a JSON syntax error. Homebrew, Templates and Library are
-          the exceptions — they live with the app and apply to every world.
+          check it for a JSON syntax error. Homebrew, Templates, Describe lists
+          and Library are the exceptions — they live with the app and apply to
+          every world.
         </p>
       </div>
 

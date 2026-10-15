@@ -13,6 +13,7 @@
  */
 
 import { splitFrontmatter } from '../formatMarkdown'
+import { BUILDING_SUBJECTS } from './buildings'
 
 export interface DetailTable {
   /** Unique within its subject; React key and roll-state key. */
@@ -22,10 +23,27 @@ export interface DetailTable {
 }
 
 export type SubjectGroup =
-  'Buildings' | 'Underground' | 'People' | 'Settlements' | 'Landscapes'
+  | 'Buildings'
+  | 'Homes'
+  | 'Shops & trades'
+  | 'Inns & leisure'
+  | 'Religious'
+  | 'Civic & military'
+  | 'Working buildings'
+  | 'Underground'
+  | 'People'
+  | 'Settlements'
+  | 'Landscapes'
 
+/** Display order of the built-in subjects' optgroups. */
 export const SUBJECT_GROUPS: ReadonlyArray<SubjectGroup> = [
   'Buildings',
+  'Homes',
+  'Shops & trades',
+  'Inns & leisure',
+  'Religious',
+  'Civic & military',
+  'Working buildings',
   'Underground',
   'People',
   'Settlements',
@@ -36,7 +54,12 @@ export interface DescribeSubject {
   /** Globally unique; remembered in localStorage as the last-used subject. */
   id: string
   label: string
-  group: SubjectGroup
+  /**
+   * Picker optgroup. Plain string rather than `SubjectGroup` because a DM's
+   * own lists (see `details.ts`) can invent groups; `SUBJECT_GROUPS` is only
+   * the built-ins' display order.
+   */
+  group: string
   /** The questions a good description of this kind of thing answers. */
   prompts: ReadonlyArray<string>
   tables: ReadonlyArray<DetailTable>
@@ -357,7 +380,7 @@ const BUILDING_INTERIOR: DescribeSubject = {
 const TAVERN: DescribeSubject = {
   id: 'tavern',
   label: 'Tavern or inn',
-  group: 'Buildings',
+  group: 'Inns & leisure',
   prompts: [
     'What is the mood tonight: rowdy, tense, sleepy, mournful?',
     'Who runs it, and where are they standing?',
@@ -471,7 +494,7 @@ const TAVERN: DescribeSubject = {
 const SHOP: DescribeSubject = {
   id: 'shop',
   label: 'Shop or workshop',
-  group: 'Buildings',
+  group: 'Shops & trades',
   prompts: [
     'What does the shop smell and sound like from the doorway?',
     'How is the stock displayed: proud, chaotic, hidden?',
@@ -548,7 +571,7 @@ const SHOP: DescribeSubject = {
 const TEMPLE: DescribeSubject = {
   id: 'temple',
   label: 'Temple or shrine',
-  group: 'Buildings',
+  group: 'Religious',
   prompts: [
     'What does the god care about, and how does the building show it?',
     'Is it rich or poor, busy or forgotten?',
@@ -625,7 +648,7 @@ const TEMPLE: DescribeSubject = {
 const CASTLE: DescribeSubject = {
   id: 'castle',
   label: 'Castle or keep',
-  group: 'Buildings',
+  group: 'Civic & military',
   prompts: [
     'What was it built to defend against, and does that threat still exist?',
     'How do you approach it, and how exposed do you feel?',
@@ -1591,6 +1614,7 @@ export const DESCRIBE_SUBJECTS: ReadonlyArray<DescribeSubject> = [
   SHOP,
   TEMPLE,
   CASTLE,
+  ...BUILDING_SUBJECTS,
   DUNGEON_ROOM,
   CAVERN,
   NPC,
@@ -1616,8 +1640,11 @@ export function articleType(content: string): string | undefined {
   return m?.[1]
 }
 
-export function findSubject(id: string): DescribeSubject | undefined {
-  return DESCRIBE_SUBJECTS.find((s) => s.id === id)
+export function findSubject(
+  id: string,
+  subjects: ReadonlyArray<DescribeSubject> = DESCRIBE_SUBJECTS,
+): DescribeSubject | undefined {
+  return subjects.find((s) => s.id === id)
 }
 
 /**
@@ -1627,10 +1654,11 @@ export function findSubject(id: string): DescribeSubject | undefined {
  */
 export function subjectForType(
   type: string | undefined,
+  subjects: ReadonlyArray<DescribeSubject> = DESCRIBE_SUBJECTS,
 ): DescribeSubject | undefined {
   if (!type) return undefined
   const t = type.trim().toLowerCase()
-  return DESCRIBE_SUBJECTS.find((s) => s.types?.includes(t))
+  return subjects.find((s) => s.types?.includes(t))
 }
 
 /** A uniform pick from a table. `rand` is injectable so tests are exact. */

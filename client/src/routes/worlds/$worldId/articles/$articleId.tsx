@@ -1256,6 +1256,7 @@ function ArticlePage() {
           // one, and the starting subject re-reads the new article's type.
           <DescribePanel
             key={articleId}
+            worldId={worldId}
             articleType={articleType(content)}
             onInsertText={insertAtCursor}
             onInsertBlock={insertBlock}

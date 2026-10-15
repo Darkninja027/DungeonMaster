@@ -1,9 +1,17 @@
-import { LayoutTemplate, Library, Pencil, Scale, Sparkles } from 'lucide-react'
+import {
+  Feather,
+  LayoutTemplate,
+  Library,
+  Pencil,
+  Scale,
+  Sparkles,
+} from 'lucide-react'
 import { EditorSection } from './EditorSection'
 import { RulesSection } from './RulesSection'
 import { LibrarySection } from './LibrarySection'
 import { HomebrewSection } from './homebrew/HomebrewSection'
 import { TemplatesSection } from './templates/TemplatesSection'
+import { DescribeListsSection } from './DescribeListsSection'
 import type { LucideIcon } from 'lucide-react'
 
 /**
@@ -40,7 +48,7 @@ export const SETTINGS_SECTIONS: Array<SettingsSection> = [
     blurb: "Which edition's spells and monsters this world uses.",
     Component: RulesSection,
   },
-  // These last three are the odd ones out: app-wide rather than per-world, so
+  // These last four are the odd ones out: app-wide rather than per-world, so
   // they don't belong among the settings this world saves for itself.
   {
     id: 'homebrew',
@@ -55,6 +63,13 @@ export const SETTINGS_SECTIONS: Array<SettingsSection> = [
     icon: LayoutTemplate,
     blurb: 'Article skeletons offered in every world.',
     Component: TemplatesSection,
+  },
+  {
+    id: 'describe',
+    label: 'Describe lists',
+    icon: Feather,
+    blurb: "Names and detail tables for the editor's Describe pane.",
+    Component: DescribeListsSection,
   },
   {
     id: 'library',
