@@ -12,6 +12,7 @@ import {
   ChevronDown,
   Columns2,
   Eye,
+  Feather,
   FileDown,
   FolderOpen,
   Link2,
@@ -64,6 +65,8 @@ import {
 } from '#/components/MarkdownContextMenu'
 import type { ContextMenuEditor } from '#/components/MarkdownContextMenu'
 import { TableOfContents } from '#/components/TableOfContents'
+import { DescribePanel } from '#/components/DescribePanel'
+import { articleType } from '#/lib/describe/subjects'
 import { SidebarToggle } from '#/components/SidebarToggle'
 import {
   activeHeadingAt,
@@ -119,6 +122,7 @@ const TOC_KEY = 'dm.articleToc'
 // Separate key rather than a field on TOC_KEY: that one's shape is {open} and
 // its loader would need migrating to carry a second flag.
 const LIVE_EDIT_KEY = 'dm.articleLiveEdit'
+const DESCRIBE_KEY = 'dm.articleDescribe'
 
 /** Outline pane visibility, remembered across sessions like the session panel. */
 function loadTocOpen(): boolean {
@@ -139,6 +143,18 @@ function loadLiveEdit(): boolean {
       on?: boolean
     }
     return raw.on === true
+  } catch {
+    return false
+  }
+}
+
+/** Describe helper visibility, remembered the same way. */
+function loadDescribeOpen(): boolean {
+  try {
+    const raw = JSON.parse(localStorage.getItem(DESCRIBE_KEY) ?? '') as {
+      open?: boolean
+    }
+    return raw.open === true
   } catch {
     return false
   }
@@ -189,6 +205,7 @@ function ArticlePage() {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const liveEditorRef = useRef<LiveEditorHandle>(null)
   const [tocOpen, setTocOpen] = useState(loadTocOpen)
+  const [describeOpen, setDescribeOpen] = useState(loadDescribeOpen)
   const [activeHeadingId, setActiveHeadingId] = useState<string | null>(null)
   const previewRef = useRef<HTMLDivElement>(null)
 
@@ -240,6 +257,10 @@ function ArticlePage() {
   useEffect(() => {
     localStorage.setItem(TOC_KEY, JSON.stringify({ open: tocOpen }))
   }, [tocOpen])
+
+  useEffect(() => {
+    localStorage.setItem(DESCRIBE_KEY, JSON.stringify({ open: describeOpen }))
+  }, [describeOpen])
 
   useEffect(() => {
     localStorage.setItem(
@@ -979,6 +1000,15 @@ function ArticlePage() {
               >
                 <List className="size-3.5" /> Outline
               </Button>
+              <Button
+                variant={describeOpen ? 'secondary' : 'ghost'}
+                size="sm"
+                className="h-8 text-xs"
+                title="Prompts, rollable details and names for describing places and people"
+                onClick={() => setDescribeOpen((v) => !v)}
+              >
+                <Feather className="size-3.5" /> Describe
+              </Button>
             </div>
           </div>
           <TabsContent value="write" className="flex min-h-0 flex-1 flex-col">
@@ -1219,6 +1249,17 @@ function ArticlePage() {
             activeId={activeHeadingId}
             onSelect={goToHeading}
             onClose={() => setTocOpen(false)}
+          />
+        )}
+        {describeOpen && (
+          // Keyed by article so rolled details don't follow you to the next
+          // one, and the starting subject re-reads the new article's type.
+          <DescribePanel
+            key={articleId}
+            articleType={articleType(content)}
+            onInsertText={insertAtCursor}
+            onInsertBlock={insertBlock}
+            onClose={() => setDescribeOpen(false)}
           />
         )}
       </div>
