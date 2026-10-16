@@ -3,7 +3,7 @@ import { EditorView } from '@codemirror/view'
 import { Annotation, EditorState } from '@codemirror/state'
 import { selectAll } from '@codemirror/commands'
 import { liveMarkdown } from '#/lib/cm/liveMarkdown'
-import { toggleWrap } from '#/lib/markdownEditing'
+import { isInTable, toggleWrap } from '#/lib/markdownEditing'
 import type { EditResult, Wrapper } from '#/lib/markdownEditing'
 import type { RollSource } from '#/lib/rollLog'
 
@@ -60,6 +60,8 @@ export interface LiveEditorHandle {
    * `liveMenuSelection` for why.
    */
   hasSelection: () => boolean
+  /** Whether the caret is on a table row. Sampled like `hasSelection`. */
+  inTable: () => boolean
   /**
    * Clipboard and select-all for the context menu.
    *
@@ -256,6 +258,14 @@ export function LiveMarkdownEditor({
         const instance = view.current
         if (!instance) return false
         return !instance.state.selection.main.empty
+      },
+      inTable() {
+        const instance = view.current
+        if (!instance) return false
+        return isInTable(
+          instance.state.doc.toString(),
+          instance.state.selection.main.head,
+        )
       },
       execCommand(command) {
         const instance = view.current

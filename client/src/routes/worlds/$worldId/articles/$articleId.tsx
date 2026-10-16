@@ -560,6 +560,7 @@ function ArticlePage() {
    * highlighted.
    */
   const [liveHasSelection, setLiveHasSelection] = useState(false)
+  const [liveInTable, setLiveInTable] = useState(false)
 
   /**
    * The live surface, shaped as the context menu expects. Lets live edit reuse
@@ -569,9 +570,12 @@ function ArticlePage() {
    */
   const liveMenuEditor = useMemo<ContextMenuEditor>(
     () => ({
-      onContextMenu: () =>
-        setLiveHasSelection(liveEditorRef.current?.hasSelection() ?? false),
+      onContextMenu: () => {
+        setLiveHasSelection(liveEditorRef.current?.hasSelection() ?? false)
+        setLiveInTable(liveEditorRef.current?.inTable() ?? false)
+      },
       hasSelection: liveHasSelection,
+      inTable: liveInTable,
       execEditorCommand: (command) =>
         liveEditorRef.current?.execCommand(command),
       wrap: (wrapper) => liveEditorRef.current?.wrap(wrapper),
@@ -579,7 +583,7 @@ function ArticlePage() {
       insertBlock,
       insertText: insertAtCursor,
     }),
-    [liveHasSelection, insertBlock, insertAtCursor],
+    [liveHasSelection, liveInTable, insertBlock, insertAtCursor],
   )
 
   /**

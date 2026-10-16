@@ -242,6 +242,11 @@ function tableAt(text: string, pos: number): TableAt | null {
   }
 }
 
+/** True when `pos` sits on a table row — what enables the menu's Table items. */
+export function isInTable(text: string, pos: number): boolean {
+  return tableAt(text, pos) !== null
+}
+
 /** Offset of the start of `lines[index]` within `lines.join('\n')`. */
 function lineOffset(lines: string[], index: number): number {
   return lines.slice(0, index).reduce((sum, line) => sum + line.length + 1, 0)

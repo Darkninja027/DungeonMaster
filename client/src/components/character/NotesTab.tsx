@@ -290,6 +290,7 @@ export function NotesTab({
   const [rememberedLiveEdit, setRememberedLiveEdit] = useState(loadLiveEdit)
   const liveEditorRef = useRef<LiveEditorHandle>(null)
   const [liveHasSelection, setLiveHasSelection] = useState(false)
+  const [liveInTable, setLiveInTable] = useState(false)
 
   useEffect(() => {
     localStorage.setItem(NOTES_PANES_KEY, JSON.stringify(panes))
@@ -411,9 +412,12 @@ export function NotesTab({
   const liveMenuEditor: ContextMenuEditor = {
     // Sampled as the menu opens: opening it moves focus off the editor, so a
     // live read reports "no selection" by the time Cut and Copy render.
-    onContextMenu: () =>
-      setLiveHasSelection(liveEditorRef.current?.hasSelection() ?? false),
+    onContextMenu: () => {
+      setLiveHasSelection(liveEditorRef.current?.hasSelection() ?? false)
+      setLiveInTable(liveEditorRef.current?.inTable() ?? false)
+    },
     hasSelection: liveHasSelection,
+    inTable: liveInTable,
     execEditorCommand: (command) => liveEditorRef.current?.execCommand(command),
     wrap: (wrapper) => liveEditorRef.current?.wrap(wrapper),
     transform: (fn) => liveEditorRef.current?.transform(fn),

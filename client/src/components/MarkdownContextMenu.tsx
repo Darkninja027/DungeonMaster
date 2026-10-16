@@ -1,4 +1,11 @@
-import { WRAPPERS, insertLink } from '#/lib/markdownEditing'
+import {
+  WRAPPERS,
+  addTableColumn,
+  addTableRow,
+  insertLink,
+  removeTableColumn,
+  removeTableRow,
+} from '#/lib/markdownEditing'
 import type { EditResult, Wrapper } from '#/lib/markdownEditing'
 import { snippets } from '#/lib/formatMarkdown'
 import {
@@ -36,6 +43,8 @@ export interface ContextMenuEditor {
   /** Sample selection state as the menu opens. Must not preventDefault. */
   onContextMenu: () => void
   hasSelection: boolean
+  /** Whether the caret was on a table row as the menu opened. */
+  inTable: boolean
   execEditorCommand: (command: 'cut' | 'copy' | 'paste' | 'selectAll') => void
   wrap: (wrapper: Wrapper) => void
   transform: (
@@ -66,7 +75,7 @@ export function MarkdownContextMenu({
   editor: ContextMenuEditor
   children: React.ReactNode
 }) {
-  const { hasSelection, execEditorCommand } = editor
+  const { hasSelection, inTable, execEditorCommand } = editor
 
   return (
     <ContextMenu>
@@ -163,6 +172,52 @@ export function MarkdownContextMenu({
             onClick={() => editor.insertText(snippets.namedRoll)}
           >
             Named roll
+          </ContextMenuItem>
+        </ContextMenuGroup>
+
+        <ContextMenuSeparator />
+        <ContextMenuGroup>
+          <ContextMenuLabel className={MENU_GROUP_LABEL}>
+            Table
+          </ContextMenuLabel>
+          {/* Every table edit is reachable by click alone, so none of them
+              depends on holding a chord. Outside a table they read as
+              disabled rather than silently doing nothing, like Cut and Copy. */}
+          <ContextMenuItem
+            disabled={!inTable}
+            onClick={() =>
+              editor.transform((text, start) => addTableRow(text, start))
+            }
+          >
+            Add row
+            <ContextMenuShortcut>Ctrl+R</ContextMenuShortcut>
+          </ContextMenuItem>
+          <ContextMenuItem
+            disabled={!inTable}
+            onClick={() =>
+              editor.transform((text, start) => addTableColumn(text, start))
+            }
+          >
+            Add column
+            <ContextMenuShortcut>Ctrl+G</ContextMenuShortcut>
+          </ContextMenuItem>
+          <ContextMenuItem
+            disabled={!inTable}
+            onClick={() =>
+              editor.transform((text, start) => removeTableRow(text, start))
+            }
+          >
+            Remove row
+            <ContextMenuShortcut>Ctrl+⇧+R</ContextMenuShortcut>
+          </ContextMenuItem>
+          <ContextMenuItem
+            disabled={!inTable}
+            onClick={() =>
+              editor.transform((text, start) => removeTableColumn(text, start))
+            }
+          >
+            Remove column
+            <ContextMenuShortcut>Ctrl+⇧+G</ContextMenuShortcut>
           </ContextMenuItem>
         </ContextMenuGroup>
 

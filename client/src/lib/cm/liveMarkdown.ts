@@ -239,41 +239,33 @@ export function liveMarkdown(options: LiveMarkdownOptions = {}): Extension {
         preventDefault: true,
       },
       {
+        // Ctrl+R adds a row (or starts a table), Ctrl+Shift+R removes one —
+        // the same shape as the Ctrl+G column pair. Shift is swallowed even
+        // with nothing to remove, so it can never force-reload the app.
         key: 'Mod-r',
         run: (view) =>
           applyTransform(view, (text, start) => addTableRow(text, start)) ||
           applyTransform(view, (text, start, end) =>
             padBlock(text, { start, end }, TABLE_SNIPPET),
           ),
+        shift: (view) =>
+          applyTransform(view, (text, start) => removeTableRow(text, start)),
         preventDefault: true,
       },
       {
-        key: 'Mod-Shift-r',
+        // Ctrl+G adds a column (or starts a table), Ctrl+Shift+G removes one.
+        // Both pairs sit under the left hand on purpose: the removes were once
+        // Ctrl+Alt chords, hard to hold for anyone with limited hand mobility.
+        // Keep table edits reachable one-handed, with no Alt.
+        key: 'Mod-g',
         run: (view) =>
           applyTransform(view, (text, start) => addTableColumn(text, start)) ||
           applyTransform(view, (text, start, end) =>
             padBlock(text, { start, end }, TABLE_SNIPPET),
           ),
+        shift: (view) =>
+          applyTransform(view, (text, start) => removeTableColumn(text, start)),
         preventDefault: true,
-      },
-      {
-        // Ctrl+Alt+R removes the table row, with Shift the column. Not a
-        // `key: 'Mod-Alt-Shift-r'` binding: CodeMirror skips its keyCode
-        // fallback for Ctrl+Alt on Windows (it's AltGr there), so the shifted
-        // name is never looked up and that binding would never fire. Reading
-        // the event here matches the textarea's handler exactly — including
-        // AltGr safety, since a layout's AltGr+R reports its own character.
-        any: (view, event) => {
-          if (!(event.ctrlKey || event.metaKey) || !event.altKey) return false
-          if (event.key.toLowerCase() !== 'r') return false
-          applyTransform(view, (text, start) =>
-            event.shiftKey
-              ? removeTableColumn(text, start)
-              : removeTableRow(text, start),
-          )
-          // Swallowed even with nothing to remove, like the textarea.
-          return true
-        },
       },
       {
         key: 'Mod-Enter',

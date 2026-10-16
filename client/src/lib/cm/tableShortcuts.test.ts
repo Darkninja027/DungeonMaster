@@ -7,12 +7,12 @@ import { liveMarkdown } from './liveMarkdown'
  * The table shortcuts in the live editor, driven by real keydown events.
  *
  * The transforms are tested in markdownEditing.test.ts; what can break here is
- * the binding. Remove-column in particular is an `any` handler rather than a
- * `key: 'Mod-Alt-Shift-r'` binding, because on Windows CodeMirror treats
- * Ctrl+Alt as AltGr and skips the keyCode fallback that would look up the
- * shifted name — the event arrives as key 'R' and only `Alt-Ctrl-R` is tried.
- * jsdom is not Windows, so these tests cannot reproduce that skip; they pin
- * the `any` handler's own reading of the event, which is platform-free.
+ * the binding.
+ *
+ * R is rows and G is columns; Shift turns add into remove. Every one is
+ * reachable under the left hand, with no Alt, on purpose: the removes started
+ * as Ctrl+Alt and Ctrl+Alt+Shift chords, which are hard to hold for anyone
+ * with limited hand mobility. Don't move them back to Alt chords.
  */
 const TABLE = '| a | b |\n| - | - |\n| 1 | 2 |\n| 3 | 4 |'
 
@@ -34,57 +34,37 @@ function press(pos: number, init: KeyboardEventInit) {
   return { handled, doc }
 }
 
+const ctrl = (key: string, keyCode: number, shiftKey = false) => ({
+  key: shiftKey ? key.toUpperCase() : key,
+  keyCode,
+  ctrlKey: true,
+  shiftKey,
+})
+
 describe('table shortcuts in the live editor', () => {
-  it('Ctrl+Shift+R adds a column', () => {
-    const { doc } = press(TABLE.indexOf('1'), {
-      key: 'R',
-      keyCode: 82,
-      ctrlKey: true,
-      shiftKey: true,
-    })
-    expect(doc.split('\n')[2]).toBe('| 1 |     | 2 |')
+  it('Ctrl+R adds a row', () => {
+    const { doc } = press(TABLE.indexOf('1'), ctrl('r', 82))
+    expect(doc.split('\n')[3]).toBe('|   |   |')
   })
 
-  it('Ctrl+Alt+R removes the caret row', () => {
-    const { doc } = press(TABLE.indexOf('1'), {
-      key: 'r',
-      keyCode: 82,
-      ctrlKey: true,
-      altKey: true,
-    })
+  it('Ctrl+Shift+R removes the caret row', () => {
+    const { doc } = press(TABLE.indexOf('1'), ctrl('r', 82, true))
     expect(doc).toBe('| a | b |\n| - | - |\n| 3 | 4 |')
   })
 
-  it('Ctrl+Alt+Shift+R removes the caret column, as Windows sends it', () => {
-    const { doc } = press(TABLE.indexOf('1'), {
-      key: 'R',
-      keyCode: 82,
-      ctrlKey: true,
-      altKey: true,
-      shiftKey: true,
-    })
+  it('Ctrl+G adds a column', () => {
+    const { doc } = press(TABLE.indexOf('1'), ctrl('g', 71))
+    expect(doc.split('\n')[2]).toBe('| 1 |     | 2 |')
+  })
+
+  it('Ctrl+Shift+G removes the caret column', () => {
+    const { doc } = press(TABLE.indexOf('1'), ctrl('g', 71, true))
     expect(doc).toBe('| b |\n| - |\n| 2 |\n| 4 |')
   })
 
-  it('swallows Ctrl+Alt+R on the header rather than letting it through', () => {
-    const { handled, doc } = press(TABLE.indexOf('a'), {
-      key: 'r',
-      keyCode: 82,
-      ctrlKey: true,
-      altKey: true,
-    })
+  it('swallows Ctrl+Shift+R on the header, so it cannot force-reload', () => {
+    const { handled, doc } = press(TABLE.indexOf('a'), ctrl('r', 82, true))
     expect(handled).toBe(true)
     expect(doc).toBe(TABLE)
-  })
-
-  it('leaves an AltGr character alone', () => {
-    // AltGr+R on US-International types ® and reports it as the key.
-    const { handled } = press(TABLE.indexOf('1'), {
-      key: '®',
-      keyCode: 82,
-      ctrlKey: true,
-      altKey: true,
-    })
-    expect(handled).toBe(false)
   })
 })

@@ -6,6 +6,7 @@ import {
   countTableColumns,
   indentLines,
   insertLink,
+  isInTable,
   lineBounds,
   padBlock,
   removeTableColumn,
@@ -506,5 +507,18 @@ describe('wikiLinkAt', () => {
   it('returns null between two separate links', () => {
     const text = '[[First]] and [[Second]]'
     expect(wikiLinkAt(text, text.indexOf(' and ') + 2)).toBeNull()
+  })
+})
+
+describe('isInTable', () => {
+  it('is true on any table row, header and separator included', () => {
+    const text = 'prose\n\n| a |\n| - |\n| 1 |'
+    expect(isInTable(text, text.indexOf('a'))).toBe(true)
+    expect(isInTable(text, text.indexOf('-'))).toBe(true)
+    expect(isInTable(text, text.indexOf('1'))).toBe(true)
+  })
+
+  it('is false in prose', () => {
+    expect(isInTable('prose\n\n| a |', 2)).toBe(false)
   })
 })

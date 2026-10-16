@@ -221,6 +221,7 @@ function CharacterPage() {
    * by the time Cut and Copy render. Same reasoning as the article route.
    */
   const [liveHasSelection, setLiveHasSelection] = useState(false)
+  const [liveInTable, setLiveInTable] = useState(false)
 
   useEffect(() => {
     localStorage.setItem(STORY_TOC_KEY, JSON.stringify({ open: storyTocOpen }))
@@ -359,9 +360,12 @@ function CharacterPage() {
   /** The same right-click menu over CodeMirror, via the structural interface. */
   const liveMenuEditor = useMemo<ContextMenuEditor>(
     () => ({
-      onContextMenu: () =>
-        setLiveHasSelection(liveEditorRef.current?.hasSelection() ?? false),
+      onContextMenu: () => {
+        setLiveHasSelection(liveEditorRef.current?.hasSelection() ?? false)
+        setLiveInTable(liveEditorRef.current?.inTable() ?? false)
+      },
       hasSelection: liveHasSelection,
+      inTable: liveInTable,
       execEditorCommand: (command) =>
         liveEditorRef.current?.execCommand(command),
       wrap: (wrapper) => liveEditorRef.current?.wrap(wrapper),
@@ -369,7 +373,7 @@ function CharacterPage() {
       insertBlock,
       insertText: insertAtCursor,
     }),
-    [liveHasSelection, insertBlock, insertAtCursor],
+    [liveHasSelection, liveInTable, insertBlock, insertAtCursor],
   )
 
   /**

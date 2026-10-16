@@ -6,6 +6,7 @@ import {
   addTableRow,
   indentLines,
   insertLink,
+  isInTable,
   padBlock,
   removeTableColumn,
   removeTableRow,
@@ -193,20 +194,6 @@ export function useMarkdownEditor(options: MarkdownEditorOptions = {}) {
         return
       }
 
-      // Ctrl+Alt+R removes the table row the caret is in, and with Shift the
-      // column — the add pair plus Alt. Matching on e.key is what keeps AltGr
-      // safe: AltGr is Ctrl+Alt on Windows, but on a layout where AltGr+R types
-      // a character, e.key is that character rather than 'r'.
-      if (mod && e.altKey && e.key.toLowerCase() === 'r') {
-        e.preventDefault()
-        transform((text, start) =>
-          e.shiftKey
-            ? removeTableColumn(text, start)
-            : removeTableRow(text, start),
-        )
-        return
-      }
-
       if (!mod || e.altKey) return
 
       // Ctrl+Enter opens the [[wiki link]] the caret is in — the keyboard
@@ -236,12 +223,15 @@ export function useMarkdownEditor(options: MarkdownEditorOptions = {}) {
             wrap(WRAPPERS.wikiLink)
             break
           case 'r':
-            // Ctrl+R's sibling: a column instead of a row. Swallowed even
-            // outside a table so it can never force-reload the app.
+            // Ctrl+R's pair: remove the table row the caret is in. Swallowed
+            // even outside a table so it can never force-reload the app.
             e.preventDefault()
-            if (!transform((text, start) => addTableColumn(text, start))) {
-              insertBlock(TABLE_SNIPPET)
-            }
+            transform((text, start) => removeTableRow(text, start))
+            break
+          case 'g':
+            // Ctrl+G's pair: remove the table column the caret is in.
+            e.preventDefault()
+            transform((text, start) => removeTableColumn(text, start))
             break
         }
         return
@@ -267,6 +257,16 @@ export function useMarkdownEditor(options: MarkdownEditorOptions = {}) {
         case 't':
           e.preventDefault()
           insertBlock(TABLE_SNIPPET)
+          break
+        case 'g':
+          // Add a column right of the caret cell; otherwise start a new
+          // table. Ctrl+Shift+G removes one. The pair sits under the left hand
+          // on purpose: remove-column was once Ctrl+Alt+Shift+R, a hard chord
+          // to hold for anyone with limited hand mobility.
+          e.preventDefault()
+          if (!transform((text, start) => addTableColumn(text, start))) {
+            insertBlock(TABLE_SNIPPET)
+          }
           break
         case 'r':
           e.preventDefault()
@@ -398,6 +398,9 @@ export function useMarkdownEditor(options: MarkdownEditorOptions = {}) {
    */
   const [hasSelection, setHasSelection] = useState(false)
 
+  /** Whether the caret was in a table when the menu opened; sampled likewise. */
+  const [inTable, setInTable] = useState(false)
+
   /**
    * Right-click bookkeeping. Deliberately does NOT preventDefault: the Radix
    * ContextMenuTrigger wrapping the textarea owns that, and suppressing it here
@@ -407,6 +410,7 @@ export function useMarkdownEditor(options: MarkdownEditorOptions = {}) {
     const textarea = ref.current
     if (!textarea) return
     setHasSelection(textarea.selectionStart !== textarea.selectionEnd)
+    setInTable(isInTable(textarea.value, textarea.selectionStart))
   }, [])
 
   /**
@@ -445,6 +449,7 @@ export function useMarkdownEditor(options: MarkdownEditorOptions = {}) {
     wikiLinkHovered,
     onContextMenu,
     hasSelection,
+    inTable,
     execEditorCommand,
     insertBlock,
     insertText,
