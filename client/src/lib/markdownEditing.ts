@@ -179,6 +179,166 @@ export function addTableRow(text: string, pos: number): EditResult | null {
   }
 }
 
+/** Offsets of the cell-separating pipes in a row, skipping escaped `\|`. */
+function pipeOffsets(line: string): number[] {
+  const offsets: number[] = []
+  for (let i = 0; i < line.length; i++) {
+    if (line[i] === '|' && line[i - 1] !== '\\') offsets.push(i)
+  }
+  return offsets
+}
+
+/** True for the `| --- | :-: |` row under the header. */
+function isSeparatorRow(line: string): boolean {
+  const cells = line
+    .trim()
+    .replace(/^\||\|$/g, '')
+    .split('|')
+  return cells.every((cell) => /^\s*:?-+:?\s*$/.test(cell))
+}
+
+/** The table around `pos`: its span, its rows, and which row and cell hold the caret. */
+interface TableAt {
+  span: Selection
+  lines: string[]
+  /** Index into `lines` of the caret's row. */
+  row: number
+  /** 1-based cell the caret is in. */
+  cell: number
+}
+
+function tableAt(text: string, pos: number): TableAt | null {
+  const here = lineBounds(text, pos)
+  if (!isTableRow(text.slice(here.start, here.end))) return null
+
+  // Walk out to the table's first and last rows.
+  let first = here
+  while (first.start > 0) {
+    const prev = lineBounds(text, first.start - 1)
+    if (!isTableRow(text.slice(prev.start, prev.end))) break
+    first = prev
+  }
+  let last = here
+  while (last.end < text.length) {
+    const next = lineBounds(text, last.end + 1)
+    if (!isTableRow(text.slice(next.start, next.end))) break
+    last = next
+  }
+
+  // The caret is in cell N when N pipes sit before it; a caret left of the
+  // opening pipe still means the first cell.
+  const caretInLine = pos - here.start
+  const cell = Math.max(
+    1,
+    pipeOffsets(text.slice(here.start, here.end)).filter((p) => p < caretInLine)
+      .length,
+  )
+
+  return {
+    span: { start: first.start, end: last.end },
+    lines: text.slice(first.start, last.end).split('\n'),
+    row: text.slice(first.start, here.start).split('\n').length - 1,
+    cell,
+  }
+}
+
+/** Offset of the start of `lines[index]` within `lines.join('\n')`. */
+function lineOffset(lines: string[], index: number): number {
+  return lines.slice(0, index).reduce((sum, line) => sum + line.length + 1, 0)
+}
+
+/**
+ * Adds an empty column to the right of the cell the caret is in, across every
+ * row of that table — the separator row gets `---` so the table still parses.
+ * Returns null when the caret isn't in a table, like `addTableRow`.
+ */
+export function addTableColumn(text: string, pos: number): EditResult | null {
+  const table = tableAt(text, pos)
+  if (!table) return null
+  const { lines, row: hereIndex, cell, span: first } = table
+  let caret = first.start
+  const changed = lines.map((line, i) => {
+    const pipes = pipeOffsets(line)
+    // The new cell goes just before the pipe that closes cell N. A row with
+    // no closing pipe there (ragged, or no trailing `|`) gets it at the end.
+    const at = cell < pipes.length ? pipes[cell] : line.length
+    const lead = cell < pipes.length ? '' : ' '
+    const insert = lead + (isSeparatorRow(line) ? '| --- ' : '|     ')
+    if (i === hereIndex) caret += at + lead.length + 2
+    else if (i < hereIndex) caret += line.length + insert.length + 1
+    return line.slice(0, at) + insert + line.slice(at)
+  })
+
+  return {
+    text: changed.join('\n'),
+    replace: table.span,
+    selection: { start: caret, end: caret },
+  }
+}
+
+/**
+ * Deletes the table row the caret is in, landing the caret in the row that
+ * moved up into its place (or the one above, when it was the last).
+ *
+ * The header and the `---` separator are refused: deleting either one stops
+ * the rest from parsing as a table at all, which is never what "remove this
+ * row" means. Null means nothing to do.
+ */
+export function removeTableRow(text: string, pos: number): EditResult | null {
+  const table = tableAt(text, pos)
+  if (!table) return null
+  const { lines, row } = table
+  if (row === 0 || isSeparatorRow(lines[row])) return null
+
+  const kept = lines.filter((_, i) => i !== row)
+  const landOn = Math.min(row, kept.length - 1)
+  const caret =
+    table.span.start +
+    lineOffset(kept, landOn) +
+    Math.min(2, kept[landOn].length)
+  return {
+    text: kept.join('\n'),
+    replace: table.span,
+    selection: { start: caret, end: caret },
+  }
+}
+
+/**
+ * Deletes the column the caret is in from every row of the table, landing the
+ * caret in the cell that moved left into its place (or the one before it, when
+ * it was the last). Refuses to remove a table's only column. Null means
+ * nothing to do.
+ */
+export function removeTableColumn(
+  text: string,
+  pos: number,
+): EditResult | null {
+  const table = tableAt(text, pos)
+  if (!table) return null
+  const { lines, row, cell } = table
+  if (countTableColumns(lines[row]) <= 1) return null
+
+  const changed = lines.map((line) => {
+    const pipes = pipeOffsets(line)
+    // A ragged row too short to have this cell is left alone.
+    if (cell > pipes.length) return line
+    // Cut from the cell's opening pipe up to (not including) its closing one;
+    // with no closing pipe it ran to the end of the line.
+    const end = cell < pipes.length ? pipes[cell] : line.length
+    return line.slice(0, pipes[cell - 1]) + line.slice(end)
+  })
+
+  const newPipes = pipeOffsets(changed[row])
+  const landOn = Math.min(cell, countTableColumns(changed[row]))
+  const caret =
+    table.span.start + lineOffset(changed, row) + newPipes[landOn - 1] + 2
+  return {
+    text: changed.join('\n'),
+    replace: table.span,
+    selection: { start: caret, end: caret },
+  }
+}
+
 /**
  * Indents or outdents every line the selection touches. Used for list items,
  * but deliberately indifferent to whether the lines are actually list markers —

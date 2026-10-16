@@ -1,12 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import {
   WRAPPERS,
+  addTableColumn,
   addTableRow,
   countTableColumns,
   indentLines,
   insertLink,
   lineBounds,
   padBlock,
+  removeTableColumn,
+  removeTableRow,
   toggleWrap,
   wikiLinkAt,
 } from './markdownEditing'
@@ -211,6 +214,143 @@ describe('addTableRow', () => {
     const text = '| a |\n| - |\nafter'
     const result = addTableRow(text, 2)!
     expect(apply(text, result)).toBe('| a |\n|   |\n| - |\nafter')
+  })
+})
+
+describe('addTableColumn', () => {
+  const table = '| a | b |\n| - | - |\n| 1 | 2 |'
+
+  it('adds a column to every row, right of the caret cell', () => {
+    const result = addTableColumn(table, table.indexOf('1'))!
+    expect(apply(table, result)).toBe(
+      '| a |     | b |\n| - | --- | - |\n| 1 |     | 2 |',
+    )
+  })
+
+  it('appends when the caret is in the last cell', () => {
+    const result = addTableColumn(table, table.indexOf('b'))!
+    expect(apply(table, result)).toBe(
+      '| a | b |     |\n| - | - | --- |\n| 1 | 2 |     |',
+    )
+  })
+
+  it('puts the caret inside the new cell on the caret row', () => {
+    const result = addTableColumn(table, table.indexOf('1'))!
+    const next = apply(table, result)
+    expect(withSelection(next, result.selection)).toBe(
+      '| a |     | b |\n| - | --- | - |\n| 1 | []    | 2 |',
+    )
+  })
+
+  it('leaves text around the table alone', () => {
+    const text = 'before\n\n| a |\n| - |\n\nafter'
+    const result = addTableColumn(text, text.indexOf('a |'))!
+    expect(apply(text, result)).toBe(
+      'before\n\n| a |     |\n| - | --- |\n\nafter',
+    )
+  })
+
+  it('treats a caret left of the opening pipe as the first cell', () => {
+    const result = addTableColumn(table, 0)!
+    expect(apply(table, result).split('\n')[0]).toBe('| a |     | b |')
+  })
+
+  it('does not split on an escaped pipe', () => {
+    const text = '| a \\| x | b |\n| - | - |'
+    const result = addTableColumn(text, 2)!
+    expect(apply(text, result)).toBe('| a \\| x |     | b |\n| - | --- | - |')
+  })
+
+  it('returns null when the caret is not in a table', () => {
+    expect(addTableColumn('just prose here', 4)).toBeNull()
+  })
+})
+
+describe('removeTableRow', () => {
+  const table = '| a | b |\n| - | - |\n| 1 | 2 |\n| 3 | 4 |'
+
+  it('removes the caret row and lands in the row that moved up', () => {
+    const result = removeTableRow(table, table.indexOf('1'))!
+    const next = apply(table, result)
+    expect(next).toBe('| a | b |\n| - | - |\n| 3 | 4 |')
+    expect(withSelection(next, result.selection)).toBe(
+      '| a | b |\n| - | - |\n| []3 | 4 |',
+    )
+  })
+
+  it('lands on the row above when the last row goes', () => {
+    const result = removeTableRow(table, table.indexOf('3'))!
+    const next = apply(table, result)
+    expect(withSelection(next, result.selection)).toBe(
+      '| a | b |\n| - | - |\n| []1 | 2 |',
+    )
+  })
+
+  it('leaves text around the table alone', () => {
+    const text = 'before\n\n' + table + '\n\nafter'
+    const result = removeTableRow(text, text.indexOf('1'))!
+    expect(apply(text, result)).toBe(
+      'before\n\n| a | b |\n| - | - |\n| 3 | 4 |\n\nafter',
+    )
+  })
+
+  it('refuses the header and separator, which would unmake the table', () => {
+    expect(removeTableRow(table, table.indexOf('a'))).toBeNull()
+    expect(removeTableRow(table, table.indexOf('-'))).toBeNull()
+  })
+
+  it('returns null when the caret is not in a table', () => {
+    expect(removeTableRow('just prose here', 4)).toBeNull()
+  })
+})
+
+describe('removeTableColumn', () => {
+  const table = '| a | b | c |\n| - | - | - |\n| 1 | 2 | 3 |'
+
+  it('removes the caret column from every row', () => {
+    const result = removeTableColumn(table, table.indexOf('2'))!
+    expect(apply(table, result)).toBe('| a | c |\n| - | - |\n| 1 | 3 |')
+  })
+
+  it('lands in the cell that moved left into its place', () => {
+    const result = removeTableColumn(table, table.indexOf('2'))!
+    const next = apply(table, result)
+    expect(withSelection(next, result.selection)).toBe(
+      '| a | c |\n| - | - |\n| 1 | []3 |',
+    )
+  })
+
+  it('removes the first column', () => {
+    const result = removeTableColumn(table, table.indexOf('1'))!
+    expect(apply(table, result)).toBe('| b | c |\n| - | - |\n| 2 | 3 |')
+  })
+
+  it('removes the last column and lands in the one before', () => {
+    const result = removeTableColumn(table, table.indexOf('3'))!
+    const next = apply(table, result)
+    expect(withSelection(next, result.selection)).toBe(
+      '| a | b |\n| - | - |\n| 1 | []2 |',
+    )
+  })
+
+  it('handles a row with no trailing pipe', () => {
+    const text = '| a | b\n| - | -'
+    const result = removeTableColumn(text, text.indexOf('b'))!
+    expect(apply(text, result)).toBe('| a \n| - ')
+  })
+
+  it('does not split on an escaped pipe', () => {
+    const text = '| a \\| x | b |\n| - | - |'
+    const result = removeTableColumn(text, text.indexOf('b'))!
+    expect(apply(text, result)).toBe('| a \\| x |\n| - |')
+  })
+
+  it("refuses a table's only column", () => {
+    expect(removeTableColumn('| a |\n| - |', 2)).toBeNull()
+  })
+
+  it('returns null when the caret is not in a table', () => {
+    expect(removeTableColumn('just prose here', 4)).toBeNull()
   })
 })
 

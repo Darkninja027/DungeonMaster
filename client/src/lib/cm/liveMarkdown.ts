@@ -12,10 +12,13 @@ import { GFM } from '@lezer/markdown'
 import {
   TABLE_SNIPPET,
   WRAPPERS,
+  addTableColumn,
   addTableRow,
   indentLines,
   insertLink,
   padBlock,
+  removeTableColumn,
+  removeTableRow,
   toggleWrap,
   wikiLinkAt,
 } from '#/lib/markdownEditing'
@@ -243,6 +246,34 @@ export function liveMarkdown(options: LiveMarkdownOptions = {}): Extension {
             padBlock(text, { start, end }, TABLE_SNIPPET),
           ),
         preventDefault: true,
+      },
+      {
+        key: 'Mod-Shift-r',
+        run: (view) =>
+          applyTransform(view, (text, start) => addTableColumn(text, start)) ||
+          applyTransform(view, (text, start, end) =>
+            padBlock(text, { start, end }, TABLE_SNIPPET),
+          ),
+        preventDefault: true,
+      },
+      {
+        // Ctrl+Alt+R removes the table row, with Shift the column. Not a
+        // `key: 'Mod-Alt-Shift-r'` binding: CodeMirror skips its keyCode
+        // fallback for Ctrl+Alt on Windows (it's AltGr there), so the shifted
+        // name is never looked up and that binding would never fire. Reading
+        // the event here matches the textarea's handler exactly — including
+        // AltGr safety, since a layout's AltGr+R reports its own character.
+        any: (view, event) => {
+          if (!(event.ctrlKey || event.metaKey) || !event.altKey) return false
+          if (event.key.toLowerCase() !== 'r') return false
+          applyTransform(view, (text, start) =>
+            event.shiftKey
+              ? removeTableColumn(text, start)
+              : removeTableRow(text, start),
+          )
+          // Swallowed even with nothing to remove, like the textarea.
+          return true
+        },
       },
       {
         key: 'Mod-Enter',

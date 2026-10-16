@@ -1038,6 +1038,9 @@ to hand-edit.
 | \`Ctrl+D\` | Insert a \`1d20+5\` roll |
 | \`Ctrl+T\` | Insert a table |
 | \`Ctrl+R\` | Add a row to the table you are in |
+| \`Ctrl+Shift+R\` | Add a column to the right of the cell you are in |
+| \`Ctrl+Alt+R\` | Remove the table row you are in |
+| \`Ctrl+Alt+Shift+R\` | Remove the table column you are in |
 | \`Tab\` / \`Shift+Tab\` | Indent / outdent a list item |
 
 Undo and redo work normally throughout — the formatting shortcuts do not break
@@ -1091,7 +1094,8 @@ and Notes composers on a character sheet.
 
 ## Two surprises
 
-\`Ctrl+R\` in a markdown box **adds a table row** rather than reloading the app.
+\`Ctrl+R\` in a markdown box **adds a table row** rather than reloading the app,
+and \`Ctrl+Shift+R\` adds a column rather than force-reloading it.
 
 \`Ctrl+N\` works even while you are typing in a text box, so it will open the new
 article dialog mid-sentence.

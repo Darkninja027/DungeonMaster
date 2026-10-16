@@ -2,10 +2,13 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   TABLE_SNIPPET,
   WRAPPERS,
+  addTableColumn,
   addTableRow,
   indentLines,
   insertLink,
   padBlock,
+  removeTableColumn,
+  removeTableRow,
   toggleWrap,
   wikiLinkAt,
 } from '#/lib/markdownEditing'
@@ -190,6 +193,20 @@ export function useMarkdownEditor(options: MarkdownEditorOptions = {}) {
         return
       }
 
+      // Ctrl+Alt+R removes the table row the caret is in, and with Shift the
+      // column — the add pair plus Alt. Matching on e.key is what keeps AltGr
+      // safe: AltGr is Ctrl+Alt on Windows, but on a layout where AltGr+R types
+      // a character, e.key is that character rather than 'r'.
+      if (mod && e.altKey && e.key.toLowerCase() === 'r') {
+        e.preventDefault()
+        transform((text, start) =>
+          e.shiftKey
+            ? removeTableColumn(text, start)
+            : removeTableRow(text, start),
+        )
+        return
+      }
+
       if (!mod || e.altKey) return
 
       // Ctrl+Enter opens the [[wiki link]] the caret is in — the keyboard
@@ -217,6 +234,14 @@ export function useMarkdownEditor(options: MarkdownEditorOptions = {}) {
           case 'l':
             e.preventDefault()
             wrap(WRAPPERS.wikiLink)
+            break
+          case 'r':
+            // Ctrl+R's sibling: a column instead of a row. Swallowed even
+            // outside a table so it can never force-reload the app.
+            e.preventDefault()
+            if (!transform((text, start) => addTableColumn(text, start))) {
+              insertBlock(TABLE_SNIPPET)
+            }
             break
         }
         return
