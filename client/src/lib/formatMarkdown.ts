@@ -130,8 +130,28 @@ export function serializePages(pages: Array<BookPage>): string {
  */
 const DM_OPEN = /^ {0,3}(:{3,})[ \t]*dm[ \t]*$/i
 const DM_CLOSE = /^ {0,3}(:{3,})[ \t]*$/
+/** Any named container opener (`:::wrap`, `:::dm`, …) — see rule 4 below. */
+const CONTAINER_OPEN = /^ {0,3}(:{3,})[ \t]*[a-z][\w-]*[ \t]*$/i
 /** Same grammar as toc.ts's FENCE — a code fence opener, ``` or ~~~. */
 const CODE_FENCE = /^ {0,3}(`{3,}|~{3,})/
+
+/**
+ * Whether `line` closes the code fence opened by `openFence`: same character,
+ * a run at least as long, and nothing after it (so a ~~~ line cannot close a
+ * ``` block — same rule as toc.ts).
+ */
+function closesFence(
+  line: string,
+  fence: RegExpMatchArray | null,
+  openFence: string,
+): boolean {
+  return (
+    fence != null &&
+    fence[1][0] === openFence[0] &&
+    fence[1].length >= openFence.length &&
+    line.slice(line.indexOf(fence[1]) + fence[1].length).trim() === ''
+  )
+}
 
 /**
  * The marker `mark` mode emits as the first line of its blockquote. Chosen to
@@ -164,6 +184,10 @@ export const DM_CALLOUT_MARKER = '[!dm]'
  *      the fence state machine tracks the fence CHARACTER and run length, so
  *      a ~~~ line cannot close a ``` block (same rule as toc.ts).
  *   3. No nesting. A second opener while already inside a block is content.
+ *   4. Any OTHER named container inside a block (`:::wrap`) is counted, so its
+ *      bare closer pairs with it instead of closing the DM block — otherwise
+ *      everything between the two closers reaches the players. Counting can
+ *      only make a block swallow more, never less, so it fails closed too.
  */
 export function transformDmBlocks(
   text: string,
@@ -177,6 +201,8 @@ export function transformDmBlocks(
   const out: Array<string> = []
   let openFence: string | null = null
   let inDm = false
+  // Named containers opened inside the current DM block (rule 4).
+  let nested = 0
 
   for (const line of lines) {
     const fence = line.match(CODE_FENCE)
@@ -185,14 +211,7 @@ export function transformDmBlocks(
     // tracked while inside a DM block, or a ::: within a fenced example would
     // close the block early.
     if (openFence) {
-      if (
-        fence &&
-        fence[1][0] === openFence[0] &&
-        fence[1].length >= openFence.length &&
-        line.slice(line.indexOf(fence[1]) + fence[1].length).trim() === ''
-      ) {
-        openFence = null
-      }
+      if (closesFence(line, fence, openFence)) openFence = null
       if (!inDm) out.push(line)
       else if (mode === 'mark') out.push(`> ${line}`)
       continue
@@ -208,6 +227,7 @@ export function transformDmBlocks(
     if (!inDm) {
       if (DM_OPEN.test(line)) {
         inDm = true
+        nested = 0
         if (mode === 'mark') {
           // The marker needs its own paragraph inside the blockquote, or
           // remark's lazy continuation folds it into the first line of the
@@ -222,10 +242,16 @@ export function transformDmBlocks(
       continue
     }
 
-    // Inside a DM block.
+    // Inside a DM block. A closer belongs to the innermost open container, and
+    // only closes the block itself once those are all closed (rule 4).
     if (DM_CLOSE.test(line)) {
-      inDm = false
-      continue
+      if (nested === 0) {
+        inDm = false
+        continue
+      }
+      nested--
+    } else if (!DM_OPEN.test(line) && CONTAINER_OPEN.test(line)) {
+      nested++
     }
     if (mode === 'mark') {
       const trimmed = line.trim()
@@ -239,6 +265,81 @@ export function transformDmBlocks(
   // A stripped block leaves the blank lines that surrounded it behind, which
   // would otherwise stack up as vertical space on the players' page.
   return out.join('\n').replace(/\n{3,}/g, '\n\n')
+}
+
+/**
+ * Wrap blocks: a box that a floated image wraps inside of, and no further.
+ *
+ *   :::wrap
+ *   ![Seal](_images/seal.png#left&w=20%)
+ *   # The Apothicarium
+ *   **Symbol:** two vials in a sun
+ *   :::
+ *
+ * A float only pushes line boxes aside — a heading after the text still runs
+ * full width underneath the image, rule and all. The box is `display:
+ * flow-root` (styles.css), which grows to contain the float, so whatever
+ * follows the closer starts below the image.
+ *
+ * Same `:::` grammar as `:::dm`, for the same Obsidian reason. The fences
+ * become marker paragraphs here and remarkWrap groups what lies between them
+ * into the box; a blockquote (the :::dm approach) would carry the read-aloud
+ * styling with it. Markers rather than prefixes also keep this indifferent to
+ * page breaks: a box split by a \page just closes at the end of its sheet and
+ * the orphaned end marker is dropped.
+ *
+ * Runs AFTER transformDmBlocks, which must see every :::dm line first — in
+ * `mark` mode a wrap inside a DM block arrives as `> :::wrap`, so a marker is
+ * recognised behind any blockquote prefix and keeps it. Code fences are
+ * tracked as in transformDmBlocks, so a documented example stays literal.
+ */
+const WRAP_OPEN = /^ {0,3}(:{3,})[ \t]*wrap[ \t]*$/i
+const QUOTE_PREFIX = /^(?: {0,3}>[ \t]?)*/
+export const WRAP_START_MARKER = '[!wrap]'
+export const WRAP_END_MARKER = '[!/wrap]'
+
+export function transformWrapBlocks(text: string): string {
+  const lines = text.split(/\r?\n/)
+  const out: Array<string> = []
+  let openFence: string | null = null
+  let depth = 0
+
+  // A marker needs its own paragraph, or lazy continuation folds it into the
+  // neighbouring text and remarkWrap cannot find it.
+  const marker = (prefix: string, value: string) => {
+    const blank = prefix.trimEnd()
+    out.push(blank, prefix + value, blank)
+  }
+
+  for (const line of lines) {
+    const prefix = (line.match(QUOTE_PREFIX) as RegExpMatchArray)[0]
+    const rest = line.slice(prefix.length)
+    const fence = rest.match(CODE_FENCE)
+
+    if (openFence) {
+      if (closesFence(rest, fence, openFence)) openFence = null
+      out.push(line)
+      continue
+    }
+    if (fence) {
+      openFence = fence[1]
+      out.push(line)
+      continue
+    }
+    if (WRAP_OPEN.test(rest)) {
+      depth++
+      marker(prefix, WRAP_START_MARKER)
+      continue
+    }
+    // A bare ::: with no wrap open is somebody else's (or literal) — leave it.
+    if (depth > 0 && DM_CLOSE.test(rest)) {
+      depth--
+      marker(prefix, WRAP_END_MARKER)
+      continue
+    }
+    out.push(line)
+  }
+  return out.join('\n')
 }
 
 /**

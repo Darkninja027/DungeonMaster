@@ -171,6 +171,31 @@ describe('BookView for a player window', () => {
     expect(container.querySelectorAll('button').length).toBeGreaterThan(0)
   })
 
+  // A :::wrap inside a DM block must not end it early: the wrap's closer is
+  // not the DM block's, and the text after it is still secret.
+  it('strips a DM block that contains a wrap block, all of it', async () => {
+    const { container } = await renderBook({
+      children: [
+        'Visible.',
+        '',
+        ':::dm',
+        ':::wrap',
+        'Inner secret.',
+        ':::',
+        'Secret after the wrap.',
+        ':::',
+        '',
+        'Tail.',
+      ].join('\n'),
+      worldId: 'abc',
+      audience: 'player',
+      readOnly: true,
+    })
+    expect(container.textContent).not.toMatch(/secret/i)
+    expect(container.textContent).not.toContain(':::')
+    expect(container.textContent).toContain('Tail.')
+  })
+
   /**
    * A note: link is the vault's answer to a broken [[link]] — a button that
    * jumps to the Notes tab. On a projector it must be inert like every other
@@ -195,5 +220,52 @@ describe('BookView for a player window', () => {
     expect(player.container.querySelectorAll('button').length).toBe(0)
     expect(player.container.querySelectorAll('a').length).toBe(0)
     expect(player.container.textContent).toContain('Waterdeep')
+  })
+})
+
+describe('BookView wrap blocks', () => {
+  it('puts the wrapped content in a .dnd-wrap box and the rest after it', async () => {
+    const { container } = await renderBook({
+      children: [
+        ':::wrap',
+        '![Seal](_images/seal.png#left&w=20%)',
+        '',
+        '# The Apothicarium',
+        '**Symbol:** two vials',
+        ':::',
+        '',
+        '## Purpose',
+      ].join('\n'),
+      worldId: 'abc',
+    })
+    const box = container.querySelector('.dnd-wrap')
+    expect(box).not.toBeNull()
+    expect(box!.querySelector('img')).not.toBeNull()
+    expect(box!.textContent).toContain('The Apothicarium')
+    expect(box!.textContent).not.toContain('Purpose')
+    // No marker or fence text leaks into the page.
+    expect(container.textContent).not.toContain('[!')
+    expect(container.textContent).not.toContain(':::')
+    expect(container.textContent).toContain('Purpose')
+  })
+
+  it('keeps a wrap inside a DM callout inside it for the DM', async () => {
+    const { container } = await renderBook({
+      children: [':::dm', ':::wrap', 'Hidden seal.', ':::', ':::'].join('\n'),
+      worldId: 'abc',
+    })
+    const box = container.querySelector('.dnd-dm-block .dnd-wrap')
+    expect(box?.textContent).toContain('Hidden seal.')
+  })
+
+  it('drops the markers of an unclosed box', async () => {
+    const { container } = await renderBook({
+      children: ':::wrap\nOpen box.',
+      worldId: 'abc',
+    })
+    expect(container.querySelector('.dnd-wrap')?.textContent).toContain(
+      'Open box.',
+    )
+    expect(container.textContent).not.toContain('[!')
   })
 })

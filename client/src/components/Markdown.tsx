@@ -10,6 +10,7 @@ import {
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { remarkBreaks } from '#/lib/remarkBreaks'
+import { remarkWrap } from '#/lib/remarkWrap'
 import { useRouter } from '@tanstack/react-router'
 import { Dices } from 'lucide-react'
 import { cn } from '#/lib/utils'
@@ -23,6 +24,7 @@ import {
   rollDice,
   splitFrontmatter,
   transformDmBlocks,
+  transformWrapBlocks,
 } from '#/lib/formatMarkdown'
 import type { DiceResult } from '#/lib/formatMarkdown'
 import { focusImage } from '#/lib/playerFocus'
@@ -61,7 +63,7 @@ const REMARK_PLUGINS = [remarkGfm]
  * charge for the extra lines (see the note in SheetPreview), and sheet notes
  * already get explicit breaks from preserveLineBreaks.
  */
-const BOOK_REMARK_PLUGINS = [remarkGfm, remarkBreaks]
+const BOOK_REMARK_PLUGINS = [remarkGfm, remarkBreaks, remarkWrap]
 const identityUrl = (url: string) => url
 
 /**
@@ -947,13 +949,16 @@ export const BookView = memo(function BookView({
   //
   // DM blocks are resolved BEFORE parsePages, so a \page inside one goes with
   // it for a player (their page count legitimately differs from the DM's) and
-  // never splits the callout box for the DM.
+  // never splits the callout box for the DM. Wrap blocks come after, so a
+  // :::wrap inside a stripped DM block is already gone.
   const pages = useMemo(
     () =>
       parsePages(
-        transformDmBlocks(
-          splitFrontmatter(children).body,
-          audience === 'player' ? 'strip' : 'mark',
+        transformWrapBlocks(
+          transformDmBlocks(
+            splitFrontmatter(children).body,
+            audience === 'player' ? 'strip' : 'mark',
+          ),
         ),
       ),
     [children, audience],

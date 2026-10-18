@@ -370,6 +370,32 @@ A full example: `![Map](_images/city.png#right&w=45%)`
 Two things to know. Setting a **height** crops the image to fill rather than
 squashing it. And `#width=` / `#height=` work as long forms if you prefer them.
 
+## Keeping the wrap contained
+
+A floated image only pushes *text* aside. A heading further down still runs the
+full width of the column, so its underline slides in behind the image. To stop
+that, put the image and the text that belongs beside it in a `:::wrap` box:
+
+```
+:::wrap
+![Seal](_images/seal.png#left&w=20%&noframe)
+
+# The Apothicarium
+
+**Symbol:** two vials in the centre of a sun
+:::
+
+## Purpose
+```
+
+Everything inside the box wraps around the image. The box grows to fit the
+image, so whatever comes after the closing `:::` starts cleanly below it.
+
+- The fences need their own lines, the same as `\page`.
+- Boxes can nest, and a box can sit inside a DM-only block.
+- Forget the closing `:::` and the box simply runs to the end of the page.
+- Obsidian shows the fences as plain text and leaves them alone.
+
 \page
 
 \columns 1

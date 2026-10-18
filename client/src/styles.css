@@ -2033,6 +2033,16 @@ a {
   margin-left: auto;
   margin-right: auto;
 }
+/*
+ * A :::wrap block (transformWrapBlocks + remarkWrap). flow-root makes the box
+ * grow to contain a floated image, so the image wraps only what is inside and
+ * whatever follows the block starts below it — a float alone lets the next
+ * heading's box, rule and all, run underneath the image.
+ */
+.dnd-page .dnd-wrap {
+  display: flow-root;
+}
+
 /* #nowrap / #block — image sits on its own line, text above and below */
 .dnd-page img.dnd-img-block {
   display: block;
