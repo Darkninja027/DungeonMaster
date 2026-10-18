@@ -201,6 +201,44 @@ export const liveTheme = EditorView.theme({
     fontVariantNumeric: 'tabular-nums',
   },
 
+  // A table too narrow for columns (see tableLayout's CARD_BELOW) becomes one
+  // card per row, each cell a line led by its header. The label is CSS content
+  // so it never enters the document; the hanging indent keeps a wrapped value
+  // clear of it, lined up under its own first word.
+  //
+  // Between two block cells sit the hidden pipes' empty placeholders and
+  // CodeMirror's `cm-widgetBuffer` images, each of which would hold open a line
+  // box of its own — a blank line between every pair of cells. Absolutely
+  // positioned they leave the flow but stay measurable, which CodeMirror needs
+  // when mapping a click back to a position.
+  '.cm-dm-table-card': {
+    backgroundColor: 'color-mix(in oklab, var(--tome-gold) 8%, transparent)',
+    paddingTop: '0.4em',
+    paddingBottom: '0.4em',
+    borderTop:
+      '1px solid color-mix(in oklab, var(--tome-gold) 35%, transparent)',
+  },
+  '.cm-dm-table-card > img.cm-widgetBuffer, .cm-dm-table-card > span:empty': {
+    position: 'absolute',
+  },
+  '.cm-dm-card-cell': {
+    display: 'block',
+    paddingLeft: 'var(--dm-card-label)',
+    textIndent: 'calc(-1 * var(--dm-card-label))',
+    overflowWrap: 'break-word',
+  },
+  '.cm-dm-card-cell::before': {
+    content: 'attr(data-label)',
+    display: 'inline-block',
+    width: 'var(--dm-card-label)',
+    paddingRight: `${CELL_GUTTER}ch`,
+    textIndent: '0',
+    verticalAlign: 'top',
+    fontWeight: '700',
+    color: 'var(--tome-head)',
+    overflowWrap: 'break-word',
+  },
+
   // --- [[ ]] autocomplete --------------------------------------------------
   // CodeMirror's default completion panel is hard-coded light, so it is
   // unreadable in dark mode. Restated against the app's tokens like everything

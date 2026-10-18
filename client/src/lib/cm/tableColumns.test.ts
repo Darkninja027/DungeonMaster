@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { EditorState } from '@codemirror/state'
 import { EditorView } from '@codemirror/view'
 import { liveMarkdown } from './liveMarkdown'
@@ -16,6 +16,11 @@ import { liveMarkdown } from './liveMarkdown'
  * is being checked is that they AGREE down each column.
  */
 function render(doc: string) {
+  return renderTable(doc).rows
+}
+
+/** Column rows and card rows both, for the tests that switch between them. */
+function renderTable(doc: string) {
   const parent = document.createElement('div')
   document.body.appendChild(parent)
   // Left unfocused on purpose: a caret anywhere in the table reveals the whole
@@ -24,6 +29,10 @@ function render(doc: string) {
     state: EditorState.create({ doc, extensions: [liveMarkdown({})] }),
     parent,
   })
+  // The first build runs before any line is drawn and so cannot measure; in
+  // the app a geometry change rebuilds. jsdom has no geometry, so a selection
+  // change stands in for it (still unfocused, so nothing is revealed).
+  view.dispatch({ selection: { anchor: 0 } })
   const rows = [
     ...parent.querySelectorAll('.cm-dm-table-head, .cm-dm-table-row'),
   ]
@@ -33,9 +42,18 @@ function render(doc: string) {
       (cell) => (cell as HTMLElement).style.width,
     ),
   }))
+  const cards = [...parent.querySelectorAll('.cm-dm-table-card')].map(
+    (card) => ({
+      style: (card as HTMLElement).style.getPropertyValue('--dm-card-label'),
+      cells: [...card.querySelectorAll('.cm-dm-card-cell')].map((cell) => [
+        cell.getAttribute('data-label'),
+        cell.textContent,
+      ]),
+    }),
+  )
   view.destroy()
   parent.remove()
-  return result
+  return { rows: result, cards }
 }
 
 describe('live table columns', () => {
@@ -93,5 +111,96 @@ describe('live table columns', () => {
       ['| Rank | Rings |', '|---|---|', '| Chit | none |'].join('\n'),
     )
     expect(rows.map((r) => r.text)).toEqual(['RankRings', 'Chitnone'])
+  })
+})
+
+/**
+ * A pane `px` wide with an 8px `ch`. jsdom lays nothing out, so both of the
+ * numbers measureColumns reads are faked: the content's width, and the 100ch
+ * probe it measures a character with.
+ */
+function narrowPane(px: number) {
+  vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(px)
+  vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue({
+    width: 800,
+  } as DOMRect)
+}
+
+describe('live tables in a narrow pane', () => {
+  afterEach(() => vi.restoreAllMocks())
+
+  const GUILD = [
+    '| Rank | Held by | Notes |',
+    '| --- | --- | --- |',
+    '| Grand Apothecary | The highest governing entity of the guild | Breaks all ties from the Council |',
+    '| Chanceller | --- | |',
+  ].join('\n')
+
+  it('shares only the inside of the line between the columns', () => {
+    // 520px is 65 characters, but .cm-content pads 1rem a side and .cm-line
+    // 6px + 2px, which leaves 59. The bug this pins: the budget took only four
+    // characters off for both, so the last cell came out wider than the line
+    // and dropped onto a line of its own under the wrong header.
+    narrowPane(520)
+    // jsdom applies no stylesheet, so the theme's padding is supplied by hand.
+    const real = window.getComputedStyle.bind(window)
+    const padding: Record<string, [string, string]> = {
+      'cm-content': ['16px', '16px'],
+      'cm-line': ['6px', '2px'],
+    }
+    vi.spyOn(globalThis, 'getComputedStyle').mockImplementation((el) => {
+      const pad = Object.entries(padding).find(([cls]) =>
+        el.classList.contains(cls),
+      )?.[1]
+      const style = real(el)
+      if (!pad) return style
+      return new Proxy(style, {
+        get: (target, key) =>
+          key === 'paddingLeft'
+            ? pad[0]
+            : key === 'paddingRight'
+              ? pad[1]
+              : Reflect.get(target, key),
+      })
+    })
+    const { rows } = renderTable(GUILD)
+    const total = rows[0].widths.reduce((n, w) => n + parseInt(w), 0)
+    expect(total).toBeLessThanOrEqual(59)
+  })
+
+  it('turns rows into labelled cards when the columns would be cramped', () => {
+    narrowPane(300)
+    const { rows, cards } = renderTable(GUILD)
+    // The header is hidden — each card repeats it — and nothing is sized as a
+    // column.
+    expect(rows).toEqual([])
+    const label = `${'Held by'.length + 2}ch`
+    expect(cards).toEqual([
+      {
+        style: label,
+        cells: [
+          ['Rank', 'Grand Apothecary'],
+          ['Held by', 'The highest governing entity of the guild'],
+          ['Notes', 'Breaks all ties from the Council'],
+        ],
+      },
+      {
+        style: label,
+        // An empty cell has nothing to show, so it has no line in the card.
+        cells: [
+          ['Rank', 'Chanceller'],
+          ['Held by', '---'],
+        ],
+      },
+    ])
+  })
+
+  it('keeps a table of short columns as columns, however narrow', () => {
+    narrowPane(300)
+    const { rows, cards } = renderTable(
+      ['| Item | Cost |', '|---|---|', '| Rope | 1 gp |'].join('\n'),
+    )
+    expect(cards).toEqual([])
+    expect(rows).toHaveLength(2)
   })
 })

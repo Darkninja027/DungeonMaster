@@ -3,7 +3,8 @@ import { syntaxTree } from '@codemirror/language'
 import { PAGE_MARKER, COLUMNS_MARKER } from '#/lib/formatMarkdown'
 import { bySortOrder, touches, touchesBlock } from './reveal'
 import { scanLine } from './customSyntax'
-import { MIN_COLUMN, columnWidths } from './tableLayout'
+import { MIN_COLUMN, tableLayout } from './tableLayout'
+import type { CardLayout } from './tableLayout'
 import {
   DiceWidget,
   PageRuleWidget,
@@ -163,14 +164,23 @@ function tableDecorations(
     rows.push({ header, from: row.from, cells })
   }
 
-  const widths = columnWidths(
-    rows.map((row) => {
-      const texts: Array<string | undefined> = []
-      for (const cell of row.cells) texts[cell.col] = cell.text
-      return texts
-    }),
+  const texts = (row: (typeof rows)[number]) => {
+    const byCol: Array<string | undefined> = []
+    for (const cell of row.cells) byCol[cell.col] = cell.text
+    return byCol
+  }
+  const head = rows.find((row) => row.header)
+  const layout = tableLayout(
+    head ? texts(head) : [],
+    rows.filter((row) => !row.header).map(texts),
     available,
   )
+
+  if (layout.mode === 'cards') {
+    cardDecorations(rows, layout, lineAt, out)
+    return
+  }
+  const { widths } = layout
 
   for (const row of rows) {
     out.push({
@@ -200,9 +210,61 @@ function tableDecorations(
         from: cell.from,
         to: cell.to,
         side: 0,
+        // Inclusive, or a dice chip opening the cell renders before its box
+        // instead of in it, and pushes the rest of the row a chip-width right.
         deco: Decoration.mark({
+          inclusive: true,
           class: 'cm-dm-cell',
           attributes: { style: `width:${widths[cell.col]}ch` },
+        }),
+      })
+    }
+  }
+}
+
+/**
+ * A table too narrow for its columns, as one card per body row: every cell on
+ * a line of its own, led by its column's header.
+ *
+ * The header row is hidden, since each card repeats it. The labels are CSS
+ * `content` rather than widgets, so they are not in the document and the caret
+ * never lands in one — the cells are still the real text, only reflowed, and
+ * touching the table still reveals the raw pipes like any other.
+ *
+ * An empty cell has no node and so no line in the card: "Notes:" with nothing
+ * after it says no more than leaving it out.
+ */
+function cardDecorations(
+  rows: ReadonlyArray<{ header: boolean; from: number; cells: Array<Cell> }>,
+  layout: CardLayout,
+  lineAt: (pos: number) => { from: number },
+  out: Array<Pending>,
+): void {
+  for (const row of rows) {
+    const from = lineAt(row.from).from
+    out.push({
+      from,
+      to: from,
+      side: -1,
+      deco: Decoration.line({
+        class: row.header ? 'cm-dm-table-sep' : 'cm-dm-table-card',
+        attributes: row.header
+          ? undefined
+          : { style: `--dm-card-label:${layout.labelWidth}ch` },
+      }),
+    })
+    if (row.header) continue
+    for (const cell of row.cells) {
+      out.push({
+        from: cell.from,
+        to: cell.to,
+        side: 0,
+        // Inclusive so a widget at the cell's edge — a dice chip opening it —
+        // renders inside the block rather than as a stray before it.
+        deco: Decoration.mark({
+          inclusive: true,
+          class: 'cm-dm-card-cell',
+          attributes: { 'data-label': layout.labels[cell.col] ?? '' },
         }),
       })
     }
@@ -467,15 +529,61 @@ function frontmatterEnd(state: EditorState, out: Array<Pending>): number {
  * layout shares between columns. Measured rather than assumed, because a notes
  * pane and a maximised article window differ by a factor of three.
  */
+/** CodeMirror's base theme pads `.cm-line` `0 2px 0 6px`; our theme leaves it. */
+const CM_LINE_PADDING = 8
+
 function measureColumns(view: EditorView): number {
-  const char = view.defaultCharacterWidth
-  const px = view.contentDOM.clientWidth
+  const content = view.contentDOM
+  const char = measureCh(view)
   // No layout yet (constructed but not shown): guess a console width rather
   // than divide by zero. The next geometry change rebuilds with a real number.
-  if (!(char > 0) || !(px > 0)) return 80
-  // `clientWidth` includes .cm-content's own padding, and a couple of
-  // characters of slack keeps the last column clear of the scrollbar.
-  return Math.max(MIN_COLUMN * 2, Math.floor(px / char) - 4)
+  if (!(char > 0) || !(content.clientWidth > 0)) return 80
+  const line = content.querySelector('.cm-line')
+  // What a row's cells actually get is the inside of a `.cm-line`, so both
+  // paddings come off: .cm-content's (1rem a side in our theme) and the line's
+  // own (CodeMirror's 6px + 2px). A flat "minus four characters" covered the
+  // first and not the second, and the last cell of a row came out a pixel too
+  // wide and dropped onto a line of its own, under the wrong header. The 1px
+  // is for sub-pixel layout rounding a sum of `ch` boxes up.
+  //
+  // The first build runs before CodeMirror has drawn a single line, so there
+  // is none to read and its default stands in. Waiting for a line instead
+  // meant opening an article showed the 80-column guess for over a second,
+  // until some unrelated geometry change got round to rebuilding.
+  const px =
+    content.clientWidth -
+    horizontalPadding(content) -
+    (line ? horizontalPadding(line) : CM_LINE_PADDING) -
+    1
+  return Math.max(MIN_COLUMN * 2, Math.floor(px / char))
+}
+
+/**
+ * The pixel width of one `ch` — the unit every cell is sized in — measured
+ * rather than taken from `view.defaultCharacterWidth`. That one is an average
+ * over whichever line CodeMirror happened to sample, and was seen reading 7px
+ * on one build and 7.7px on the next in the same editor; at sixty characters
+ * the difference is a whole column.
+ *
+ * The probe goes in the scroller, not .cm-content: it inherits the same font,
+ * but CodeMirror only watches .cm-content for mutations, so measuring there
+ * would schedule a pointless re-sync of the document.
+ */
+function measureCh(view: EditorView): number {
+  const probe = document.createElement('span')
+  probe.style.cssText =
+    'position:absolute;visibility:hidden;white-space:pre;width:100ch'
+  view.scrollDOM.appendChild(probe)
+  const width = probe.getBoundingClientRect().width / 100
+  probe.remove()
+  return width
+}
+
+function horizontalPadding(el: Element): number {
+  const style = getComputedStyle(el)
+  return (
+    (parseFloat(style.paddingLeft) || 0) + (parseFloat(style.paddingRight) || 0)
+  )
 }
 
 function build(view: EditorView): {

@@ -3,6 +3,8 @@ import {
   CELL_GUTTER,
   MIN_COLUMN,
   columnWidths,
+  tableLayout,
+  visibleText,
   visibleWidth,
 } from './tableLayout'
 
@@ -30,6 +32,84 @@ describe('visibleWidth', () => {
   it('measures a wiki link by what is shown, not what is written', () => {
     expect(visibleWidth('[[Strahd]]')).toBe(6)
     expect(visibleWidth('[[Strahd|the count]]')).toBe(9)
+  })
+
+  it('budgets a dice chip wider than its notation', () => {
+    // The chip is padded and bordered; measured as six letters, `1d4 gp`
+    // wrapped its `gp` onto a second line.
+    expect(visibleWidth('1d4 gp')).toBe('1d4 gp'.length + 2)
+    expect(visibleWidth('2d6+3 and 1d8')).toBe('2d6+3 and 1d8'.length + 4)
+    expect(visibleWidth('add 6')).toBe(5)
+  })
+})
+
+describe('visibleText', () => {
+  it('is the cell as the preview shows it', () => {
+    expect(visibleText(' **Rank** ')).toBe('Rank')
+    expect(visibleText('[[Strahd|the count]]')).toBe('the count')
+  })
+})
+
+describe('tableLayout', () => {
+  const header = ['Rank', 'Held by', 'Notes']
+  const body = [
+    [
+      'Grand Apothecary',
+      'The highest governing entity of the guild, voted in by the Gathering',
+      'Has the final say and breaks all ties from the Council votes',
+    ],
+  ]
+
+  it('keeps columns while every squeezed column stays readable', () => {
+    const layout = tableLayout(header, body, 63)
+    expect(layout.mode).toBe('columns')
+    if (layout.mode === 'columns')
+      expect(sum(layout.widths)).toBeLessThanOrEqual(63)
+  })
+
+  it('switches to cards once a squeezed column drops below CARD_BELOW', () => {
+    const layout = tableLayout(header, body, 36)
+    expect(layout).toEqual({
+      mode: 'cards',
+      labels: ['Rank', 'Held by', 'Notes'],
+      labelWidth: 'Held by'.length + CELL_GUTTER,
+    })
+  })
+
+  it('does not count a column that is narrow only because it is short', () => {
+    // Every column here fits at its natural width — nothing was squeezed, so
+    // nothing is cramped, however narrow `Rings` is.
+    const layout = tableLayout(['Item', 'Rings'], [['Rope', '5']], 30)
+    expect(layout.mode).toBe('columns')
+  })
+
+  it('never makes cards of a table with no body', () => {
+    const layout = tableLayout(header, [], 20)
+    expect(layout.mode).toBe('columns')
+  })
+
+  it('caps the label at a third of the line', () => {
+    const layout = tableLayout(
+      ['An extremely long header that goes on', 'B'],
+      [['x', 'y'.repeat(80)]],
+      21,
+    )
+    expect(layout.mode).toBe('cards')
+    if (layout.mode === 'cards') expect(layout.labelWidth).toBe(7)
+  })
+
+  it('shows a header as plain text, syntax hidden', () => {
+    const layout = tableLayout(
+      ['**Rank**', 'Notes'],
+      [['a', 'b'.repeat(90)]],
+      16,
+    )
+    expect(layout.mode === 'cards' && layout.labels[0]).toBe('Rank')
+  })
+
+  it('leaves a missing header cell as an empty label', () => {
+    const layout = tableLayout(['Rank'], [['a', 'b'.repeat(90)]], 16)
+    expect(layout.mode === 'cards' && layout.labels).toEqual(['Rank', ''])
   })
 })
 
