@@ -9,6 +9,7 @@ import {
 } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { remarkBreaks } from '#/lib/remarkBreaks'
 import { useRouter } from '@tanstack/react-router'
 import { Dices } from 'lucide-react'
 import { cn } from '#/lib/utils'
@@ -53,6 +54,14 @@ const CONTENT_W = PAGE_W - 2 * PAD_X // 712
  * every ReactMarkdown re-render even behind React.memo.
  */
 const REMARK_PLUGINS = [remarkGfm]
+/**
+ * The book renderer also hard-breaks single newlines, matching Obsidian, so an
+ * article reads the same here as in the editor. InlineMarkdown deliberately
+ * does not: spell-card descriptions go through it and spellCardCost doesn't
+ * charge for the extra lines (see the note in SheetPreview), and sheet notes
+ * already get explicit breaks from preserveLineBreaks.
+ */
+const BOOK_REMARK_PLUGINS = [remarkGfm, remarkBreaks]
 const identityUrl = (url: string) => url
 
 /**
@@ -779,13 +788,16 @@ export const InlineMarkdown = memo(function InlineMarkdown({
 const MarkdownBody = memo(function MarkdownBody({
   body,
   components,
+  softBreaks = false,
 }: {
   body: string
   components: Components
+  /** Render single newlines as line breaks — the book renderer's rule. */
+  softBreaks?: boolean
 }) {
   return (
     <ReactMarkdown
-      remarkPlugins={REMARK_PLUGINS}
+      remarkPlugins={softBreaks ? BOOK_REMARK_PLUGINS : REMARK_PLUGINS}
       components={components}
       urlTransform={identityUrl}
     >
@@ -906,7 +918,7 @@ export const Markdown = memo(function Markdown({
                     }
               }
             >
-              <MarkdownBody body={body} components={components} />
+              <MarkdownBody body={body} components={components} softBreaks />
             </div>
           </div>
         </div>
