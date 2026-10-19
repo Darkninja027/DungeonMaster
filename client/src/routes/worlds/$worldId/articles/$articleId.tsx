@@ -1240,6 +1240,8 @@ function ArticlePage() {
                   worldId={worldId}
                   source={rollSource}
                   onCreateMissing={setMissingTitle}
+                  framed
+                  numbered
                 >
                   {content}
                 </BookView>

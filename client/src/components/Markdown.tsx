@@ -1,6 +1,7 @@
 import {
   isValidElement,
   memo,
+  useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -692,12 +693,19 @@ interface RenderContext {
   /**
    * Draw the decorative gold frame on each sheet (components/SheetFrame.tsx).
    *
-   * Opt-in rather than always-on: it belongs to the printed character sheet,
-   * whose backstory pages render through BookView, and an article read in the
-   * book view is not that. Ignored in `'flow'` layout, where the sheet grows
-   * and a fixed 816x1056 frame would sit in the wrong place.
+   * Opt-in rather than always-on: the printed character sheet and the article
+   * Preview / live preview turn it on, while the secondary reading windows do
+   * not. Ignored in `'flow'` layout, where the sheet grows and a fixed
+   * 816x1056 frame would sit in the wrong place.
    */
   framed?: boolean
+  /**
+   * Print a page number centred in the bottom margin of each sheet, counted across
+   * the whole document rather than per `\page` chunk — BookView totals the
+   * chunks' sheet counts to do that. Ignored in `'flow'` layout, which has no
+   * pages to number.
+   */
+  numbered?: boolean
   /**
    * A read-only surface — the player window. Dice chips, rollable-table Roll
    * bars and every link render as inert text instead. See the `a` override for
@@ -809,6 +817,41 @@ const MarkdownBody = memo(function MarkdownBody({
 })
 
 /**
+ * A sheet's page number, in the bottom margin band (content ends at 1008px,
+ * the frame's inner rule sits at 1033px).
+ *
+ * Inline styles and literal colours for the same reason as SheetFrame: the PDF
+ * capture copies a child's inline styles verbatim but not every stylesheet
+ * rule. Centred, which keeps it clear of the frame's corner flourishes — their
+ * swash and leaves run ~140px in from each corner along the rule.
+ */
+function SheetNumber({ n }: { n: number }) {
+  return (
+    <div
+      className="dnd-page-number"
+      style={{
+        position: 'absolute',
+        left: 0,
+        right: 0,
+        bottom: 27,
+        textAlign: 'center',
+        fontFamily: "'Alegreya', Georgia, serif",
+        fontSize: 14,
+        lineHeight: 1,
+        // Alegreya defaults to old-style figures, which shrink a lone "1" to
+        // barely x-height down here.
+        fontVariantNumeric: 'lining-nums',
+        fontWeight: 600,
+        color: '#58180d',
+        pointerEvents: 'none',
+      }}
+    >
+      {n}
+    </div>
+  )
+}
+
+/**
  * One `\page` chunk, rendered as however many fixed-size sheets its content
  * needs (see .dnd-page / .dnd-flow in styles.css).
  */
@@ -824,7 +867,19 @@ export const Markdown = memo(function Markdown({
   readOnly,
   layout = 'sheets',
   framed,
-}: { children: string; columns?: 1 | 2 } & RenderContext) {
+  firstPage,
+  chunk = 0,
+  onSheetCount,
+}: {
+  children: string
+  columns?: 1 | 2
+  /** The number printed on this chunk's first sheet; omitted = unnumbered. */
+  firstPage?: number
+  /** Which `\page` chunk this is, echoed back through onSheetCount. */
+  chunk?: number
+  /** Reports this chunk's sheet count so BookView can number across chunks. */
+  onSheetCount?: (chunk: number, count: number) => void
+} & RenderContext) {
   const router = useRouter()
   const components = useMemo(
     () =>
@@ -897,6 +952,12 @@ export const Markdown = memo(function Markdown({
     }
   }, [body, columns, layout])
 
+  // Layout effect, not a plain one, so the numbers settle before paint rather
+  // than flashing every later chunk's old numbering for a frame.
+  useLayoutEffect(() => {
+    onSheetCount?.(chunk, sheetCount)
+  }, [onSheetCount, chunk, sheetCount])
+
   const flowClass = cn('dnd-flow', columns === 2 ? 'dnd-flow-2' : 'dnd-flow-1')
 
   return (
@@ -923,6 +984,9 @@ export const Markdown = memo(function Markdown({
               <MarkdownBody body={body} components={components} softBreaks />
             </div>
           </div>
+          {firstPage != null && layout !== 'flow' && (
+            <SheetNumber n={firstPage + i} />
+          )}
         </div>
       ))}
     </>
@@ -942,6 +1006,7 @@ export const BookView = memo(function BookView({
   readOnly,
   layout = 'sheets',
   framed,
+  numbered,
 }: { children: string } & RenderContext) {
   // Frontmatter (character stats etc.) is data, not prose — never render it.
   // Memoised: this re-splits the whole document, and every page's body string
@@ -963,6 +1028,30 @@ export const BookView = memo(function BookView({
       ),
     [children, audience],
   )
+
+  // Each chunk measures its own sheet count, so a page number is the running
+  // total of the chunks before it. Stale entries past pages.length are simply
+  // never read; a chunk not yet reported counts as one sheet, which is what it
+  // renders before its first measure.
+  const [sheetCounts, setSheetCounts] = useState<Array<number>>([])
+  const reportSheetCount = useCallback((chunk: number, count: number) => {
+    setSheetCounts((prev) => {
+      if (prev[chunk] === count) return prev
+      const next = prev.slice()
+      next[chunk] = count
+      return next
+    })
+  }, [])
+  const firstPages = useMemo(() => {
+    let page = 1
+    return pages.map((_, i) => {
+      const first = page
+      page += sheetCounts[i] ?? 1
+      return first
+    })
+  }, [pages, sheetCounts])
+  const numberSheets = numbered && layout !== 'flow'
+
   return (
     <div
       className={cn(
@@ -992,6 +1081,9 @@ export const BookView = memo(function BookView({
             source={source}
             readOnly={readOnly}
             framed={framed}
+            chunk={i}
+            firstPage={numberSheets ? firstPages[i] : undefined}
+            onSheetCount={numberSheets ? reportSheetCount : undefined}
           >
             {page.body}
           </Markdown>
