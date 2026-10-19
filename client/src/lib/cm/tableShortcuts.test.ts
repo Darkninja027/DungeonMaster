@@ -30,8 +30,9 @@ function press(pos: number, init: KeyboardEventInit) {
   const event = new KeyboardEvent('keydown', { ...init, cancelable: true })
   const handled = runScopeHandlers(view, event, 'editor')
   const doc = view.state.doc.toString()
+  const { from, to } = view.state.selection.main
   view.destroy()
-  return { handled, doc }
+  return { handled, doc, selected: doc.slice(from, to) }
 }
 
 const ctrl = (key: string, keyCode: number, shiftKey = false) => ({
@@ -66,5 +67,21 @@ describe('table shortcuts in the live editor', () => {
     const { handled, doc } = press(TABLE.indexOf('a'), ctrl('r', 82, true))
     expect(handled).toBe(true)
     expect(doc).toBe(TABLE)
+  })
+
+  it('Tab moves to the next cell, wrapping past the separator', () => {
+    const tab = { key: 'Tab', keyCode: 9 }
+    expect(press(TABLE.indexOf('2'), tab).selected).toBe('3')
+    expect(press(TABLE.indexOf('b'), tab).selected).toBe('1')
+  })
+
+  it('Shift+Tab moves to the previous cell without indenting', () => {
+    const { doc, selected } = press(TABLE.indexOf('3'), {
+      key: 'Tab',
+      keyCode: 9,
+      shiftKey: true,
+    })
+    expect(doc).toBe(TABLE)
+    expect(selected).toBe('2')
   })
 })

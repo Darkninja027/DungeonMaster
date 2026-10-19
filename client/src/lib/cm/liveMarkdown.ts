@@ -19,6 +19,7 @@ import {
   padBlock,
   removeTableColumn,
   removeTableRow,
+  tableTab,
   toggleWrap,
   wikiLinkAt,
 } from '#/lib/markdownEditing'
@@ -95,6 +96,22 @@ function applyTransform(
       to: result.replace.end,
       insert: result.text,
     },
+    selection: { anchor: result.selection.start, head: result.selection.end },
+    scrollIntoView: true,
+  })
+  return true
+}
+
+/** Tab / Shift+Tab between table cells. False when the caret isn't in a table. */
+function tableTabIn(view: EditorView, backward: boolean): boolean {
+  const result = tableTab(
+    view.state.doc.toString(),
+    view.state.selection.main.head,
+    backward,
+  )
+  if (!result) return false
+  if ('replace' in result) return applyTransform(view, () => result)
+  view.dispatch({
     selection: { anchor: result.selection.start, head: result.selection.end },
     scrollIntoView: true,
   })
@@ -281,12 +298,16 @@ export function liveMarkdown(options: LiveMarkdownOptions = {}): Extension {
         },
       },
       {
+        // In a table Tab walks the cells, wrapping between rows; anywhere
+        // else it indents.
         key: 'Tab',
         run: (view) =>
+          tableTabIn(view, false) ||
           applyTransform(view, (text, start, end) =>
             indentLines(text, { start, end }, false),
           ),
         shift: (view) =>
+          tableTabIn(view, true) ||
           applyTransform(view, (text, start, end) =>
             indentLines(text, { start, end }, true),
           ),

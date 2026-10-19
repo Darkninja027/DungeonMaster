@@ -11,6 +11,7 @@ import {
   padBlock,
   removeTableColumn,
   removeTableRow,
+  tableTab,
   toggleWrap,
   wikiLinkAt,
 } from './markdownEditing'
@@ -520,5 +521,62 @@ describe('isInTable', () => {
 
   it('is false in prose', () => {
     expect(isInTable('prose\n\n| a |', 2)).toBe(false)
+  })
+})
+
+describe('tableTab', () => {
+  const text = 'before\n\n| a | b |\n| - | - |\n| 1 | 2 |\n|   | 4 |\n\nafter'
+  const at = (needle: string) => text.indexOf(needle)
+  const selected = (r: ReturnType<typeof tableTab>) =>
+    r && !('replace' in r) ? text.slice(r.selection.start, r.selection.end) : r
+
+  it('selects the next cell in the row', () => {
+    expect(selected(tableTab(text, at('1'), false))).toBe('2')
+  })
+
+  it('wraps to the first cell of the next row, skipping the separator', () => {
+    expect(selected(tableTab(text, at(' b ') + 1, false))).toBe('1')
+  })
+
+  it('wraps back to the last cell of the previous row', () => {
+    expect(selected(tableTab(text, at('1'), true))).toBe('b')
+    expect(selected(tableTab(text, at('|   |') + 2, true))).toBe('2')
+  })
+
+  it('puts a caret just inside an empty cell', () => {
+    const r = tableTab(text, at('2'), false)!
+    const empty = at('|   |') + 2
+    expect(r.selection).toEqual({ start: empty, end: empty })
+  })
+
+  it('adds a row from the last cell and lands in it', () => {
+    const r = tableTab(text, at('4'), false)
+    expect(r && 'replace' in r).toBe(true)
+    const result = r as EditResult
+    const after = apply(text, result)
+    expect(after).toContain('|   | 4 |\n|   |   |\n\nafter')
+    // Just inside the new row's first cell.
+    expect(after.slice(0, result.selection.start).endsWith('\n|')).toBe(true)
+  })
+
+  it('stays put on Shift+Tab in the first cell', () => {
+    expect(tableTab(text, at('a'), true)!.selection).toEqual({
+      start: at('a'),
+      end: at('a'),
+    })
+  })
+
+  it('treats a caret past the closing pipe as the last cell', () => {
+    expect(selected(tableTab(text, at(' b |') + 4, false))).toBe('1')
+  })
+
+  it('handles rows without outer pipes on the right and escaped pipes', () => {
+    const t = '| a \\| x | b\n| - | - |\n| 1 | 2'
+    const r = tableTab(t, t.indexOf('a'), false)!
+    expect(t.slice(r.selection.start, r.selection.end)).toBe('b')
+  })
+
+  it('returns null outside a table', () => {
+    expect(tableTab(text, at('before'), false)).toBeNull()
   })
 })

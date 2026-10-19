@@ -345,6 +345,92 @@ export function removeTableColumn(
 }
 
 /**
+ * The [start, end) offsets, within `line`, of each cell's inner text. A row
+ * ending in `|` has nothing after that pipe; one without a trailing pipe has
+ * its last cell run to the end of the line.
+ */
+function cellSpans(line: string): Selection[] {
+  const pipes = pipeOffsets(line)
+  const spans: Selection[] = []
+  for (let k = 0; k < pipes.length; k++) {
+    const start = pipes[k] + 1
+    const end = k + 1 < pipes.length ? pipes[k + 1] : line.length
+    // Whitespace after the closing pipe isn't a cell.
+    if (k + 1 === pipes.length && line.slice(start).trim() === '') break
+    spans.push({ start, end })
+  }
+  return spans
+}
+
+/**
+ * Where Tab (or Shift+Tab) goes from a table cell: the next (or previous)
+ * cell, wrapping onto the next (or previous) row and skipping the `---`
+ * separator. The landing cell's text is selected, so typing replaces it; an
+ * empty cell gets a caret just inside it instead.
+ *
+ * Tab in the table's last cell adds a row and lands in it, so you can keep
+ * typing a table without reaching for Ctrl+R. Shift+Tab in the first cell
+ * stays put — the caller should still swallow the key, so focus doesn't leave
+ * the editor and a table row is never indented into a code block.
+ *
+ * Returns a bare selection for a move, an `EditResult` for the added row, or
+ * null when the caret isn't in a table.
+ */
+export function tableTab(
+  text: string,
+  pos: number,
+  backward: boolean,
+): EditResult | { selection: Selection } | null {
+  const table = tableAt(text, pos)
+  if (!table) return null
+  const { lines, row } = table
+
+  const landIn = (rowIndex: number, cellIndex: number) => {
+    const span = cellSpans(lines[rowIndex])[cellIndex]
+    const base = table.span.start + lineOffset(lines, rowIndex)
+    const inner = lines[rowIndex].slice(span.start, span.end)
+    const lead = inner.length - inner.trimStart().length
+    const content = inner.trim()
+    if (!content) {
+      const caret = base + span.start + Math.min(1, inner.length)
+      return { selection: { start: caret, end: caret } }
+    }
+    const start = base + span.start + lead
+    return { selection: { start, end: start + content.length } }
+  }
+
+  // Rows the caret can land in: everything but the separator.
+  const step = backward ? -1 : 1
+  const nextRow = (from: number) => {
+    let r = from + step
+    while (r >= 0 && r < lines.length && isSeparatorRow(lines[r])) r += step
+    return r >= 0 && r < lines.length ? r : null
+  }
+
+  const cells = cellSpans(lines[row]).length
+  // A caret past the closing pipe counts as being in the last cell.
+  const cell = Math.min(table.cell, cells) - 1
+
+  if (isSeparatorRow(lines[row])) {
+    const r = nextRow(row)
+    if (r !== null)
+      return landIn(r, backward ? cellSpans(lines[r]).length - 1 : 0)
+  } else {
+    const target = cell + step
+    if (target >= 0 && target < cells) return landIn(row, target)
+    const r = nextRow(row)
+    if (r !== null) {
+      const count = cellSpans(lines[r]).length
+      if (count > 0) return landIn(r, backward ? count - 1 : 0)
+    }
+  }
+
+  if (backward) return { selection: { start: pos, end: pos } }
+  // Past the last cell: grow the table by a row and land in its first cell.
+  return addTableRow(text, table.span.end)
+}
+
+/**
  * Indents or outdents every line the selection touches. Used for list items,
  * but deliberately indifferent to whether the lines are actually list markers —
  * indenting a plain paragraph under a bullet is a legitimate thing to want.

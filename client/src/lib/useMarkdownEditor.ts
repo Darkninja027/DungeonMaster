@@ -10,6 +10,7 @@ import {
   padBlock,
   removeTableColumn,
   removeTableRow,
+  tableTab,
   toggleWrap,
   wikiLinkAt,
 } from '#/lib/markdownEditing'
@@ -175,11 +176,28 @@ export function useMarkdownEditor(options: MarkdownEditorOptions = {}) {
       if (latest.current.isSuppressed?.(e)) return
       const mod = e.ctrlKey || e.metaKey
 
-      // Tab indents list items — but only for a real selection or inside a
-      // list, so Tab still moves focus out of an empty textarea.
+      // Tab moves between table cells, and indents list items — but only for
+      // a real selection or inside a list, so Tab still moves focus out of an
+      // empty textarea.
       if (e.key === 'Tab' && !mod) {
         const textarea = ref.current
         if (!textarea) return
+        // In a table Tab walks the cells, wrapping between rows.
+        const cellMove = tableTab(
+          textarea.value,
+          textarea.selectionStart,
+          e.shiftKey,
+        )
+        if (cellMove) {
+          e.preventDefault()
+          if ('replace' in cellMove) applyEdit(cellMove)
+          else
+            textarea.setSelectionRange(
+              cellMove.selection.start,
+              cellMove.selection.end,
+            )
+          return
+        }
         const hasSelection = textarea.selectionStart !== textarea.selectionEnd
         const line = textarea.value.slice(
           textarea.value.lastIndexOf('\n', textarea.selectionStart - 1) + 1,
@@ -277,7 +295,7 @@ export function useMarkdownEditor(options: MarkdownEditorOptions = {}) {
           break
       }
     },
-    [transform, wrap, insertBlock, insertText, openWikiLinkAt],
+    [applyEdit, transform, wrap, insertBlock, insertText, openWikiLinkAt],
   )
 
   /**

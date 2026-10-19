@@ -1056,7 +1056,7 @@ to hand-edit.
 | `Ctrl+G` | Add a column to the right of the cell you are in |
 | `Ctrl+Shift+R` | Remove the table row you are in |
 | `Ctrl+Shift+G` | Remove the table column you are in |
-| `Tab` / `Shift+Tab` | Indent / outdent a list item |
+| `Tab` / `Shift+Tab` | In a table: next / previous cell, wrapping onto the next or previous row (Tab in the last cell adds a row). Elsewhere: indent / outdent a list item |
 
 Every table edit is also on the right-click menu, under **Table**, if a
 shortcut is awkward to press.
