@@ -36,6 +36,12 @@ export const liveTheme = EditorView.theme({
   '.cm-activeLine': { backgroundColor: 'transparent' },
 
   // --- Inline marks --------------------------------------------------------
+  '.cm-dm-misspelled': {
+    textDecoration: 'underline wavy',
+    textDecorationColor: 'var(--destructive)',
+    textDecorationSkipInk: 'none',
+    textUnderlineOffset: '3px',
+  },
   '.cm-dm-strong': { fontWeight: '700' },
   '.cm-dm-em': { fontStyle: 'italic' },
   '.cm-dm-strike': { textDecoration: 'line-through', opacity: '0.7' },

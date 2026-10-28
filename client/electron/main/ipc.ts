@@ -82,6 +82,7 @@ import {
   writeWorldSettings,
 } from './worldSettings'
 import { readHomebrew, writeHomebrew } from './homebrew'
+import { addSpellingWord, readSpellingWords } from './spelling'
 import { readTemplates, writeTemplates } from './templates'
 import { readDescribeLists, writeDescribeList } from './describeLists'
 import { noteSelfWrite, startWatching, stopWatching } from './watcher'
@@ -1062,6 +1063,13 @@ export function registerIpcHandlers() {
     const info = tableInfo()
     return ensureFirewall(info?.port ?? 7777)
   })
+
+  // The user's own spelling dictionary, for the renderer's spell worker. One
+  // file for every world — see spelling.ts.
+  ipcMain.handle('spelling:words', () => readSpellingWords())
+  ipcMain.handle('spelling:addWord', (_e, { word }: { word: unknown }) =>
+    addSpellingWord(word),
+  )
 }
 
 /**

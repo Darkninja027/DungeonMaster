@@ -26,6 +26,7 @@ import {
 import { rollDice } from '#/lib/formatMarkdown'
 import { logRoll } from '#/lib/rollLog'
 import { liveDecorations } from './decorations'
+import { spellcheck } from './spellcheck'
 import { liveTheme } from './theme'
 import { wikiComplete } from './wikiComplete'
 import type { EditResult } from '#/lib/markdownEditing'
@@ -152,6 +153,9 @@ export function liveMarkdown(options: LiveMarkdownOptions = {}): Extension {
     rectangularSelection(),
     EditorView.lineWrapping,
     liveDecorations,
+    // Our own squiggles. CodeMirror's default spellcheck="false" stays, so
+    // Chromium's checker, where it works at all, can't draw a second set.
+    spellcheck,
     modifierCursor,
     liveTheme,
     wikiComplete({

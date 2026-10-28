@@ -86,6 +86,8 @@ const CHANNELS = new Set([
   'table:clear',
   'table:firewall',
   'table:firewallState',
+  'spelling:words',
+  'spelling:addWord',
 ])
 
 // Channels the main process may PUSH to the renderer. Kept as a separate

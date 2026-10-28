@@ -391,6 +391,33 @@ Homebrewery-style `\page` / `\columns` markers. Book pages are fixed
 sheet count. Images on disk use portable relative paths (`_images/foo.png`); the
 renderer rewrites them to `world://` URLs at display time.
 
+### Spellcheck is ours, not Chromium's
+
+`client/src/lib/spellcheck/` runs **nspell** with the bundled en-GB (`-ise`)
+dictionary in a Web Worker. Chromium's built-in checker was tried first and is
+dead on Windows here: Electron hands spelling to the OS, which on a managed
+Windows 11 box flagged nothing (not even "teh", in a bare Electron window too),
+and `webFrame.isWordMisspelled` answered false for everything. Forcing Hunspell
+with `disable-features=WinUseBrowserSpellChecker` changes nothing on Electron 41.
+Don't go back to it.
+
+- `text.ts` is the pure layer: what a word is (digits refuse it, so dice never
+  squiggle) and `excludedRanges` — frontmatter, code, `[[links]]`, link targets,
+  URLs, tags, layout markers. Both the squiggles and the menu use it, so a word
+  with no squiggle can never be offered a "correction".
+- `lib/cm/spellcheck.ts` draws squiggles in **live edit only**. A `<textarea>`
+  can't host custom decorations, so raw mode gets suggestions on right-click
+  and no underline. CodeMirror keeps its default `spellcheck="false"` so a
+  working Chromium checker elsewhere can't draw a second set.
+- The dictionary arrives as `?raw` imports bundled into the worker, because the
+  packaged app loads from `file://` and fetch is refused there.
+- The user's words live in `userData/spelling.json` (`electron/main/spelling.ts`),
+  global across worlds. `dndWords.ts` is generic table vocabulary only — never a
+  published setting's proper nouns.
+- A suggestion is applied in `MarkdownContextMenu`'s `onCloseAutoFocus`, not the
+  item's click: the open menu traps focus, so the textarea's `focus()` bounces
+  and the replace selection never takes — the word lands beside the typo.
+
 ### Build pipeline
 
 - Vite builds the renderer into `dist/`.

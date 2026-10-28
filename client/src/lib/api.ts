@@ -978,4 +978,14 @@ export const api = {
         cb(payload as SheetPatchMessage),
       ),
   },
+  /**
+   * The user's own spelling dictionary. Only the spell checker
+   * (lib/spellcheck/checker.ts) should call these — it owns the word cache
+   * that has to agree with the file.
+   */
+  spelling: {
+    words: () => invoke<Array<string>>('spelling:words'),
+    /** Remember a word for this user, across every world. */
+    addWord: (word: string) => invoke<void>('spelling:addWord', { word }),
+  },
 }
