@@ -1,4 +1,4 @@
-import { StateEffect, StateField } from '@codemirror/state'
+import { Prec, StateEffect, StateField } from '@codemirror/state'
 import { Decoration, EditorView, ViewPlugin } from '@codemirror/view'
 import type { DecorationSet, ViewUpdate } from '@codemirror/view'
 import { findMisspelled, onDictionaryChange } from '#/lib/spellcheck/checker'
@@ -105,4 +105,12 @@ const checker = ViewPlugin.fromClass(
   },
 )
 
-export const spellcheck = [misspelledField, checker]
+/**
+ * `Prec.high` is load-bearing. When marks overlap, CodeMirror nests the
+ * higher-precedence one INSIDE the other. At default precedence the squiggle
+ * sat outside a table cell's `inline-block` span and split it in two around
+ * the misspelled word, and each half took the cell's full `ch` width: "Orm" in
+ * one column, "Wolfsbane" shoved into the next. Innermost, the squiggle can't
+ * cut any mark the live decorations draw.
+ */
+export const spellcheck = [Prec.high(misspelledField), checker]

@@ -17,14 +17,10 @@
  * The paths reach into node_modules directly because the package's `exports`
  * map only offers its Node loader, which reads the files with `fs`.
  */
-import nspell from 'nspell'
-import aff from '../../../node_modules/dictionary-en-gb/index.aff?raw'
-import dic from '../../../node_modules/dictionary-en-gb/index.dic?raw'
-import { DND_WORDS } from './dndWords'
+import { createSpell } from './dictionary'
 import type { SpellRequest, SpellResponse } from './protocol'
 
-const spell = nspell(aff, dic)
-for (const word of DND_WORDS) spell.add(word)
+const spell = createSpell()
 
 const POSSESSIVE = /['’]s$/u
 
