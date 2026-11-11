@@ -32,7 +32,8 @@ import { useWorldSettings } from '#/lib/useWorldSettings'
 import { Button } from '#/components/ui/button'
 import { Input } from '#/components/ui/input'
 import { Textarea } from '#/components/ui/textarea'
-import { InlineMarkdown, PANEL_PROSE } from '#/components/Markdown'
+import { InlineMarkdown, READING_PROSE } from '#/components/Markdown'
+import { useConfirm } from '#/components/ConfirmProvider'
 
 /**
  * Session notes, organised. Each note carries an optional title, a date, any
@@ -281,6 +282,7 @@ export function NotesTab({
   selectIndex?: number | null
   onSelectIndexHandled?: () => void
 }) {
+  const confirmDelete = useConfirm()
   const [query, setQuery] = useState('')
   const [activeTags, setActiveTags] = useState<Array<string>>([])
   const [selected, setSelected] = useState<number | null>(null)
@@ -288,6 +290,7 @@ export function NotesTab({
   const [rememberedLiveEdit, setRememberedLiveEdit] = useState(loadLiveEdit)
   const liveEditorRef = useRef<LiveEditorHandle>(null)
   const [liveHasSelection, setLiveHasSelection] = useState(false)
+  const [liveInTable, setLiveInTable] = useState(false)
 
   useEffect(() => {
     localStorage.setItem(NOTES_PANES_KEY, JSON.stringify(panes))
@@ -359,10 +362,17 @@ export function NotesTab({
     setSelected(0)
   }
 
-  const removeSelected = () => {
+  const removeSelected = async () => {
     if (selected === null || !note) return
     const heading = note.title?.trim() || notePreview(note.text)
-    if (!confirm(`Delete "${heading || 'this note'}"? This cannot be undone.`))
+    if (
+      !(await confirmDelete({
+        title: `Delete "${heading || 'this note'}"?`,
+        // Not the Recycle Bin: a note lives inside the character's frontmatter,
+        // so deleting one rewrites that file rather than trashing anything.
+        description: 'This cannot be undone.',
+      }))
+    )
       return
     onChange({
       ...character,
@@ -402,9 +412,12 @@ export function NotesTab({
   const liveMenuEditor: ContextMenuEditor = {
     // Sampled as the menu opens: opening it moves focus off the editor, so a
     // live read reports "no selection" by the time Cut and Copy render.
-    onContextMenu: () =>
-      setLiveHasSelection(liveEditorRef.current?.hasSelection() ?? false),
+    onContextMenu: () => {
+      setLiveHasSelection(liveEditorRef.current?.hasSelection() ?? false)
+      setLiveInTable(liveEditorRef.current?.inTable() ?? false)
+    },
     hasSelection: liveHasSelection,
+    inTable: liveInTable,
     execEditorCommand: (command) => liveEditorRef.current?.execCommand(command),
     wrap: (wrapper) => liveEditorRef.current?.wrap(wrapper),
     transform: (fn) => liveEditorRef.current?.transform(fn),
@@ -596,7 +609,7 @@ export function NotesTab({
                 <div className="w-1/2 shrink-0 overflow-y-auto border-l p-3">
                   {note.text.trim() ? (
                     <InlineMarkdown
-                      className={PANEL_PROSE}
+                      className={READING_PROSE}
                       worldId={worldId}
                       articles={articles}
                       noteTitles={noteTitles}

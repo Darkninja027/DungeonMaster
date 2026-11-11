@@ -25,11 +25,19 @@ import { api } from '#/lib/api'
 import { onPaletteAction } from '#/lib/paletteActions'
 import { useShortcut } from '#/lib/useShortcut'
 import type { ArticleSummary, FolderNode, WorldTree } from '#/lib/api'
-import { isLibraryFolder } from '#/lib/libraryFolders'
+import { LIBRARY_FOLDERS, isLibraryFolder } from '#/lib/libraryFolders'
+import { useToast } from '#/components/ToastProvider'
+import { useUndoable } from '#/lib/useUndoable'
+import { useConfirm } from '#/components/ConfirmProvider'
+import { RECYCLE_BIN_NOTE, RECYCLE_BIN_NOTE_MANY } from '#/lib/confirmText'
 import { useWorldMode } from '#/lib/useWorldSettings'
 import { REVEAL_LABEL, revealer } from '#/lib/reveal'
 import { useTable } from '#/lib/tableStore'
-import { articleTemplates, newArticleContent } from '#/lib/templates'
+import { newArticleContent } from '#/lib/templates'
+import { defaultTemplateId } from '#/lib/templateStore'
+import { useVisibleTemplates } from '#/lib/useTemplates'
+import { PromoteToTemplateDialog } from './PromoteToTemplateDialog'
+import type { PromoteSource } from './PromoteToTemplateDialog'
 import { cn } from '#/lib/utils'
 import { SmartViews } from '#/components/SmartViews'
 import { CreateCharacterDialog } from '#/components/character/create/CreateCharacterDialog'
@@ -59,6 +67,9 @@ interface NameDialogState {
 }
 
 export function WorldSidebar({ worldId }: { worldId: string }) {
+  const toast = useToast()
+  const confirmDelete = useConfirm()
+  const offerUndo = useUndoable()
   // Which sections this world's mode shows. Hiding only — the routes behind
   // each one stay reachable, so a [[wiki link]] into a hidden tree still opens.
   const shows = useWorldMode(worldId).shows
@@ -83,6 +94,8 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
   const [dialog, setDialog] = useState<NameDialogState | null>(null)
   const [name, setName] = useState('')
   const [templateId, setTemplateId] = useState('blank')
+  const templates = useVisibleTemplates()
+  const [promoting, setPromoting] = useState<PromoteSource | null>(null)
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const [dragItem, setDragItem] = useState<{
     type: 'article' | 'folder'
@@ -97,11 +110,14 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
   const searchInputRef = useRef<HTMLInputElement>(null)
 
   // Ctrl+K belongs to the command palette; this box is still click-to-search.
+  // ignoreInInputs because Ctrl+N mid-sentence in a text box used to yank the
+  // caret into a new-article dialog — the Guide shipped that as a "surprise".
   useShortcut(
     'n',
     () => openDialog({ mode: 'new-article', parentFolderId: null }),
     {
       enabled: dialog === null,
+      ignoreInInputs: true,
     },
   )
 
@@ -132,11 +148,13 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
 
   const search = useQuery({
     queryKey: ['worlds', worldId, 'search', searchTerm],
-    queryFn: () => api.worlds.search(worldId, searchTerm),
-    enabled: searchTerm.length > 0,
     // Search backs the Content tree, so it hides library hits the same way —
-    // spells and monsters are searched from their own panels.
-    select: (results) => results.filter((r) => !isLibraryFolder(r.folderId)),
+    // spells and monsters are searched from their own panels. The exclusion is
+    // pushed down rather than applied to the response: filtering here spent the
+    // result cap on library rows and then dropped them, so a spell-heavy world
+    // could return a full page of hits and show three.
+    queryFn: () => api.worlds.search(worldId, searchTerm, LIBRARY_FOLDERS),
+    enabled: searchTerm.length > 0,
   })
 
   // Prefix invalidation: tree, characters list, search, world meta.
@@ -149,16 +167,37 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
       invalidateTree()
       setDialog(null)
     },
-    onError: (error) => alert(error.message),
+    onError: (error) =>
+      toast.show({
+        kind: 'error',
+        message: 'Could not create the folder.',
+        detail: error.message,
+      }),
   })
   const renameFolder = useMutation({
     mutationFn: ({ id, name: newName }: { id: string; name: string }) =>
       api.folders.rename(worldId, id, newName),
-    onSuccess: () => {
+    onSuccess: (_void, { id: oldId, name: newName }) => {
       invalidateTree()
       setDialog(null)
+      const oldName = oldId.slice(oldId.lastIndexOf('/') + 1)
+      if (oldName === newName) return
+      const parent = oldId.includes('/')
+        ? oldId.slice(0, oldId.lastIndexOf('/'))
+        : null
+      const newId = parent ? `${parent}/${newName}` : newName
+      offerUndo({
+        message: `Renamed "${oldName}" to "${newName}".`,
+        undoFailed: `Could not rename "${newName}" back.`,
+        undo: () => renameFolder.mutateAsync({ id: newId, name: oldName }),
+      })
     },
-    onError: (error) => alert(error.message),
+    onError: (error) =>
+      toast.show({
+        kind: 'error',
+        message: 'Could not rename the folder.',
+        detail: error.message,
+      }),
   })
   const deleteFolder = useMutation({
     mutationFn: (id: string) => api.folders.delete(worldId, id),
@@ -167,8 +206,28 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
   const moveArticle = useMutation({
     mutationFn: ({ id, folderId }: { id: string; folderId: string | null }) =>
       api.articles.move(worldId, id, folderId),
-    onSuccess: invalidateTree,
-    onError: (error) => alert(error.message),
+    onSuccess: (_void, { id: oldId, folderId: to }) => {
+      invalidateTree()
+      // A move keeps the filename and changes only the folder, so the new id
+      // is derivable — the channel itself returns nothing.
+      const title = oldId.slice(oldId.lastIndexOf('/') + 1)
+      const from = oldId.includes('/')
+        ? oldId.slice(0, oldId.lastIndexOf('/'))
+        : null
+      if (from === to) return
+      const newId = to ? `${to}/${title}` : title
+      offerUndo({
+        message: `Moved "${title}" to ${to ?? 'the world root'}.`,
+        undoFailed: `Could not move "${title}" back.`,
+        undo: () => moveArticle.mutateAsync({ id: newId, folderId: from }),
+      })
+    },
+    onError: (error) =>
+      toast.show({
+        kind: 'error',
+        message: 'Could not move the article.',
+        detail: error.message,
+      }),
   })
   const moveFolder = useMutation({
     mutationFn: ({
@@ -178,8 +237,26 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
       id: string
       parentFolderId: string | null
     }) => api.folders.move(worldId, id, parentFolderId),
-    onSuccess: invalidateTree,
-    onError: (error) => alert(error.message),
+    onSuccess: (_void, { id: oldId, parentFolderId: to }) => {
+      invalidateTree()
+      const folderName = oldId.slice(oldId.lastIndexOf('/') + 1)
+      const from = oldId.includes('/')
+        ? oldId.slice(0, oldId.lastIndexOf('/'))
+        : null
+      if (from === to) return
+      const newId = to ? `${to}/${folderName}` : folderName
+      offerUndo({
+        message: `Moved "${folderName}" to ${to ?? 'the world root'}.`,
+        undoFailed: `Could not move "${folderName}" back.`,
+        undo: () => moveFolder.mutateAsync({ id: newId, parentFolderId: from }),
+      })
+    },
+    onError: (error) =>
+      toast.show({
+        kind: 'error',
+        message: 'Could not move the folder.',
+        detail: error.message,
+      }),
   })
 
   const renameArticle = useMutation({
@@ -195,8 +272,25 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
           replace: true,
         })
       }
+      if (article.id === oldId) return
+      // The inverse is the same call back the other way, which re-runs
+      // rewriteWikiLinks and repairs every [[link]] the rename just changed.
+      // Restoring the file from the Recycle Bin would not do that, which is
+      // why a rename is the operation that most needs this.
+      const oldTitle = oldId.slice(oldId.lastIndexOf('/') + 1)
+      offerUndo({
+        message: `Renamed "${oldTitle}" to "${article.title}".`,
+        undoFailed: `Could not rename "${article.title}" back.`,
+        undo: () =>
+          renameArticle.mutateAsync({ id: article.id, title: oldTitle }),
+      })
     },
-    onError: (error) => alert(error.message),
+    onError: (error) =>
+      toast.show({
+        kind: 'error',
+        message: 'Could not rename the article.',
+        detail: error.message,
+      }),
   })
   const duplicateArticle = useMutation({
     mutationFn: (id: string) => api.articles.duplicate(worldId, id),
@@ -207,7 +301,12 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
         params: { worldId, articleId: article.id },
       })
     },
-    onError: (error) => alert(error.message),
+    onError: (error) =>
+      toast.show({
+        kind: 'error',
+        message: 'Could not duplicate the article.',
+        detail: error.message,
+      }),
   })
   const deleteArticle = useMutation({
     mutationFn: (id: string) => api.articles.delete(worldId, id),
@@ -216,7 +315,12 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
       if (activeArticleId === id)
         navigate({ to: '/worlds/$worldId', params: { worldId } })
     },
-    onError: (error) => alert(error.message),
+    onError: (error) =>
+      toast.show({
+        kind: 'error',
+        message: 'Could not delete the article.',
+        detail: error.message,
+      }),
   })
 
   const createArticle = useMutation({
@@ -252,7 +356,7 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
     } else if (dialog.mode === 'rename-article' && dialog.articleId != null) {
       renameArticle.mutate({ id: dialog.articleId, title: name })
     } else if (dialog.mode === 'new-article') {
-      const template = articleTemplates.find((t) => t.id === templateId)
+      const template = templates.find((t) => t.id === templateId)
       createArticle.mutate({
         worldId,
         folderId: dialog.parentFolderId,
@@ -264,7 +368,7 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
 
   const openDialog = (state: NameDialogState) => {
     setName(state.initial ?? '')
-    setTemplateId('blank')
+    setTemplateId(defaultTemplateId(templates))
     // Defer the overlay mount so a DropdownMenu that triggered this finishes
     // closing first — otherwise Radix can leave pointer-events:none stuck on
     // <body> and the whole app stops accepting clicks/typing until the next
@@ -316,8 +420,9 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
         setDropTarget(undefined)
       }}
       className={cn(
-        'hover:bg-accent group flex items-center gap-1 rounded px-2 py-1 text-sm',
-        activeArticleId === article.id && 'bg-accent font-medium',
+        'tome-row group flex items-center gap-1 rounded px-2 py-1 text-sm',
+        activeArticleId === article.id &&
+          'bg-(--tome-tint) font-medium text-(--tome-head)',
         dragItem?.type === 'article' &&
           dragItem.id === article.id &&
           'opacity-50',
@@ -367,6 +472,17 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
             <Copy /> Duplicate
           </DropdownMenuItem>
           <DropdownMenuItem
+            onClick={() =>
+              setPromoting({
+                worldId,
+                articleId: article.id,
+                title: article.title,
+              })
+            }
+          >
+            <FilePlus2 /> New template from this
+          </DropdownMenuItem>
+          <DropdownMenuItem
             onClick={() => void api.player.show(worldId, article.id, 'popout')}
           >
             <PictureInPicture2 /> Open in new window
@@ -390,11 +506,12 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
           </DropdownMenuItem>
           <DropdownMenuItem
             variant="destructive"
-            onClick={() => {
+            onClick={async () => {
               if (
-                confirm(
-                  `Delete "${article.title}"? It goes to the Recycle Bin.`,
-                )
+                await confirmDelete({
+                  title: `Delete "${article.title}"?`,
+                  description: RECYCLE_BIN_NOTE,
+                })
               ) {
                 deleteArticle.mutate(article.id)
               }
@@ -427,8 +544,9 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
           }}
           {...dropHandlers(folder.id)}
           className={cn(
-            'hover:bg-accent group flex items-center gap-1 rounded px-2 py-1 text-sm',
-            dropTarget === folder.id && 'bg-accent ring-primary/50 ring-2',
+            'tome-row group flex items-center gap-1 rounded px-2 py-1 text-sm',
+            dropTarget === folder.id &&
+              'bg-(--tome-tint) ring-(--tome-gold)/60 ring-2',
             dragItem?.type === 'folder' &&
               dragItem.id === folder.id &&
               'opacity-50',
@@ -445,7 +563,7 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
             ) : (
               <ChevronDown className="size-3.5 shrink-0" />
             )}
-            <FolderIcon className="size-3.5 shrink-0 text-amber-600" />
+            <FolderIcon className="text-(--tome-gold) size-3.5 shrink-0" />
             <span className="truncate font-medium">{folder.name}</span>
           </button>
           <DropdownMenu>
@@ -490,11 +608,12 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
               </DropdownMenuItem>
               <DropdownMenuItem
                 variant="destructive"
-                onClick={() => {
+                onClick={async () => {
                   if (
-                    confirm(
-                      `Delete folder "${folder.name}" and everything inside it? It goes to the Recycle Bin.`,
-                    )
+                    await confirmDelete({
+                      title: `Delete folder "${folder.name}"?`,
+                      description: RECYCLE_BIN_NOTE_MANY,
+                    })
                   ) {
                     deleteFolder.mutate(folder.id)
                   }
@@ -529,9 +648,7 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
       {shows.characters && (
         <div className="border-b">
           <div className="flex items-center justify-between px-3 pt-2">
-            <span className="text-muted-foreground text-xs font-semibold uppercase tracking-wide">
-              Characters
-            </span>
+            <span className="tome-label">Characters</span>
             <Button
               variant="ghost"
               size="icon"
@@ -552,8 +669,9 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
               <div
                 key={ch.id}
                 className={cn(
-                  'group hover:bg-accent flex items-center rounded pr-1 text-sm',
-                  activeArticleId === ch.id && 'bg-accent font-medium',
+                  'tome-row group flex items-center rounded pr-1 text-sm',
+                  activeArticleId === ch.id &&
+                    'bg-(--tome-tint) font-medium text-(--tome-head)',
                 )}
               >
                 <Link
@@ -587,11 +705,12 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
                     </DropdownMenuItem>
                     <DropdownMenuItem
                       variant="destructive"
-                      onClick={() => {
+                      onClick={async () => {
                         if (
-                          confirm(
-                            `Delete "${ch.title}"? It goes to the Recycle Bin.`,
-                          )
+                          await confirmDelete({
+                            title: `Delete "${ch.title}"?`,
+                            description: RECYCLE_BIN_NOTE,
+                          })
                         ) {
                           // A character is an article on disk, so this is the
                           // same mutation the content tree uses — including the
@@ -615,9 +734,7 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
       {shows.contentTree && (
         <>
           <div className="flex items-center justify-between border-b px-3 py-2">
-            <span className="text-muted-foreground text-xs font-semibold uppercase tracking-wide">
-              Content
-            </span>
+            <span className="tome-label">Content</span>
             <div className="flex gap-1">
               <Button
                 variant="ghost"
@@ -691,7 +808,7 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
                     key={result.id}
                     to="/worlds/$worldId/articles/$articleId"
                     params={{ worldId, articleId: result.id }}
-                    className="hover:bg-accent block rounded px-2 py-1.5"
+                    className="tome-row block rounded px-2 py-1.5"
                     onClick={() => setSearchInput('')}
                   >
                     <span className="flex items-center gap-1.5 text-sm font-medium">
@@ -714,7 +831,7 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
                   'min-h-full p-2',
                   dragItem &&
                     dropTarget === null &&
-                    'bg-accent/40 rounded ring-primary/30 ring-1',
+                    'bg-(--tome-tint) rounded ring-(--tome-gold)/40 ring-1',
                 )}
                 {...dropHandlers(null)}
               >
@@ -765,11 +882,9 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
           />
           {dialog?.mode === 'new-article' && (
             <div>
-              <p className="text-muted-foreground mb-2 text-xs font-semibold uppercase tracking-wide">
-                Template
-              </p>
+              <p className="tome-label mb-2">Template</p>
               <div className="grid grid-cols-2 gap-2">
-                {articleTemplates.map((template) => (
+                {templates.map((template) => (
                   <button
                     key={template.id}
                     type="button"
@@ -812,6 +927,11 @@ export function WorldSidebar({ worldId }: { worldId: string }) {
         worldId={worldId}
         open={wizardOpen}
         onClose={() => setWizardOpen(false)}
+      />
+
+      <PromoteToTemplateDialog
+        source={promoting}
+        onClose={() => setPromoting(null)}
       />
     </div>
   )

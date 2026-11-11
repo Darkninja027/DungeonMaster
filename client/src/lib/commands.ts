@@ -77,6 +77,31 @@ export const commands: Array<Command> = [
     },
   },
   {
+    // The guide is written once, when a world is created, and never touched
+    // again — so a world made before a feature existed still describes the app
+    // as it was then. This is the way to catch one up. It overwrites, which is
+    // why it says so and why it is not automatic.
+    id: 'refresh-guide',
+    label: 'Refresh the guide',
+    keywords: [
+      'help',
+      'manual',
+      'documentation',
+      'docs',
+      'update',
+      'guide',
+      'restore',
+    ],
+    icon: BookOpen,
+    run: (ctx) => {
+      void api.worlds.refreshGuide(ctx.worldId).then((articleId) => {
+        ctx.navigate(
+          `/worlds/${ctx.worldId}/articles/${encodeURIComponent(articleId)}`,
+        )
+      })
+    },
+  },
+  {
     id: 'new-article',
     label: 'New article',
     keywords: ['create', 'page', 'note', 'add'],

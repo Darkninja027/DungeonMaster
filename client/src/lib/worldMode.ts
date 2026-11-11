@@ -31,9 +31,11 @@ export const WORLD_MODES_IDS: Array<WorldMode> = [
 export type ModePanelTab =
   | 'initiative'
   | 'encounter'
+  | 'sessions'
   | 'rolls'
   | 'spells'
   | 'monsters'
+  | 'maps'
   | 'table'
 
 export interface WorldModeInfo {
@@ -88,9 +90,11 @@ export const WORLD_MODES: Array<WorldModeInfo> = [
       sessionTabs: [
         'initiative',
         'encounter',
+        'sessions',
         'rolls',
         'spells',
         'monsters',
+        'maps',
         'table',
       ],
     },

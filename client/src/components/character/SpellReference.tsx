@@ -20,19 +20,24 @@ import {
   consumeSpellPanelRequest,
   useSpellPanelRequest,
 } from '#/lib/spellPanel'
-import { articleTemplates } from '#/lib/templates'
+import { newArticleContent } from '#/lib/templates'
+import { findTemplate } from '#/lib/templateStore'
 import {
   collectSpells,
   entryKey,
   filterByEdition,
+  filterByScope,
   filterEntries,
   mergeEntries,
 } from '#/lib/bestiary'
 import type { LibraryEntry } from '#/lib/bestiary'
+import { loadLibraryScope } from '#/lib/libraryScope'
+import type { LibraryScope } from '#/lib/libraryScope'
 import { useWorldRuleset } from '#/lib/useWorldSettings'
 import { useOpenCharacterRuleset } from '#/lib/openCharacterRuleset'
 import { useLibraryEntries } from '#/lib/useGlobalLibrary'
 import { LibraryImportButton } from '#/components/LibraryImportButton'
+import { LibraryScopeButton } from '#/components/LibraryScopeButton'
 import { VirtualList } from '#/components/VirtualList'
 import type { VirtualListHandle } from '#/components/VirtualList'
 import { Button } from '#/components/ui/button'
@@ -44,6 +49,9 @@ import {
 } from '#/components/ui/dropdown-menu'
 import { Input } from '#/components/ui/input'
 import { InlineMarkdown, PANEL_PROSE } from '#/components/Markdown'
+import { useToast } from '#/components/ToastProvider'
+import { useConfirm } from '#/components/ConfirmProvider'
+import { RECYCLE_BIN_NOTE } from '#/lib/confirmText'
 
 const SPELLS_FOLDER = 'Spells'
 
@@ -94,6 +102,8 @@ function SpellArticle({
 export function SpellReference({ worldId }: { worldId: string }) {
   const queryClient = useQueryClient()
   const navigate = useNavigate()
+  const toast = useToast()
+  const confirmDelete = useConfirm()
   // No panel-level revealer: each row builds one from its own entry's world, so
   // a library entry reveals in the library folder rather than this one.
   const tree = useQuery({
@@ -104,6 +114,10 @@ export function SpellReference({ worldId }: { worldId: string }) {
   const [filter, setFilter] = useState('')
   const [openId, setOpenId] = useState<string | null>(null)
   const [newSpell, setNewSpell] = useState('')
+  // Lazy initialiser: localStorage is read once, not on every render.
+  const [scope, setScope] = useState<LibraryScope>(() =>
+    loadLibraryScope('spells'),
+  )
 
   // The world's own spell library, plus the global one, merged into one list
   // and narrowed to the world's rules edition. The filter is applied to the
@@ -119,19 +133,22 @@ export function SpellReference({ worldId }: { worldId: string }) {
   const ruleset = openCharacterRuleset ?? worldRuleset
   const spells = useMemo(
     () =>
-      filterByEdition(
-        mergeEntries(
-          // No typed union for the open world: its own spells are whatever sits
-          // in the Spells folder, and it has a live watcher keeping this tree
-          // honest.
-          collectSpells(worldId, tree.data, undefined, {
-            folder: SPELLS_FOLDER,
-          }),
-          library.entries,
+      filterByScope(
+        filterByEdition(
+          mergeEntries(
+            // No typed union for the open world: its own spells are whatever
+            // sits in the Spells folder, and it has a live watcher keeping this
+            // tree honest.
+            collectSpells(worldId, tree.data, undefined, {
+              folder: SPELLS_FOLDER,
+            }),
+            library.entries,
+          ),
+          ruleset,
         ),
-        ruleset,
+        scope,
       ),
-    [worldId, tree.data, library.entries, ruleset],
+    [worldId, tree.data, library.entries, ruleset, scope],
   )
 
   const visible = useMemo(() => filterEntries(spells, filter), [spells, filter])
@@ -175,12 +192,15 @@ export function SpellReference({ worldId }: { worldId: string }) {
       } catch {
         // folder already exists
       }
-      const template = articleTemplates.find((t) => t.id === 'spell')
+      const template = findTemplate('spell')
       return api.articles.create({
         worldId,
         folderId: SPELLS_FOLDER,
         title,
-        content: template?.body ?? '',
+        // newArticleContent rather than the raw body: a no-op while the
+        // template carries its own frontmatter, and the guard that keeps this
+        // spell visible to the library if someone edits that frontmatter away.
+        content: template ? newArticleContent(template) : '',
       })
     },
     onSuccess: (created) => {
@@ -191,7 +211,12 @@ export function SpellReference({ worldId }: { worldId: string }) {
         params: { worldId, articleId: created.id },
       })
     },
-    onError: (error) => alert(error.message),
+    onError: (error: Error) =>
+      toast.show({
+        kind: 'error',
+        message: 'Could not create the spell.',
+        detail: error.message,
+      }),
   })
 
   const submitNewSpell = () => {
@@ -210,7 +235,12 @@ export function SpellReference({ worldId }: { worldId: string }) {
       queryClient.invalidateQueries({ queryKey: ['worlds', worldId] })
       setOpenId(null)
     },
-    onError: (error: Error) => alert(error.message),
+    onError: (error: Error) =>
+      toast.show({
+        kind: 'error',
+        message: 'Could not delete the spell.',
+        detail: error.message,
+      }),
   })
 
   // The editable escape hatch for a read-only library entry: copy it in, then
@@ -241,7 +271,12 @@ export function SpellReference({ worldId }: { worldId: string }) {
         params: { worldId, articleId: created.id },
       })
     },
-    onError: (error: Error) => alert(error.message),
+    onError: (error: Error) =>
+      toast.show({
+        kind: 'error',
+        message: 'Could not copy the spell into this world.',
+        detail: error.message,
+      }),
   })
 
   if (tree.isPending) {
@@ -281,6 +316,13 @@ export function SpellReference({ worldId }: { worldId: string }) {
               </button>
             )}
           </div>
+          {library.entries.length > 0 && (
+            <LibraryScopeButton
+              scope={scope}
+              kind="spells"
+              onChange={setScope}
+            />
+          )}
           <LibraryImportButton target="Spells" />
         </div>
         {libraryUnavailable && (
@@ -298,8 +340,10 @@ export function SpellReference({ worldId }: { worldId: string }) {
         empty={
           <p className="text-muted-foreground p-4 text-sm">
             {filter.trim()
-              ? 'No spells match.'
-              : 'The spell library is empty. Add one below, or add a spell on a character sheet — unknown spells land here automatically.'}
+              ? `No spells match${scope === 'world' ? " in this world's own spells." : '.'}`
+              : scope === 'world'
+                ? 'This world has no spells of its own yet. Add one below, or switch to All to see the global library.'
+                : 'The spell library is empty. Add one below, or add a spell on a character sheet — unknown spells land here automatically.'}
           </p>
         }
         renderRow={(spell) => {
@@ -335,9 +379,12 @@ export function SpellReference({ worldId }: { worldId: string }) {
                     className="text-muted-foreground hover:text-foreground shrink-0 opacity-0 group-hover:opacity-100"
                     title="Library entries are read-only here"
                     onClick={() =>
-                      alert(
-                        `"${spell.title}" lives in your global library, so it is read-only from inside a world.\n\nUse "Copy to this world" to make an editable copy, or open the library folder to edit it everywhere.`,
-                      )
+                      toast.show({
+                        kind: 'info',
+                        message: `"${spell.title}" lives in your global library, so it is read-only from inside a world.`,
+                        detail:
+                          'Use "Copy to this world" to make an editable copy, or open the library folder to edit it everywhere.',
+                      })
                     }
                   >
                     <SquarePen className="size-3.5" />
@@ -383,11 +430,12 @@ export function SpellReference({ worldId }: { worldId: string }) {
                     {!spell.global && (
                       <DropdownMenuItem
                         variant="destructive"
-                        onClick={() => {
+                        onClick={async () => {
                           if (
-                            confirm(
-                              `Delete "${spell.title}"? It goes to the Recycle Bin.`,
-                            )
+                            await confirmDelete({
+                              title: `Delete "${spell.title}"?`,
+                              description: RECYCLE_BIN_NOTE,
+                            })
                           ) {
                             deleteSpell.mutate(spell)
                           }

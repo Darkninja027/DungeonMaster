@@ -1,8 +1,6 @@
 import { useSyncExternalStore } from 'react'
 import { api } from './api'
-import { mergeRoll } from './rollLog'
 import type { Seat, TableInfo } from './api'
-import type { RollEntry } from './rollLog'
 
 /**
  * The DM side of a hosted LAN session: is a table running, on what code and
@@ -99,8 +97,11 @@ if (bridged()) {
     })
   })
 
-  // A guest's roll is a roll like any other: it goes in the same shared log the
-  // DM's own rolls do. mergeRoll rather than logRoll, or the host would
-  // re-broadcast a roll back to the table it just came from.
-  api.table.onRoll((entry: RollEntry) => mergeRoll(entry))
+  // Hosting health: the bind completing, or the beacon dying. This replaces the
+  // whole info because it comes from one builder in main (currentInfo), so it
+  // is never staler than what a refresh would fetch.
+  api.table.onStatus((next) => setStatus({ hosting: true, info: next }))
+
+  // A guest's roll lands in the roll log via lib/rollLog.ts, which subscribes
+  // to it itself so every window sees guest rolls, not only this one.
 }

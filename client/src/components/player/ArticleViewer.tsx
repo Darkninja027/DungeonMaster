@@ -115,7 +115,7 @@ export function ArticleViewer({
             audience={forPlayers ? 'player' : 'dm'}
             readOnly={forPlayers}
             source={forPlayers ? undefined : { worldId, articleId, title }}
-// A reading surface, not a page proof. Fixed sheets would spill a
+            // A reading surface, not a page proof. Fixed sheets would spill a
             // long statblock onto a second sheet, and each sheet re-renders the
             // whole document — so the overflow copy's dice chips sit outside
             // the visible box, in the DOM and unclickable.

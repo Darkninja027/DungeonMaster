@@ -12,16 +12,21 @@ import { GFM } from '@lezer/markdown'
 import {
   TABLE_SNIPPET,
   WRAPPERS,
+  addTableColumn,
   addTableRow,
   indentLines,
   insertLink,
   padBlock,
+  removeTableColumn,
+  removeTableRow,
+  tableTab,
   toggleWrap,
   wikiLinkAt,
 } from '#/lib/markdownEditing'
 import { rollDice } from '#/lib/formatMarkdown'
 import { logRoll } from '#/lib/rollLog'
 import { liveDecorations } from './decorations'
+import { spellcheck } from './spellcheck'
 import { liveTheme } from './theme'
 import { wikiComplete } from './wikiComplete'
 import type { EditResult } from '#/lib/markdownEditing'
@@ -98,6 +103,22 @@ function applyTransform(
   return true
 }
 
+/** Tab / Shift+Tab between table cells. False when the caret isn't in a table. */
+function tableTabIn(view: EditorView, backward: boolean): boolean {
+  const result = tableTab(
+    view.state.doc.toString(),
+    view.state.selection.main.head,
+    backward,
+  )
+  if (!result) return false
+  if ('replace' in result) return applyTransform(view, () => result)
+  view.dispatch({
+    selection: { anchor: result.selection.start, head: result.selection.end },
+    scrollIntoView: true,
+  })
+  return true
+}
+
 const wrapWith =
   (wrapper: { before: string; after: string }) => (view: EditorView) =>
     applyTransform(view, (text, start, end) =>
@@ -132,6 +153,9 @@ export function liveMarkdown(options: LiveMarkdownOptions = {}): Extension {
     rectangularSelection(),
     EditorView.lineWrapping,
     liveDecorations,
+    // Our own squiggles. CodeMirror's default spellcheck="false" stays, so
+    // Chromium's checker, where it works at all, can't draw a second set.
+    spellcheck,
     modifierCursor,
     liveTheme,
     wikiComplete({
@@ -236,12 +260,32 @@ export function liveMarkdown(options: LiveMarkdownOptions = {}): Extension {
         preventDefault: true,
       },
       {
+        // Ctrl+R adds a row (or starts a table), Ctrl+Shift+R removes one —
+        // the same shape as the Ctrl+G column pair. Shift is swallowed even
+        // with nothing to remove, so it can never force-reload the app.
         key: 'Mod-r',
         run: (view) =>
           applyTransform(view, (text, start) => addTableRow(text, start)) ||
           applyTransform(view, (text, start, end) =>
             padBlock(text, { start, end }, TABLE_SNIPPET),
           ),
+        shift: (view) =>
+          applyTransform(view, (text, start) => removeTableRow(text, start)),
+        preventDefault: true,
+      },
+      {
+        // Ctrl+G adds a column (or starts a table), Ctrl+Shift+G removes one.
+        // Both pairs sit under the left hand on purpose: the removes were once
+        // Ctrl+Alt chords, hard to hold for anyone with limited hand mobility.
+        // Keep table edits reachable one-handed, with no Alt.
+        key: 'Mod-g',
+        run: (view) =>
+          applyTransform(view, (text, start) => addTableColumn(text, start)) ||
+          applyTransform(view, (text, start, end) =>
+            padBlock(text, { start, end }, TABLE_SNIPPET),
+          ),
+        shift: (view) =>
+          applyTransform(view, (text, start) => removeTableColumn(text, start)),
         preventDefault: true,
       },
       {
@@ -258,12 +302,16 @@ export function liveMarkdown(options: LiveMarkdownOptions = {}): Extension {
         },
       },
       {
+        // In a table Tab walks the cells, wrapping between rows; anywhere
+        // else it indents.
         key: 'Tab',
         run: (view) =>
+          tableTabIn(view, false) ||
           applyTransform(view, (text, start, end) =>
             indentLines(text, { start, end }, false),
           ),
         shift: (view) =>
+          tableTabIn(view, true) ||
           applyTransform(view, (text, start, end) =>
             indentLines(text, { start, end }, true),
           ),

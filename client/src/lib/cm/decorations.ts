@@ -3,7 +3,14 @@ import { syntaxTree } from '@codemirror/language'
 import { PAGE_MARKER, COLUMNS_MARKER } from '#/lib/formatMarkdown'
 import { bySortOrder, touches, touchesBlock } from './reveal'
 import { scanLine } from './customSyntax'
-import { DiceWidget, PageRuleWidget } from './widgets'
+import { MIN_COLUMN, tableLayout } from './tableLayout'
+import type { CardLayout } from './tableLayout'
+import {
+  DiceWidget,
+  PageRuleWidget,
+  TableSpacerWidget,
+  ThematicBreakWidget,
+} from './widgets'
 import type { DecorationSet, ViewUpdate } from '@codemirror/view'
 import type { EditorState } from '@codemirror/state'
 import type { SyntaxNode, Tree } from '@lezer/common'
@@ -72,6 +79,198 @@ function inCode(tree: Tree, pos: number): boolean {
   return false
 }
 
+/** A table cell: where it is, what it says, and which column it belongs to. */
+interface Cell {
+  from: number
+  to: number
+  text: string
+  col: number
+}
+
+/**
+ * Lays a table out in aligned columns, `available` characters wide.
+ *
+ * Every row is its own `.cm-line`, so there is no <table> for the browser to
+ * share a column width across — left alone it packs each row on its own and
+ * the columns go ragged as soon as one cell is longer than the cell above it.
+ * So the table is measured here (see tableLayout.ts) and every cell in a column
+ * is given the same explicit width. The cells stay real text with only their
+ * box imposed, so the caret still moves through them normally.
+ *
+ * Column index comes from counting delimiters rather than cells, because a row
+ * written `| Sworn || 1 |` parses with no cell at all in the middle: counting
+ * cells would put `1` in column two and shift the rest of the row left.
+ */
+function tableDecorations(
+  state: EditorState,
+  table: SyntaxNode,
+  available: number,
+  out: Array<Pending>,
+): void {
+  const lineAt = (pos: number) => state.doc.lineAt(pos)
+  const rows: Array<{ header: boolean; from: number; cells: Array<Cell> }> = []
+
+  for (let row = table.firstChild; row; row = row.nextSibling) {
+    const header = row.name === 'TableHeader'
+    // The `| --- | --- |` alignment row carries no content, so it is hidden
+    // outright rather than laid out as an empty table row.
+    const separator =
+      row.name === 'TableDelimiter' ||
+      /^[\s|:-]+$/.test(state.doc.sliceString(row.from, row.to))
+    if (separator) {
+      out.push({
+        from: lineAt(row.from).from,
+        to: lineAt(row.from).from,
+        side: -1,
+        deco: Decoration.line({ class: 'cm-dm-table-sep' }),
+      })
+      continue
+    }
+    if (row.name !== 'TableRow' && !header) continue
+
+    const line = lineAt(row.from)
+    const cells: Array<Cell> = []
+    let col = 0
+    let hiddenTo = line.from
+
+    for (let cell = row.firstChild; cell; cell = cell.nextSibling) {
+      if (cell.name === 'TableDelimiter') {
+        if (cells.length > 0) col++
+        // Swallow the spaces either side of the pipe along with it. A cell node
+        // is trimmed, so that padding is undecorated text sitting between two
+        // cells — and `| Chit     | none |` out of Tidy pads by a different
+        // amount on every row, which is exactly the drift the widths are here
+        // to remove. `hiddenTo` stops two adjacent pipes hiding the same run.
+        let from = cell.from
+        let to = cell.to
+        while (
+          from > hiddenTo &&
+          /[ \t]/.test(state.doc.sliceString(from - 1, from))
+        )
+          from--
+        while (to < line.to && /[ \t]/.test(state.doc.sliceString(to, to + 1)))
+          to++
+        hiddenTo = to
+        out.push({ from, to, side: 1, deco: HIDE })
+      } else if (cell.name === 'TableCell' && cell.to > cell.from) {
+        cells.push({
+          from: cell.from,
+          to: cell.to,
+          text: state.doc.sliceString(cell.from, cell.to),
+          col,
+        })
+      }
+    }
+    rows.push({ header, from: row.from, cells })
+  }
+
+  const texts = (row: (typeof rows)[number]) => {
+    const byCol: Array<string | undefined> = []
+    for (const cell of row.cells) byCol[cell.col] = cell.text
+    return byCol
+  }
+  const head = rows.find((row) => row.header)
+  const layout = tableLayout(
+    head ? texts(head) : [],
+    rows.filter((row) => !row.header).map(texts),
+    available,
+  )
+
+  if (layout.mode === 'cards') {
+    cardDecorations(rows, layout, lineAt, out)
+    return
+  }
+  const { widths } = layout
+
+  for (const row of rows) {
+    out.push({
+      from: lineAt(row.from).from,
+      to: lineAt(row.from).from,
+      side: -1,
+      deco: Decoration.line({
+        class: row.header ? 'cm-dm-table-head' : 'cm-dm-table-row',
+      }),
+    })
+    let next = 0
+    for (const cell of row.cells) {
+      // Empty columns the row skipped over still owe their width, or the
+      // cells after them sit under the wrong header.
+      for (; next < cell.col; next++) {
+        out.push({
+          from: cell.from,
+          to: cell.from,
+          side: -1,
+          deco: Decoration.widget({
+            widget: new TableSpacerWidget(widths[next]),
+          }),
+        })
+      }
+      next = cell.col + 1
+      out.push({
+        from: cell.from,
+        to: cell.to,
+        side: 0,
+        // Inclusive, or a dice chip opening the cell renders before its box
+        // instead of in it, and pushes the rest of the row a chip-width right.
+        deco: Decoration.mark({
+          inclusive: true,
+          class: 'cm-dm-cell',
+          attributes: { style: `width:${widths[cell.col]}ch` },
+        }),
+      })
+    }
+  }
+}
+
+/**
+ * A table too narrow for its columns, as one card per body row: every cell on
+ * a line of its own, led by its column's header.
+ *
+ * The header row is hidden, since each card repeats it. The labels are CSS
+ * `content` rather than widgets, so they are not in the document and the caret
+ * never lands in one — the cells are still the real text, only reflowed, and
+ * touching the table still reveals the raw pipes like any other.
+ *
+ * An empty cell has no node and so no line in the card: "Notes:" with nothing
+ * after it says no more than leaving it out.
+ */
+function cardDecorations(
+  rows: ReadonlyArray<{ header: boolean; from: number; cells: Array<Cell> }>,
+  layout: CardLayout,
+  lineAt: (pos: number) => { from: number },
+  out: Array<Pending>,
+): void {
+  for (const row of rows) {
+    const from = lineAt(row.from).from
+    out.push({
+      from,
+      to: from,
+      side: -1,
+      deco: Decoration.line({
+        class: row.header ? 'cm-dm-table-sep' : 'cm-dm-table-card',
+        attributes: row.header
+          ? undefined
+          : { style: `--dm-card-label:${layout.labelWidth}ch` },
+      }),
+    })
+    if (row.header) continue
+    for (const cell of row.cells) {
+      out.push({
+        from: cell.from,
+        to: cell.to,
+        side: 0,
+        // Inclusive so a widget at the cell's edge — a dice chip opening it —
+        // renders inside the block rather than as a stray before it.
+        deco: Decoration.mark({
+          inclusive: true,
+          class: 'cm-dm-card-cell',
+          attributes: { 'data-label': layout.labels[cell.col] ?? '' },
+        }),
+      })
+    }
+  }
+}
+
 /**
  * Markdown constructs Lezer knows about. Walks the tree over the visible range
  * only — decorating a whole 30-page article on every keystroke is the
@@ -83,6 +282,7 @@ function treeDecorations(
   from: number,
   to: number,
   out: Array<Pending>,
+  columns: () => number,
 ): void {
   const lineAt = (pos: number) => state.doc.lineAt(pos)
 
@@ -170,6 +370,21 @@ function treeDecorations(
         return
       }
 
+      // `---` is a divider, not three hyphens of literal text. Whole-line
+      // replace, like the page rule, so it reveals back to `---` under the
+      // caret. Frontmatter fences never reach here — see frontmatterEnd.
+      if (name === 'HorizontalRule') {
+        const line = lineAt(node.from)
+        if (touches(ranges, line.from, line.to)) return
+        out.push({
+          from: line.from,
+          to: line.to,
+          side: 1,
+          deco: Decoration.replace({ widget: new ThematicBreakWidget() }),
+        })
+        return
+      }
+
       // Fences reveal as a unit — a half-raw fence is unreadable.
       if (name === 'FencedCode') {
         if (touchesBlock(ranges, node.from, node.to, lineAt)) return
@@ -186,48 +401,7 @@ function treeDecorations(
         // Whole-table reveal, for the same reason: showing raw pipes for only
         // the touched row makes the columns jump between two widths.
         if (touchesBlock(ranges, node.from, node.to, lineAt)) return
-
-        for (let row = node.node.firstChild; row; row = row.nextSibling) {
-          const header = row.name === 'TableHeader'
-          // The `| --- | --- |` alignment row carries no content, so it is
-          // hidden outright rather than laid out as an empty table row.
-          const separator =
-            row.name === 'TableDelimiter' ||
-            /^[\s|:-]+$/.test(state.doc.sliceString(row.from, row.to))
-          if (separator) {
-            out.push({
-              from: lineAt(row.from).from,
-              to: lineAt(row.from).from,
-              side: -1,
-              deco: Decoration.line({ class: 'cm-dm-table-sep' }),
-            })
-            continue
-          }
-          if (row.name !== 'TableRow' && !header) continue
-
-          out.push({
-            from: lineAt(row.from).from,
-            to: lineAt(row.from).from,
-            side: -1,
-            deco: Decoration.line({
-              class: header ? 'cm-dm-table-head' : 'cm-dm-table-row',
-            }),
-          })
-          // Hide the pipes, style the cells. The cells stay real text, so the
-          // caret still moves through them normally.
-          for (let cell = row.firstChild; cell; cell = cell.nextSibling) {
-            if (cell.name === 'TableDelimiter') {
-              out.push({ from: cell.from, to: cell.to, side: 1, deco: HIDE })
-            } else if (cell.name === 'TableCell') {
-              out.push({
-                from: cell.from,
-                to: cell.to,
-                side: 0,
-                deco: Decoration.mark({ class: 'cm-dm-cell' }),
-              })
-            }
-          }
-        }
+        tableDecorations(state, node.node, columns(), out)
         return
       }
     },
@@ -350,11 +524,78 @@ function frontmatterEnd(state: EditorState, out: Array<Pending>): number {
   return 0
 }
 
+/**
+ * How many monospace characters fit across the text area — the budget the table
+ * layout shares between columns. Measured rather than assumed, because a notes
+ * pane and a maximised article window differ by a factor of three.
+ */
+/** CodeMirror's base theme pads `.cm-line` `0 2px 0 6px`; our theme leaves it. */
+const CM_LINE_PADDING = 8
+
+function measureColumns(view: EditorView): number {
+  const content = view.contentDOM
+  const char = measureCh(view)
+  // No layout yet (constructed but not shown): guess a console width rather
+  // than divide by zero. The next geometry change rebuilds with a real number.
+  if (!(char > 0) || !(content.clientWidth > 0)) return 80
+  const line = content.querySelector('.cm-line')
+  // What a row's cells actually get is the inside of a `.cm-line`, so both
+  // paddings come off: .cm-content's (1rem a side in our theme) and the line's
+  // own (CodeMirror's 6px + 2px). A flat "minus four characters" covered the
+  // first and not the second, and the last cell of a row came out a pixel too
+  // wide and dropped onto a line of its own, under the wrong header. The 1px
+  // is for sub-pixel layout rounding a sum of `ch` boxes up.
+  //
+  // The first build runs before CodeMirror has drawn a single line, so there
+  // is none to read and its default stands in. Waiting for a line instead
+  // meant opening an article showed the 80-column guess for over a second,
+  // until some unrelated geometry change got round to rebuilding.
+  const px =
+    content.clientWidth -
+    horizontalPadding(content) -
+    (line ? horizontalPadding(line) : CM_LINE_PADDING) -
+    1
+  return Math.max(MIN_COLUMN * 2, Math.floor(px / char))
+}
+
+/**
+ * The pixel width of one `ch` — the unit every cell is sized in — measured
+ * rather than taken from `view.defaultCharacterWidth`. That one is an average
+ * over whichever line CodeMirror happened to sample, and was seen reading 7px
+ * on one build and 7.7px on the next in the same editor; at sixty characters
+ * the difference is a whole column.
+ *
+ * The probe goes in the scroller, not .cm-content: it inherits the same font,
+ * but CodeMirror only watches .cm-content for mutations, so measuring there
+ * would schedule a pointless re-sync of the document.
+ */
+function measureCh(view: EditorView): number {
+  const probe = document.createElement('span')
+  probe.style.cssText =
+    'position:absolute;visibility:hidden;white-space:pre;width:100ch'
+  view.scrollDOM.appendChild(probe)
+  const width = probe.getBoundingClientRect().width / 100
+  probe.remove()
+  return width
+}
+
+function horizontalPadding(el: Element): number {
+  const style = getComputedStyle(el)
+  return (
+    (parseFloat(style.paddingLeft) || 0) + (parseFloat(style.paddingRight) || 0)
+  )
+}
+
 function build(view: EditorView): {
   decorations: DecorationSet
   atomic: DecorationSet
 } {
   const out: Array<Pending> = []
+  // Measured lazily and once per build: reading layout mid-update forces the
+  // browser to reflow, and it is only worth paying for when a table is
+  // actually on screen — which most keystrokes are not.
+  let width = 0
+  const columns = () => (width ||= measureColumns(view))
   // An unfocused editor has no meaningful cursor, but its selection still
   // reads as offset 0 — which would "reveal" whatever starts the document,
   // so an article opens with its first heading showing a stray `#`. Treat
@@ -367,7 +608,7 @@ function build(view: EditorView): {
     // decorated as prose.
     const start = Math.max(from, fmEnd)
     if (start >= to) continue
-    treeDecorations(view.state, ranges, start, to, out)
+    treeDecorations(view.state, ranges, start, to, out, columns)
     customDecorations(view.state, ranges, start, to, out)
   }
   // Two passes each emit in document order, but merged they are not ordered at
@@ -412,11 +653,14 @@ export const liveDecorations = ViewPlugin.fromClass(
       // `focusChanged` matters because build() ignores the selection entirely
       // while unfocused — without it, clicking into the editor wouldn't reveal
       // the construct under the caret until you also moved it.
+      // `geometryChanged` matters because table columns are sized to the width
+      // of the pane: without it, dragging the split leaves them at the old one.
       if (
         update.docChanged ||
         update.selectionSet ||
         update.viewportChanged ||
-        update.focusChanged
+        update.focusChanged ||
+        update.geometryChanged
       ) {
         const built = build(update.view)
         this.decorations = built.decorations

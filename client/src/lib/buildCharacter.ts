@@ -708,11 +708,22 @@ export function buildCharacter(draft: CharacterDraft): {
       }
       for (const name of draft.spells.filter(Boolean)) {
         if (!c.spells.some((s) => s.name === name && s.level === 1)) {
-          c.spells.push({
-            name,
-            level: 1,
-            ...(sc.prepares ? { prepared: true } : {}),
-          })
+          // Never `prepared`, for a preparer or anyone else.
+          //
+          // A preparer's starting picks are what they *know* — for the only
+          // class this reaches, a wizard, they are the six spells copied into
+          // the spellbook. What is prepared from that book is a daily decision
+          // the sheet owns, exactly as `applyLevelUp` and `applyPick` already
+          // treat every spell they add.
+          //
+          // Marking them prepared also started every wizard over their own
+          // limit: six rows against an `INT mod + level` allowance of about
+          // four at 1st, so a brand-new sheet read "6 / 4" before the player
+          // had touched anything. Wizard is the only preparer with a non-zero
+          // `spellsKnown` — a cleric, druid and paladin all prepare from the
+          // whole list and pick nothing here — so this changes that one class
+          // and nothing else.
+          c.spells.push({ name, level: 1 })
         }
       }
       c.preparedLimit = sc.prepares

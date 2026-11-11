@@ -451,6 +451,42 @@ describe('session note pagination', () => {
     const one = [note('2026-08-13', 'x')]
     expect(paginateNotes(one, 0)).toEqual([one])
   })
+
+  // The partition SheetPreview does before calling paginateNotes at all. An
+  // oversize note is routed to the measured BookView flow instead, because the
+  // page it would get here clips at the fold. Asserted against noteCost rather
+  // than a hardcoded size so it tracks the cost model instead of drifting from
+  // it — this is the rule, not an example of it.
+  it('separates notes that cannot fit a page from those that can', () => {
+    const budget = 58
+    const short = note('2026-08-12', '- met the Baron')
+    // A pasted article, the case that motivated the split.
+    const article = note(
+      '2026-08-13',
+      [
+        '# Bellview Mercenary Guild',
+        '',
+        ...nums(240).map((i) => `| row ${i} | x |`),
+      ].join('\n'),
+      'Bellview Mercenary Guild',
+    )
+    expect(noteCost(short)).toBeLessThanOrEqual(budget)
+    expect(noteCost(article)).toBeGreaterThan(budget)
+
+    const notes = [short, article]
+    const cardNotes = notes.filter((n) => noteCost(n) <= budget)
+    const longNotes = notes.filter((n) => noteCost(n) > budget)
+    expect(cardNotes).toEqual([short])
+    expect(longNotes).toEqual([article])
+
+    // What reaches paginateNotes now always fits, so nothing it returns clips.
+    const pages = paginateNotes(cardNotes, budget)
+    expect(pages).toHaveLength(1)
+    for (const page of pages) {
+      const used = page.reduce((sum, n) => sum + noteCost(n), 0)
+      expect(used).toBeLessThanOrEqual(budget)
+    }
+  })
 })
 
 describe('spell card pagination', () => {

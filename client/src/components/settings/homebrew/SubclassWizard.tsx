@@ -30,7 +30,10 @@ const STEP_HEADINGS: Record<StepId, { title: string; blurb: string }> = {
     title: 'Which class?',
     blurb: 'The subclass is added to it, without duplicating it.',
   },
-  name: { title: 'Name it', blurb: 'What players will see on the option card.' },
+  name: {
+    title: 'Name it',
+    blurb: 'What players will see on the option card.',
+  },
   features: {
     title: 'Features',
     blurb: 'What it grants, and when. You can add these later.',
@@ -131,7 +134,8 @@ export function SubclassWizard({
   }
 
   const collides =
-    kit?.subclasses.some((s) => nameKey(s.name) === nameKey(draft.name)) ?? false
+    kit?.subclasses.some((s) => nameKey(s.name) === nameKey(draft.name)) ??
+    false
   // Bare *and* colliding is the one combination that silently does nothing:
   // `layerSubclasses` skips an incoming bare subclass whose name the class
   // already has, so it would save to disk and never appear anywhere. A bare
@@ -212,8 +216,8 @@ export function SubclassWizard({
                     <p className="text-muted-foreground text-xs">
                       Added alongside the {kit.subclasses.length}{' '}
                       {kit.subclassLabel.toLowerCase()}
-                      {kit.subclasses.length === 1 ? '' : 's'} {kit.name} already
-                      has.
+                      {kit.subclasses.length === 1 ? '' : 's'} {kit.name}{' '}
+                      already has.
                     </p>
                   )}
                 </Field>
@@ -315,9 +319,10 @@ export function SubclassWizard({
                   )}
                   {inert && (
                     <p className="text-xs text-amber-600 dark:text-amber-500">
-                      {draft.className.trim()} already has a {draft.name.trim()},
-                      and this one carries nothing yet — so it would be ignored.
-                      Add a feature, a summary or a grant to override it.
+                      {draft.className.trim()} already has a {draft.name.trim()}
+                      , and this one carries nothing yet — so it would be
+                      ignored. Add a feature, a summary or a grant to override
+                      it.
                     </p>
                   )}
                   <p className="text-muted-foreground text-xs">

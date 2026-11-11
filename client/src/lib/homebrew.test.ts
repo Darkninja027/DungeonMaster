@@ -1208,7 +1208,10 @@ describe('a choice on a feature', () => {
     }
     const pick = written.subclasses[0].features[0].picks[0]
     expect(pick.id).toBeUndefined()
-    expect(pick).toMatchObject({ kind: 'feature', featureLabel: 'Fighting Style' })
+    expect(pick).toMatchObject({
+      kind: 'feature',
+      featureLabel: 'Fighting Style',
+    })
   })
 
   it('is stable across a second parse', () => {
@@ -1232,7 +1235,9 @@ describe('a choice on a feature', () => {
       kits: [
         {
           name: 'Warden',
-          features: [{ level: 2, name: 'Jack of All Trades', halfProficiency: 'all' }],
+          features: [
+            { level: 2, name: 'Jack of All Trades', halfProficiency: 'all' },
+          ],
         },
       ],
     }).kits[0].features[0]
@@ -1245,7 +1250,11 @@ describe('a choice on a feature', () => {
         {
           name: 'Warden',
           features: [
-            { level: 1, name: 'Nothing', picks: [{ kind: 'feature', label: 'X', count: 1, options: [] }] },
+            {
+              level: 1,
+              name: 'Nothing',
+              picks: [{ kind: 'feature', label: 'X', count: 1, options: [] }],
+            },
           ],
         },
       ],

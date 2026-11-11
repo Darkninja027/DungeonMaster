@@ -47,7 +47,33 @@ import {
   revealImage,
   uploadImage,
 } from './images'
-import { readSession, readViews, writeSession, writeViews } from './session'
+import {
+  readEncounters,
+  readMaps,
+  readSession,
+  readViews,
+  writeEncounters,
+  writeMaps,
+  writeSession,
+  writeViews,
+} from './session'
+import {
+  applyState,
+  flushAllState,
+  flushState,
+  readState,
+  replaceState,
+} from './stateAuthority'
+import type { StateChannel } from './stateAuthority'
+import type { StatePatch } from './statePatch'
+import {
+  closeAllMapWindows,
+  closeMapWindow,
+  isMapId,
+  pushToMapWindow,
+  showMapWindow,
+} from './mapWindow'
+import type { MapWindowMode } from './mapWindow'
 import {
   WORLD_SETTINGS_FILE,
   migrateWorldFolder,
@@ -56,6 +82,9 @@ import {
   writeWorldSettings,
 } from './worldSettings'
 import { readHomebrew, writeHomebrew } from './homebrew'
+import { addSpellingWord, readSpellingWords } from './spelling'
+import { readTemplates, writeTemplates } from './templates'
+import { readDescribeLists, writeDescribeList } from './describeLists'
 import { noteSelfWrite, startWatching, stopWatching } from './watcher'
 import {
   closeAllPlayerWindows,
@@ -64,14 +93,15 @@ import {
   showPlayerWindow,
 } from './playerWindow'
 import type { ViewerMode } from './playerWindow'
-import { relayRoll } from './rollRelay'
+import { clearRolls, relayRoll, rollHistory } from './rollRelay'
 import { findTable } from './beacon'
+import { ensureFirewall, firewallState } from './firewall'
 import {
   clearTable,
   hostTable,
   isHosting,
-  pushCombatToTable,
   pushRollToTable,
+  shareMapAtTable,
   showAtTable,
   stopTable,
   tableInfo,
@@ -123,6 +153,36 @@ function scaffoldSettings(root: string, ruleset?: string): void {
   } catch {
     // read-only folder or a race with another window — the getter copes.
   }
+}
+
+/**
+ * The two `.dm/` files the main process holds authority over.
+ *
+ * Both are edited from more than one window — a battlemap in its own window
+ * writes its own file, and its damage keys write the tracker's — and both are
+ * whole-file writes, so a renderer-owned copy would clobber. See
+ * stateAuthority.ts. Every other `.dm/` file (views, encounters) is still
+ * renderer-owned, because nothing but the DM window can edit it.
+ *
+ * `key` names the array inside the file that patches address by id.
+ */
+const MAPS_CHANNEL: StateChannel = {
+  event: 'maps:changed',
+  key: 'maps',
+  read: readMaps,
+  write: writeMaps,
+}
+
+const SESSION_CHANNEL: StateChannel = {
+  event: 'session:changed',
+  key: 'combatants',
+  read: readSession,
+  write: writeSession,
+}
+
+/** Write every world's pending state now. For app quit. */
+export function flushAllWorldState(): void {
+  flushAllState([MAPS_CHANNEL, SESSION_CHANNEL])
 }
 
 /**
@@ -233,6 +293,30 @@ export function registerIpcHandlers() {
     return worldSummary(root)
   })
 
+  /**
+   * Rewrite this world's Guide.md with the version shipped in this build.
+   *
+   * User-invoked, and that is the whole design. `scaffoldGuide` writes the
+   * guide once at world creation and never again, deliberately: adopting
+   * somebody's Obsidian vault must not scatter files into it, and deleting the
+   * guide has to stick. Both rules make an automatic update impossible — a
+   * deleted guide and a guide that was never written look identical on disk,
+   * so "top up the ones that are stale" cannot tell them apart.
+   *
+   * So the DM asks. Same shape as `restoreBundledFolder`, which is the
+   * library's equivalent repair action and is likewise not version-gated.
+   * Overwrites whatever is there, which is why the caller confirms first.
+   */
+  ipcMain.handle(
+    'worlds:refreshGuide',
+    (_e, { worldId }: { worldId: string }) => {
+      const abs = resolveInWorld(worldRoot(worldId), GUIDE_FILENAME)
+      noteSelfWrite(abs)
+      atomicWrite(abs, GUIDE_CONTENT)
+      return GUIDE_FILENAME.replace(/\.md$/, '')
+    },
+  )
+
   ipcMain.handle(
     'worlds:update',
     (
@@ -264,8 +348,14 @@ export function registerIpcHandlers() {
 
   ipcMain.handle(
     'worlds:search',
-    (_e, { worldId, query }: { worldId: string; query: string }) =>
-      searchWorld(worldId, query),
+    (
+      _e,
+      {
+        worldId,
+        query,
+        excludeFolders,
+      }: { worldId: string; query: string; excludeFolders?: Array<string> },
+    ) => searchWorld(worldId, query, undefined, excludeFolders),
   )
 
   ipcMain.handle(
@@ -630,14 +720,30 @@ export function registerIpcHandlers() {
   )
 
   // Session (initiative tracker) ---------------------------------------------
+  // Authoritative here for the same reason maps are, and it matters more: the
+  // battlemap's [ and ] keys damage a combatant, so a map window writes THIS
+  // file too. Losing the fight in progress mid-combat is worse than losing a
+  // token position. `session:set` survives for the whole-state writes the
+  // tracker still makes (starting a fight replaces every combatant at once);
+  // it goes through the authority so it cannot race a patch.
   ipcMain.handle('session:get', (_e, { worldId }: { worldId: string }) =>
-    readSession(worldId),
+    readState(SESSION_CHANNEL, worldId),
   )
 
   ipcMain.handle(
     'session:set',
-    (_e, { worldId, state }: { worldId: string; state: unknown }) =>
-      writeSession(worldId, state),
+    (e, { worldId, state }: { worldId: string; state: unknown }) =>
+      replaceState(SESSION_CHANNEL, worldId, state, e.sender),
+  )
+
+  ipcMain.handle(
+    'session:apply',
+    (e, { worldId, patch }: { worldId: string; patch: StatePatch }) =>
+      applyState(SESSION_CHANNEL, worldId, patch, e.sender),
+  )
+
+  ipcMain.handle('session:flush', (_e, { worldId }: { worldId: string }) =>
+    flushState(SESSION_CHANNEL, worldId),
   )
 
   // Saved Smart Views -------------------------------------------------------
@@ -649,6 +755,90 @@ export function registerIpcHandlers() {
     'views:set',
     (_e, { worldId, state }: { worldId: string; state: unknown }) =>
       writeViews(worldId, state),
+  )
+
+  // Prepared encounters. Raw JSON up: the renderer owns the tolerant parse, the
+  // same split homebrew and templates use.
+  ipcMain.handle('encounters:get', (_e, { worldId }: { worldId: string }) =>
+    readEncounters(worldId),
+  )
+
+  ipcMain.handle(
+    'encounters:set',
+    (_e, { worldId, state }: { worldId: string; state: unknown }) =>
+      writeEncounters(worldId, state),
+  )
+
+  // Battlemaps. Raw JSON up, like encounters — the renderer owns the tolerant
+  // parse (lib/mapStore.ts), which is what lets a hand-edited or part-broken
+  // file still open every map that is fine.
+  //
+  // Unlike encounters, the AUTHORITY is here rather than in the renderer: a map
+  // can be open in its own window while the DM window edits the same file, and
+  // two renderers whole-file-saving on a debounce lose maps. See
+  // stateAuthority.ts. `maps:set` is deliberately gone — a whole-file set from a
+  // renderer IS the clobber, so there is no way to ask for one.
+  ipcMain.handle('maps:get', (_e, { worldId }: { worldId: string }) =>
+    readState(MAPS_CHANNEL, worldId),
+  )
+
+  ipcMain.handle(
+    'maps:apply',
+    (e, { worldId, patch }: { worldId: string; patch: StatePatch }) =>
+      applyState(MAPS_CHANNEL, worldId, patch, e.sender),
+  )
+
+  ipcMain.handle('maps:flush', (_e, { worldId }: { worldId: string }) =>
+    flushState(MAPS_CHANNEL, worldId),
+  )
+
+  // Battlemap windows --------------------------------------------------------
+  // Unlike player:show, these validate the id for SHAPE rather than resolving
+  // it: a map id is a random string looked up in a JSON file, never joined onto
+  // a path. worldRoot() is still the real boundary, and it throws for a bad
+  // world id before any window opens.
+  ipcMain.handle(
+    'mapView:show',
+    (
+      _e,
+      {
+        worldId,
+        mapId,
+        mode,
+      }: { worldId: string; mapId: string; mode?: MapWindowMode },
+    ) => {
+      worldRoot(worldId)
+      if (!isMapId(mapId)) throw new Error('Not a map id.')
+      showMapWindow(worldId, mapId, mode === 'table' ? 'table' : 'edit')
+    },
+  )
+
+  ipcMain.handle(
+    'mapView:close',
+    (
+      _e,
+      {
+        worldId,
+        mapId,
+        mode,
+      }: { worldId: string; mapId: string; mode?: MapWindowMode },
+    ) => closeMapWindow(worldId, mapId, mode === 'table' ? 'table' : 'edit'),
+  )
+
+  // Relay only — touches no disk. The payload arrives already stripped by
+  // forPlayers() in the sending renderer, which is where the secrecy rule
+  // belongs: a hidden token never enters this process at all.
+  ipcMain.handle(
+    'mapView:push',
+    (
+      _e,
+      payload: {
+        worldId: string
+        mapId: string
+        map: unknown
+        session?: unknown
+      },
+    ) => pushToMapWindow(payload),
   )
 
   // Per-world settings (the class/subclass list) ------------------------------
@@ -672,6 +862,25 @@ export function registerIpcHandlers() {
 
   ipcMain.handle('homebrew:set', (_e, { state }: { state: unknown }) =>
     writeHomebrew(state),
+  )
+
+  // Global article templates --------------------------------------------------
+  // App-level for the same reason as homebrew: a template you write once is
+  // offered in every world. No withWorldLock — that lock is keyed by worldId and
+  // has nothing to say about a file in userData.
+  ipcMain.handle('templates:get', () => readTemplates())
+
+  ipcMain.handle('templates:set', (_e, { state }: { state: unknown }) =>
+    writeTemplates(state),
+  )
+
+  // The Describe panel's own name and detail lists, app-wide like templates.
+  ipcMain.handle('describe:get', () => readDescribeLists())
+
+  ipcMain.handle(
+    'describe:set',
+    (_e, { kind, text }: { kind: unknown; text: unknown }) =>
+      writeDescribeList(kind, text),
   )
 
   // Global library ------------------------------------------------------------
@@ -770,7 +979,13 @@ export function registerIpcHandlers() {
       ),
   )
 
-  ipcMain.handle('player:closeAll', () => closeAllPlayerWindows())
+  // Every secondary window, map windows included — this is the only global
+  // handle on them, and one that has drifted onto a disconnected monitor
+  // cannot be closed any other way.
+  ipcMain.handle(
+    'player:closeAll',
+    () => closeAllPlayerWindows() + closeAllMapWindows(),
+  )
 
   // Content relay only — touches no disk. The file watcher cannot do this:
   // app writes go through noteSelfWrite and are dropped by watcher.ts, so a
@@ -798,6 +1013,12 @@ export function registerIpcHandlers() {
     pushRollToTable(entry)
   })
 
+  // A window opened mid-session catches up from main's copy. See rollRelay.ts
+  // for why the players' map window is answered with nothing.
+  ipcMain.handle('rolls:history', (e) => rollHistory(e.sender))
+
+  ipcMain.handle('rolls:clear', (e) => clearRolls(e.sender))
+
   // Table (LAN session) --------------------------------------------------------
   // The host serves guests over plain HTTP; see tableHost.ts for the transport
   // and table.ts for every decision it makes. Note that hosting takes a worldId
@@ -816,8 +1037,10 @@ export function registerIpcHandlers() {
       showAtTable(payload),
   )
 
-  ipcMain.handle('table:combat', (_e, { state }: { state: unknown }) =>
-    pushCombatToTable(state),
+  // A battlemap for the guests. Redacted in the sending renderer, where the
+  // map schema lives; main only stores it for replay and fans it out.
+  ipcMain.handle('table:map', (_e, share: unknown) =>
+    shareMapAtTable(share ?? null),
   )
 
   // Take whatever is on the table down. No-ops when not hosting.
@@ -828,6 +1051,24 @@ export function registerIpcHandlers() {
   // broadcast — the caller then asks for an address instead of erroring.
   ipcMain.handle('table:find', (_e, { code }: { code: string }) =>
     findTable(code),
+  )
+
+  // Windows Firewall. Checking is a plain read; adding raises one UAC prompt,
+  // which the DM can refuse — see firewall.ts. The port comes from the running
+  // table rather than the renderer, so a compromised renderer cannot ask for a
+  // hole on an arbitrary port.
+  ipcMain.handle('table:firewallState', () => firewallState())
+
+  ipcMain.handle('table:firewall', () => {
+    const info = tableInfo()
+    return ensureFirewall(info?.port ?? 7777)
+  })
+
+  // The user's own spelling dictionary, for the renderer's spell worker. One
+  // file for every world — see spelling.ts.
+  ipcMain.handle('spelling:words', () => readSpellingWords())
+  ipcMain.handle('spelling:addWord', (_e, { word }: { word: unknown }) =>
+    addSpellingWord(word),
   )
 }
 

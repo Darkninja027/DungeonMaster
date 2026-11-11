@@ -18,8 +18,16 @@ import { TokenField } from './GrantEditor'
 const KINDS: Array<{ id: PickList['kind']; label: string; hint: string }> = [
   { id: 'feature', label: 'feature', hint: 'Becomes a named row on the sheet' },
   { id: 'skill', label: 'skill', hint: 'Skill proficiency, from the 18 ids' },
-  { id: 'expertise', label: 'expertise', hint: 'Doubles an existing proficiency' },
-  { id: 'skillOrTool', label: 'skill or tool', hint: 'Either, decided per value' },
+  {
+    id: 'expertise',
+    label: 'expertise',
+    hint: 'Doubles an existing proficiency',
+  },
+  {
+    id: 'skillOrTool',
+    label: 'skill or tool',
+    hint: 'Either, decided per value',
+  },
   { id: 'tool', label: 'tool', hint: 'Tool proficiency' },
   { id: 'language', label: 'language', hint: 'A language' },
   { id: 'weapon', label: 'weapon', hint: 'Weapon proficiency' },
@@ -53,7 +61,8 @@ export function PickEditor({
 }) {
   // Spreads the original, so `featureGrant` and anything else without a form
   // survives every edit made here.
-  const patch = (changes: Partial<PickList>) => onChange({ ...pick, ...changes })
+  const patch = (changes: Partial<PickList>) =>
+    onChange({ ...pick, ...changes })
 
   const isFeature = pick.kind === 'feature'
   // A closed pick with nothing to choose from can never be satisfied, and
@@ -214,7 +223,9 @@ export function PickRows({
         <PickEditor
           key={i}
           pick={pick}
-          onChange={(next) => onChange(picks.map((p, j) => (i === j ? next : p)))}
+          onChange={(next) =>
+            onChange(picks.map((p, j) => (i === j ? next : p)))
+          }
           onRemove={() => onChange(picks.filter((_, j) => j !== i))}
         />
       ))}

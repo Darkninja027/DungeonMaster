@@ -199,8 +199,9 @@ export function LevelUpSummary({
         which is what the player chose.
 
         This used to be rendered in exactly one place — the spells step — and
-        that step opens only when slots, cantrips known or spells known change,
-        all of which read a `spellcasting` block. So a subclass granting a spell
+        that step opens only when slots, cantrips known, spells known or a
+        wizard's spellbook change, all of which read a `spellcasting` block. So
+        a subclass granting a spell
         to a class that does not cast applied it to the sheet and announced it
         nowhere: the step never opened, and this panel showed only chosen
         spells. Rendering it here means a granted spell is always accounted for,

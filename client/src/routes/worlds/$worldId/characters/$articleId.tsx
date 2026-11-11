@@ -9,7 +9,6 @@ import {
   List,
   Package,
   ScrollText,
-  Shield,
   Sparkles,
   StickyNote,
   WandSparkles,
@@ -52,8 +51,7 @@ import { cn } from '#/lib/utils'
 import { CharacterHeader } from '#/components/character/CharacterHeader'
 import { LevelUpDialog } from '#/components/character/levelup/LevelUpDialog'
 import { SheetTab } from '#/components/character/SheetTab'
-import { InventoryTab } from '#/components/character/InventoryTab'
-import { EquipmentTab } from '#/components/character/EquipmentTab'
+import { GearTab } from '#/components/character/gear/GearTab'
 import { FeaturesTab } from '#/components/character/FeaturesTab'
 import { NotesTab } from '#/components/character/NotesTab'
 import {
@@ -64,6 +62,9 @@ import {
 } from '#/components/character/SheetPreview'
 import { loadSpellCards, saveSpellCards } from '#/lib/sheetPrintPrefs'
 import { CreateMissingArticleDialog } from '#/components/CreateMissingArticleDialog'
+import { useToast } from '#/components/ToastProvider'
+import { useConfirm } from '#/components/ConfirmProvider'
+import { RECYCLE_BIN_NOTE } from '#/lib/confirmText'
 
 /**
  * Poll a settled flag until it trips, or give up. Used by the PDF export to wait
@@ -117,7 +118,11 @@ function CharacterPage() {
   const { worldId, articleId } = Route.useParams()
   const queryClient = useQueryClient()
   const navigate = useNavigate()
-  const reveal = revealer(worldId)
+  const toast = useToast()
+  const confirmDelete = useConfirm()
+  const reveal = revealer(worldId, (message) =>
+    toast.show({ kind: 'error', message }),
+  )
 
   const article = useQuery({
     queryKey: ['articles', articleId],
@@ -216,6 +221,7 @@ function CharacterPage() {
    * by the time Cut and Copy render. Same reasoning as the article route.
    */
   const [liveHasSelection, setLiveHasSelection] = useState(false)
+  const [liveInTable, setLiveInTable] = useState(false)
 
   useEffect(() => {
     localStorage.setItem(STORY_TOC_KEY, JSON.stringify({ open: storyTocOpen }))
@@ -354,9 +360,12 @@ function CharacterPage() {
   /** The same right-click menu over CodeMirror, via the structural interface. */
   const liveMenuEditor = useMemo<ContextMenuEditor>(
     () => ({
-      onContextMenu: () =>
-        setLiveHasSelection(liveEditorRef.current?.hasSelection() ?? false),
+      onContextMenu: () => {
+        setLiveHasSelection(liveEditorRef.current?.hasSelection() ?? false)
+        setLiveInTable(liveEditorRef.current?.inTable() ?? false)
+      },
       hasSelection: liveHasSelection,
+      inTable: liveInTable,
       execEditorCommand: (command) =>
         liveEditorRef.current?.execCommand(command),
       wrap: (wrapper) => liveEditorRef.current?.wrap(wrapper),
@@ -364,7 +373,7 @@ function CharacterPage() {
       insertBlock,
       insertText: insertAtCursor,
     }),
-    [liveHasSelection, insertBlock, insertAtCursor],
+    [liveHasSelection, liveInTable, insertBlock, insertAtCursor],
   )
 
   /**
@@ -407,8 +416,12 @@ function CharacterPage() {
         insertAtCursor(`![${alt}](${image.encodedRelPath})`)
       }
       queryClient.invalidateQueries({ queryKey: ['worlds', worldId, 'images'] })
-    } catch (error) {
-      alert((error as Error).message)
+    } catch (failure) {
+      toast.show({
+        kind: 'error',
+        message: 'Could not insert the image.',
+        detail: (failure as Error).message,
+      })
     }
   }
 
@@ -502,8 +515,13 @@ function CharacterPage() {
         isPending={isPending}
         onSave={saveNow}
         onReveal={() => reveal(`${article.data?.id ?? articleId}.md`)}
-        onDelete={() => {
-          if (confirm(`Delete "${title}"? It goes to the Recycle Bin.`)) {
+        onDelete={async () => {
+          if (
+            await confirmDelete({
+              title: `Delete "${title}"?`,
+              description: RECYCLE_BIN_NOTE,
+            })
+          ) {
             remove.mutate()
           }
         }}
@@ -527,23 +545,15 @@ function CharacterPage() {
             <span className="hidden @[53rem]/hdr:inline">Sheet</span>
           </TabsTrigger>
           <TabsTrigger
-            value="inventory"
-            aria-label="Inventory"
+            value="gear"
+            aria-label="Gear"
             className="shrink-0 px-1.5 text-xs"
           >
             <Package className="size-3.5" />
-            <span className="hidden @[53rem]/hdr:inline">Inv</span>
+            <span className="hidden @[53rem]/hdr:inline">Gear</span>
             <span className="tabular-nums opacity-70">
               {character.inventory.length}
             </span>
-          </TabsTrigger>
-          <TabsTrigger
-            value="equipment"
-            aria-label="Equipment"
-            className="shrink-0 px-1.5 text-xs"
-          >
-            <Shield className="size-3.5" />
-            <span className="hidden @[53rem]/hdr:inline">Equip</span>
           </TabsTrigger>
           <TabsTrigger
             value="features"
@@ -607,8 +617,8 @@ function CharacterPage() {
           onCreateMissing={setMissingTitle}
         />
       </TabsContent>
-      <TabsContent value="inventory" className="min-h-0 flex-1 overflow-y-auto">
-        <InventoryTab
+      <TabsContent value="gear" className="min-h-0 flex-1 overflow-y-auto">
+        <GearTab
           character={character}
           onChange={update}
           worldId={worldId}
@@ -617,9 +627,6 @@ function CharacterPage() {
           onOpenNote={openNoteByTitle}
           onCreateMissing={setMissingTitle}
         />
-      </TabsContent>
-      <TabsContent value="equipment" className="min-h-0 flex-1 overflow-y-auto">
-        <EquipmentTab character={character} onChange={update} />
       </TabsContent>
       <TabsContent value="features" className="min-h-0 flex-1 overflow-y-auto">
         <FeaturesTab

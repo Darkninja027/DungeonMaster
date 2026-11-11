@@ -21,6 +21,16 @@ declare global {
   }
 }
 
+/**
+ * Whether the IPC bridge exists.
+ *
+ * False in unit tests and in the guest build, both of which import these
+ * stores without a preload. A module-level subscription has to check it or it
+ * throws at import time, which fails a whole suite rather than one test.
+ */
+export const bridged = () =>
+  typeof window !== 'undefined' && Boolean(window.dmApi)
+
 export interface UpdateStatus {
   state: 'checking' | 'available' | 'downloaded' | 'idle' | 'error'
   version?: string
@@ -138,6 +148,15 @@ export interface ArticleRef {
    * pre-tag library entry looks like — those are always shown.
    */
   edition: string | null
+  /**
+   * Frontmatter `date`, carried for the same reason as the fields above: the
+   * session timeline orders by it without reading every article's body.
+   *
+   * A free-text string rather than a parsed date, because it is hand-written
+   * and a world is somebody's notebook — "1492 DR, Eleint 3" is a perfectly
+   * good answer and must not be dropped for failing to be ISO 8601.
+   */
+  date: string | null
 }
 
 /** A saved Smart View: a named frontmatter query, persisted to .dm/views.json. */
@@ -266,6 +285,91 @@ export interface ImportSummary {
  */
 export type ViewerMode = 'player' | 'popout'
 
+/**
+ * Change ONE entry in a `.dm/` list, matched by id.
+ *
+ * Mirrors StatePatch in electron/main/statePatch.ts. Main and the renderer
+ * share no types, so a field added there needs adding here too — and unlike
+ * `PlayerContent`, which `ipc.ts` re-states as an anonymous literal, both ends
+ * of this one are named so a mismatch is at least findable.
+ */
+export interface StatePatch {
+  entry?: unknown
+  removeId?: string
+}
+
+/** A `.dm/` file as main holds it, with the revision that identifies it. */
+export interface StateSnapshot<T = unknown> {
+  file: T
+  rev: number
+}
+
+/**
+ * A change made in another window, relayed by main.
+ *
+ * `rev` is monotonic per world and is what tells an echo from a real update: a
+ * renderer drops anything at or below the rev it already has, and a gap means
+ * it missed a message and should re-read. `error` carries a failed disk write
+ * (a payload over MAX_STATE_BYTES), which has no renderer awaiting it.
+ */
+export interface StateChange {
+  worldId: string
+  rev: number
+  entry?: unknown
+  removeId?: string
+  /** A whole-state replacement, from `session:set`. */
+  replace?: unknown
+  error?: string
+}
+
+/**
+ * Which kind of battlemap window. `edit` is the DM's; `table` is the one the
+ * players look at, and is only ever sent maps that `forPlayers` has stripped.
+ */
+export type MapWindowMode = 'edit' | 'table'
+
+/** A map relayed live to the table window. */
+/**
+ * Who may move a token from a LAN seat.
+ *
+ * `characterId` is the automatic case: a token linked to a party member's
+ * combatant belongs to whichever seat has CLAIMED that character, a claim the
+ * host makes exclusive. `player` is the DM's manual "Controlled by" pick, a
+ * seat NAME rather than a seat id because a seat id is minted fresh on every
+ * join, and a player who drops and rejoins should keep their familiar.
+ */
+export interface TokenControl {
+  characterId?: string
+  player?: string
+}
+
+/** A battlemap as the DM shares it with LAN guests. Already redacted. */
+export interface TableMapShare {
+  mapId: string
+  map: unknown
+  session: unknown
+  /** Token id -> who may move it. Visible tokens only. */
+  control: Record<string, TokenControl>
+}
+
+/** A guest's move, as main forwards it to the DM's editor. */
+export interface TableMove {
+  mapId: string
+  tokenId: string
+  x: number
+  y: number
+  /** The seat that asked, as the host knows it — never as the guest said. */
+  seat: { name: string; characterId?: string }
+}
+
+export interface MapLive {
+  worldId: string
+  mapId: string
+  map: unknown
+  /** Initiative and rolls, already redacted by `forPlayersSession`. */
+  session?: unknown
+}
+
 /** What the DM window relays to a viewer window on every edit. */
 export interface PlayerContent {
   worldId: string
@@ -283,16 +387,77 @@ export interface Seat {
   joinedAt: number
 }
 
+/**
+ * One of this host's addresses, with why it is ranked where it is.
+ *
+ * Mirrors LanCandidate in electron/main/lan.ts — main and the renderer share no
+ * types, so a field added there needs adding here too.
+ */
+export interface LanCandidate {
+  address: string
+  /** The OS's name for the adapter, e.g. "vEthernet (Default Switch)". */
+  iface: string
+  netmask: string
+  broadcast: string
+  kind: 'private' | 'public' | 'apipa'
+  virtual: boolean
+  /** 0 is a real NIC on a private network; 4 is a self-assigned address. */
+  rank: number
+}
+
+/** Whether LAN discovery is actually working. Mirrors beacon.ts. */
+export interface BeaconStatus {
+  state: 'off' | 'running' | 'failed'
+  interfaces: Array<{ iface: string; address: string; broadcast: string }>
+  failures: number
+  error?: string
+}
+
 /** What the host knows about its own running table. */
 export interface TableInfo {
   tableId: string
   code: string
   port: number
-  /** LAN addresses a guest can reach this host on. */
+  /** LAN addresses a guest can reach this host on, best first. */
   addresses: Array<string>
+  /** The same addresses, with the metadata behind the ranking. */
+  candidates: Array<LanCandidate>
   seats: Array<Seat>
   /** What the guests are looking at, if anything. Identity only. */
   shown: { articleId: string; title: string } | null
+  beacon: BeaconStatus
+  /** False while the socket is still binding, or if binding failed. */
+  listening: boolean
+}
+
+/**
+ * The `table:seats` push payload.
+ *
+ * Spelled out rather than an Omit of TableInfo: main sends exactly these four
+ * fields (notifyHost in tableHost.ts), so an Omit was already claiming the push
+ * carried more than it did, and every field added to TableInfo widened the lie.
+ */
+export interface SeatsUpdate {
+  tableId: string
+  code: string
+  seats: Array<Seat>
+  shown: { articleId: string; title: string } | null
+}
+
+/** Whether Windows is letting guests reach this machine. */
+export interface FirewallState {
+  /** False off Windows, where there is nothing to configure. */
+  applicable: boolean
+  /** Null when the check itself could not answer. */
+  present: boolean | null
+  error?: string
+}
+
+export interface FirewallResult {
+  ok: boolean
+  /** True when the DM dismissed the Windows permission prompt. */
+  cancelled: boolean
+  message: string
 }
 
 /** A sheet edit that arrived from a guest, already validated host-side. */
@@ -323,8 +488,21 @@ export const api = {
     open: () => invoke<WorldSummary | null>('worlds:pickAndOpen'),
     get: (worldId: string) => invoke<WorldSummary>('worlds:get', { worldId }),
     tree: (worldId: string) => invoke<WorldTree>('worlds:tree', { worldId }),
-    search: (worldId: string, query: string) =>
-      invoke<Array<SearchResult>>('worlds:search', { worldId, query }),
+    /**
+     * Sidebar search. `excludeFolders` drops whole subtrees in the main process,
+     * before the result cap — filtering the response instead would spend the cap
+     * on rows the caller is about to discard.
+     */
+    search: (
+      worldId: string,
+      query: string,
+      excludeFolders?: ReadonlyArray<string>,
+    ) =>
+      invoke<Array<SearchResult>>('worlds:search', {
+        worldId,
+        query,
+        excludeFolders,
+      }),
     /** Scored search for the command palette — sorted, then capped at `limit`. */
     searchRanked: (worldId: string, query: string, limit?: number) =>
       invoke<Array<RankedResult>>('worlds:searchRanked', {
@@ -349,6 +527,16 @@ export const api = {
       invoke<void>('worlds:update', { worldId, ...input }),
     /** Removes the world from the recents list only — the folder stays on disk. */
     remove: (worldId: string) => invoke<void>('worlds:remove', { worldId }),
+    /**
+     * Rewrite this world's Guide.md with the version shipped in this build,
+     * and resolve with its article id.
+     *
+     * Only ever user-invoked: the guide is written once at world creation and
+     * never touched again, so a world made before a feature existed has no
+     * way to learn about it. Overwrites — the caller asks first.
+     */
+    refreshGuide: (worldId: string) =>
+      invoke<string>('worlds:refreshGuide', { worldId }),
     /** Start watching the world folder for external changes. */
     watch: (worldId: string) => invoke<void>('worlds:watch', { worldId }),
     unwatch: (worldId: string) => invoke<void>('worlds:unwatch', { worldId }),
@@ -455,21 +643,53 @@ export const api = {
       invoke<void>('images:reveal', { worldId, imageId }),
   },
   characters: {
-    /** Articles whose frontmatter declares `type: character`, sorted by title. */
+    /**
+     * Articles whose frontmatter declares `type: character`, sorted by title.
+     *
+     * `class`, `race` and `level` ride along because the scan behind this has
+     * already parsed them — the alternative was reading every character's full
+     * text to re-derive three values it threw away, which is the same trade
+     * `cr`/`xp` made for the bestiary. All three are nullable: a character
+     * hand-written in Obsidian declares none of them, and a caller must render
+     * that as nothing rather than as a gap.
+     */
     list: (worldId: string) =>
-      invoke<Array<{ id: string; folderId: string | null; title: string }>>(
-        'characters:list',
-        {
-          worldId,
-        },
-      ),
+      invoke<
+        Array<{
+          id: string
+          folderId: string | null
+          title: string
+          class: string | null
+          race: string | null
+          level: number | null
+        }>
+      >('characters:list', {
+        worldId,
+      }),
   },
   session: {
-    /** Combat/session state stored in the world folder; null if none saved. */
+    /**
+     * Combat state plus main's revision number.
+     *
+     * Authoritative in the main process for the same reason maps are: the
+     * battlemap's damage keys write this file from a different window, and two
+     * renderers whole-file-saving would lose the fight in progress.
+     */
     get: (worldId: string) =>
-      invoke<SessionFile | null>('session:get', { worldId }),
+      invoke<StateSnapshot<SessionFile> | null>('session:get', { worldId }),
+    /**
+     * Replace the whole state — starting a fight rewrites every combatant at
+     * once, and N patches would be both slower and a lie about what happened.
+     * Still goes through main, so it cannot race a patch.
+     */
     set: (worldId: string, state: SessionFile) =>
-      invoke<void>('session:set', { worldId, state }),
+      invoke<{ rev: number }>('session:set', { worldId, state }),
+    /** Change one combatant. The path every HP edit takes. */
+    apply: (worldId: string, patch: StatePatch) =>
+      invoke<{ rev: number }>('session:apply', { worldId, patch }),
+    flush: (worldId: string) => invoke<void>('session:flush', { worldId }),
+    onChanged: (cb: (change: StateChange) => void) =>
+      window.dmApi.on('session:changed', (p) => cb(p as StateChange)),
   },
   views: {
     /** Saved Smart Views for this world; null if none saved yet. */
@@ -477,6 +697,65 @@ export const api = {
       invoke<Array<SavedView> | null>('views:get', { worldId }),
     set: (worldId: string, state: Array<SavedView>) =>
       invoke<void>('views:set', { worldId, state }),
+  },
+  encounters: {
+    /**
+     * Raw .dm/encounters.json — deliberately `unknown` for the same reason
+     * worldSettings is: the file is hand-editable, so the renderer's tolerant
+     * `parseEncounters` decides what is usable rather than trusting the shape.
+     */
+    get: (worldId: string) => invoke<unknown>('encounters:get', { worldId }),
+    set: (worldId: string, state: unknown) =>
+      invoke<void>('encounters:set', { worldId, state }),
+  },
+  maps: {
+    /**
+     * Raw .dm/maps.json plus main's revision number — the payload is still
+     * deliberately `unknown`, like encounters, because the file travels with the
+     * world folder and is hand-editable, so the renderer's tolerant `parseMaps`
+     * decides what is usable rather than trusting it.
+     *
+     * The `rev` is what makes multi-window editing safe; see `StateChange`.
+     */
+    get: (worldId: string) =>
+      invoke<StateSnapshot | null>('maps:get', { worldId }),
+    /**
+     * Change ONE map. There is deliberately no whole-file setter: a map can be
+     * open in its own window while the DM window edits the list, and a
+     * whole-file write from either would overwrite the other's maps. Main merges
+     * per-map, so disjoint edits cannot collide at all.
+     */
+    apply: (worldId: string, patch: StatePatch) =>
+      invoke<{ rev: number }>('maps:apply', { worldId, patch }),
+    /** Write any pending change now (window close). Best effort. */
+    flush: (worldId: string) => invoke<void>('maps:flush', { worldId }),
+    /** Changes made in other windows; returns an unsubscribe fn. */
+    onChanged: (cb: (change: StateChange) => void) =>
+      window.dmApi.on('maps:changed', (p) => cb(p as StateChange)),
+  },
+  /**
+   * Battlemap windows: the editor on one monitor, the table view on another.
+   *
+   * Separate from `player` because a map id is an 8-char random string, not a
+   * path — `player:show` resolves its id against the world root as a `.md`
+   * file, which a map id has no business passing through.
+   */
+  mapView: {
+    /** Open (or focus) a window showing this map. */
+    show: (worldId: string, mapId: string, mode: MapWindowMode = 'edit') =>
+      invoke<void>('mapView:show', { worldId, mapId, mode }),
+    close: (worldId: string, mapId: string, mode: MapWindowMode = 'edit') =>
+      invoke<void>('mapView:close', { worldId, mapId, mode }),
+    /**
+     * Relay a map to the table window showing it. A pure relay, touching no
+     * disk — and the payload must already be `forPlayers()`-ed by the caller,
+     * so a hidden token never enters this path at all.
+     */
+    push: (worldId: string, mapId: string, map: unknown, session?: unknown) =>
+      invoke<void>('mapView:push', { worldId, mapId, map, session }),
+    /** Table window: subscribe to pushed maps; returns an unsubscribe fn. */
+    onLive: (cb: (payload: MapLive) => void) =>
+      window.dmApi.on('map:live', (p) => cb(p as MapLive)),
   },
   worldSettings: {
     /**
@@ -496,6 +775,27 @@ export const api = {
      */
     get: () => invoke<unknown>('homebrew:get'),
     set: (state: unknown) => invoke<void>('homebrew:set', { state }),
+  },
+  templates: {
+    /**
+     * Raw templates.json — `unknown` for the same reason as homebrew: the file
+     * is hand-editable and lib/templateStore.ts owns the tolerant parse. null
+     * means missing or unparseable, which reads as "no templates yet" and
+     * leaves the built-ins standing on their own.
+     */
+    get: () => invoke<unknown>('templates:get'),
+    set: (state: unknown) => invoke<void>('templates:set', { state }),
+  },
+  describe: {
+    /**
+     * The DM's own Describe-panel lists as raw markdown. null for a kind
+     * means no file, i.e. the built-ins are in use. lib/describe/ parses.
+     */
+    get: () =>
+      invoke<{ names: string | null; details: string | null }>('describe:get'),
+    /** Save one list; `null` resets it to the built-ins. */
+    set: (kind: 'names' | 'details', text: string | null) =>
+      invoke<void>('describe:set', { kind, text }),
   },
   vault: {
     /**
@@ -599,6 +899,16 @@ export const api = {
     /** Subscribe to rolls made in other windows; returns an unsubscribe fn. */
     onEntry: (cb: (entry: RollEntry) => void) =>
       window.dmApi.on('rolls:entry', (payload) => cb(payload as RollEntry)),
+    /**
+     * Every roll main has seen this run, so a window opened mid-session (the
+     * battlemap) starts with the log rather than an empty one. Main answers a
+     * players' map window with nothing.
+     */
+    history: () => invoke<Array<unknown>>('rolls:history'),
+    /** Clear the log in every window, and main's copy. */
+    clear: () => invoke<void>('rolls:clear'),
+    /** Another window cleared the log. */
+    onCleared: (cb: () => void) => window.dmApi.on('rolls:cleared', () => cb()),
   },
   /**
    * Hosting a LAN session. One DM serves N guests over plain HTTP — see
@@ -617,8 +927,20 @@ export const api = {
       invoke<void>('table:show', payload),
     /** Take whatever is on the table down. No-ops when not hosting. */
     clear: () => invoke<void>('table:clear'),
-    /** Mirror initiative to the guests. No-ops when not hosting. */
-    combat: (state: unknown) => invoke<void>('table:combat', { state }),
+    /**
+     * Share a battlemap with the guests, or take it down with null. No-ops
+     * when not hosting. The payload must already be redacted — `forPlayers`
+     * on the map, `forPlayersSession` on initiative — because main forwards it
+     * to other machines as it is.
+     */
+    map: (share: TableMapShare | null) => invoke<void>('table:map', share),
+    /**
+     * Host: a guest moved a token. Main has checked the seat controls it; the
+     * editor sharing that map checks again against its current state and
+     * applies it.
+     */
+    onMove: (cb: (move: TableMove) => void) =>
+      window.dmApi.on('table:move', (payload) => cb(payload as TableMove)),
     /**
      * Guest side: find a host on the LAN by room code alone.
      *
@@ -629,11 +951,24 @@ export const api = {
      */
     find: (code: string) =>
       invoke<{ address: string; port: number } | null>('table:find', { code }),
+    /**
+     * Whether the inbound firewall rules exist. A plain read — no elevation, so
+     * this is safe to call whenever the panel opens.
+     */
+    firewallState: () => invoke<FirewallState>('table:firewallState'),
+    /**
+     * Add the inbound firewall rules, raising one Windows permission prompt.
+     *
+     * The DM can dismiss that prompt, so the result says what actually
+     * happened rather than assuming success.
+     */
+    firewall: () => invoke<FirewallResult>('table:firewall'),
     /** Host: the seat list changed. */
-    onSeats: (cb: (info: Omit<TableInfo, 'port' | 'addresses'>) => void) =>
-      window.dmApi.on('table:seats', (payload) =>
-        cb(payload as Omit<TableInfo, 'port' | 'addresses'>),
-      ),
+    onSeats: (cb: (info: SeatsUpdate) => void) =>
+      window.dmApi.on('table:seats', (payload) => cb(payload as SeatsUpdate)),
+    /** Host: hosting health changed — bind state, or the beacon's. */
+    onStatus: (cb: (info: TableInfo) => void) =>
+      window.dmApi.on('table:status', (payload) => cb(payload as TableInfo)),
     /** Host: a guest rolled. */
     onRoll: (cb: (entry: RollEntry) => void) =>
       window.dmApi.on('table:roll', (payload) => cb(payload as RollEntry)),
@@ -642,5 +977,15 @@ export const api = {
       window.dmApi.on('table:sheet', (payload) =>
         cb(payload as SheetPatchMessage),
       ),
+  },
+  /**
+   * The user's own spelling dictionary. Only the spell checker
+   * (lib/spellcheck/checker.ts) should call these — it owns the word cache
+   * that has to agree with the file.
+   */
+  spelling: {
+    words: () => invoke<Array<string>>('spelling:words'),
+    /** Remember a word for this user, across every world. */
+    addWord: (word: string) => invoke<void>('spelling:addWord', { word }),
   },
 }

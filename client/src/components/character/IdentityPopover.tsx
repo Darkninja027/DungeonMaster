@@ -80,7 +80,7 @@ export function IdentityPopover({
       <PopoverTrigger
         aria-label={`Level ${character.level}. Click to edit identity and level.`}
         title="Level — click to edit, raise it to level up"
-        className="bg-muted text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-ring mr-1 shrink-0 rounded px-1.5 py-0.5 font-mono text-[10px] font-semibold tracking-wider tabular-nums transition-colors focus-visible:ring-1 focus-visible:outline-none"
+        className="font-display text-(--tome-head) border-(--tome-gold) hover:bg-(--tome-tint) focus-visible:ring-ring mr-1 shrink-0 rounded border px-1.5 py-0.5 text-[10px] font-semibold tracking-wider tabular-nums transition-colors focus-visible:ring-1 focus-visible:outline-none"
       >
         LV&thinsp;{character.level}
       </PopoverTrigger>
@@ -89,7 +89,7 @@ export function IdentityPopover({
       <PopoverTrigger
         aria-label={`Identity: ${summary}. Click to edit.`}
         title={summary}
-        className="text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-ring flex h-7 w-fit max-w-[16rem] min-w-0 shrink items-center gap-1 rounded-md px-1.5 text-xs transition-colors focus-visible:ring-1 focus-visible:outline-none"
+        className="font-serif text-(--tome-soft) hover:bg-(--tome-tint) hover:text-(--tome-head) focus-visible:ring-ring flex h-7 w-fit max-w-[16rem] min-w-0 shrink items-center gap-1 rounded-md px-1.5 text-sm italic transition-colors focus-visible:ring-1 focus-visible:outline-none"
       >
         <span className={cn('truncate', !hasIdentity && 'italic')}>
           {summary}

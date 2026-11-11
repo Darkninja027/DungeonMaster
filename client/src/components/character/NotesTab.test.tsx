@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { useState } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { NotesTab } from './NotesTab'
+import { ConfirmProvider } from '#/components/ConfirmProvider'
 import { emptyCharacter } from '#/lib/character'
 import type { Character, CharacterNote } from '#/lib/character'
 
@@ -45,7 +46,9 @@ function renderNotes(notes: Array<CharacterNote>) {
   })
   const view = render(
     <QueryClientProvider client={client}>
-      <Harness />
+      <ConfirmProvider>
+        <Harness />
+      </ConfirmProvider>
     </QueryClientProvider>,
   )
   return { ...view, seen }
@@ -79,7 +82,9 @@ function renderWithSelect(notes: Array<CharacterNote>, selectIndex: number) {
   }
   const view = render(
     <QueryClientProvider client={client}>
-      <Harness />
+      <ConfirmProvider>
+        <Harness />
+      </ConfirmProvider>
     </QueryClientProvider>,
   )
   return { ...view, handled }
@@ -156,31 +161,40 @@ describe('NotesTab selection', () => {
   })
 
   it('lands on a surviving note after deleting the selected one', async () => {
-    const confirmed = window.confirm
-    window.confirm = () => true
-    try {
-      const { seen } = renderNotes([
-        noteOf('First', 'one'),
-        noteOf('Second', 'two'),
-      ])
-      await waitFor(() => expect(bodyBox()).toBeTruthy())
+    const { seen } = renderNotes([
+      noteOf('First', 'one'),
+      noteOf('Second', 'two'),
+    ])
+    await waitFor(() => expect(bodyBox()).toBeTruthy())
 
-      // Delete the last note. `removeSelected` clears the selection and the
-      // effect re-lands it, so what this pins is the OUTCOME — an editor open
-      // on a real note — rather than the mechanism, which could reasonably be
-      // either clearing or shifting.
-      fireEvent.click(screen.getByText('Second'))
-      await waitFor(() => expect(bodyBox().value).toBe('two'))
-      fireEvent.click(screen.getByTitle('Delete this note'))
+    // Delete the last note. `removeSelected` clears the selection and the
+    // effect re-lands it, so what this pins is the OUTCOME — an editor open
+    // on a real note — rather than the mechanism, which could reasonably be
+    // either clearing or shifting.
+    fireEvent.click(screen.getByText('Second'))
+    await waitFor(() => expect(bodyBox().value).toBe('two'))
+    fireEvent.click(screen.getByTitle('Delete this note'))
 
-      await waitFor(() => expect(seen.current.notes).toHaveLength(1))
-      // Whatever is shown must be the surviving note, never undefined.
-      await waitFor(() => expect(bodyBox().value).toBe('one'))
-      fireEvent.change(bodyBox(), { target: { value: 'still here' } })
-      expect(seen.current.notes[0].text).toBe('still here')
-    } finally {
-      window.confirm = confirmed
-    }
+    // The confirm is a real dialog now rather than window.confirm, so the
+    // delete only happens once it is answered.
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete' }))
+
+    await waitFor(() => expect(seen.current.notes).toHaveLength(1))
+    // Whatever is shown must be the surviving note, never undefined.
+    await waitFor(() => expect(bodyBox().value).toBe('one'))
+    fireEvent.change(bodyBox(), { target: { value: 'still here' } })
+    expect(seen.current.notes[0].text).toBe('still here')
+  })
+
+  it('keeps the note when the delete is cancelled', async () => {
+    const { seen } = renderNotes([noteOf('First', 'one')])
+    await waitFor(() => expect(bodyBox()).toBeTruthy())
+
+    fireEvent.click(screen.getByTitle('Delete this note'))
+    fireEvent.click(await screen.findByRole('button', { name: 'Cancel' }))
+
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
+    expect(seen.current.notes).toHaveLength(1)
   })
 
   it('shows an empty state rather than an editor when there are no notes', () => {

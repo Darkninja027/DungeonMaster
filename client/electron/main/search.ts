@@ -86,22 +86,64 @@ function bodySnippet(content: string, q: string): string {
   )
 }
 
-/** Case-insensitive substring search over titles and bodies, with ±40-char snippets. */
+/** True when `folderId` is one of `names` or sits inside one. */
+function isUnder(folderId: string, names: ReadonlyArray<string>): boolean {
+  return names.some(
+    (name) => folderId === name || folderId.startsWith(`${name}/`),
+  )
+}
+
+/**
+ * Case-insensitive search over titles and bodies, with ±40-char snippets.
+ *
+ * Ranked and capped the same way as `searchRanked`, and for the same reason:
+ * this used to push in raw tree order and `break` at the cap, so a world with
+ * more than `limit` matches silently lost the best ones to whichever articles
+ * the walker happened to reach first. The cap is a display limit, not a
+ * sampling strategy, so it can only be applied after sorting.
+ *
+ * Shares `scoreTitle` with the palette rather than re-deriving an order, so the
+ * sidebar and the palette agree about which match is the strongest. The shapes
+ * still differ — the sidebar has no use for the score or the match ranges — so
+ * only the ordering is common, not the result type.
+ *
+ * `excludeFolders` drops whole subtrees **before** the cap. The sidebar hides
+ * library folders because they have their own panels, and it used to do that by
+ * filtering the response — which spent the cap on rows it was about to throw
+ * away, so a spell-heavy world could return 50 hits and display three. Ranking
+ * made that worse rather than better: a well-matching spell now outranks the
+ * world article the user was looking for. The caller still owns the list, since
+ * which folders are "library" is a renderer concern.
+ */
 export function searchWorld(
   worldId: string,
   query: string,
+  limit = 50,
+  excludeFolders: ReadonlyArray<string> = [],
 ): Array<SearchResult> {
   const q = query.trim().toLowerCase()
   if (!q) return []
-  const results: Array<SearchResult> = []
+  const scored: Array<SearchResult & { score: number }> = []
   for (const { id, folderId, title, content } of articleEntries(worldId)) {
-    const titleHit = title.toLowerCase().includes(q)
+    if (folderId != null && isUnder(folderId, excludeFolders)) continue
+    const titleMatch = scoreTitle(title, q)
     const snippet = bodySnippet(content, q)
-    if (!titleHit && !snippet) continue
-    results.push({ id, folderId, title, snippet })
-    if (results.length >= 50) break
+    if (!titleMatch && !snippet) continue
+    const score = (titleMatch ? titleMatch.score : 0) + (snippet ? 25 : 0)
+    scored.push({ id, folderId, title, snippet, score })
   }
-  return results
+  scored.sort(
+    (a, b) =>
+      b.score - a.score ||
+      a.title.length - b.title.length ||
+      a.title.localeCompare(b.title, undefined, { sensitivity: 'base' }),
+  )
+  return scored.slice(0, limit).map(({ id, folderId, title, snippet }) => ({
+    id,
+    folderId,
+    title,
+    snippet,
+  }))
 }
 
 export interface RankedResult {
@@ -287,6 +329,30 @@ export interface ArticleRef {
    * rather than hiding it; see filterByEdition.
    */
   edition: string | null
+  /**
+   * Frontmatter `class` / `race`, for the same reason as every field above: the
+   * home screen's roster names each character by what they are, and reading it
+   * here costs nothing beyond what the scan already parsed. `level` is shared
+   * with spells rather than repeated.
+   *
+   * Free text on disk, exactly as `lib/srd/` requires — this is whatever the
+   * file says ("Hill Dwarf", "Bard", a homebrew name), never a looked-up id, so
+   * a class the tables have never heard of still displays. Null when absent,
+   * which is what a hand-written or Obsidian-authored character looks like, and
+   * every caller must render that as "nothing" rather than "undefined".
+   */
+  class: string | null
+  race: string | null
+  /**
+   * Frontmatter `date`, carried for the same reason as every field above: the
+   * session timeline orders play sessions without reading every article's body.
+   *
+   * Free text, never a parsed Date. A world is somebody's notebook, so
+   * "1492 DR, Eleint 3" is as valid an answer as "2026-09-20" and must not be
+   * dropped for failing to be ISO 8601 — the timeline sorts what it can and
+   * shows the rest rather than discarding it.
+   */
+  date: string | null
 }
 
 /** Case-insensitive equality between a frontmatter scalar and a query string. */
@@ -347,6 +413,9 @@ export function queryArticles(
       school: scalarString(frontmatter?.school),
       classes: scalarList(frontmatter?.classes),
       edition: scalarString(frontmatter?.edition),
+      class: scalarString(frontmatter?.class),
+      race: scalarString(frontmatter?.race),
+      date: scalarString(frontmatter?.date),
     })
   }
   return results.sort((a, b) =>

@@ -1,10 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import {
-  clearRollLog,
-  logRoll,
-  mergeRoll,
-  rollLogSnapshot,
-} from './rollLog'
+import { clearRollLog, logRoll, mergeRoll, rollLogSnapshot } from './rollLog'
 import type { RollEntry } from './rollLog'
 
 /**

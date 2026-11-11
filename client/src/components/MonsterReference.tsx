@@ -25,19 +25,24 @@ import { api } from '#/lib/api'
 import { splitFrontmatter } from '#/lib/formatMarkdown'
 import { REVEAL_LABEL, revealer } from '#/lib/reveal'
 import { parseStatBlock } from '#/lib/statblock'
-import { articleTemplates, newArticleContent } from '#/lib/templates'
+import { newArticleContent } from '#/lib/templates'
+import { findTemplate } from '#/lib/templateStore'
 import {
   collectMonsters,
   entryKey,
   filterByEdition,
+  filterByScope,
   filterEntries,
   mergeEntries,
 } from '#/lib/bestiary'
 import type { LibraryEntry } from '#/lib/bestiary'
+import { loadLibraryScope } from '#/lib/libraryScope'
+import type { LibraryScope } from '#/lib/libraryScope'
 import { useWorldRuleset } from '#/lib/useWorldSettings'
 import { useOpenCharacterRuleset } from '#/lib/openCharacterRuleset'
 import { useLibraryEntries } from '#/lib/useGlobalLibrary'
 import { LibraryImportButton } from '#/components/LibraryImportButton'
+import { LibraryScopeButton } from '#/components/LibraryScopeButton'
 import { VirtualList } from '#/components/VirtualList'
 import { Button } from '#/components/ui/button'
 import {
@@ -48,6 +53,9 @@ import {
 } from '#/components/ui/dropdown-menu'
 import { Input } from '#/components/ui/input'
 import { InlineMarkdown, PANEL_PROSE } from '#/components/Markdown'
+import { useToast } from '#/components/ToastProvider'
+import { useConfirm } from '#/components/ConfirmProvider'
+import { RECYCLE_BIN_NOTE } from '#/lib/confirmText'
 
 const MONSTERS_FOLDER = 'Monsters'
 
@@ -102,6 +110,8 @@ function MonsterArticle({
 export function MonsterReference({ worldId }: { worldId: string }) {
   const queryClient = useQueryClient()
   const navigate = useNavigate()
+  const toast = useToast()
+  const confirmDelete = useConfirm()
   // No panel-level revealer: each row builds one from its own entry's world, so
   // a library entry reveals in the library folder rather than this one.
   const tree = useQuery({
@@ -116,6 +126,11 @@ export function MonsterReference({ worldId }: { worldId: string }) {
   const [filter, setFilter] = useState('')
   const [openId, setOpenId] = useState<string | null>(null)
   const [newMonster, setNewMonster] = useState('')
+  // Lazy initialiser: localStorage is read once, not on every render. Shares
+  // its key with the encounter builder — same list, two places.
+  const [scope, setScope] = useState<LibraryScope>(() =>
+    loadLibraryScope('monsters'),
+  )
 
   // Create a bestiary entry and jump to its article to write the stat block.
   const createMonster = useMutation({
@@ -129,14 +144,16 @@ export function MonsterReference({ worldId }: { worldId: string }) {
       } catch {
         // folder already exists
       }
-      const template = articleTemplates.find((t) => t.id === 'monster')
+      const template = findTemplate('monster')
       return api.articles.create({
         worldId,
         folderId: MONSTERS_FOLDER,
         title,
         // newArticleContent, not template.body — the monster template carries
         // no frontmatter of its own, and without the `type: monster` header
-        // this article would be invisible to the encounter builder.
+        // this article would be invisible to the encounter builder. Still true
+        // now the template is editable: if someone strips its frontmatter,
+        // this is what puts the header back.
         content: template ? newArticleContent(template) : '',
       })
     },
@@ -148,7 +165,12 @@ export function MonsterReference({ worldId }: { worldId: string }) {
         params: { worldId, articleId: created.id },
       })
     },
-    onError: (error) => alert(error.message),
+    onError: (error: Error) =>
+      toast.show({
+        kind: 'error',
+        message: 'Could not create the monster.',
+        detail: error.message,
+      }),
   })
 
   const submitNewMonster = () => {
@@ -167,7 +189,12 @@ export function MonsterReference({ worldId }: { worldId: string }) {
       queryClient.invalidateQueries({ queryKey: ['worlds', worldId] })
       setOpenId(null)
     },
-    onError: (error: Error) => alert(error.message),
+    onError: (error: Error) =>
+      toast.show({
+        kind: 'error',
+        message: 'Could not delete the monster.',
+        detail: error.message,
+      }),
   })
 
   // The editable escape hatch for a read-only library entry: copy it in, then
@@ -198,7 +225,12 @@ export function MonsterReference({ worldId }: { worldId: string }) {
         params: { worldId, articleId: created.id },
       })
     },
-    onError: (error: Error) => alert(error.message),
+    onError: (error: Error) =>
+      toast.show({
+        kind: 'error',
+        message: 'Could not copy the monster into this world.',
+        detail: error.message,
+      }),
   })
 
   // The world's own bestiary, plus the global library's, merged into one list.
@@ -214,16 +246,22 @@ export function MonsterReference({ worldId }: { worldId: string }) {
   const ruleset = openCharacterRuleset ?? worldRuleset
   const monsters = useMemo(
     () =>
-      filterByEdition(
-        mergeEntries(
-          collectMonsters(worldId, tree.data, typed.data, {
-            folder: MONSTERS_FOLDER,
-          }),
-          library.entries,
+      // Scope is applied here rather than after the search box so everything
+      // derived below sees the same list — notably the CR fallback, which would
+      // otherwise fetch articles for rows nobody can see.
+      filterByScope(
+        filterByEdition(
+          mergeEntries(
+            collectMonsters(worldId, tree.data, typed.data, {
+              folder: MONSTERS_FOLDER,
+            }),
+            library.entries,
+          ),
+          ruleset,
         ),
-        ruleset,
+        scope,
       ),
-    [worldId, tree.data, typed.data, library.entries, ruleset],
+    [worldId, tree.data, typed.data, library.entries, ruleset, scope],
   )
 
   // CR/XP for the list rows, taken from the frontmatter the query already
@@ -304,6 +342,13 @@ export function MonsterReference({ worldId }: { worldId: string }) {
               </button>
             )}
           </div>
+          {library.entries.length > 0 && (
+            <LibraryScopeButton
+              scope={scope}
+              kind="monsters"
+              onChange={setScope}
+            />
+          )}
           <LibraryImportButton target="Monsters" />
         </div>
         {libraryUnavailable && (
@@ -320,8 +365,10 @@ export function MonsterReference({ worldId }: { worldId: string }) {
         empty={
           <p className="text-muted-foreground p-4 text-sm">
             {needle
-              ? 'No monsters match.'
-              : 'The bestiary is empty. Add one below to start a stat block.'}
+              ? `No monsters match${scope === 'world' ? " in this world's own bestiary." : '.'}`
+              : scope === 'world'
+                ? 'This world has no monsters of its own yet. Add one below, or switch to All to see the global library.'
+                : 'The bestiary is empty. Add one below to start a stat block.'}
           </p>
         }
         renderRow={(monster) => {
@@ -377,9 +424,12 @@ export function MonsterReference({ worldId }: { worldId: string }) {
                     className="text-muted-foreground hover:text-foreground shrink-0 opacity-0 group-hover:opacity-100"
                     title="Library entries are read-only here"
                     onClick={() =>
-                      alert(
-                        `"${monster.title}" lives in your global library, so it is read-only from inside a world.\n\nUse "Copy to this world" to make an editable copy, or open the library folder to edit it everywhere.`,
-                      )
+                      toast.show({
+                        kind: 'info',
+                        message: `"${monster.title}" lives in your global library, so it is read-only from inside a world.`,
+                        detail:
+                          'Use "Copy to this world" to make an editable copy, or open the library folder to edit it everywhere.',
+                      })
                     }
                   >
                     <SquarePen className="size-3.5" />
@@ -447,11 +497,12 @@ export function MonsterReference({ worldId }: { worldId: string }) {
                     {!monster.global && (
                       <DropdownMenuItem
                         variant="destructive"
-                        onClick={() => {
+                        onClick={async () => {
                           if (
-                            confirm(
-                              `Delete "${monster.title}"? It goes to the Recycle Bin.`,
-                            )
+                            await confirmDelete({
+                              title: `Delete "${monster.title}"?`,
+                              description: RECYCLE_BIN_NOTE,
+                            })
                           ) {
                             deleteMonster.mutate(monster)
                           }

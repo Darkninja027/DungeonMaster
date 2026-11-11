@@ -124,6 +124,21 @@ export interface LevelUpDraft {
   cantrips: Array<string>
   spells: Array<string>
   /**
+   * Spells copied into a wizard's spellbook at this level-up.
+   *
+   * Its own array rather than more entries in `spells`, because the two answer
+   * different questions: `spells` is a "known" caster spending a slot in a
+   * capped list, while these are additions to a book that has no cap. Keeping
+   * them apart is what lets both pickers show an honest count when a homebrew
+   * class somehow offers both.
+   *
+   * They still reach the sheet through `chosenSpells`, so a spell copied into
+   * the book lands as an ordinary unprepared row — which is exactly right: what
+   * is prepared is a daily decision the sheet owns, not something learning a
+   * spell settles.
+   */
+  spellbook: Array<string>
+  /**
    * Resource rows offered by features gained here, keyed by resource name, and
    * only the ones the player has kept. Pre-filled from the feature's own
    * suggestion; editable and removable before commit.
@@ -210,6 +225,7 @@ export function emptyLevelUpDraft(
     resources: {},
     cantrips: [],
     spells: [],
+    spellbook: [],
   }
 }
 
@@ -411,6 +427,34 @@ export function spellsKnownAtLevel(
 }
 
 /**
+ * Spells a wizard copies into their spellbook across this level-up.
+ *
+ * The fourth counting rule, and the only one that is not a table lookup — a
+ * spellbook grows by a flat amount per level, so this is `perLevel` times the
+ * levels *gained* rather than a difference between two rows. That shape is why
+ * it cannot go through `gainedBetween`.
+ *
+ * It exists because a wizard falls through every other rule: it is a preparer,
+ * so it has no `spellsKnownByLevel` (a cap on spells known, which a wizard does
+ * not have), and `spellsToPick` is 0 for preparers by design. All three
+ * existing rules correctly return nothing, and before this nothing covered the
+ * gap — a wizard gained cantrips and no spells at all, at every level, forever.
+ *
+ * `spellcastingFor`, never `kit.spellcasting`: a third-caster archetype carries
+ * its own block, and a homebrew subclass may well author a spellbook.
+ */
+export function spellbookGained(
+  draft: LevelUpDraft,
+  /** The archetype in force; see `slotsAtLevel`. */
+  subclassName = '',
+): number {
+  const perLevel = spellcastingFor(draft.kit, subclassName)?.spellbook?.perLevel
+  if (!perLevel || perLevel <= 0) return 0
+  const levels = Math.max(0, draft.to - draft.from)
+  return perLevel * levels
+}
+
+/**
  * How many more of something a level-up grants: the table at the new level
  * minus the table at the old one.
  *
@@ -457,6 +501,11 @@ function chosenSpells(
   }
   take(draft.cantrips, 0)
   take(draft.spells, 1)
+  // Spellbook additions are ordinary levelled spells on the sheet — the book is
+  // a wizard's *source*, not a second kind of row — so they go through the same
+  // dedupe and land through the same append in `applyLevelUp`. A name typed in
+  // both pickers therefore yields one row, which is the right answer.
+  take(draft.spellbook, 1)
   return out
 }
 
@@ -843,6 +892,14 @@ export interface LevelUpPlan {
    */
   cantripsToPick: number
   spellsToPick: number
+  /**
+   * Spells this level-up entitles a wizard to copy into their spellbook.
+   *
+   * A separate count from `spellsToPick`, which stays 0 here: a wizard is a
+   * preparer and has no spells-known cap. Like the other two this is a tally
+   * and never blocks Next.
+   */
+  spellbookToPick: number
   /** The spells and cantrips actually chosen, as rows ready for the sheet. */
   spellsAdded: Array<{ name: string; level: number }>
   /**
@@ -1165,6 +1222,7 @@ export function levelUpPlan(c: Character, draft: LevelUpDraft): LevelUpPlan {
     cantripsTo: cantripsAtLevel(draft.kit, draft.to, castingAs),
     cantripsToPick: gainedBetween(cantripsAtLevel, draft, castingAs),
     spellsToPick: gainedBetween(spellsKnownAtLevel, draft, castingAs),
+    spellbookToPick: spellbookGained(draft, castingAs),
     spellsAdded: chosenSpells(draft),
     spellsGranted:
       subclassChosen === null
@@ -1591,7 +1649,12 @@ export function levelUpSteps(draft: LevelUpDraft): Array<LevelUpStepId> {
   if (
     slotsChanged ||
     gainedBetween(cantripsAtLevel, draft, castingAs) > 0 ||
-    gainedBetween(spellsKnownAtLevel, draft, castingAs) > 0
+    gainedBetween(spellsKnownAtLevel, draft, castingAs) > 0 ||
+    // A wizard's book grows at every level, including ones where no slot row
+    // changes and no cantrip is gained. Omitted here, those level-ups skip the
+    // step entirely and the spells are silently never offered — the same hole
+    // the Arcane Trickster note above describes.
+    spellbookGained(draft, castingAs) > 0
   ) {
     steps.push('spells')
   }

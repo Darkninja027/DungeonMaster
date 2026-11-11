@@ -53,6 +53,7 @@ import {
   SPELL_CARD_LINES,
   featureRows,
   isTallSpellCard,
+  noteCost,
   paginate,
   paginateFeatureRows,
   paginateNotes,
@@ -70,6 +71,7 @@ import { openSpellInPanel } from '#/lib/spellPanel'
 import { useLibraryEntries } from '#/lib/useGlobalLibrary'
 import { cn } from '#/lib/utils'
 import { BookView, InlineMarkdown } from '#/components/Markdown'
+import { SheetFrame } from '#/components/SheetFrame'
 import { WikiText } from './WikiText'
 
 /**
@@ -653,6 +655,7 @@ function CorePage({
 
   return (
     <div className="dnd-page">
+      <SheetFrame />
       <div className="dnd-cs">
         <Banner title={title}>
           {/* "Human Champion Fighter 7" — the subclass sits in front of the
@@ -1024,6 +1027,7 @@ function FeaturesPage({
 
   return (
     <div className="dnd-page">
+      <SheetFrame />
       <div className="dnd-cs">
         <Banner title={`${title} — ${pageLabel}`} small>
           {[c.race, c.class, `Level ${c.level}`].filter(Boolean).join(' ')}
@@ -1115,6 +1119,7 @@ function SpellPage({
 
   return (
     <div className="dnd-page">
+      <SheetFrame />
       <div className="dnd-cs">
         <Banner title={`${title} — ${pageLabel}`} small />
         <div className="dnd-cs-body">
@@ -1305,6 +1310,7 @@ function SpellCardsPage({
 
   return (
     <div className="dnd-page">
+      <SheetFrame />
       <div className="dnd-cs">
         <Banner title={`${title} — ${pageLabel}`} small>
           {[c.race, c.class, `Level ${c.level}`].filter(Boolean).join(' ')}
@@ -1466,6 +1472,7 @@ function GearPage({
 
   return (
     <div className="dnd-page">
+      <SheetFrame />
       <div className="dnd-cs">
         <Banner title={`${title} — ${pageLabel}`} small />
         <div className="dnd-cs-body">
@@ -1574,8 +1581,14 @@ function NotesPage({
   pageLabel: string
   source?: RollSource
 }) {
+  // The other four paginated pages have had this since they were written; notes
+  // were the one that didn't, so the clip they are most vulnerable to — a recap
+  // is the only copy of what happened that evening — was also the only one that
+  // failed without a word. Dev-only; compiled out of the packaged app.
+  const flowRef = useColumnOverflowWarning(pageLabel, 'NOTE_LINES', notes)
   return (
     <div className="dnd-page">
+      <SheetFrame />
       <div className="dnd-cs">
         <Banner title={`${title} — ${pageLabel}`} small>
           {[c.race, c.class, `Level ${c.level}`].filter(Boolean).join(' ')}
@@ -1584,7 +1597,7 @@ function NotesPage({
             Notes", so a titled box around titled cards is a frame inside a
             frame. The cards sit straight on the parchment. */}
         <div className="dnd-cs-body">
-          <div className="dnd-cs-scroll" style={{ fontSize: 11 }}>
+          <div ref={flowRef} className="dnd-cs-scroll" style={{ fontSize: 11 }}>
             {notes.map((note, i) => {
               const badges = (note.tags ?? []).filter((t) => t !== SESSION_TAG)
               return (
@@ -1643,6 +1656,24 @@ export function backstoryDoc(body: string | undefined, title: string): string {
   return prose.startsWith('#') ? prose : `# ${title}\n\n${prose}`
 }
 
+/**
+ * A session note too big for a card, as a book document. Same rule as
+ * backstoryDoc: a heading is only prepended when the note's own text doesn't
+ * open with one, so a pasted article that already says "# Bellview Mercenary
+ * Guild" doesn't get that title printed twice.
+ *
+ * The note's title is the heading when it has one, because the card layout
+ * these notes are leaving would have shown it and losing it on the way to a
+ * bigger page would read as the sheet dropping something.
+ */
+export function noteDoc(note: CharacterNote): string {
+  const text = note.text.trim()
+  if (!text) return ''
+  if (text.startsWith('#')) return text
+  const heading = note.title?.trim() || notePreview(note.text) || 'Session'
+  return `# ${heading}\n\n${text}`
+}
+
 export function SheetPreview({
   character: c,
   body,
@@ -1687,9 +1718,22 @@ export function SheetPreview({
   // sheet holding one empty Equipment box.
   // Only #session notes print, and they now carry their own sheets rather than
   // riding the foot of the gear page — so they no longer earn a gear page.
+  // A note bigger than a whole page can't be served by the card layout at all:
+  // paginateNotes only ever breaks BETWEEN notes, so an oversize one was given
+  // a page to itself and silently clipped at the fold. Those are split out here
+  // and rendered through BookView below, which measures real layout instead of
+  // estimating it. Everything that does fit keeps the card layout unchanged.
+  const { cardNotes, longNotes } = useMemo(() => {
+    const fitting: Array<CharacterNote> = []
+    const oversize: Array<CharacterNote> = []
+    for (const note of sessionNotes(c.notes)) {
+      ;(noteCost(note) > NOTE_LINES ? oversize : fitting).push(note)
+    }
+    return { cardNotes: fitting, longNotes: oversize }
+  }, [c.notes])
   const notePages = useMemo(
-    () => paginateNotes(sessionNotes(c.notes), NOTE_LINES),
-    [c.notes],
+    () => paginateNotes(cardNotes, NOTE_LINES),
+    [cardNotes],
   )
   // Gated on being a caster as well as on the toggle, so a fighter's sheet and
   // a toggled-off one read nothing off disk at all.
@@ -1801,6 +1845,28 @@ export function SheetPreview({
         />
       ))}
 
+      {/* An oversize note flows through BookView rather than a fixed card, for
+          the reason the backstory does below: it measures the rendered columns
+          and emits as many sheets as the content actually needs. The card path
+          estimates instead, and its estimate charges a markdown table row the
+          same as a line of prose — so a note full of tables clipped silently,
+          which is the one failure this sheet is built to prevent. */}
+      {longNotes.map((note, i) => (
+        <div
+          className="dnd-cs-note-doc contents"
+          key={`note-doc-${note.at}-${i}`}
+        >
+          <BookView
+            articles={articles}
+            worldId={worldId}
+            source={source}
+            framed
+          >
+            {noteDoc(note)}
+          </BookView>
+        </div>
+      ))}
+
       {prose && (
         /*
           BookView, not a bare Markdown: it is the same renderer the Story tab's
@@ -1811,9 +1877,16 @@ export function SheetPreview({
           DM-only blocks rendered raw AND printed, defeating the print rule that
           exists to keep them off a page a player might be handed.
         */
-        <BookView articles={articles} worldId={worldId} source={source}>
-          {proseDoc}
-        </BookView>
+        <div className="dnd-cs-prose contents">
+          <BookView
+            articles={articles}
+            worldId={worldId}
+            source={source}
+            framed
+          >
+            {proseDoc}
+          </BookView>
+        </div>
       )}
     </div>
   )

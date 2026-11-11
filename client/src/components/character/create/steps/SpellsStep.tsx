@@ -1,5 +1,5 @@
 import { X } from 'lucide-react'
-import { useSpellSuggestions } from '#/lib/useGlobalLibrary'
+import { useSpellMeta, useSpellSuggestions } from '#/lib/useGlobalLibrary'
 import { useWorldRuleset } from '#/lib/useWorldSettings'
 import type { CharacterDraft } from '#/lib/characterDraft'
 import { draftKit } from '#/lib/characterDraft'
@@ -60,6 +60,8 @@ export function SpellsStep({
     spellListClass(kit, draft.subclassName),
     ruleset,
   )
+  // Unfiltered by design — a lookup keyed by name, shared by both pickers.
+  const spellMeta = useSpellMeta(worldId, ruleset)
 
   // The patron's expanded list at 1st level, for a class that picks its
   // archetype at creation. Empty for every other class and every other level,
@@ -91,6 +93,7 @@ export function SpellsStep({
         count={sc.cantripsKnown}
         values={draft.cantrips}
         suggestions={suggestionsFor(0)}
+        meta={spellMeta}
         onChange={(cantrips) => onChange({ ...draft, cantrips })}
       />
 
@@ -100,6 +103,7 @@ export function SpellsStep({
           count={sc.spellsKnown}
           values={draft.spells}
           suggestions={suggestionsFor(1)}
+          meta={spellMeta}
           expanded={
             expandedAt1.length > 0
               ? {
@@ -119,6 +123,16 @@ export function SpellsStep({
           here — add them on the sheet when you prepare.
         </p>
       )}
+
+      {/*
+        Says out loud what `canAdvance` now allows. The same promise the
+        level-up wizard's spells step makes, in the same words — the counts are
+        what you may take, not a bill to settle.
+      */}
+      <p className="text-muted-foreground text-xs">
+        Pick them later if you&rsquo;d rather — this never blocks, and the sheet
+        is yours to edit.
+      </p>
     </div>
   )
 }
@@ -134,6 +148,7 @@ export function SpellList({
   values,
   suggestions,
   expanded,
+  meta,
   onChange,
 }: {
   label: string
@@ -146,6 +161,8 @@ export function SpellList({
    * for every class that has no such list, which is nearly all of them.
    */
   expanded?: { label: string; names: Array<string> }
+  /** Spell name -> "2nd · Evocation", shown muted on each suggestion row. */
+  meta?: Record<string, string>
   onChange: (next: Array<string>) => void
 }) {
   const filled = values.filter(Boolean)
@@ -203,6 +220,7 @@ export function SpellList({
         <Combobox
           id={listId}
           options={suggestions}
+          meta={meta}
           onCommit={add}
           placeholder="Type a spell name…"
           className="h-7 max-w-sm text-sm"

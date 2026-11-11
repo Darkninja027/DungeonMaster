@@ -1,4 +1,5 @@
 import type { ArticleRef, ArticleSummary, WorldTree } from '#/lib/api'
+import type { LibraryScope } from '#/lib/libraryScope'
 import type { Ruleset } from '#/lib/ruleset'
 
 /**
@@ -252,4 +253,24 @@ export function filterByEdition(
 ): Array<LibraryEntry> {
   if (ruleset === 'all') return entries
   return entries.filter((e) => e.edition == null || e.edition === ruleset)
+}
+
+/**
+ * Entries narrowed to the open world's own articles, hiding the global library.
+ *
+ * Unlike `filterByEdition` and `filterSpells` there is no "an entry that doesn't
+ * say is kept" caveat, because there is no unknown case to protect: `global` is
+ * a definite boolean the collectors always set, so this hides exactly the
+ * library and nothing ambiguous. It stays a view preference all the same —
+ * nothing moves on disk, and `all` is the list unchanged.
+ *
+ * `all` returns the same array rather than a copy, for the reason
+ * filterByEdition does: callers feed the result into `useMemo` deps.
+ */
+export function filterByScope(
+  entries: Array<LibraryEntry>,
+  scope: LibraryScope,
+): Array<LibraryEntry> {
+  if (scope === 'all') return entries
+  return entries.filter((e) => !e.global)
 }

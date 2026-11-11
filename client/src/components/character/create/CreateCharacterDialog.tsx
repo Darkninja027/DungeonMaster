@@ -10,7 +10,8 @@ import { canAdvance, emptyDraft, stepsFor } from '#/lib/characterDraft'
 import { NEW_WORLD_RULESET } from '#/lib/ruleset'
 import { useIsVault } from '#/lib/useWorldSettings'
 import { useTables } from '#/lib/useHomebrew'
-import { articleTemplates } from '#/lib/templates'
+import { newArticleContent } from '#/lib/templates'
+import { findTemplate } from '#/lib/templateStore'
 import { Button } from '#/components/ui/button'
 import {
   Dialog,
@@ -201,12 +202,16 @@ export function CreateCharacterDialog({
       } catch {
         // already exists
       }
-      const template = articleTemplates.find((t) => t.id === 'character')
+      const template = findTemplate('character')
       return api.articles.create({
         worldId,
         folderId: 'Characters',
         title: name.trim(),
-        content: template?.body ?? '',
+        // newArticleContent rather than the raw body — a no-op while the
+        // template keeps its own sheet frontmatter. Someone who edits that
+        // away gets a plain article from "Skip setup": their choice, and
+        // recoverable. Silently producing an unparseable sheet is not.
+        content: template ? newArticleContent(template) : '',
       })
     },
     onSuccess: (article) => {

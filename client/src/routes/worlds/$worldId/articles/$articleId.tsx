@@ -12,6 +12,7 @@ import {
   ChevronDown,
   Columns2,
   Eye,
+  Feather,
   FileDown,
   FolderOpen,
   Link2,
@@ -36,7 +37,9 @@ import type { ImageInfo } from '#/lib/api'
 import type { RollSource } from '#/lib/rollLog'
 import { exportPdf } from '#/lib/exportPdf'
 import { formatMarkdown, snippets } from '#/lib/formatMarkdown'
-import { articleTemplates } from '#/lib/templates'
+import { useVisibleTemplates } from '#/lib/useTemplates'
+import { PromoteToTemplateDialog } from '#/components/PromoteToTemplateDialog'
+import type { PromoteSource } from '#/components/PromoteToTemplateDialog'
 import { Button } from '#/components/ui/button'
 import {
   DropdownMenu,
@@ -62,6 +65,8 @@ import {
 } from '#/components/MarkdownContextMenu'
 import type { ContextMenuEditor } from '#/components/MarkdownContextMenu'
 import { TableOfContents } from '#/components/TableOfContents'
+import { DescribePanel } from '#/components/DescribePanel'
+import { articleType } from '#/lib/describe/subjects'
 import { SidebarToggle } from '#/components/SidebarToggle'
 import {
   activeHeadingAt,
@@ -85,6 +90,9 @@ import { LivePreviewPane } from '#/components/LivePreviewPane'
 import { padBlock } from '#/lib/markdownEditing'
 import { useWorldSettings } from '#/lib/useWorldSettings'
 import type { LiveEditorHandle } from '#/components/LiveMarkdownEditor'
+import { useToast } from '#/components/ToastProvider'
+import { useConfirm } from '#/components/ConfirmProvider'
+import { RECYCLE_BIN_NOTE } from '#/lib/confirmText'
 
 export const Route = createFileRoute('/worlds/$worldId/articles/$articleId')({
   component: ArticlePage,
@@ -114,6 +122,7 @@ const TOC_KEY = 'dm.articleToc'
 // Separate key rather than a field on TOC_KEY: that one's shape is {open} and
 // its loader would need migrating to carry a second flag.
 const LIVE_EDIT_KEY = 'dm.articleLiveEdit'
+const DESCRIBE_KEY = 'dm.articleDescribe'
 
 /** Outline pane visibility, remembered across sessions like the session panel. */
 function loadTocOpen(): boolean {
@@ -139,11 +148,27 @@ function loadLiveEdit(): boolean {
   }
 }
 
+/** Describe helper visibility, remembered the same way. */
+function loadDescribeOpen(): boolean {
+  try {
+    const raw = JSON.parse(localStorage.getItem(DESCRIBE_KEY) ?? '') as {
+      open?: boolean
+    }
+    return raw.open === true
+  } catch {
+    return false
+  }
+}
+
 function ArticlePage() {
   const { worldId, articleId } = Route.useParams()
   const queryClient = useQueryClient()
   const navigate = useNavigate()
-  const reveal = revealer(worldId)
+  const toast = useToast()
+  const confirmDelete = useConfirm()
+  const reveal = revealer(worldId, (message) =>
+    toast.show({ kind: 'error', message }),
+  )
 
   const article = useQuery({
     queryKey: ['articles', articleId],
@@ -180,6 +205,7 @@ function ArticlePage() {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const liveEditorRef = useRef<LiveEditorHandle>(null)
   const [tocOpen, setTocOpen] = useState(loadTocOpen)
+  const [describeOpen, setDescribeOpen] = useState(loadDescribeOpen)
   const [activeHeadingId, setActiveHeadingId] = useState<string | null>(null)
   const previewRef = useRef<HTMLDivElement>(null)
 
@@ -191,6 +217,8 @@ function ArticlePage() {
   const [imageIndex, setImageIndex] = useState(0)
   // Create-from-broken-link dialog
   const [missingTitle, setMissingTitle] = useState<string | null>(null)
+  const templates = useVisibleTemplates()
+  const [promoting, setPromoting] = useState<PromoteSource | null>(null)
 
   const images = useQuery({
     queryKey: ['worlds', worldId, 'images'],
@@ -229,6 +257,10 @@ function ArticlePage() {
   useEffect(() => {
     localStorage.setItem(TOC_KEY, JSON.stringify({ open: tocOpen }))
   }, [tocOpen])
+
+  useEffect(() => {
+    localStorage.setItem(DESCRIBE_KEY, JSON.stringify({ open: describeOpen }))
+  }, [describeOpen])
 
   useEffect(() => {
     localStorage.setItem(
@@ -528,6 +560,7 @@ function ArticlePage() {
    * highlighted.
    */
   const [liveHasSelection, setLiveHasSelection] = useState(false)
+  const [liveInTable, setLiveInTable] = useState(false)
 
   /**
    * The live surface, shaped as the context menu expects. Lets live edit reuse
@@ -537,9 +570,12 @@ function ArticlePage() {
    */
   const liveMenuEditor = useMemo<ContextMenuEditor>(
     () => ({
-      onContextMenu: () =>
-        setLiveHasSelection(liveEditorRef.current?.hasSelection() ?? false),
+      onContextMenu: () => {
+        setLiveHasSelection(liveEditorRef.current?.hasSelection() ?? false)
+        setLiveInTable(liveEditorRef.current?.inTable() ?? false)
+      },
       hasSelection: liveHasSelection,
+      inTable: liveInTable,
       execEditorCommand: (command) =>
         liveEditorRef.current?.execCommand(command),
       wrap: (wrapper) => liveEditorRef.current?.wrap(wrapper),
@@ -547,7 +583,7 @@ function ArticlePage() {
       insertBlock,
       insertText: insertAtCursor,
     }),
-    [liveHasSelection, insertBlock, insertAtCursor],
+    [liveHasSelection, liveInTable, insertBlock, insertAtCursor],
   )
 
   /**
@@ -565,8 +601,12 @@ function ArticlePage() {
         insertAtCursor(`![${alt}](${image.encodedRelPath})`)
       }
       queryClient.invalidateQueries({ queryKey: ['worlds', worldId, 'images'] })
-    } catch (error) {
-      alert((error as Error).message)
+    } catch (failure) {
+      toast.show({
+        kind: 'error',
+        message: 'Could not insert the image.',
+        detail: (failure as Error).message,
+      })
     }
   }
 
@@ -598,7 +638,7 @@ function ArticlePage() {
             a keystroke — hence blur/Enter, not `dirty`. */}
         <Input
           value={title}
-          className="max-w-md border-none text-lg font-semibold shadow-none focus-visible:ring-1"
+          className="tome-heading max-w-md border-none text-lg shadow-none focus-visible:ring-1"
           onChange={(e) => {
             setTitle(e.target.value)
             titleDirtyRef.current = true
@@ -720,8 +760,11 @@ function ArticlePage() {
                 <DropdownMenuSub>
                   <DropdownMenuSubTrigger>Template</DropdownMenuSubTrigger>
                   <DropdownMenuSubContent>
-                    {articleTemplates
-                      .filter((t) => t.id !== 'blank')
+                    {templates
+                      // Blank has nothing to insert, and neither does an
+                      // unfinished template someone has not written a body for
+                      // yet — both would be menu items that silently do nothing.
+                      .filter((t) => t.body.trim() !== '')
                       .map((template) => (
                         <DropdownMenuItem
                           key={template.id}
@@ -737,6 +780,20 @@ function ArticlePage() {
                       ))}
                   </DropdownMenuSubContent>
                 </DropdownMenuSub>
+                <DropdownMenuItem
+                  onClick={() =>
+                    setPromoting({
+                      worldId,
+                      articleId,
+                      title,
+                      // The live editor content, not the saved article: you
+                      // promote what you are looking at.
+                      content,
+                    })
+                  }
+                >
+                  New template from this article
+                </DropdownMenuItem>
               </DropdownMenuGroup>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -835,8 +892,14 @@ function ArticlePage() {
             variant="ghost"
             size="icon"
             title="Delete article"
-            onClick={() => {
-              if (confirm(`Delete "${title}"?`)) remove.mutate()
+            onClick={async () => {
+              if (
+                await confirmDelete({
+                  title: `Delete "${title}"?`,
+                  description: RECYCLE_BIN_NOTE,
+                })
+              )
+                remove.mutate()
             }}
           >
             <Trash2 className="text-destructive" />
@@ -940,6 +1003,15 @@ function ArticlePage() {
                 onClick={() => setTocOpen((v) => !v)}
               >
                 <List className="size-3.5" /> Outline
+              </Button>
+              <Button
+                variant={describeOpen ? 'secondary' : 'ghost'}
+                size="sm"
+                className="h-8 text-xs"
+                title="Prompts, rollable details and names for describing places and people"
+                onClick={() => setDescribeOpen((v) => !v)}
+              >
+                <Feather className="size-3.5" /> Describe
               </Button>
             </div>
           </div>
@@ -1168,6 +1240,8 @@ function ArticlePage() {
                   worldId={worldId}
                   source={rollSource}
                   onCreateMissing={setMissingTitle}
+                  framed
+                  numbered
                 >
                   {content}
                 </BookView>
@@ -1181,6 +1255,18 @@ function ArticlePage() {
             activeId={activeHeadingId}
             onSelect={goToHeading}
             onClose={() => setTocOpen(false)}
+          />
+        )}
+        {describeOpen && (
+          // Keyed by article so rolled details don't follow you to the next
+          // one, and the starting subject re-reads the new article's type.
+          <DescribePanel
+            key={articleId}
+            worldId={worldId}
+            articleType={articleType(content)}
+            onInsertText={insertAtCursor}
+            onInsertBlock={insertBlock}
+            onClose={() => setDescribeOpen(false)}
           />
         )}
       </div>
@@ -1214,6 +1300,11 @@ function ArticlePage() {
         worldId={worldId}
         title={missingTitle}
         onClose={() => setMissingTitle(null)}
+      />
+
+      <PromoteToTemplateDialog
+        source={promoting}
+        onClose={() => setPromoting(null)}
       />
     </div>
   )

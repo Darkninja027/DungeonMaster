@@ -5,11 +5,14 @@ import {
   SETTINGS_SECTIONS,
   findSection,
 } from '#/components/settings/sections'
-import { Separator } from '#/components/ui/separator'
 import { cn } from '#/lib/utils'
 
 export const Route = createFileRoute('/worlds/$worldId/settings')({
   component: WorldSettingsPage,
+  // Optional ?section= so another screen can link straight to a section (the
+  // Describe pane's "Edit lists"). Unknown ids fall back via findSection.
+  validateSearch: (search: Record<string, unknown>): { section?: string } =>
+    typeof search.section === 'string' ? { section: search.section } : {},
 })
 
 /**
@@ -26,22 +29,25 @@ export const Route = createFileRoute('/worlds/$worldId/settings')({
  */
 function WorldSettingsPage() {
   const { worldId } = Route.useParams()
-  const [sectionId, setSectionId] = useState(DEFAULT_SECTION)
+  const { section: linkedSection } = Route.useSearch()
+  const [sectionId, setSectionId] = useState(linkedSection ?? DEFAULT_SECTION)
   const section = findSection(sectionId)
   const { Component } = section
 
   return (
     <div className="mx-auto flex h-full max-w-[96rem] flex-col gap-3 p-4">
       <div>
-        <h1 className="text-lg font-semibold">Settings</h1>
-        <p className="text-muted-foreground text-xs">
-          Stored as <code>worldSettings.json</code> in the world folder; safe to
-          hand-edit. If your edits don’t show up, check it for a JSON syntax
-          error. Library is the exception — it applies to every world.
+        <h1 className="tome-heading text-xl">Settings</h1>
+        <p className="tome-quiet text-xs">
+          Per-world settings are stored as <code>worldSettings.json</code> in
+          the world folder; safe to hand-edit. If your edits don’t show up,
+          check it for a JSON syntax error. Homebrew, Templates, Describe lists
+          and Library are the exceptions — they live with the app and apply to
+          every world.
         </p>
       </div>
 
-      <Separator />
+      <hr className="gold-rule w-full opacity-50" />
 
       <div className="grid min-h-0 flex-1 gap-5 md:grid-cols-[180px_1fr]">
         <nav className="flex min-h-0 flex-col gap-0.5 overflow-y-auto">
@@ -52,7 +58,9 @@ function WorldSettingsPage() {
               aria-current={entry.id === section.id ? 'page' : undefined}
               className={cn(
                 'flex items-center gap-2 rounded px-2 py-1.5 text-left text-sm',
-                entry.id === section.id ? 'bg-accent' : 'hover:bg-accent/50',
+                entry.id === section.id
+                  ? 'bg-(--tome-tint) text-(--tome-head) font-medium'
+                  : 'hover:bg-(--tome-tint)',
               )}
               onClick={() => setSectionId(entry.id)}
             >

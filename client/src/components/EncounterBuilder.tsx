@@ -1,22 +1,50 @@
 import { useMemo, useState } from 'react'
-import { useQueries, useQuery } from '@tanstack/react-query'
-import { Minus, PictureInPicture2, Play, Plus, Search, X } from 'lucide-react'
+import {
+  useMutation,
+  useQueries,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query'
+import {
+  Minus,
+  PictureInPicture2,
+  Play,
+  Plus,
+  Save,
+  Search,
+  X,
+} from 'lucide-react'
 import { api } from '#/lib/api'
 import type { ArticleRef } from '#/lib/api'
 import {
   collectMonsters,
   entryKey,
   filterByEdition,
+  filterByScope,
   filterEntries,
   mergeEntries,
 } from '#/lib/bestiary'
 import type { LibraryEntry } from '#/lib/bestiary'
+import { loadLibraryScope } from '#/lib/libraryScope'
+import type { LibraryScope } from '#/lib/libraryScope'
 import { useWorldRuleset } from '#/lib/useWorldSettings'
 import { useLibraryEntries } from '#/lib/useGlobalLibrary'
+import { LibraryScopeButton } from '#/components/LibraryScopeButton'
 import { Input } from '#/components/ui/input'
 import { VirtualList } from '#/components/VirtualList'
 import { initiativeBonus, parseCharacter, signed } from '#/lib/character'
 import { rateEncounter } from '#/lib/encounter'
+import {
+  dropEncounter,
+  emptyEncounters,
+  monsterCount,
+  parseEncounters,
+  sortedEncounters,
+  upsertEncounter,
+} from '#/lib/encounterStore'
+import type { EncounterFile, SavedEncounter } from '#/lib/encounterStore'
+import { useToast } from '#/components/ToastProvider'
+import { useConfirm } from '#/components/ConfirmProvider'
 import type { Difficulty } from '#/lib/encounter'
 import { rollDice } from '#/lib/formatMarkdown'
 import { logRoll } from '#/lib/rollLog'
@@ -37,7 +65,15 @@ const DIFFICULTY_STYLE: Record<Difficulty, string> = {
 /** Roll a d20 with the given modifier, logging it to the shared roll history. */
 // Takes only what it reads, so callers can pass any id/title pair — a character
 // row here isn't always a full ArticleRef.
-function rollInitiative(
+/**
+ * Roll initiative for a creature and log it.
+ *
+ * Exported so the battlemap rolls a creature into the fight the same way this
+ * builder does — same notation, same log entry, same fallback. A second copy
+ * would drift, and a roll that does not reach the log is a roll the table
+ * cannot check.
+ */
+export function rollInitiative(
   worldId: string,
   ref: Pick<ArticleRef, 'id' | 'title'>,
   mod: number,
@@ -76,6 +112,38 @@ export function EncounterBuilder({
   // the open world's).
   const [party, setParty] = useState<Set<string>>(new Set())
   const [filter, setFilter] = useState('')
+  // Shares its stored key with the Bestiary panel: the same list in two places,
+  // so the two agreeing is the point.
+  const [scope, setScope] = useState<LibraryScope>(() =>
+    loadLibraryScope('monsters'),
+  )
+  const [saveName, setSaveName] = useState('')
+  const queryClient = useQueryClient()
+  const toast = useToast()
+  const confirmDelete = useConfirm()
+
+  // Prepared encounters for this world. The raw file comes up untyped and the
+  // tolerant parse happens here, the same split homebrew and templates use.
+  const savedQuery = useQuery({
+    queryKey: ['worlds', worldId, 'encounters'],
+    queryFn: () => api.encounters.get(worldId),
+    select: parseEncounters,
+  })
+  const saved = savedQuery.data ?? emptyEncounters()
+
+  const writeSaved = useMutation({
+    mutationFn: (next: EncounterFile) => api.encounters.set(worldId, next),
+    onSuccess: () =>
+      queryClient.invalidateQueries({
+        queryKey: ['worlds', worldId, 'encounters'],
+      }),
+    onError: (error: Error) =>
+      toast.show({
+        kind: 'error',
+        message: 'Could not save the encounter.',
+        detail: error.message,
+      }),
+  })
 
   const tree = useQuery({
     queryKey: ['worlds', worldId, 'tree'],
@@ -97,14 +165,17 @@ export function EncounterBuilder({
   // dedupe across worlds, because they really are different articles.
   const monsterList: Array<LibraryEntry> = useMemo(
     () =>
-      filterByEdition(
-        mergeEntries(
-          collectMonsters(worldId, tree.data, typed.data),
-          library.entries,
+      filterByScope(
+        filterByEdition(
+          mergeEntries(
+            collectMonsters(worldId, tree.data, typed.data),
+            library.entries,
+          ),
+          ruleset,
         ),
-        ruleset,
+        scope,
       ),
-    [worldId, tree.data, typed.data, library.entries, ruleset],
+    [worldId, tree.data, typed.data, library.entries, ruleset, scope],
   )
   const visible = useMemo(
     () => filterEntries(monsterList, filter),
@@ -230,15 +301,83 @@ export function EncounterBuilder({
     onRun()
   }
 
+  const saveCurrent = () => {
+    const name = saveName.trim()
+    if (!name || !canRun) return
+    writeSaved.mutate(
+      upsertEncounter(saved, {
+        name,
+        counts,
+        party: [...party],
+        savedAt: new Date().toISOString(),
+      }),
+    )
+    setSaveName('')
+  }
+
+  const loadSaved = (entry: SavedEncounter) => {
+    // Replaces the working roster rather than merging into it: "load" that
+    // silently added to what was already there would be very hard to undo.
+    setCounts(entry.counts)
+    setParty(new Set(entry.party))
+  }
+
+  const removeSaved = async (entry: SavedEncounter) => {
+    const ok = await confirmDelete({
+      title: `Delete the saved encounter "${entry.name}"?`,
+      // Nothing on disk but the saved roster: the monsters and characters it
+      // names are ordinary articles and are untouched.
+      description: 'The monsters and characters in it are not affected.',
+    })
+    if (ok) writeSaved.mutate(dropEncounter(saved, entry.id))
+  }
+
   return (
     <div className="flex h-full flex-col">
       <ScrollArea className="min-h-0 flex-1">
         <div className="space-y-4 p-2">
+          {/* Saved encounters — only once there is something to show, so the
+              panel stays about building one until you have prepared some. */}
+          {saved.encounters.length > 0 && (
+            <section>
+              <h3 className="text-muted-foreground mb-1 text-xs font-semibold tracking-wide uppercase">
+                Saved
+              </h3>
+              <div className="space-y-0.5">
+                {sortedEncounters(saved).map((entry) => (
+                  <div
+                    key={entry.id}
+                    className="group flex items-center gap-1 rounded px-1.5 py-1 text-sm hover:bg-accent/50"
+                  >
+                    <button
+                      type="button"
+                      className="min-w-0 flex-1 truncate text-left"
+                      title={`Load "${entry.name}"`}
+                      onClick={() => loadSaved(entry)}
+                    >
+                      {entry.name}
+                      <span className="text-muted-foreground ml-1.5 text-xs">
+                        {monsterCount(entry)}m
+                        {entry.party.length > 0 && ` · ${entry.party.length}p`}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      className="text-muted-foreground hover:text-destructive shrink-0 opacity-0 group-hover:opacity-100"
+                      title="Delete this saved encounter"
+                      onClick={() => void removeSaved(entry)}
+                    >
+                      <X className="size-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
           {/* Monsters */}
           <section>
-            <h4 className="text-muted-foreground mb-1 px-1 text-xs font-semibold uppercase tracking-wide">
-              Monsters
-            </h4>
+            <h4 className="tome-label mb-1 px-1">Monsters</h4>
             {/* Searchable, and it has to be: merging the global bestiary in
                 puts ~330 entries here, which a flat list cannot serve. Same
                 shape as the Bestiary tab next door. */}
@@ -261,6 +400,15 @@ export function EncounterBuilder({
                 </button>
               )}
             </div>
+            {library.entries.length > 0 && (
+              <div className="mb-1 flex px-1">
+                <LibraryScopeButton
+                  scope={scope}
+                  kind="monsters"
+                  onChange={setScope}
+                />
+              </div>
+            )}
             {(tree.isLoading || typed.isLoading) && (
               <p className="text-muted-foreground px-1 text-sm">Loading…</p>
             )}
@@ -272,8 +420,10 @@ export function EncounterBuilder({
               empty={
                 <p className="text-muted-foreground p-4 text-sm">
                   {filter
-                    ? 'No monsters match.'
-                    : 'No monsters yet. Create an article from the Monster template.'}
+                    ? `No monsters match${scope === 'world' ? " in this world's own bestiary." : '.'}`
+                    : scope === 'world'
+                      ? 'This world has no monsters of its own. Switch to All to add from the global bestiary.'
+                      : 'No monsters yet. Create an article from the Monster template.'}
                 </p>
               }
               renderRow={(m) => {
@@ -331,9 +481,7 @@ export function EncounterBuilder({
 
           {/* Party */}
           <section>
-            <h4 className="text-muted-foreground mb-1 px-1 text-xs font-semibold uppercase tracking-wide">
-              Party
-            </h4>
+            <h4 className="tome-label mb-1 px-1">Party</h4>
             {characterList.length === 0 && (
               <p className="text-muted-foreground px-1 text-sm">
                 No characters yet.
@@ -419,6 +567,28 @@ export function EncounterBuilder({
             Pick monsters and party members to rate the encounter.
           </p>
         )}
+        <div className="flex gap-1">
+          <Input
+            value={saveName}
+            onChange={(e) => setSaveName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') saveCurrent()
+            }}
+            placeholder="Save this encounter as…"
+            className="h-8 text-sm"
+            disabled={!canRun}
+          />
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 shrink-0"
+            disabled={!canRun || saveName.trim() === ''}
+            onClick={saveCurrent}
+            title="Save this roster to reuse later"
+          >
+            <Save className="size-4" />
+          </Button>
+        </div>
         <Button className="w-full" disabled={!canRun} onClick={run}>
           <Play className="size-4" /> Run encounter
           {totalMonsters + party.size > 0 && (

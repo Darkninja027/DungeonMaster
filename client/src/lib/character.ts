@@ -1213,7 +1213,7 @@ export function equippedIn(
 
 /**
  * Move the item at `index` into `slot` (or unequip it with null), evicting
- * whatever held that slot. Index-addressed to match how InventoryTab already
+ * whatever held that slot. Index-addressed to match how the Gear tab already
  * edits rows, and it can't orphan a slot: deleting the row deletes the slot.
  */
 export function equipItem(

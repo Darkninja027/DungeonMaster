@@ -20,6 +20,7 @@ vi.mock('electron', () => ({
 const { encodeWorldId } = await import('./sanitize')
 const { createArticle, getArticle, initWorld } = await import('./worldStore')
 const {
+  MAX_MB,
   countImagesIn,
   createImageFolder,
   deleteImage,
@@ -228,9 +229,15 @@ describe('images against a real temp world', () => {
 
     it('rejects non-image extensions and oversized files', () => {
       expect(() => uploadImage(worldId, 'evil.txt', PNG)).toThrow(/allowed/)
+      // Sized from MAX_MB, not a restated literal: a future bump to the limit
+      // must not leave this case quietly passing a buffer that is under it.
       expect(() =>
-        uploadImage(worldId, 'huge.png', new ArrayBuffer(21 * 1024 * 1024)),
-      ).toThrow(/20 MB/)
+        uploadImage(
+          worldId,
+          'huge.png',
+          new ArrayBuffer(MAX_MB * 1024 * 1024 + 1),
+        ),
+      ).toThrow(new RegExp(`${MAX_MB} MB`))
     })
 
     it('accepts svg', () => {

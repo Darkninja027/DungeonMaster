@@ -16,11 +16,13 @@ import { CreateMissingArticleDialog } from './CreateMissingArticleDialog'
  */
 
 const vaultGet = vi.fn()
+const templatesGet = vi.fn()
 
 vi.mock('#/lib/api', () => ({
   api: {
     vault: { get: () => vaultGet() },
     articles: { create: vi.fn() },
+    templates: { get: () => templatesGet(), set: vi.fn() },
   },
 }))
 
@@ -52,6 +54,10 @@ beforeEach(() => {
     path: 'C:/Docs/My Characters',
     available: true,
   })
+  // null is what a missing templates.json reads as, so the default here is
+  // the built-ins alone — the same list every earlier test assumed.
+  templatesGet.mockReset()
+  templatesGet.mockResolvedValue(null)
 })
 
 describe('CreateMissingArticleDialog', () => {
@@ -60,6 +66,36 @@ describe('CreateMissingArticleDialog', () => {
     renderDialog()
     await waitFor(() => expect(screen.getByText('Blank')).toBeTruthy())
     expect(screen.queryByText('Add note')).toBeNull()
+  })
+
+  it('offers the user own templates alongside the built-ins', async () => {
+    templatesGet.mockResolvedValue({
+      version: 1,
+      templates: [{ id: 'shop', name: 'Shop', description: 'A shop' }],
+    })
+    renderDialog()
+
+    await waitFor(() => expect(screen.getByText('Shop')).toBeTruthy())
+    expect(screen.getByText('Blank')).toBeTruthy()
+  })
+
+  it('drops a hidden template from the grid but still offers Create', async () => {
+    // Hiding Blank is the awkward case: it is what the picker defaults to, so
+    // a naive default would leave nothing selected and a dead Create button.
+    templatesGet.mockResolvedValue({
+      version: 1,
+      templates: [{ id: 'blank', name: 'Blank', hidden: true }],
+    })
+    renderDialog()
+
+    // Wait on Blank *going away* rather than on another template appearing:
+    // the built-ins render immediately from placeholderData, so anything
+    // still in the list is visible before the query has resolved.
+    await waitFor(() => expect(screen.queryByText('Blank')).toBeNull())
+    expect(screen.getByText('Spell')).toBeTruthy()
+    expect(
+      screen.getByRole('button', { name: /create/i }).hasAttribute('disabled'),
+    ).toBe(false)
   })
 
   it('offers a note instead of templates in the vault', async () => {

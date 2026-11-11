@@ -126,7 +126,7 @@ export function CharacterHeader({
         <Input
           value={title}
           aria-label="Character name"
-          className="h-8 w-auto min-w-[5rem] max-w-[14rem] border-none px-1.5 text-[15px] font-semibold shadow-none [field-sizing:content] focus-visible:ring-1"
+          className="tome-heading h-8 w-auto min-w-[5rem] max-w-[14rem] border-none px-1.5 text-[15px] shadow-none [field-sizing:content] focus-visible:ring-1"
           onChange={(e) => onTitleChange(e.target.value)}
           onBlur={onTitleCommit}
           onKeyDown={(e) => {

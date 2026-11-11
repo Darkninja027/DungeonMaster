@@ -126,6 +126,38 @@ export function useLibraryEntries(folder: LibraryFolder): {
 }
 
 /**
+ * "2nd · Evocation" for a spell entry, or '' when its frontmatter says
+ * neither.
+ *
+ * Exported pure so the label can be unit-tested without the three queries
+ * `useSpellSuggestions` needs. Both halves are optional and independent: a
+ * hand-written article that declares only a school still gets "Evocation",
+ * which is the same "unknown means show it" bargain `filterSpells` strikes.
+ */
+export function spellMetaLabel(entry: {
+  level?: number | null
+  school?: string | null
+}): string {
+  const parts: Array<string> = []
+  if (typeof entry.level === 'number') {
+    parts.push(entry.level === 0 ? 'Cantrip' : ordinalLevel(entry.level))
+  }
+  const school = entry.school?.trim()
+  // Title-cased, because the frontmatter is hand-written and says "evocation"
+  // as often as "Evocation".
+  if (school)
+    parts.push(school[0].toUpperCase() + school.slice(1).toLowerCase())
+  return parts.join(' · ')
+}
+
+/** 1 -> "1st", 2 -> "2nd", 3 -> "3rd", everything else "Nth". */
+function ordinalLevel(level: number): string {
+  const suffix =
+    level === 1 ? 'st' : level === 2 ? 'nd' : level === 3 ? 'rd' : 'th'
+  return `${level}${suffix}`
+}
+
+/**
  * Spell names to suggest, drawn from the world's own `Spells/` folder and the
  * shared library, narrowed to a spell level and a class.
  *
@@ -201,4 +233,56 @@ export function useSpellSuggestions(
       return names
     }
   }, [entries, className])
+}
+
+/**
+ * Spell name -> "2nd · Evocation", for the pickers' suggestion rows.
+ *
+ * A second hook rather than a second return value from `useSpellSuggestions`,
+ * so its five existing call sites are untouched and a caller that does not want
+ * labels pays for none of it. Both read the same three queries, which
+ * TanStack Query dedupes by key, so this costs no extra fetch.
+ *
+ * Deliberately NOT filtered by level or class: it is a lookup keyed by name,
+ * and the filtering has already happened by the time a row is being rendered.
+ * Unfiltered also means one map serves every picker on the step.
+ *
+ * A name carried by two entries — a world spell and a library spell sharing a
+ * title — keeps the first, matching how `mergeEntries` orders them and how the
+ * suggestion list de-duplicates.
+ */
+export function useSpellMeta(
+  worldId: string,
+  ruleset: Ruleset = DEFAULT_RULESET,
+): Record<string, string> {
+  const tree = useQuery({
+    queryKey: ['worlds', worldId, 'tree'],
+    queryFn: () => api.worlds.tree(worldId),
+  })
+  const typed = useQuery({
+    queryKey: ['worlds', worldId, 'query', { type: 'spell' }],
+    queryFn: () => api.worlds.query(worldId, { type: 'spell' }),
+  })
+  const library = useLibraryEntries('Spells')
+
+  return useMemo(() => {
+    const entries = filterByEdition(
+      mergeEntries(
+        collectSpells(worldId, tree.data, typed.data, { folder: 'Spells' }),
+        library.entries,
+      ),
+      ruleset,
+    )
+    // Built through a Map so "first entry wins" is expressible: a
+    // `Record<string, string>` types every key as present, so the guard would
+    // read as dead code to the linter even though the key genuinely may not be
+    // there yet.
+    const out = new Map<string, string>()
+    for (const entry of entries) {
+      if (out.has(entry.title)) continue
+      const label = spellMetaLabel(entry)
+      if (label) out.set(entry.title, label)
+    }
+    return Object.fromEntries(out)
+  }, [worldId, tree.data, typed.data, library.entries, ruleset])
 }

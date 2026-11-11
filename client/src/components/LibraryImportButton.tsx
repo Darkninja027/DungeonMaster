@@ -5,6 +5,7 @@ import { api } from '#/lib/api'
 import type { ImportSummary, LibraryFolder } from '#/lib/api'
 import { Button } from '#/components/ui/button'
 import { ImportSummaryDialog } from '#/components/ImportSummaryDialog'
+import { useToast } from '#/components/ToastProvider'
 
 /**
  * Import a folder of markdown into the global library, creating the library at
@@ -13,6 +14,7 @@ import { ImportSummaryDialog } from '#/components/ImportSummaryDialog'
  */
 export function LibraryImportButton({ target }: { target: LibraryFolder }) {
   const queryClient = useQueryClient()
+  const toast = useToast()
   const [summary, setSummary] = useState<ImportSummary | null>(null)
 
   const run = useMutation({
@@ -28,7 +30,12 @@ export function LibraryImportButton({ target }: { target: LibraryFolder }) {
       if (!result) return // cancelled at the picker
       setSummary(result)
     },
-    onError: (error: Error) => alert(error.message),
+    onError: (error: Error) =>
+      toast.show({
+        kind: 'error',
+        message: 'Could not import that folder.',
+        detail: error.message,
+      }),
   })
 
   return (

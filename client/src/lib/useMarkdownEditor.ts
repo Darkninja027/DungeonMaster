@@ -2,10 +2,15 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   TABLE_SNIPPET,
   WRAPPERS,
+  addTableColumn,
   addTableRow,
   indentLines,
   insertLink,
+  isInTable,
   padBlock,
+  removeTableColumn,
+  removeTableRow,
+  tableTab,
   toggleWrap,
   wikiLinkAt,
 } from '#/lib/markdownEditing'
@@ -171,11 +176,28 @@ export function useMarkdownEditor(options: MarkdownEditorOptions = {}) {
       if (latest.current.isSuppressed?.(e)) return
       const mod = e.ctrlKey || e.metaKey
 
-      // Tab indents list items — but only for a real selection or inside a
-      // list, so Tab still moves focus out of an empty textarea.
+      // Tab moves between table cells, and indents list items — but only for
+      // a real selection or inside a list, so Tab still moves focus out of an
+      // empty textarea.
       if (e.key === 'Tab' && !mod) {
         const textarea = ref.current
         if (!textarea) return
+        // In a table Tab walks the cells, wrapping between rows.
+        const cellMove = tableTab(
+          textarea.value,
+          textarea.selectionStart,
+          e.shiftKey,
+        )
+        if (cellMove) {
+          e.preventDefault()
+          if ('replace' in cellMove) applyEdit(cellMove)
+          else
+            textarea.setSelectionRange(
+              cellMove.selection.start,
+              cellMove.selection.end,
+            )
+          return
+        }
         const hasSelection = textarea.selectionStart !== textarea.selectionEnd
         const line = textarea.value.slice(
           textarea.value.lastIndexOf('\n', textarea.selectionStart - 1) + 1,
@@ -218,6 +240,17 @@ export function useMarkdownEditor(options: MarkdownEditorOptions = {}) {
             e.preventDefault()
             wrap(WRAPPERS.wikiLink)
             break
+          case 'r':
+            // Ctrl+R's pair: remove the table row the caret is in. Swallowed
+            // even outside a table so it can never force-reload the app.
+            e.preventDefault()
+            transform((text, start) => removeTableRow(text, start))
+            break
+          case 'g':
+            // Ctrl+G's pair: remove the table column the caret is in.
+            e.preventDefault()
+            transform((text, start) => removeTableColumn(text, start))
+            break
         }
         return
       }
@@ -243,6 +276,16 @@ export function useMarkdownEditor(options: MarkdownEditorOptions = {}) {
           e.preventDefault()
           insertBlock(TABLE_SNIPPET)
           break
+        case 'g':
+          // Add a column right of the caret cell; otherwise start a new
+          // table. Ctrl+Shift+G removes one. The pair sits under the left hand
+          // on purpose: remove-column was once Ctrl+Alt+Shift+R, a hard chord
+          // to hold for anyone with limited hand mobility.
+          e.preventDefault()
+          if (!transform((text, start) => addTableColumn(text, start))) {
+            insertBlock(TABLE_SNIPPET)
+          }
+          break
         case 'r':
           e.preventDefault()
           // Add a row to the table we're in; otherwise start a new table.
@@ -252,7 +295,7 @@ export function useMarkdownEditor(options: MarkdownEditorOptions = {}) {
           break
       }
     },
-    [transform, wrap, insertBlock, insertText, openWikiLinkAt],
+    [applyEdit, transform, wrap, insertBlock, insertText, openWikiLinkAt],
   )
 
   /**
@@ -373,6 +416,9 @@ export function useMarkdownEditor(options: MarkdownEditorOptions = {}) {
    */
   const [hasSelection, setHasSelection] = useState(false)
 
+  /** Whether the caret was in a table when the menu opened; sampled likewise. */
+  const [inTable, setInTable] = useState(false)
+
   /**
    * Right-click bookkeeping. Deliberately does NOT preventDefault: the Radix
    * ContextMenuTrigger wrapping the textarea owns that, and suppressing it here
@@ -382,6 +428,7 @@ export function useMarkdownEditor(options: MarkdownEditorOptions = {}) {
     const textarea = ref.current
     if (!textarea) return
     setHasSelection(textarea.selectionStart !== textarea.selectionEnd)
+    setInTable(isInTable(textarea.value, textarea.selectionStart))
   }, [])
 
   /**
@@ -420,6 +467,7 @@ export function useMarkdownEditor(options: MarkdownEditorOptions = {}) {
     wikiLinkHovered,
     onContextMenu,
     hasSelection,
+    inTable,
     execEditorCommand,
     insertBlock,
     insertText,

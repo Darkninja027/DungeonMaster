@@ -56,6 +56,8 @@ export function LivePreviewPane({
             noteTitles={noteTitles}
             onOpenNote={onOpenNote}
             source={source}
+            framed
+            numbered
           >
             {deferred}
           </BookView>

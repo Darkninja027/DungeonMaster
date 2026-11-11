@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { Loader2 } from 'lucide-react'
+import { Castle, Loader2 } from 'lucide-react'
 import { api } from '#/lib/api'
 import type { LibraryStatus } from '#/lib/api'
 import {
@@ -9,6 +9,8 @@ import {
   libraryQueryKey,
   libraryTreeKey,
 } from '#/lib/useGlobalLibrary'
+import { parseTemplateStore, seedTemplateCache } from '#/lib/templateStore'
+import { templatesKey } from '#/lib/useTemplates'
 
 /**
  * How long to wait for the library before showing the app anyway.
@@ -67,6 +69,27 @@ export function LoadingGate({ children }: { children: React.ReactNode }) {
     const timer = setTimeout(done, TIMEOUT_MS)
 
     const warm = async () => {
+      // Templates first, and before the library's early return below. They
+      // are a tiny file read, and the by-id lookups in lib/templateStore.ts
+      // read a module-scope cache that only this seeds — sequencing it after
+      // a bail-out would leave someone without a library on the built-ins for
+      // the whole session. Secondary windows skip this gate entirely; they
+      // show one article read-only and create nothing, so the built-ins are
+      // the right answer there.
+      //
+      // The queryFn has to parse, exactly as the hook's does: this lands under
+      // the hook's own key, and with staleTime Infinity it is what every picker
+      // reads for the rest of the session. Caching the raw JSON here would hand
+      // `mergeTemplates` an object with no `templates` array, and the pickers
+      // would silently show the built-ins alone.
+      seedTemplateCache(
+        await queryClient.fetchQuery({
+          queryKey: templatesKey,
+          queryFn: async () => parseTemplateStore(await api.templates.get()),
+          staleTime: Infinity,
+        }),
+      )
+
       // staleTime mirrors the hook's `Infinity`, so these land in the cache as
       // fresh and the nine call sites read them instead of re-fetching.
       const info = await queryClient.fetchQuery({
@@ -109,13 +132,18 @@ export function LoadingGate({ children }: { children: React.ReactNode }) {
   if (ready) return children
 
   return (
-    <div className="flex h-full items-center justify-center p-6">
+    <div className="tome-page flex h-full items-center justify-center p-6">
       <div className="flex flex-col items-center gap-3 text-center">
-        <Loader2 className="text-muted-foreground size-6 animate-spin" />
-        <p className="text-sm font-medium">
+        <Castle aria-hidden className="text-(--tome-gold) size-9" />
+        <p className="font-display text-(--tome-head) text-xl font-semibold tracking-wide">
+          Dungeon Master
+        </p>
+        <hr className="gold-rule w-35" />
+        <Loader2 className="text-(--tome-gold) mt-2 size-5 animate-spin" />
+        <p className="text-(--tome-ink) text-sm font-medium">
           {seeding ? 'Setting up your library…' : 'Loading global assets'}
         </p>
-        <p className="text-muted-foreground max-w-xs text-xs">
+        <p className="font-serif text-(--tome-soft) max-w-xs text-sm italic">
           {seeding
             ? 'Copying the bundled bestiary and spell list. This only happens once.'
             : 'Reading the shared bestiary and spell list.'}

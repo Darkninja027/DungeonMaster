@@ -1529,6 +1529,115 @@ describe('picking spells at level-up', () => {
   })
 })
 
+describe('a wizard’s spellbook', () => {
+  // The bug this whole block exists for: a wizard is a *preparer*, so it has no
+  // `spellsKnownByLevel` (that table is a cap on spells known, which a wizard
+  // does not have), and `spellsToPick` is 0 for preparers by design. All three
+  // of the original counting rules therefore returned nothing, correctly, and
+  // nothing covered the gap — a wizard gained cantrips and no spells at all,
+  // at every level, forever. There was no broken lookup to find; the rule was
+  // simply never written.
+
+  it('offers two spells per level gained', () => {
+    const c = characterAt(1, 'Wizard')
+    expect(levelUpPlan(c, draftFor(c, 2)).spellbookToPick).toBe(2)
+  })
+
+  it('multiplies across a multi-level jump', () => {
+    // The flat-per-level shape is the whole reason this cannot go through
+    // `gainedBetween`, which diffs a table at two levels. 1 -> 5 is four levels.
+    const c = characterAt(1, 'Wizard')
+    expect(levelUpPlan(c, draftFor(c, 5)).spellbookToPick).toBe(8)
+  })
+
+  it('walks every level 1 -> 20 and totals 44', () => {
+    // Walked rather than spot-checked on purpose: a spot check cannot see an
+    // off-by-one in a progression, and this one is computed rather than read
+    // from a table, so a wrong multiplier would look plausible at any single
+    // level. Six in the book at 1st, two per level after: 6 + 2*19 = 44.
+    let total = 6
+    for (let level = 1; level < 20; level++) {
+      const c = characterAt(level, 'Wizard')
+      const gained = levelUpPlan(c, draftFor(c, level + 1)).spellbookToPick
+      expect(gained).toBe(2)
+      total += gained
+    }
+    expect(total).toBe(44)
+  })
+
+  it('gives a non-wizard preparer nothing', () => {
+    // `spellbook` absent must mean 0, not a crash and not a guess. A cleric
+    // prepares from the whole list and copies nothing into anything.
+    for (const className of ['Cleric', 'Druid']) {
+      const c = characterAt(4, className)
+      expect(levelUpPlan(c, draftFor(c, 5)).spellbookToPick).toBe(0)
+    }
+  })
+
+  it('gives a non-caster nothing', () => {
+    const c = characterAt(4, 'Fighter')
+    expect(levelUpPlan(c, draftFor(c, 5)).spellbookToPick).toBe(0)
+  })
+
+  it('leaves spellsToPick alone', () => {
+    // The two counts are separate answers. A wizard has no spells-known cap, so
+    // this staying 0 is what makes the new count necessary rather than a
+    // duplicate of the old one.
+    const c = characterAt(1, 'Wizard')
+    expect(levelUpPlan(c, draftFor(c, 2)).spellsToPick).toBe(0)
+  })
+
+  it('opens the spells step on a level that changes no slot row', () => {
+    // The exact hole the Arcane Trickster note in the gate describes, in its
+    // wizard form. 10 -> 11 gains a 6th-level slot in the real table, so use a
+    // sheet whose slots already match and assert the step opens regardless.
+    const c = characterAt(4, 'Wizard')
+    const draft = draftFor(c, 5)
+    expect(levelUpSteps(draft)).toContain('spells')
+  })
+
+  it('lands chosen spells on the sheet, unprepared', () => {
+    // Through `chosenSpells`, so a spellbook addition is an ordinary levelled
+    // row. Never `prepared`: what is prepared is a daily decision the sheet
+    // owns, not something copying a spell into the book settles.
+    const c = characterAt(1, 'Wizard')
+    const after = applyLevelUp(
+      c,
+      draftFor(c, 2, { spellbook: ['Misty Step', 'Web'] }),
+    )
+    const added = after.spells.filter((sp) =>
+      ['Misty Step', 'Web'].includes(sp.name),
+    )
+    expect(added).toHaveLength(2)
+    for (const spell of added) expect(spell.prepared).toBeFalsy()
+  })
+
+  it('de-dupes a name typed into both pickers', () => {
+    // `chosenSpells` de-dupes on name and level, so one row for two entries is
+    // the right answer rather than a duplicated spell.
+    const c = characterAt(1, 'Wizard')
+    const after = applyLevelUp(
+      c,
+      draftFor(c, 2, { spells: ['Web'], spellbook: ['web'] }),
+    )
+    expect(
+      after.spells.filter((sp) => sp.name.toLowerCase() === 'web'),
+    ).toHaveLength(1)
+  })
+
+  it('never removes a spell already on the sheet', () => {
+    // The file's invariant: `applyLevelUp` only appends to arrays and raises
+    // numbers. A character is somebody's work.
+    const c = {
+      ...characterAt(1, 'Wizard'),
+      spells: [{ name: 'Shield', level: 1, prepared: true }],
+    }
+    const after = applyLevelUp(c, draftFor(c, 2, { spellbook: ['Web'] }))
+    expect(after.spells.map((sp) => sp.name)).toContain('Shield')
+    expect(after.spells.find((sp) => sp.name === 'Shield')?.prepared).toBe(true)
+  })
+})
+
 describe('a rogue’s second Expertise', () => {
   it('poses a fresh pick at level 6', () => {
     const c = { ...characterAt(5, 'Rogue'), skills: ['stealth', 'perception'] }

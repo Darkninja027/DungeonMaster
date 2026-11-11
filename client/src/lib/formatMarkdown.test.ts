@@ -10,6 +10,9 @@ import {
   rollDice,
   splitFrontmatter,
   transformDmBlocks,
+  transformWrapBlocks,
+  WRAP_END_MARKER,
+  WRAP_START_MARKER,
 } from './formatMarkdown'
 
 describe('linkifyDice', () => {
@@ -261,6 +264,28 @@ describe('transformDmBlocks', () => {
     expect(stripped).toContain('Tail after first close.')
   })
 
+  // Rule 4. Without counting, the wrap's closer closed the DM block and the
+  // text between the two closers went straight to the projector.
+  it('pairs a nested container closer with its opener, not the DM block', () => {
+    const nested = [
+      ':::dm',
+      ':::wrap',
+      'inner secret',
+      ':::',
+      'secret after the inner close',
+      ':::',
+      'Tail.',
+    ].join('\n')
+    const stripped = transformDmBlocks(nested, 'strip')
+    expect(stripped).not.toContain('secret')
+    expect(stripped).not.toContain(':::')
+    expect(stripped).toContain('Tail.')
+    const marked = transformDmBlocks(nested, 'mark')
+    expect(marked).toContain('> secret after the inner close')
+    expect(marked).toContain('> :::wrap')
+    expect(marked.endsWith('\nTail.')).toBe(true)
+  })
+
   // CRLF is the classic silent failure: the block goes unrecognised and the
   // secret reaches the projector.
   it('strips correctly from CRLF content', () => {
@@ -284,6 +309,93 @@ describe('transformDmBlocks', () => {
     expect(formatted).toContain('Secret note.')
     // And it must still strip after a Tidy pass.
     expect(transformDmBlocks(formatted, 'strip')).not.toContain('Secret note.')
+  })
+})
+
+describe('transformWrapBlocks', () => {
+  it('turns the fences into marker paragraphs around the content', () => {
+    const out = transformWrapBlocks(
+      [
+        'Intro.',
+        ':::wrap',
+        '![a](_images/a.png#left)',
+        '# Title',
+        ':::',
+        'Tail.',
+      ].join('\n'),
+    )
+    expect(out).toBe(
+      [
+        'Intro.',
+        '',
+        WRAP_START_MARKER,
+        '',
+        '![a](_images/a.png#left)',
+        '# Title',
+        '',
+        WRAP_END_MARKER,
+        '',
+        'Tail.',
+      ].join('\n'),
+    )
+  })
+
+  it('leaves a bare ::: with no wrap open alone', () => {
+    const text = 'One.\n:::\nTwo.'
+    expect(transformWrapBlocks(text)).toBe(text)
+  })
+
+  it('nests, closing the innermost box first', () => {
+    const out = transformWrapBlocks(
+      [':::wrap', 'a', ':::wrap', 'b', ':::', 'c', ':::', ':::'].join('\n'),
+    )
+    expect(out.split(WRAP_START_MARKER).length - 1).toBe(2)
+    expect(out.split(WRAP_END_MARKER).length - 1).toBe(2)
+    // The third ::: had no box left to close.
+    expect(out.endsWith('\n:::')).toBe(true)
+  })
+
+  it('keeps a blockquote prefix, so a wrap inside a DM callout stays in it', () => {
+    const marked = transformDmBlocks(
+      [':::dm', ':::wrap', 'secret', ':::', ':::'].join('\n'),
+      'mark',
+    )
+    const out = transformWrapBlocks(marked)
+    expect(out).toContain(`> ${WRAP_START_MARKER}`)
+    expect(out).toContain(`> ${WRAP_END_MARKER}`)
+    expect(out).not.toContain(':::')
+  })
+
+  it('leaves :::wrap inside a code fence literal', () => {
+    const fenced = ['```', ':::wrap', 'example', ':::', '```', 'Tail.'].join(
+      '\n',
+    )
+    expect(transformWrapBlocks(fenced)).toBe(fenced)
+  })
+
+  it('tolerates longer colon runs, casing and CRLF', () => {
+    const out = transformWrapBlocks('::::WRAP\r\nx\r\n::::\r\nTail.')
+    expect(out).toContain(WRAP_START_MARKER)
+    expect(out).toContain(WRAP_END_MARKER)
+    expect(out).not.toContain('\r')
+  })
+
+  it('Tidy round-trips a wrap block unchanged', async () => {
+    const content = [
+      'Intro.',
+      '',
+      ':::wrap',
+      '![Seal](_images/Seal%20One.png#left&w=20%)',
+      '',
+      '# Title',
+      ':::',
+      '',
+      'Tail.',
+    ].join('\n')
+    const formatted = await formatMarkdown(content)
+    expect(formatted).toContain(':::wrap')
+    expect(formatted).toMatch(/\n:::\n/)
+    expect(transformWrapBlocks(formatted)).toContain(WRAP_END_MARKER)
   })
 })
 

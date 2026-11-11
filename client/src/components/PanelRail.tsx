@@ -55,8 +55,8 @@ export function PanelRail<T extends string>({
       {open && (
         <div className={cn('flex h-full flex-col border-r', width)}>
           {header}
-          <div className="border-b px-3 py-2">
-            <h3 className="text-sm font-semibold">{shown.title}</h3>
+          <div className="border-b-(--tome-gold) border-b-2 px-3 py-2">
+            <h3 className="tome-heading text-sm">{shown.title}</h3>
           </div>
           <div className="min-h-0 flex-1">{children}</div>
         </div>
@@ -78,7 +78,7 @@ export function PanelRail<T extends string>({
               {(tab.count ?? 0) > 0 && (
                 <span
                   className={cn(
-                    'bg-primary absolute top-1 right-1 size-1.5 rounded-full',
+                    'bg-(--tome-gold) absolute top-1 right-1 size-1.5 rounded-full',
                     isActive && 'hidden',
                   )}
                 />

@@ -68,7 +68,6 @@ describe('applying host frames', () => {
       payload: {
         seats: [],
         shown: null,
-        combat: null,
         rolls: [
           { id: 'a', notation: '1d20', total: 15, detail: '15', at: 1 },
           { id: 'b', notation: '2d6', total: 7, detail: '3 + 4', at: 2 },
@@ -114,5 +113,43 @@ describe('applying host frames', () => {
   it('survives a hello with nothing in it', () => {
     expect(() => apply({ kind: 'hello', payload: {} })).not.toThrow()
     expect(() => apply({ kind: 'hello', payload: null })).not.toThrow()
+  })
+})
+
+describe('a shared battlemap', () => {
+  beforeEach(() => resetGuestForTest())
+
+  const frame = (over: Record<string, unknown> = {}) => ({
+    mapId: 'm1',
+    map: {
+      id: 'm1',
+      name: 'Crypt',
+      tokens: [{ id: 't1', label: 'Thalia', x: 1, y: 2 }],
+    },
+    session: { round: 2, activeId: null, combatants: [], rolls: [] },
+    control: { t1: { characterId: 'Characters/Thalia' } },
+    ...over,
+  })
+
+  it('arrives on hello and on a live frame, through the tolerant parsers', () => {
+    apply({
+      kind: 'hello',
+      payload: { seats: [], shown: null, rolls: [], map: frame() },
+    })
+    expect(guestSnapshot().map?.map.name).toBe('Crypt')
+    expect(guestSnapshot().map?.control).toEqual({
+      t1: { characterId: 'Characters/Thalia' },
+    })
+    apply({ kind: 'map', payload: frame({ session: { round: 5 } }) })
+    expect(guestSnapshot().map?.session.round).toBe(5)
+  })
+
+  it('keeps the last good board on a malformed frame, and clears on null', () => {
+    apply({ kind: 'map', payload: frame() })
+    apply({ kind: 'map', payload: { mapId: 7 } })
+    apply({ kind: 'map', payload: 'garbage' })
+    expect(guestSnapshot().map?.mapId).toBe('m1')
+    apply({ kind: 'map', payload: null })
+    expect(guestSnapshot().map).toBeNull()
   })
 })

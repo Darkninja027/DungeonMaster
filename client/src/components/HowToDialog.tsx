@@ -99,6 +99,10 @@ export function HowToDialog() {
               desc="No text wrap: the image sits on its own line (aligned left/right/center) with text above and below. #block works too."
             />
             <Row
+              code={':::wrap\n![seal](url#left&w=20%)\n# Title\nSome text\n:::'}
+              desc="Keeps a floated image's wrap inside the box: the text inside sits beside the image, and whatever comes after the closing ::: starts below it instead of running underneath."
+            />
+            <Row
               code="#noframe"
               desc="Removes the plate-style frame — for images with a transparent background, e.g. #noframe&right&w=40%."
             />

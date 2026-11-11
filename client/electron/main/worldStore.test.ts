@@ -256,6 +256,52 @@ describe('worldStore against a real temp folder', () => {
     expect(() => getArticle(worldId, 'Old Name')).toThrow(/not found/)
   })
 
+  it('renaming back restores the [[links]] the rename rewrote', async () => {
+    // The whole justification for offering undo on a rename: the Recycle Bin
+    // can restore the file but cannot put the inbound links back, so the
+    // inverse call has to. An undo that renamed the file and left every
+    // [[link]] pointing at the wrong title would be worse than none.
+    createArticle({ worldId, title: 'Strahd', content: '# The Count' })
+    createArticle({
+      worldId,
+      title: 'Barovia',
+      content: 'Ruled by [[Strahd]], feared by all.',
+    })
+    createArticle({
+      worldId,
+      title: 'Ireena',
+      content: 'Hunted by [[Strahd|the devil]].',
+    })
+
+    await renameArticle(worldId, 'Strahd', 'Stradh')
+    expect(getArticle(worldId, 'Barovia').content).toBe(
+      'Ruled by [[Stradh]], feared by all.',
+    )
+
+    const back = await renameArticle(worldId, 'Stradh', 'Strahd')
+    expect(back.id).toBe('Strahd')
+    expect(back.content).toBe('# The Count')
+    expect(getArticle(worldId, 'Barovia').content).toBe(
+      'Ruled by [[Strahd]], feared by all.',
+    )
+    // An aliased link has to survive the round trip with its alias intact.
+    expect(getArticle(worldId, 'Ireena').content).toBe(
+      'Hunted by [[Strahd|the devil]].',
+    )
+  })
+
+  it('moving back restores the original article id', async () => {
+    createFolder({ worldId, name: 'NPCs', parentFolderId: null })
+    createArticle({ worldId, title: 'Knox', content: '# Boots' })
+
+    await moveArticle(worldId, 'Knox', 'NPCs')
+    expect(getArticle(worldId, 'NPCs/Knox').content).toBe('# Boots')
+
+    await moveArticle(worldId, 'NPCs/Knox', null)
+    expect(getArticle(worldId, 'Knox').content).toBe('# Boots')
+    expect(() => getArticle(worldId, 'NPCs/Knox')).toThrow(/not found/)
+  })
+
   it('renameArticle rejects collisions but allows case-only renames', async () => {
     createArticle({ worldId, title: 'One' })
     createArticle({ worldId, title: 'Two' })

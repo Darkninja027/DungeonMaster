@@ -6,11 +6,14 @@ import {
   normalizeCode,
   parseArticleId,
   parseJoin,
+  parseMove,
   parseRoll,
   parseSheetPatch,
   safeError,
+  seatMayMove,
   seatOwns,
   withCharacterClaimed,
+  withCharacterNamed,
   withSeatAdded,
   withSeatRemoved,
 } from './table'
@@ -211,7 +214,9 @@ describe('parseSheetPatch', () => {
   })
 
   it('refuses a patch that would be empty after filtering', () => {
-    expect(parseSheetPatch({ characterId: id, patch: { level: 20 } })).toBeNull()
+    expect(
+      parseSheetPatch({ characterId: id, patch: { level: 20 } }),
+    ).toBeNull()
     expect(parseSheetPatch({ characterId: id, patch: {} })).toBeNull()
   })
 
@@ -255,5 +260,60 @@ describe('safeError', () => {
   it('handles a non-Error throw', () => {
     expect(safeError('C:\\secrets')).toBe('Request failed')
     expect(safeError(undefined)).toBe('Request failed')
+  })
+})
+
+describe('parseMove', () => {
+  it('takes ids and a whole cell, floored and bounded', () => {
+    expect(parseMove({ mapId: 'm1', tokenId: 't1', x: 3.7, y: -2 })).toEqual({
+      mapId: 'm1',
+      tokenId: 't1',
+      x: 3,
+      y: 0,
+    })
+    expect(parseMove({ mapId: 'm1', tokenId: 't1', x: 1e9, y: 5 })?.x).toBe(400)
+  })
+
+  it('refuses anything missing or absurd', () => {
+    expect(parseMove(null)).toBeNull()
+    expect(parseMove({ mapId: 'm1', tokenId: 't1', x: 'a', y: 1 })).toBeNull()
+    expect(parseMove({ mapId: 'm1', x: 1, y: 1 })).toBeNull()
+    expect(
+      parseMove({ mapId: 'x'.repeat(33), tokenId: 't', x: 1, y: 1 }),
+    ).toBeNull()
+    expect(parseMove({ mapId: 'm1', tokenId: 't1', x: NaN, y: 1 })).toBeNull()
+  })
+})
+
+describe('seatMayMove', () => {
+  const seated = () => {
+    let s = withSeatAdded(emptyTable(), 'Sarah', 'a', 1)
+    s = withSeatAdded(s, 'Brok', 'b', 2)
+    return withCharacterClaimed(s, 'a', 'Characters/Thalia', 'Thalia')
+  }
+
+  it('allows the seat that claimed the character', () => {
+    const s = seated()
+    const control = { characterId: 'Characters/Thalia' }
+    expect(seatMayMove(s, 'a', control)).toBe(true)
+    expect(seatMayMove(s, 'b', control)).toBe(false)
+  })
+
+  it('allows a player the DM named, whatever the case', () => {
+    expect(seatMayMove(seated(), 'b', { player: 'brok' })).toBe(true)
+    expect(seatMayMove(seated(), 'a', { player: 'Brok' })).toBe(false)
+  })
+
+  it('never counts a self-declared character name', () => {
+    const s = withCharacterNamed(seated(), 'b', 'Thalia')
+    expect(seatMayMove(s, 'b', { characterId: 'Characters/Thalia' })).toBe(
+      false,
+    )
+  })
+
+  it('refuses an unknown seat or a missing control entry', () => {
+    expect(seatMayMove(seated(), 'nobody', { player: 'Brok' })).toBe(false)
+    expect(seatMayMove(seated(), 'a', undefined)).toBe(false)
+    expect(seatMayMove(seated(), 'a', {})).toBe(false)
   })
 })

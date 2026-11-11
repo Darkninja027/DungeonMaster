@@ -146,6 +146,15 @@ Every article and folder row has a `...` menu:
 **Renaming an article renames the file** and rewrites every wiki link pointing at
 it across the entire world, so your links never rot.
 
+Because that rewrite touches the whole world, the toast that reports a rename or
+a move offers **Undo**, which renames it back and repairs the links again. The
+Recycle Bin cannot do that — it would restore the file and leave every link
+pointing at a title that no longer exists.
+
+The offer lasts as long as its toast and no longer: it is a single step back
+from what you just did, not an undo history. It covers renaming and moving both
+articles and folders.
+
 ## Moving things
 
 Drag an article or folder onto another folder to move it. Drop it on the empty
@@ -325,7 +334,7 @@ Three ways, all equivalent:
 - **Drag** an image file from Explorer into the editor.
 
 Pasting and dragging upload the file and insert the markdown at your cursor in
-one motion. Accepted types are png, jpeg, gif, webp and svg, up to 20 MB each.
+one motion. Accepted types are png, jpeg, gif, webp and svg, up to 50 MB each.
 
 ## The image library
 
@@ -360,6 +369,32 @@ A full example: `![Map](_images/city.png#right&w=45%)`
 
 Two things to know. Setting a **height** crops the image to fill rather than
 squashing it. And `#width=` / `#height=` work as long forms if you prefer them.
+
+## Keeping the wrap contained
+
+A floated image only pushes *text* aside. A heading further down still runs the
+full width of the column, so its underline slides in behind the image. To stop
+that, put the image and the text that belongs beside it in a `:::wrap` box:
+
+```
+:::wrap
+![Seal](_images/seal.png#left&w=20%&noframe)
+
+# The Apothicarium
+
+**Symbol:** two vials in the centre of a sun
+:::
+
+## Purpose
+```
+
+Everything inside the box wraps around the image. The box grows to fit the
+image, so whatever comes after the closing `:::` starts cleanly below it.
+
+- The fences need their own lines, the same as `\page`.
+- Boxes can nest, and a box can sit inside a DM-only block.
+- Forget the closing `:::` and the box simply runs to the end of the page.
+- Obsidian shows the fences as plain text and leaves them alone.
 
 \page
 
@@ -667,7 +702,7 @@ Adding a spell whose article does not exist creates one in `Spells/` for you.
 
 # DM Tools: The Session Panel
 
-The narrow rail on the right edge of the window opens five tools. Each shows a
+The narrow rail on the right edge of the window opens eight tools. Each shows a
 dot when it has something in it, and the panel remembers what you had open.
 
 ## Initiative
@@ -708,6 +743,158 @@ or carrying `type: monster`, showing full stat blocks you can roll from mid-comb
 Both have a box at the bottom to create a new one by name. The bestiary flags any
 monster missing its `type: monster` frontmatter with an amber warning, because the
 encounter builder cannot see those.
+
+## Battlemaps
+
+The **maps** tab lists this world's battlemaps and opens one in a window of its
+own. It has a chapter to itself, next.
+
+## Session Log
+
+The **sessions** tab is a campaign log assembled from articles you already
+write. Every article with `type: session` in its frontmatter appears here, most
+recent first, with a link through to the article itself.
+
+Ordering comes from the `date:` field, in three tiers. Real dates it can read
+(`2026-09-20`) sort newest first. A date it cannot read — an in-world calendar
+like `1492 DR, Eleint 3` — sorts alphabetically below those, which puts a
+consistently written calendar in sensible order without the app having to
+understand it. A session with no date at all sorts by title at the bottom.
+Nothing is ever hidden for having an odd date.
+
+The log is read-only. A session is an ordinary markdown article, so you write
+and edit one in the editor like anything else — the **Session Notes** template
+gives you the frontmatter to start from.
+
+\page
+
+\columns 1
+
+# DM Tools: Battlemaps
+
+The **maps** tab is a list of this world's battlemaps. A map is a background
+image from your world's images, a grid laid over it, and tokens you move
+around. Click one and it opens **in its own window**, so the map can live on
+one screen while your notes stay on another.
+
+## Making one
+
+**New map** creates an empty 20 x 20 grid. Give it a name, then **Background**
+to pick any image from this world's `_images` folder.
+
+## The grid is the map
+
+This is the part worth understanding, because it is the opposite of what most
+map tools do. The **Grid** button on the toolbar holds the counts, and shows
+them on its face. **The column and row counts are the map.** Type 15 columns and 30
+rows and you get a tall grid of 15 by 30 square cells — the background image is
+painted behind it and does not get a vote. If the art is a different shape it
+is cropped until the counts match it.
+
+Cells are always square. There is one cell size, no rectangular cells and no
+grid offset.
+
+## When the art and the grid disagree
+
+Most images are not a whole number of squares across, so something has to give.
+The **Grid** popover offers both answers.
+
+**Fit whole** is the default: all of the image is shown inside the grid, with
+bars around it where the shapes do not line up. Nothing is ever cut off.
+
+**Fill** covers the grid instead and crops whatever does not fit. Right for art
+actually drawn to a grid — but be careful with anything else. A grid is square
+far more often than a map is, and a 4:3 image on a square grid loses a quarter
+of its width with nothing to tell you.
+
+**Match grid to image** goes the other way: it sets the counts from the
+picture, assuming the 70 pixels a cell that most map exports use. A starting
+point, not an answer — if your art uses a different scale, type the real
+numbers.
+
+## Tools
+
+One tool is active at a time. Each has a single-key shortcut, with no modifier,
+because the map window owns the keyboard.
+
+| Key | Tool | What it does |
+|---|---|---|
+| `V` | Select | Drag tokens around. Drag the map itself to pan; wheel to zoom, or use the buttons bottom-right. |
+| `P` | Place | Click a square to drop a blank token there. Link it to a creature from the drawer. |
+| `R` | Reveal | Paint fog away. |
+| `H` | Hide | Paint fog back. |
+| `M` | Measure | Drag to measure, or lay down a spell template. |
+| `B` | Creatures | Open the drawer: bestiary, party, and what is already on this map. |
+
+Distance is counted the way 5e counts it: a diagonal is five feet, so three
+diagonal steps reads 15 ft rather than 21.
+
+## Tokens
+
+Place a token and select it, and a small card appears beside it: label, size,
+colour, and a link to a row in the initiative tracker. A linked token shows an
+HP bar, knows whose turn it is, and can be damaged or healed from the map
+itself — the `[` and `]` keys, or the plus and minus buttons on the card. `S`
+opens its stat block in its own window.
+
+**Hidden** is the one to know about. A hidden token is not dimmed on the
+players' screen — it is **removed from what they are sent entirely**. The
+ambush waiting around the corner is not in their window at all.
+
+Taking someone out of the initiative tracker leaves their token where it is,
+unlinked. The body may well still be lying there.
+
+## Fog of war
+
+Tick **Fog** and the whole map is covered. Paint with `R` to reveal as the
+party explores, and `H` to put it back. You always see through your own fog;
+the players do not.
+
+## Showing the map to your players
+
+**Show** opens a second, chrome-free window with no toolbar and nothing to
+click — put that one on the TV or the second monitor. It follows your edits
+live: move a token and it moves there too.
+
+What it does *not* get is anything you have hidden. Hidden tokens are stripped
+out before the map is sent, so there is nothing on that screen for a curious
+player to find.
+
+Press **Show** again to take it down. The window closes rather than freezing,
+because a map that has stopped updating still shows token positions that have
+since moved, which is worse than no map at all.
+
+\page
+
+\columns 1
+
+# DM Tools: The Table
+
+The **table** tab hosts your world for the people sitting around it. Everyone
+needs to be on the same network.
+
+**Start hosting** and you get a **room code** like `ABC-234`. A guest opens
+DungeonMaster, chooses **Join a table**, types the code and their name, and
+they are in — the app finds you on the network by itself. If their network
+blocks that discovery, the panel also shows an address like `192.168.1.42:7777`
+they can type instead.
+
+The first time you host, Windows will probably ask whether to let the app
+accept connections, and until it does nobody can join. If the panel warns you
+about the firewall, **Allow players to connect** sorts it out with one prompt.
+
+Each person who joins takes a **seat**, listed in the panel as they arrive. A
+seat gets their own character sheet, which they can edit — changes are written
+back to your world folder like any other edit. Their dice rolls appear in your
+roll history alongside your own, and yours in theirs.
+
+**Show to players** — on an article, a monster in the bestiary, or from the
+sidebar — puts that page in front of everyone at the table. The panel shows
+what is currently **on the table**, and **Stop** takes it down again. What the
+players see is the reader's view: `:::dm` blocks are stripped out, so your
+secrets stay yours.
+
+Hosting stops when you click **Stop hosting**, or when you close the app.
 
 \page
 
@@ -782,7 +969,8 @@ opening of a frontmatter block.
 ## The templates
 
 Every template except Blank starts your article with a `type:` and an empty
-`tags: []`, so new articles are queryable from birth.
+`tags: []`, so new articles are queryable from birth. These are the ones the
+app ships with; you can change them, and add your own.
 
 | Template | For | Type |
 | -------- | --- | ---- |
@@ -801,6 +989,25 @@ Every template except Blank starts your article with a `type:` and an empty
 Templates appear in three places: the New article dialog, the editor's
 **Insert > Template** submenu, and the dialog you get when you click a broken
 wiki link.
+
+## Making your own
+
+**Settings → Templates** edits this list. You can rewrite any built-in (there
+is a **Reset to built-in** if you regret it), hide the ones you never use, and
+write your own from scratch. **New template from this** in an article's menu
+turns something you have already written into a template.
+
+Built-in templates can be hidden but not deleted, because the bestiary, the
+spell panel and the character wizard create articles from them by name. Hiding
+one only takes it out of the menus — those features keep working.
+
+Two placeholders are filled in when the character sheet files a new spell:
+`{{level}}` and `{{levelLabel}}`. Remove them from the Spell template and
+spells are still created, just without the level filled in for you.
+
+Templates live with the app rather than in the world folder, so they are
+offered in every world — and they do not travel when you send a world to
+someone else.
 
 ## World Settings
 
@@ -846,10 +1053,33 @@ to hand-edit.
 | `Ctrl+D` | Insert a `1d20+5` roll |
 | `Ctrl+T` | Insert a table |
 | `Ctrl+R` | Add a row to the table you are in |
-| `Tab` / `Shift+Tab` | Indent / outdent a list item |
+| `Ctrl+G` | Add a column to the right of the cell you are in |
+| `Ctrl+Shift+R` | Remove the table row you are in |
+| `Ctrl+Shift+G` | Remove the table column you are in |
+| `Tab` / `Shift+Tab` | In a table: next / previous cell, wrapping onto the next or previous row (Tab in the last cell adds a row). Elsewhere: indent / outdent a list item |
+
+Every table edit is also on the right-click menu, under **Table**, if a
+shortcut is awkward to press.
 
 Undo and redo work normally throughout — the formatting shortcuts do not break
 your undo history.
+
+## In a battlemap window
+
+The map window owns its keyboard, so these need no modifier. They do nothing
+while you are typing in a box.
+
+| Key | Does |
+|---|---|
+| `V` | Select and move tokens |
+| `P` | Place a token |
+| `R` / `H` | Reveal / hide fog |
+| `M` | Measure, or aim a spell template |
+| `B` | Creature drawer |
+| `S` | Stat block for the selected token |
+| `[` / `]` | Damage / heal the selected token by 1 |
+| `Del` | Remove the selected token |
+| `Esc` | Close the map |
 
 ## Typing gestures
 

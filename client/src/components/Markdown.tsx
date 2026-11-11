@@ -1,6 +1,7 @@
 import {
   isValidElement,
   memo,
+  useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -9,6 +10,8 @@ import {
 } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { remarkBreaks } from '#/lib/remarkBreaks'
+import { remarkWrap } from '#/lib/remarkWrap'
 import { useRouter } from '@tanstack/react-router'
 import { Dices } from 'lucide-react'
 import { cn } from '#/lib/utils'
@@ -22,9 +25,11 @@ import {
   rollDice,
   splitFrontmatter,
   transformDmBlocks,
+  transformWrapBlocks,
 } from '#/lib/formatMarkdown'
 import type { DiceResult } from '#/lib/formatMarkdown'
 import { focusImage } from '#/lib/playerFocus'
+import { SheetFrame } from '#/components/SheetFrame'
 import { logRoll } from '#/lib/rollLog'
 import type { RollSource } from '#/lib/rollLog'
 import {
@@ -52,6 +57,14 @@ const CONTENT_W = PAGE_W - 2 * PAD_X // 712
  * every ReactMarkdown re-render even behind React.memo.
  */
 const REMARK_PLUGINS = [remarkGfm]
+/**
+ * The book renderer also hard-breaks single newlines, matching Obsidian, so an
+ * article reads the same here as in the editor. InlineMarkdown deliberately
+ * does not: spell-card descriptions go through it and spellCardCost doesn't
+ * charge for the extra lines (see the note in SheetPreview), and sheet notes
+ * already get explicit breaks from preserveLineBreaks.
+ */
+const BOOK_REMARK_PLUGINS = [remarkGfm, remarkBreaks, remarkWrap]
 const identityUrl = (url: string) => url
 
 /**
@@ -626,6 +639,31 @@ function createComponents(
 export const PANEL_PROSE =
   'text-sm [&_h1]:text-sm [&_h1]:font-semibold [&_h2]:text-sm [&_h2]:font-semibold [&_h3]:text-sm [&_h3]:font-semibold [&_li]:ml-4 [&_li]:list-disc [&_p]:my-1 [&_table]:my-1 [&_td]:border [&_td]:px-1 [&_th]:border [&_th]:px-1'
 
+/**
+ * Prose styling for markdown rendered in a reading column — the notes live
+ * preview — rather than in a cramped sheet panel.
+ *
+ * InlineMarkdown renders a bare <div>, and Tailwind's reset zeroes the default
+ * margin on every block element, so without a class like this paragraphs,
+ * headings, lists and rules all butt straight up against each other with no
+ * gap at all. PANEL_PROSE squeezes that deliberately, because a sidebar has no
+ * room to spare; this is the same renderer given the vertical rhythm the book
+ * page has, so what you read beside the editor is spaced like what you wrote.
+ */
+export const READING_PROSE =
+  'text-sm leading-relaxed ' +
+  '[&_h1]:mt-5 [&_h1]:mb-2 [&_h1]:text-lg [&_h1]:font-semibold ' +
+  '[&_h2]:mt-5 [&_h2]:mb-2 [&_h2]:text-base [&_h2]:font-semibold ' +
+  '[&_h3]:mt-4 [&_h3]:mb-1.5 [&_h3]:text-sm [&_h3]:font-semibold ' +
+  '[&_h4]:mt-4 [&_h4]:mb-1.5 [&_h4]:text-sm [&_h4]:font-semibold ' +
+  '[&_p]:my-3 ' +
+  '[&_ul]:my-3 [&_ol]:my-3 [&_li]:my-1 [&_li]:ml-5 [&_ul_li]:list-disc [&_ol_li]:list-decimal ' +
+  '[&_blockquote]:my-3 [&_blockquote]:border-l-2 [&_blockquote]:pl-3 [&_blockquote]:italic ' +
+  '[&_hr]:my-5 [&_hr]:border-t [&_hr]:border-border ' +
+  '[&_pre]:my-3 [&_img]:my-3 ' +
+  '[&_table]:my-3 [&_td]:border [&_td]:px-1.5 [&_td]:py-0.5 [&_th]:border [&_th]:px-1.5 [&_th]:py-0.5 ' +
+  '[&>*:first-child]:mt-0 [&>*:last-child]:mb-0 '
+
 interface RenderContext {
   articles?: Array<{ id: string; title: string }>
   worldId?: string
@@ -652,6 +690,22 @@ interface RenderContext {
    * per-world chrome setting for someone playing a character.
    */
   audience?: 'dm' | 'player'
+  /**
+   * Draw the decorative gold frame on each sheet (components/SheetFrame.tsx).
+   *
+   * Opt-in rather than always-on: the printed character sheet and the article
+   * Preview / live preview turn it on, while the secondary reading windows do
+   * not. Ignored in `'flow'` layout, where the sheet grows and a fixed
+   * 816x1056 frame would sit in the wrong place.
+   */
+  framed?: boolean
+  /**
+   * Print a page number centred in the bottom margin of each sheet, counted across
+   * the whole document rather than per `\page` chunk — BookView totals the
+   * chunks' sheet counts to do that. Ignored in `'flow'` layout, which has no
+   * pages to number.
+   */
+  numbered?: boolean
   /**
    * A read-only surface — the player window. Dice chips, rollable-table Roll
    * bars and every link render as inert text instead. See the `a` override for
@@ -744,13 +798,16 @@ export const InlineMarkdown = memo(function InlineMarkdown({
 const MarkdownBody = memo(function MarkdownBody({
   body,
   components,
+  softBreaks = false,
 }: {
   body: string
   components: Components
+  /** Render single newlines as line breaks — the book renderer's rule. */
+  softBreaks?: boolean
 }) {
   return (
     <ReactMarkdown
-      remarkPlugins={REMARK_PLUGINS}
+      remarkPlugins={softBreaks ? BOOK_REMARK_PLUGINS : REMARK_PLUGINS}
       components={components}
       urlTransform={identityUrl}
     >
@@ -758,6 +815,41 @@ const MarkdownBody = memo(function MarkdownBody({
     </ReactMarkdown>
   )
 })
+
+/**
+ * A sheet's page number, in the bottom margin band (content ends at 1008px,
+ * the frame's inner rule sits at 1033px).
+ *
+ * Inline styles and literal colours for the same reason as SheetFrame: the PDF
+ * capture copies a child's inline styles verbatim but not every stylesheet
+ * rule. Centred, which keeps it clear of the frame's corner flourishes — their
+ * swash and leaves run ~140px in from each corner along the rule.
+ */
+function SheetNumber({ n }: { n: number }) {
+  return (
+    <div
+      className="dnd-page-number"
+      style={{
+        position: 'absolute',
+        left: 0,
+        right: 0,
+        bottom: 27,
+        textAlign: 'center',
+        fontFamily: "'Alegreya', Georgia, serif",
+        fontSize: 14,
+        lineHeight: 1,
+        // Alegreya defaults to old-style figures, which shrink a lone "1" to
+        // barely x-height down here.
+        fontVariantNumeric: 'lining-nums',
+        fontWeight: 600,
+        color: '#58180d',
+        pointerEvents: 'none',
+      }}
+    >
+      {n}
+    </div>
+  )
+}
 
 /**
  * One `\page` chunk, rendered as however many fixed-size sheets its content
@@ -774,7 +866,20 @@ export const Markdown = memo(function Markdown({
   source,
   readOnly,
   layout = 'sheets',
-}: { children: string; columns?: 1 | 2 } & RenderContext) {
+  framed,
+  firstPage,
+  chunk = 0,
+  onSheetCount,
+}: {
+  children: string
+  columns?: 1 | 2
+  /** The number printed on this chunk's first sheet; omitted = unnumbered. */
+  firstPage?: number
+  /** Which `\page` chunk this is, echoed back through onSheetCount. */
+  chunk?: number
+  /** Reports this chunk's sheet count so BookView can number across chunks. */
+  onSheetCount?: (chunk: number, count: number) => void
+} & RenderContext) {
   const router = useRouter()
   const components = useMemo(
     () =>
@@ -847,12 +952,19 @@ export const Markdown = memo(function Markdown({
     }
   }, [body, columns, layout])
 
+  // Layout effect, not a plain one, so the numbers settle before paint rather
+  // than flashing every later chunk's old numbering for a frame.
+  useLayoutEffect(() => {
+    onSheetCount?.(chunk, sheetCount)
+  }, [onSheetCount, chunk, sheetCount])
+
   const flowClass = cn('dnd-flow', columns === 2 ? 'dnd-flow-2' : 'dnd-flow-1')
 
   return (
     <>
       {Array.from({ length: layout === 'flow' ? 1 : sheetCount }, (_, i) => (
         <div key={i} className="dnd-page">
+          {framed && layout !== 'flow' && <SheetFrame />}
           <div className="dnd-frame">
             <div
               ref={i === 0 ? measureRef : undefined}
@@ -869,9 +981,12 @@ export const Markdown = memo(function Markdown({
                     }
               }
             >
-              <MarkdownBody body={body} components={components} />
+              <MarkdownBody body={body} components={components} softBreaks />
             </div>
           </div>
+          {firstPage != null && layout !== 'flow' && (
+            <SheetNumber n={firstPage + i} />
+          )}
         </div>
       ))}
     </>
@@ -890,6 +1005,8 @@ export const BookView = memo(function BookView({
   audience = 'dm',
   readOnly,
   layout = 'sheets',
+  framed,
+  numbered,
 }: { children: string } & RenderContext) {
   // Frontmatter (character stats etc.) is data, not prose — never render it.
   // Memoised: this re-splits the whole document, and every page's body string
@@ -897,17 +1014,44 @@ export const BookView = memo(function BookView({
   //
   // DM blocks are resolved BEFORE parsePages, so a \page inside one goes with
   // it for a player (their page count legitimately differs from the DM's) and
-  // never splits the callout box for the DM.
+  // never splits the callout box for the DM. Wrap blocks come after, so a
+  // :::wrap inside a stripped DM block is already gone.
   const pages = useMemo(
     () =>
       parsePages(
-        transformDmBlocks(
-          splitFrontmatter(children).body,
-          audience === 'player' ? 'strip' : 'mark',
+        transformWrapBlocks(
+          transformDmBlocks(
+            splitFrontmatter(children).body,
+            audience === 'player' ? 'strip' : 'mark',
+          ),
         ),
       ),
     [children, audience],
   )
+
+  // Each chunk measures its own sheet count, so a page number is the running
+  // total of the chunks before it. Stale entries past pages.length are simply
+  // never read; a chunk not yet reported counts as one sheet, which is what it
+  // renders before its first measure.
+  const [sheetCounts, setSheetCounts] = useState<Array<number>>([])
+  const reportSheetCount = useCallback((chunk: number, count: number) => {
+    setSheetCounts((prev) => {
+      if (prev[chunk] === count) return prev
+      const next = prev.slice()
+      next[chunk] = count
+      return next
+    })
+  }, [])
+  const firstPages = useMemo(() => {
+    let page = 1
+    return pages.map((_, i) => {
+      const first = page
+      page += sheetCounts[i] ?? 1
+      return first
+    })
+  }, [pages, sheetCounts])
+  const numberSheets = numbered && layout !== 'flow'
+
   return (
     <div
       className={cn(
@@ -936,6 +1080,10 @@ export const BookView = memo(function BookView({
             onOpenNote={onOpenNote}
             source={source}
             readOnly={readOnly}
+            framed={framed}
+            chunk={i}
+            firstPage={numberSheets ? firstPages[i] : undefined}
+            onSheetCount={numberSheets ? reportSheetCount : undefined}
           >
             {page.body}
           </Markdown>

@@ -1,14 +1,20 @@
 import { EditorView } from '@codemirror/view'
+import { CELL_GUTTER } from './tableLayout'
 
 /**
  * How decorated markdown looks inside the editor.
  *
  * Kept as a CodeMirror theme rather than in styles.css because none of the
  * renderer's rules reach here: the chip is styled `.dnd-page .dnd-dice`, and
- * even `--dnd-red` / `--dnd-gold` are defined ON `.dnd-page` rather than at the
- * root, so nothing inside `.cm-editor` inherits any of it. The colours below
- * restate that palette against the app's own theme tokens so the editor tracks
- * light/dark, which the fixed parchment page never has to.
+ * `--dnd-red` / `--dnd-gold` are defined ON `.dnd-page` rather than at the root,
+ * so nothing inside `.cm-editor` inherits any of it.
+ *
+ * The `--tome-*` tokens ARE reachable — they sit on `:root` precisely so app
+ * chrome can speak the sourcebook's language — so the editor uses them, and
+ * tracks light/dark for free because the tokens swap roles under `.dark`
+ * (oxblood headings in light, gold in dark). What it deliberately does NOT do
+ * is become the parchment page: this is a working surface, the ground stays the
+ * app's, body text stays monospace, and only the marks are gilded.
  */
 export const liveTheme = EditorView.theme({
   '&': {
@@ -25,11 +31,17 @@ export const liveTheme = EditorView.theme({
   '.cm-content': { padding: '0.75rem 1rem', caretColor: 'var(--foreground)' },
   '.cm-cursor, .cm-dropCursor': { borderLeftColor: 'var(--foreground)' },
   '.cm-selectionBackground, &.cm-focused .cm-selectionBackground': {
-    backgroundColor: 'color-mix(in oklab, var(--primary) 25%, transparent)',
+    backgroundColor: 'color-mix(in oklab, var(--tome-gold) 35%, transparent)',
   },
   '.cm-activeLine': { backgroundColor: 'transparent' },
 
   // --- Inline marks --------------------------------------------------------
+  '.cm-dm-misspelled': {
+    textDecoration: 'underline wavy',
+    textDecorationColor: 'var(--destructive)',
+    textDecorationSkipInk: 'none',
+    textUnderlineOffset: '3px',
+  },
   '.cm-dm-strong': { fontWeight: '700' },
   '.cm-dm-em': { fontStyle: 'italic' },
   '.cm-dm-strike': { textDecoration: 'line-through', opacity: '0.7' },
@@ -44,6 +56,16 @@ export const liveTheme = EditorView.theme({
   // --- Headings ------------------------------------------------------------
   // Sized down from the renderer's scale: the editor is a working surface, and
   // a 2em h1 in a monospace column pushes everything else off the screen.
+  //
+  // Cinzel here rather than the monospace body, because a heading is the one
+  // thing in the document that is prose rather than markup — and it is what
+  // makes the editor read as the same app as the page it renders to. `--tome-
+  // head` is oxblood in light and gold in dark, so both themes hold.
+  '.cm-dm-h1, .cm-dm-h2, .cm-dm-h3, .cm-dm-h4, .cm-dm-h5, .cm-dm-h6': {
+    fontFamily: 'var(--font-display)',
+    color: 'var(--tome-head)',
+    letterSpacing: '0.01em',
+  },
   '.cm-dm-h1': { fontSize: '1.5em', fontWeight: '700', lineHeight: '1.3' },
   '.cm-dm-h2': { fontSize: '1.3em', fontWeight: '700', lineHeight: '1.35' },
   '.cm-dm-h3': { fontSize: '1.15em', fontWeight: '700' },
@@ -51,14 +73,17 @@ export const liveTheme = EditorView.theme({
   '.cm-dm-h5': { fontWeight: '700' },
   '.cm-dm-h6': { fontWeight: '700', opacity: '0.8' },
 
-  '.cm-dm-bullet': { color: 'var(--primary)', fontWeight: '700' },
+  '.cm-dm-bullet': { color: 'var(--tome-gold)', fontWeight: '700' },
 
-  // Blockquote: a bar down the line, standing in for the hidden `>`.
+  // Blockquote: a gold bar down the line, standing in for the hidden `>`, and
+  // Alegreya italic — the renderer sets read-aloud text in a serif too.
   '.cm-dm-quote': {
-    borderLeft:
-      '3px solid color-mix(in oklab, var(--primary) 50%, transparent)',
+    borderLeft: '3px solid var(--tome-gold)',
     paddingLeft: '0.75ch',
+    fontFamily: 'var(--font-serif)',
     fontStyle: 'italic',
+    fontSize: '1.05em',
+    color: 'var(--tome-soft)',
   },
 
   // Frontmatter is demoted, not hidden — see frontmatterEnd in decorations.ts.
@@ -79,47 +104,69 @@ export const liveTheme = EditorView.theme({
   // key listeners because `cursor` applies to the whole box, the link here is a
   // real span — so hover is just CSS.
   '.cm-dm-wikilink': {
-    color: 'var(--primary)',
+    color: 'var(--tome-head)',
+    textDecorationColor: 'var(--tome-gold)',
     textDecoration: 'underline',
     textUnderlineOffset: '2px',
   },
   '&.cm-dm-mod .cm-dm-wikilink:hover': {
     cursor: 'pointer',
     textDecorationThickness: '2px',
-    backgroundColor: 'color-mix(in oklab, var(--primary) 15%, transparent)',
+    backgroundColor: 'color-mix(in oklab, var(--tome-gold) 22%, transparent)',
     borderRadius: '2px',
   },
 
   // --- Dice chips ----------------------------------------------------------
-  // Restates .dnd-page .dnd-dice; see the file docblock for why it can't be
-  // inherited. Uses theme tokens rather than the fixed parchment palette.
+  // Mirrors `.dnd-page .dnd-dice` shape-for-shape — same weight, radius,
+  // padding and gold hairline — but through the tome tokens, so the chip a
+  // player sees on the parchment page and the one the DM clicks here are
+  // recognisably the same object in either theme.
+  // NOT Cinzel: it is a small-caps face with no true lowercase, so `1d4` renders
+  // as `ID4` — the `d` is notation, not a word, and the digit 1 collapses into
+  // an I. The chip keeps the editor's own font and earns its identity from the
+  // gold hairline instead.
   '.cm-dm-dice': {
     fontFamily: 'inherit',
     fontSize: '0.92em',
     fontWeight: '700',
-    color: 'var(--primary)',
-    backgroundColor: 'color-mix(in oklab, var(--primary) 12%, transparent)',
-    border: '1px solid color-mix(in oklab, var(--primary) 45%, transparent)',
+    color: 'var(--tome-head)',
+    backgroundColor: 'color-mix(in oklab, var(--tome-gold) 14%, transparent)',
+    border: '1px solid var(--tome-gold)',
     borderRadius: '4px',
     padding: '0 0.35em',
     cursor: 'pointer',
     whiteSpace: 'nowrap',
   },
   '.cm-dm-dice:hover': {
-    backgroundColor: 'color-mix(in oklab, var(--primary) 22%, transparent)',
+    backgroundColor: 'color-mix(in oklab, var(--tome-gold) 30%, transparent)',
   },
 
   // --- Page-break rule -----------------------------------------------------
+  // The one place the editor shows a structural mark rather than prose, so it
+  // gets the gold rule's voice: Cinzel small caps over a gold dashed line.
   '.cm-dm-pagerule': {
     display: 'inline-flex',
     alignItems: 'center',
     width: '100%',
-    color: 'var(--muted-foreground)',
-    fontSize: '0.75em',
+    fontFamily: 'var(--font-display)',
+    color: 'var(--tome-soft)',
+    fontSize: '0.72em',
+    fontWeight: '600',
     textTransform: 'uppercase',
-    letterSpacing: '0.08em',
-    borderTop: '2px dashed var(--border)',
+    letterSpacing: '0.18em',
+    borderTop: '2px dashed var(--tome-gold)',
     paddingTop: '0.15em',
+  },
+
+  // --- Thematic break ------------------------------------------------------
+  // The page rule above is structural and says so, in labelled dashed gold. A
+  // `---` is prose furniture — a scene change — so it is a plain gold hairline
+  // across the column, which is what the renderer draws for it too.
+  '.cm-dm-rule': {
+    display: 'inline-block',
+    width: '100%',
+    verticalAlign: 'middle',
+    borderTop: '2px solid var(--tome-gold-soft)',
   },
 
   // --- Blocks --------------------------------------------------------------
@@ -129,28 +176,73 @@ export const liveTheme = EditorView.theme({
   },
 
   // --- Tables --------------------------------------------------------------
-  // Each row is its own .cm-line, so there is no <table> to lay out and column
-  // widths can't be shared. Tabular numerals plus a per-cell min-width gets
-  // the columns close to aligned; a real grid would need the rows to be siblings
-  // inside one element, which the editor's line model rules out.
+  // Each row is its own .cm-line, so there is no <table> to lay out and the
+  // browser can't share a column width between rows. lib/cm/tableLayout.ts
+  // measures the table instead and gives every cell in a column the same `ch`
+  // width as an inline style, which the monospace body makes exact.
+  // Colour and weight, but not Cinzel — a header cell is user text that has to
+  // stay column-aligned with the monospace rows beneath it, and the small-caps
+  // face breaks both the alignment and any lowercase in it.
   '.cm-dm-table-head': {
     fontWeight: '700',
-    backgroundColor:
-      'color-mix(in oklab, var(--muted-foreground) 14%, transparent)',
+    color: 'var(--tome-head)',
+    backgroundColor: 'color-mix(in oklab, var(--tome-gold) 22%, transparent)',
   },
   '.cm-dm-table-row': {
-    backgroundColor:
-      'color-mix(in oklab, var(--muted-foreground) 6%, transparent)',
+    backgroundColor: 'color-mix(in oklab, var(--tome-gold) 8%, transparent)',
   },
   // The `| --- | --- |` row carries no information once the pipes are gone.
   '.cm-dm-table-sep': {
     display: 'none',
   },
+  // Width is set per cell, in `ch`, by the decorator. `top` alignment is what
+  // makes a squeezed prose column readable: it wraps inside its own box and the
+  // short cells beside it stay on the row's first line instead of centring
+  // themselves against three lines of text.
   '.cm-dm-cell': {
     display: 'inline-block',
-    minWidth: '7ch',
-    paddingRight: '1.5ch',
+    verticalAlign: 'top',
+    paddingRight: `${CELL_GUTTER}ch`,
+    overflowWrap: 'break-word',
     fontVariantNumeric: 'tabular-nums',
+  },
+
+  // A table too narrow for columns (see tableLayout's CARD_BELOW) becomes one
+  // card per row, each cell a line led by its header. The label is CSS content
+  // so it never enters the document; the hanging indent keeps a wrapped value
+  // clear of it, lined up under its own first word.
+  //
+  // Between two block cells sit the hidden pipes' empty placeholders and
+  // CodeMirror's `cm-widgetBuffer` images, each of which would hold open a line
+  // box of its own — a blank line between every pair of cells. Absolutely
+  // positioned they leave the flow but stay measurable, which CodeMirror needs
+  // when mapping a click back to a position.
+  '.cm-dm-table-card': {
+    backgroundColor: 'color-mix(in oklab, var(--tome-gold) 8%, transparent)',
+    paddingTop: '0.4em',
+    paddingBottom: '0.4em',
+    borderTop:
+      '1px solid color-mix(in oklab, var(--tome-gold) 35%, transparent)',
+  },
+  '.cm-dm-table-card > img.cm-widgetBuffer, .cm-dm-table-card > span:empty': {
+    position: 'absolute',
+  },
+  '.cm-dm-card-cell': {
+    display: 'block',
+    paddingLeft: 'var(--dm-card-label)',
+    textIndent: 'calc(-1 * var(--dm-card-label))',
+    overflowWrap: 'break-word',
+  },
+  '.cm-dm-card-cell::before': {
+    content: 'attr(data-label)',
+    display: 'inline-block',
+    width: 'var(--dm-card-label)',
+    paddingRight: `${CELL_GUTTER}ch`,
+    textIndent: '0',
+    verticalAlign: 'top',
+    fontWeight: '700',
+    color: 'var(--tome-head)',
+    overflowWrap: 'break-word',
   },
 
   // --- [[ ]] autocomplete --------------------------------------------------

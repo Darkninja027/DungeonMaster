@@ -25,7 +25,6 @@ import {
   findSubclass,
   findSubrace,
   kitFromClassInfo,
-  spellcastingFor,
   SRD_TABLES,
 } from './tables'
 import type { Tables } from './tables'
@@ -876,17 +875,20 @@ export function canAdvance(draft: CharacterDraft, step: StepId): boolean {
       return draftPickLists(draft)
         .filter((p) => p.kind !== 'weapon')
         .every((p) => pickSatisfied(draft, p))
-    case 'spells': {
-      // Through `spellcastingFor` so the step is gated by the same table that
-      // put it on the list; reading the kit's block directly would let a
-      // subclass caster's step appear and then pass unanswered.
-      const sc = spellcastingFor(draftKit(draft), draft.subclassName)
-      if (!sc) return true
-      return (
-        draft.cantrips.filter(Boolean).length === sc.cantripsKnown &&
-        draft.spells.filter(Boolean).length === sc.spellsKnown
-      )
-    }
+    case 'spells':
+      // Deliberately ungated, matching the level-up wizard's own spells step.
+      //
+      // The counts are what the table says you *may* take, not a bill to
+      // settle: a player who wants to choose their spells later, from a book,
+      // or on paper is not stopped here. Requiring them exactly was the one
+      // gate in this wizard that blocked on something the sheet is perfectly
+      // happy to have empty — a character with no spells listed is valid, and
+      // the spells tab is editable forever afterwards.
+      //
+      // Every other gate here guards something that is either invalid on disk
+      // (no name, no class) or silently lost if skipped (an unanswered pick).
+      // A spell you have not chosen yet is neither.
+      return true
     case 'equipment': {
       const kit = draftKit(draft)
       if (!kit) return true

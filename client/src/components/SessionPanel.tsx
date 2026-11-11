@@ -1,5 +1,14 @@
 import { useEffect, useState } from 'react'
-import { Dices, PawPrint, Skull, Sparkles, Swords, Wifi } from 'lucide-react'
+import {
+  CalendarClock,
+  Dices,
+  Map,
+  PawPrint,
+  Skull,
+  Sparkles,
+  Swords,
+  Wifi,
+} from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useRollLog } from '#/lib/rollLog'
 import { useWorldMode } from '#/lib/useWorldSettings'
@@ -12,10 +21,19 @@ import { InitiativeTracker } from '#/components/InitiativeTracker'
 import { MonsterReference } from '#/components/MonsterReference'
 import { RollHistory } from '#/components/RollHistory'
 import { TablePanel } from '#/components/TablePanel'
+import { MapPanel } from '#/components/map/MapPanel'
+import { SessionTimeline } from '#/components/SessionTimeline'
 import { SpellReference } from '#/components/character/SpellReference'
 
 type PanelTab =
-  'initiative' | 'encounter' | 'rolls' | 'spells' | 'monsters' | 'table'
+  | 'initiative'
+  | 'encounter'
+  | 'sessions'
+  | 'rolls'
+  | 'spells'
+  | 'monsters'
+  | 'maps'
+  | 'table'
 
 const STORAGE_KEY = 'dm.sessionPanel'
 
@@ -28,27 +46,33 @@ const STORAGE_KEY = 'dm.sessionPanel'
 export const PANEL_TABS: Array<PanelTab> = [
   'initiative',
   'encounter',
+  'sessions',
   'rolls',
   'spells',
   'monsters',
+  'maps',
   'table',
 ]
 
 const TAB_TITLE: Record<PanelTab, string> = {
   initiative: 'Initiative',
   encounter: 'Encounter builder',
+  sessions: 'Sessions',
   rolls: 'Roll history',
   spells: 'Spells',
   monsters: 'Bestiary',
+  maps: 'Battlemaps',
   table: 'Table',
 }
 
 const TAB_ICON: Record<PanelTab, LucideIcon> = {
   initiative: Swords,
   encounter: Skull,
+  sessions: CalendarClock,
   rolls: Dices,
   spells: Sparkles,
   monsters: PawPrint,
+  maps: Map,
   table: Wifi,
 }
 
@@ -56,9 +80,11 @@ const TAB_ICON: Record<PanelTab, LucideIcon> = {
 const TAB_HINT: Record<PanelTab, string> = {
   initiative: 'Initiative tracker',
   encounter: 'Encounter builder',
+  sessions: 'Session log',
   rolls: 'Roll history',
   spells: 'Spell reference',
   monsters: 'Bestiary',
+  maps: 'Battlemaps and fog of war',
   table: 'Host a LAN session',
 }
 
@@ -159,10 +185,14 @@ export function SessionPanel({ worldId }: { worldId: string }) {
           worldId={worldId}
           onRun={() => setPanel({ open: true, tab: 'initiative' })}
         />
+      ) : shown === 'sessions' ? (
+        <SessionTimeline worldId={worldId} />
       ) : shown === 'rolls' ? (
         <RollHistory />
       ) : shown === 'spells' ? (
         <SpellReference worldId={worldId} />
+      ) : shown === 'maps' ? (
+        <MapPanel worldId={worldId} />
       ) : shown === 'table' ? (
         <TablePanel worldId={worldId} />
       ) : (

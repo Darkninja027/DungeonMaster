@@ -252,8 +252,7 @@ export function parseStatBlockCard(fence: string): StatBlockCard {
       const path = extractImagePath(value)
       const hash = path.indexOf('#')
       card.image = hash >= 0 ? path.slice(0, hash) : path
-    }
-    else if (key === 'ac') card.ac = value
+    } else if (key === 'ac') card.ac = value
     else if (key === 'hp') card.hp = value
     else if (key === 'speed') card.speed = value
     else if (key === 'cr') {
@@ -316,7 +315,10 @@ export function parseStatBlock(content: string): StatBlock {
         const r = raw as Record<string, unknown>
         if (typeof r.ac === 'number' && Number.isFinite(r.ac)) result.ac = r.ac
         if (typeof r.hp === 'number' && Number.isFinite(r.hp)) result.hp = r.hp
-        if (r.cr != null && (typeof r.cr === 'string' || typeof r.cr === 'number'))
+        if (
+          r.cr != null &&
+          (typeof r.cr === 'string' || typeof r.cr === 'number')
+        )
           result.cr = String(r.cr).trim()
         if (typeof r.xp === 'number' && Number.isFinite(r.xp)) result.xp = r.xp
         if (typeof r.dex === 'number' && Number.isFinite(r.dex))
@@ -344,7 +346,8 @@ export function parseStatBlock(content: string): StatBlock {
       if (token) result.cr = token[1]
       // Prefer the parenthesized XP written next to the CR ("1 (200 XP)").
       if (result.xp == null) {
-        const xp = cr[1].match(/\(\s*([\d,]+)\s*XP/i) ?? cr[1].match(/\(\s*([\d,]+)/)
+        const xp =
+          cr[1].match(/\(\s*([\d,]+)\s*XP/i) ?? cr[1].match(/\(\s*([\d,]+)/)
         if (xp) {
           const n = Number(xp[1].replace(/,/g, ''))
           if (Number.isFinite(n)) result.xp = n

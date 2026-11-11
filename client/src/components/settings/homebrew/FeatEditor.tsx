@@ -27,7 +27,8 @@ export function FeatEditor({
   feat: FeatInfo
   onChange: (next: FeatInfo) => void
 }) {
-  const patch = (changes: Partial<FeatInfo>) => onChange({ ...feat, ...changes })
+  const patch = (changes: Partial<FeatInfo>) =>
+    onChange({ ...feat, ...changes })
 
   const overrides = SRD_TABLES.feats.some(
     (f) => nameKey(f.name) === nameKey(feat.name),
@@ -60,10 +61,7 @@ export function FeatEditor({
         />
       </Field>
 
-      <Field
-        label="Prerequisite"
-        hint="Shown to the player, never enforced"
-      >
+      <Field label="Prerequisite" hint="Shown to the player, never enforced">
         <Input
           value={feat.prerequisite ?? ''}
           placeholder="Strength 13 or higher"
@@ -92,7 +90,10 @@ export function FeatEditor({
           character sheet — editing it later won&rsquo;t change characters who
           already have it.
         </p>
-        <GrantEditor grant={feat.grant} onChange={(grant) => patch({ grant })} />
+        <GrantEditor
+          grant={feat.grant}
+          onChange={(grant) => patch({ grant })}
+        />
       </div>
     </div>
   )
